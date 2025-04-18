@@ -28,12 +28,6 @@ end
 
 ---@param opts checkmate.Config?
 M.setup = function(opts)
-  -- Check if Treesitter is available
-  if not pcall(require, "nvim-treesitter") then
-    vim.notify("Checkmate: nvim-treesitter not found and is required.", vim.log.levels.ERROR)
-    return
-  end
-
   local config = require("checkmate.config")
   config.setup(opts)
 

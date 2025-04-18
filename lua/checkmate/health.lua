@@ -16,19 +16,12 @@ function M.check()
     error("Checkmate requires Neovim >= 0.10.2")
   end
 
-  -- Check nvim-treesitter
-  if pcall(require, "nvim-treesitter") then
-    ok("nvim-treesitter is installed")
-
-    -- Check markdown parser
-    local ts_parsers = require("nvim-treesitter.parsers")
-    if ts_parsers.has_parser("markdown") then
-      ok("Treesitter markdown parser is installed")
-    else
-      error("Treesitter markdown parser is not installed. Run :TSInstall markdown")
-    end
+  -- Check markdown parser
+  local ts_parsers = require("nvim-treesitter.parsers")
+  if ts_parsers.has_parser("markdown") then
+    ok("Treesitter markdown parser is installed")
   else
-    error("nvim-treesitter is not installed and is required.")
+    error("Treesitter markdown parser is not installed.")
   end
 end
 

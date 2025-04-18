@@ -5,7 +5,7 @@
 ### A simple Todo plugin
 
 [![Lua](https://img.shields.io/badge/Lua-blue.svg?style=for-the-badge&logo=lua)](http://www.lua.org)
-[![Neovim](https://img.shields.io/badge/Neovim%200.8+-green.svg?style=for-the-badge&logo=neovim)](https://neovim.io)
+[![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim)](https://neovim.io)
 
 <img alt="Checkmate Mate" height="220" src="./assets/checkmate-logo.png" />
 </div><br/>
@@ -22,17 +22,13 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 # ☑️ Installation
 
 ## Requirements
-- Neovim 10.2 or higher
-- nvim-treesitter with the markdown parser installed
+- Neovim 0.10 or higher
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
 ```lua
 {
     "bngarren/checkmate.nvim",
-    dependencies = {
-      "nvim-treesitter/nvim-treesitter",
-    },
     opts = {
         -- your configuration here
         -- or leave empty to use defaults

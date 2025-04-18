@@ -21,11 +21,18 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 
 # ☑️ Installation
 
+## Requirements
+- Neovim 0.8 or higher
+- nvim-treesitter with the markdown parser installed
+
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
 ```lua
 {
     "bngarren/checkmate.nvim",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",
+    },
     opts = {
         -- your configuration here
         -- or leave empty to use defaults
@@ -85,13 +92,17 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
----@field enter_insert_after_new boolean Enter insert mode after `:Checkmate create`
+---@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
 --- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+
+
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+
 
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
@@ -107,21 +118,21 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 ---    | vim.log.levels.INFO
 ---    | vim.log.levels.TRACE
 ---    | vim.log.levels.WARN)?
---- Should print log output to a scratch buffer
---- Open with `:Checkmate debug_log`
----@field use_buffer boolean
 --- Should print log output to a file
 --- Open with `:Checkmate debug_file`
 ---@field use_file boolean
 --- The default path on-disk where log files will be written to.
 --- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
 ---@field file_path string?
+--- Should print log output to a scratch buffer
+--- Open with `:Checkmate debug_log`
+---@field use_buffer boolean
 
----@alias checkmate.Action "toggle" | "create"
 
 ---@class checkmate.TodoMarkers
 ---@field unchecked string Character used for unchecked items
 ---@field checked string Character used for checked items
+
 
 ---@class checkmate.StyleSettings Customize the style of markers and content
 ---@field list_marker_unordered vim.api.keyset.highlight Highlight settings for unordered list markers (-,+,*)
@@ -141,43 +152,45 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
 
+
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
   notify = true,
   log = {
     level = "info",
-    use_buffer = false,
     use_file = false,
+    use_buffer = true,
   },
   -- Default keymappings
   keys = {
     ["<leader>Tt"] = "toggle", -- Toggle todo item
-    ["<leader>Tn"] = "create", -- Create todo item
     ["<leader>Td"] = "check", -- Set todo item as checked (done)
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
+    ["<leader>Tn"] = "create", -- Create todo item
   },
-
-  default_list_marker = "-", -- When creating new todos
+  default_list_marker = "-",
   todo_markers = {
     unchecked = "□",
     checked = "✔",
   },
-  style = { -- see nvim_set_hl()
+  style = {
+    -- List markers, such as "-" and "1."
     list_marker_unordered = { fg = util.blend(util.color("Normal", "fg"), util.color("Normal", "bg"), 0.2) },
     list_marker_ordered = { fg = util.blend(util.color("Normal", "fg"), util.color("Normal", "bg"), 0.5) },
-    -- Unchecked todos
-    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Direct content of the todo item
-    unchecked_additional_content = { fg = "#dddddd" }, -- Child content that inherits
 
-    -- Checked todos
+    -- Unchecked todo items
+    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
+    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typicallly the first line/paragraph
+    unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
+
+    -- Checked todo items
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Direct content
-    checked_additional_content = { fg = "#aaaaaa" }, -- Child content (without strikethrough)
+    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typicallly the first line/paragraph
+    checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
   },
-  enter_insert_after_new = true,
-  todo_action_depth = 1,
+  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 }
 ```
 

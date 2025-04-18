@@ -10,10 +10,10 @@ function M.check()
   start("Checkmate health check")
 
   -- Check Neovim version
-  if vim.fn.has("nvim-0.8.0") == 1 then
-    ok("Using Neovim >= 0.8.0")
+  if vim.fn.has("nvim-0.10.2") == 1 then
+    ok("Using Neovim >= 0.10.2")
   else
-    error("Checkmate requires Neovim >= 0.8.0")
+    error("Checkmate requires Neovim >= 0.10.2")
   end
 
   -- Check nvim-treesitter
@@ -25,10 +25,10 @@ function M.check()
     if ts_parsers.has_parser("markdown") then
       ok("Treesitter markdown parser is installed")
     else
-      warn("Treesitter markdown parser is not installed. Run :TSInstall markdown")
+      error("Treesitter markdown parser is not installed. Run :TSInstall markdown")
     end
   else
-    warn("nvim-treesitter is not installed. Install it for syntax highlighting")
+    error("nvim-treesitter is not installed and is required.")
   end
 end
 

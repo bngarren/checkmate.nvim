@@ -1,3 +1,4 @@
+---@class checkmate.Api
 local M = {}
 
 function M.setup(bufnr)
@@ -5,6 +6,12 @@ function M.setup(bufnr)
   local highlights = require("checkmate.highlights")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Check if buffer is valid
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    return false
+  end
 
   -- Convert markdown to Unicode
   parser.convert_markdown_to_unicode(bufnr)
@@ -118,7 +125,13 @@ function M.setup_autocmds(bufnr)
         vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
 
         -- Convert Unicode to markdown in the temporary buffer
-        parser.convert_unicode_to_markdown(temp_bufnr)
+        local success = parser.convert_unicode_to_markdown(temp_bufnr)
+
+        if not success then
+          log.error("Failed to convert Unicode to Markdown", { module = "api" })
+          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
+          return false
+        end
 
         -- Get the converted markdown content
         local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)

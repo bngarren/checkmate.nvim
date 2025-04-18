@@ -227,7 +227,11 @@ function M.highlight_main_content(bufnr, todo_item, config)
 
   -- Select highlight groups based on todo state
   local main_content_hl = M.get_todo_content_highlight(todo_item.state, true)
-  local child_content_hl = M.get_todo_content_highlight(todo_item.state, false)
+  local additional_content_hl = M.get_todo_content_highlight(todo_item.state, false)
+
+  if #todo_item.content_nodes == 0 then
+    return
+  end
 
   -- Query to find all paragraphs within this todo item
   local paragraph_query = vim.treesitter.query.parse("markdown", [[(paragraph) @paragraph]])
@@ -240,7 +244,7 @@ function M.highlight_main_content(bufnr, todo_item, config)
     local is_first_para = para_start_row == todo_item.range.start.row
 
     -- Choose highlight group based on whether this is the main paragraph or a child paragraph
-    local highlight_group = is_first_para and main_content_hl or child_content_hl
+    local highlight_group = is_first_para and main_content_hl or additional_content_hl
 
     log.trace(
       string.format(

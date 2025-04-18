@@ -16,13 +16,15 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
----@field enter_insert_after_new boolean Enter insert mode after `:Checkmate create`
+---@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
 --- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
 
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
@@ -38,17 +40,15 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---    | vim.log.levels.INFO
 ---    | vim.log.levels.TRACE
 ---    | vim.log.levels.WARN)?
---- Should print log output to a scratch buffer
---- Open with `:Checkmate debug_log`
----@field use_buffer boolean
 --- Should print log output to a file
 --- Open with `:Checkmate debug_file`
 ---@field use_file boolean
 --- The default path on-disk where log files will be written to.
 --- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
 ---@field file_path string?
-
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+--- Should print log output to a scratch buffer
+--- Open with `require("checkmate").debug_log()`
+---@field use_buffer boolean
 
 ---@class checkmate.TodoMarkers
 ---@field unchecked string Character used for unchecked items
@@ -78,8 +78,8 @@ local _DEFAULTS = {
   notify = true,
   log = {
     level = "info",
-    use_buffer = false,
     use_file = false,
+    use_buffer = true,
   },
   -- Default keymappings
   keys = {
@@ -94,20 +94,34 @@ local _DEFAULTS = {
     checked = "✔",
   },
   style = {
-    list_marker_unordered = { fg = util.blend(util.color("Normal", "fg"), util.color("Normal", "bg"), 0.2) },
-    list_marker_ordered = { fg = util.blend(util.color("Normal", "fg"), util.color("Normal", "bg"), 0.5) },
-    -- Unchecked todos
-    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Direct content of the todo item
-    unchecked_additional_content = { fg = "#dddddd" }, -- Child content that inherits
+    -- List markers, such as "-" and "1."
+    list_marker_unordered = {
+      fg = util.blend(
+        util.color("Normal", "fg", "#bbbbbb"), -- Fallback to light gray
+        util.color("Normal", "bg", "#222222"), -- Fallback to dark gray
+        0.2
+      ),
+    },
+    list_marker_ordered = {
+      fg = util.blend(
+        util.color("Normal", "fg", "#bbbbbb"), -- Fallback to light gray
+        util.color("Normal", "bg", "#222222"), -- Fallback to dark gray
+        0.5
+      ),
+    },
 
-    -- Checked todos
+    -- Unchecked todo items
+    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
+    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typicallly the first line/paragraph
+    unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
+
+    -- Checked todo items
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Direct content
-    checked_additional_content = { fg = "#aaaaaa" }, -- Child content (without strikethrough)
+    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typicallly the first line/paragraph
+    checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
   },
-  enter_insert_after_new = true,
-  todo_action_depth = 1,
+  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 }
 
 -- Mark as not loaded initially
@@ -289,7 +303,10 @@ function M.start()
     pattern = "*.todo",
     callback = function()
       local buf = vim.api.nvim_get_current_buf()
-      vim.bo[buf].filetype = "markdown"
+
+      if vim.bo[buf].filetype ~= "markdown" then
+        vim.bo[buf].filetype = "markdown"
+      end
 
       -- Setup API only once per buffer
       -- lazy loading the api module

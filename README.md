@@ -22,7 +22,7 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 # ☑️ Installation
 
 ## Requirements
-- Neovim 0.8 or higher
+- Neovim 10.2 or higher
 - nvim-treesitter with the markdown parser installed
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
@@ -38,7 +38,6 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
         -- or leave empty to use defaults
     },
 
-    }
 }
 ```
 

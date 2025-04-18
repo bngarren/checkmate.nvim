@@ -33,10 +33,21 @@ function M.debounce(fn, opts)
 end
 
 --- Borrowed from github.com/folke/snacks.nvim
----@param fg string foreground color
----@param bg string background color
+---@param fg string|nil foreground color
+---@param bg string|nil background color
 ---@param alpha number number between 0 and 1. 0 results in bg, 1 results in fg
+---@return string color in hex format
 function M.blend(fg, bg, alpha)
+  -- Default colors if nil
+  fg = fg or "#ffffff"
+  bg = bg or "#000000"
+
+  -- Validate inputs are hex colors
+  if not (fg:match("^#%x%x%x%x%x%x$") and bg:match("^#%x%x%x%x%x%x$")) then
+    -- Return a safe default if the colors aren't valid
+    return "#888888"
+  end
+
   local bg_rgb = { tonumber(bg:sub(2, 3), 16), tonumber(bg:sub(4, 5), 16), tonumber(bg:sub(6, 7), 16) }
   local fg_rgb = { tonumber(fg:sub(2, 3), 16), tonumber(fg:sub(4, 5), 16), tonumber(fg:sub(6, 7), 16) }
   local blend = function(i)
@@ -47,9 +58,12 @@ function M.blend(fg, bg, alpha)
 end
 
 --- Borrowed from github.com/folke/snacks.nvim
+--- Get a color from a highlight group
 ---@param group string|string[] hl group to get color from
 ---@param prop? string property to get. Defaults to "fg"
-function M.color(group, prop)
+---@param default? string fallback color if not found
+---@return string? color in hex format or nil
+function M.color(group, prop, default)
   prop = prop or "fg"
   group = type(group) == "table" and group or { group }
   ---@cast group string[]
@@ -59,6 +73,7 @@ function M.color(group, prop)
       return string.format("#%06x", hl[prop])
     end
   end
+  return default
 end
 
 --- Escapes special characters in a string for safe use in a Lua pattern character class.

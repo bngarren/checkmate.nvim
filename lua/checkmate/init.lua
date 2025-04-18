@@ -1,7 +1,7 @@
 -- main module entry point
 -- should handle configuration/setup, define the public API
 
----@class MyModule
+---@class Checkmate
 local M = {}
 
 ---Configure formatters to play nicely with .todo files (which should be parsed as markdown)

@@ -112,12 +112,12 @@ local _DEFAULTS = {
 
     -- Unchecked todo items
     unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typicallly the first line/paragraph
+    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typically the first line/paragraph
     unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
 
     -- Checked todo items
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typicallly the first line/paragraph
+    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
     checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
   },
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)

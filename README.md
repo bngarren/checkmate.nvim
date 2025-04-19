@@ -22,6 +22,13 @@ A markdown-based todo list manager for Neovim with a clean UI, multi-line suppor
 <br/>
 
 
+
+https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
+
+
+
+
+
 # ☑️ Installation
 
 ## Requirements

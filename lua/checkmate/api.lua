@@ -19,9 +19,12 @@ function M.setup(bufnr)
   -- Apply highlighting
   highlights.apply_highlighting(bufnr)
 
-  -- Enable Treesitter highlighting
-  vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
-  vim.cmd("TSBufDisable highlight")
+  local has_nvim_treesitter, _ = pcall(require, "nvim-treesitter")
+  if has_nvim_treesitter then
+    vim.cmd("TSBufDisable highlight")
+  else
+    vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
+  end
 
   -- Apply keymappings
   M.setup_keymaps(bufnr)

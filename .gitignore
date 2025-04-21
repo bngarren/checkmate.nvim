@@ -6,3 +6,5 @@ logs/
 *.todo
 
 Dockerfile
+
+.DS_Store

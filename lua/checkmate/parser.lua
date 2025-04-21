@@ -272,11 +272,6 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)
 
-  log.debug(
-    string.format("Looking for todo item at position [%d,%d] with max_depth=%d", row, col, max_depth),
-    { module = "parser" }
-  )
-
   -- First, check if any todo items exist on this row
   -- This handles the case where the cursor is not in the todo item's Treesitter node's range, but
   -- should still act as if this todo item was selected (same row)

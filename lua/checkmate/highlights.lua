@@ -67,6 +67,17 @@ function M.setup_highlights()
     CheckmateCheckedAdditionalContent = config.options.style.checked_additional_content,
   }
 
+  -- For metadata tags, we only set up the base highlight groups from static styles
+  -- Dynamic styles (functions) will be handled during the actual highlighting process
+  for meta_name, meta_props in pairs(config.options.metadata) do
+    -- Only add static styles directly to highlights table
+    -- Function-based styles will be processed during actual highlighting
+    if type(meta_props.style) ~= "function" then
+      ---@diagnostic disable-next-line: assign-type-mismatch
+      highlights["CheckmateMeta_" .. meta_name] = meta_props.style
+    end
+  end
+
   -- Apply highlight groups
   for group_name, group_settings in pairs(highlights) do
     vim.api.nvim_set_hl(0, group_name, group_settings)
@@ -172,6 +183,63 @@ function M.highlight_list_marker(bufnr, todo_item, config)
   })
 end
 
+---Applies highlight groups to metadata entries
+---@param bufnr integer Buffer number
+---@param config checkmate.Config.mod Configuration module
+---@param metadata checkmate.TodoMetadata The metadata for this todo item
+function M.highlight_metadata(bufnr, config, metadata)
+  local log = require("checkmate.log")
+
+  -- Skip if no metadata
+  if not metadata or not metadata.entries or #metadata.entries == 0 then
+    return
+  end
+
+  -- Process each metadata entry
+  for _, entry in ipairs(metadata.entries) do
+    local tag = entry.tag
+    local value = entry.value
+    local canonical_name = entry.alias_for or tag
+
+    -- Find the metadata configuration
+    local meta_config = config.options.metadata[canonical_name]
+    if meta_config then
+      local highlight_group = "CheckmateMeta_" .. canonical_name
+
+      -- If style is a function, calculate the dynamic highlight
+      if type(meta_config.style) == "function" then
+        local dynamic_style = meta_config.style(value)
+
+        -- Create a dynamic highlight group for this specific value
+        local dynamic_group = highlight_group .. "_" .. value:gsub("[^%w]", "_")
+        vim.api.nvim_set_hl(0, dynamic_group, dynamic_style)
+        highlight_group = dynamic_group
+      end
+
+      -- Apply the highlight
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, entry.range.start.row, entry.range.start.col, {
+        end_row = entry.range["end"].row,
+        end_col = entry.range["end"].col,
+        hl_group = highlight_group,
+        priority = M.PRIORITY.TODO_MARKER, -- High priority for metadata
+      })
+
+      log.trace(
+        string.format(
+          "Applied highlight %s to metadata %s at [%d,%d]-[%d,%d]",
+          highlight_group,
+          tag,
+          entry.range.start.row,
+          entry.range.start.col,
+          entry.range["end"].row,
+          entry.range["end"].col
+        ),
+        { module = "highlights" }
+      )
+    end
+  end
+end
+
 -- Highlight content directly attached to the todo item
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
@@ -246,6 +314,8 @@ function M.highlight_content(bufnr, todo_item, config)
           priority = M.PRIORITY.CONTENT,
         })
       end
+
+      M.highlight_metadata(bufnr, config, todo_item.metadata)
     end
 
     first_para_processed = true

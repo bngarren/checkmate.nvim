@@ -23,6 +23,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+---@field metadata checkmate.Metadata
 
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
 
@@ -71,6 +72,19 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---Highlight settings for additional content of checked todo items
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
+
+---@class checkmate.MetadataProps
+---Additional string values that can be used interchangably with the canonical tag name.
+---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
+---also be used and have the same styling/functionality
+---@field aliases string[]?
+---Highlight settings or function that returns highlight settings based on the metadata's current value
+---@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+---Function that returns the default value for this metadata tag
+---@field get_value fun():string
+
+---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
 ---@type checkmate.Config
 local _DEFAULTS = {
@@ -122,6 +136,38 @@ local _DEFAULTS = {
   },
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
+
+  metadata = {
+    started = {
+      aliases = { "init" },
+      style = { fg = "#9fd6d5" },
+      get_value = function()
+        return tostring(os.date("%Y-%m-%d"))
+      end,
+    },
+    done = {
+      aliases = { "completed", "finished" },
+      style = { fg = "#96de7a" },
+      get_value = function()
+        return tostring(os.date("%Y-%m-%d"))
+      end,
+    },
+    priority = {
+      style = function(value)
+        -- Return different styles based on priority value
+        if value:match("[Hh]igh") then
+          return { fg = "#ff5555", bold = true }
+        elseif value:match("[Mm]edium") then
+          return { fg = "#ffb86c" }
+        else -- low or default
+          return { fg = "#8be9fd" }
+        end
+      end,
+      get_value = function()
+        return "medium" -- Default priority
+      end,
+    },
+  },
 }
 
 -- Mark as not loaded initially

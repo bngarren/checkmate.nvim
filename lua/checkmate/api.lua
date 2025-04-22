@@ -445,4 +445,147 @@ function M.create_todo()
   end
 end
 
+--- Add or update a metadata tag to the current todo item
+---@param meta_name string Name of the metadata to add/update
+---@param custom_value? string Optional custom value (uses default get_value if nil)
+function M.apply_metadata(meta_name, custom_value)
+  local log = require("checkmate.log")
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+  local util = require("checkmate.util")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1 -- 0-indexed
+  local col = cursor[2]
+
+  -- Find the todo item at cursor position
+  local todo_item = parser.get_todo_item_at_position(bufnr, row, col, {
+    max_depth = config.options.todo_action_depth,
+  })
+
+  if not todo_item then
+    util.notify("No todo item found at cursor position", vim.log.levels.INFO)
+    return
+  end
+
+  -- Get the metadata config
+  local meta_config = config.options.metadata[meta_name]
+  if not meta_config then
+    util.notify("Metadata type '" .. meta_name .. "' is not configured", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Get the first line of the todo item (where metadata should be added)
+  local todo_row = todo_item.range.start.row
+  local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
+
+  -- Determine the value to insert
+  local value = custom_value
+  if not value and meta_config.get_value then
+    value = meta_config.get_value()
+  elseif not value then
+    value = ""
+  end
+
+  -- Check if this metadata already exists in the line
+  local existing_entry = todo_item.metadata.by_tag[meta_name]
+  local new_line
+
+  if existing_entry then
+    -- Update existing metadata by replacing between the start and end columns
+    new_line = line:sub(1, existing_entry.range.start.col)
+      .. "@"
+      .. meta_name
+      .. "("
+      .. value
+      .. ")"
+      .. line:sub(existing_entry.range["end"].col + 1)
+
+    log.debug("Updated existing metadata: " .. meta_name, { module = "api" })
+  else
+    -- Add new metadata at the end of the line
+    new_line = line .. " @" .. meta_name .. "(" .. value .. ")"
+    log.debug("Added new metadata: " .. meta_name, { module = "api" })
+  end
+
+  -- Update the line
+  vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
+
+  -- Update the metadata
+  todo_item.metadata = parser.extract_metadata(new_line, todo_row)
+
+  -- Reapply highlighting
+  require("checkmate.highlights").apply_highlighting(bufnr)
+
+  util.notify("Applied metadata: @" .. meta_name .. "(" .. value .. ")", vim.log.levels.INFO)
+end
+
+--- Remove a metadata tag from the current todo item
+---@param meta_name string Name of the metadata to remove
+function M.remove_metadata(meta_name)
+  local log = require("checkmate.log")
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+  local util = require("checkmate.util")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1 -- 0-indexed
+  local col = cursor[2]
+
+  -- Find the todo item at cursor position
+  local todo_item = parser.get_todo_item_at_position(bufnr, row, col, {
+    max_depth = config.options.todo_action_depth,
+  })
+
+  if not todo_item then
+    util.notify("No todo item found at cursor position", vim.log.levels.INFO)
+    return
+  end
+
+  -- Check if the metadata exists
+  local entry = todo_item.metadata.by_tag[meta_name]
+  if not entry then
+    -- Check if it might be under an alias
+    for canonical, props in pairs(config.options.metadata) do
+      for _, alias in ipairs(props.aliases or {}) do
+        if alias == meta_name then
+          entry = todo_item.metadata.by_tag[canonical]
+          break
+        end
+      end
+      if entry then
+        break
+      end
+    end
+  end
+
+  if entry then
+    local todo_row = todo_item.range.start.row
+    local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
+
+    -- Remove the metadata tag by excluding the range from start to end
+    -- including any preceding space
+    local pre_char = entry.range.start.col > 0 and line:sub(entry.range.start.col, entry.range.start.col) or ""
+    local space_adjust = (pre_char == " ") and 1 or 0
+
+    local new_line = line:sub(1, entry.range.start.col - space_adjust) .. line:sub(entry.range["end"].col + 1)
+
+    -- Update the line
+    vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
+
+    -- Update the metadata
+    todo_item.metadata = parser.extract_metadata(new_line, todo_row)
+
+    -- Reapply highlighting
+    require("checkmate.highlights").apply_highlighting(bufnr)
+
+    util.notify("Removed metadata: @" .. entry.tag, vim.log.levels.INFO)
+    log.debug("Removed metadata: " .. entry.tag, { module = "api" })
+  else
+    util.notify("Metadata @" .. meta_name .. " not found on this todo item", vim.log.levels.INFO)
+  end
+end
+
 return M

@@ -14,9 +14,15 @@ local M = {}
 --- @field node TSNode Treesitter node containing content
 --- @field type string Type of content node (e.g., "paragraph")
 
+---@class checkmate.MetadataEntry
+---@field tag string The tag name
+---@field value string The value
+---@field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Position range
+---@field alias_for? string The canonical tag name if this is an alias
+
 ---@class checkmate.TodoMetadata
----@field start_date string
----@field end_date string
+---@field entries checkmate.MetadataEntry[] List of metadata entries
+---@field by_tag table<string, checkmate.MetadataEntry> Quick access by tag name
 
 --- @class checkmate.TodoItem
 --- @field state checkmate.TodoItemState The todo state
@@ -25,7 +31,7 @@ local M = {}
 --- @field content_nodes ContentNodeInfo[] List of content nodes
 --- @field todo_marker TodoMarkerInfo Information about the todo marker
 --- @field list_marker ListMarkerInfo? Information about the list marker
---- @field metadata checkmate.TodoMetadata | {} Meta tags for the todo item
+--- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
 --- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging.
 --- @field children string[] IDs of child todo items
 --- @field parent_id string? ID of parent todo item
@@ -389,7 +395,7 @@ function M.discover_todos(bufnr)
         or config.options.todo_markers.unchecked
       local todo_marker_pos = first_line:find(todo_marker, 1, true)
 
-      local metadata = M.extract_metadata(first_line)
+      local metadata = M.extract_metadata(first_line, start_row)
 
       -- Initialize the todo item entry
       todo_map[node_id] = {
@@ -533,18 +539,77 @@ function M.get_markdown_tree_root(bufnr)
   return root
 end
 
----Returns the todo item metadata for a given line, or empty table
----@param line any
----@return checkmate.TodoMetadata | {}
-function M.extract_metadata(line)
+---Extracts metadata from a line and returns structured information
+---@param line string The line to extract metadata from
+---@param row integer The row number (0-indexed)
+---@return checkmate.TodoMetadata
+function M.extract_metadata(line, row)
   local log = require("checkmate.log")
-  ---@type checkmate.TodoMetadata | {}
-  local metadata = {}
+  local config = require("checkmate.config")
 
-  -- Match all @key(value) patterns
-  for key, value in line:gmatch("@(%w+)%((.-)%)") do
-    log.debug(("metadata found: %s=%s"):format(key, value), { module = "parser" })
-    metadata[key] = value
+  ---@type checkmate.TodoMetadata
+  local metadata = {
+    entries = {},
+    by_tag = {},
+  }
+
+  -- Find all @tag(value) patterns and their positions
+  local pos = 1
+  while true do
+    local tag_start, tag_end, tag, value = line:find("@(%w+)%((.-)%)", pos)
+    if not tag_start then
+      break
+    end
+
+    -- Create metadata entry with position information
+    local entry = {
+      tag = tag,
+      value = value,
+      range = {
+        start = { row = row, col = tag_start - 1 }, -- 0-indexed column
+        ["end"] = { row = row, col = tag_end },
+      },
+      alias_for = nil, -- Will be set later if it's an alias
+    }
+
+    -- Check if this is an alias and map to canonical name
+    for canonical_name, meta_props in pairs(config.options.metadata) do
+      if tag == canonical_name then
+        -- This is a canonical name, no need to set alias_for
+        break
+      end
+
+      -- Check if it's in the aliases
+      for _, alias in ipairs(meta_props.aliases or {}) do
+        if tag == alias then
+          entry.alias_for = canonical_name
+          break
+        end
+      end
+
+      if entry.alias_for then
+        break
+      end
+    end
+
+    -- Add to entries list
+    table.insert(metadata.entries, entry)
+
+    -- Store in by_tag lookup (last one wins if multiple with same tag)
+    metadata.by_tag[tag] = entry
+
+    -- If this is an alias, also store under canonical name
+    if entry.alias_for then
+      metadata.by_tag[entry.alias_for] = entry
+    end
+
+    -- Move position for next search
+    pos = tag_end + 1
+
+    log.debug(
+      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, tag_start - 1, row, tag_end),
+      { module = "parser" }
+    )
   end
 
   return metadata

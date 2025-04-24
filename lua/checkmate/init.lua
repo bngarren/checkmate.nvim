@@ -61,6 +61,14 @@ M.toggle = function(target_state)
   end
 end
 
+---Toggle todo item state
+---@param todo_item any
+M.toggle_todo = function(todo_item, target_state)
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  api.handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
+end
+
 --- Set todo item to checked state
 M.check = function()
   M.toggle("checked")
@@ -74,6 +82,31 @@ end
 --- Create a new todo item
 M.create = function()
   require("checkmate.api").create_todo()
+end
+
+--- Insert a metadata tag into a todo item at the cursor
+M.add_metadata = function(metadata_name, value)
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local api = require("checkmate.api")
+  local meta_config = config.options.metadata[metadata_name]
+
+  if not meta_config then
+    util.notify("Unknown metadata tag: " .. metadata_name, vim.log.levels.WARN)
+    return
+  end
+
+  api.apply_metadata(metadata_name, value)
+end
+
+--- Remove a metadata tag from a todo item at the cursor
+M.remove_metadata = function(metadata_name)
+  require("checkmate.api").remove_metadata(metadata_name)
+end
+
+--- Toggle a metadata tag on/off at the cursor
+M.toggle_metadata = function(meta_name, custom_value)
+  return require("checkmate.api").toggle_metadata(meta_name, custom_value)
 end
 
 --- Open debug log

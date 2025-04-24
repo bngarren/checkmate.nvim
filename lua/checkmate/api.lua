@@ -79,7 +79,7 @@ function M.setup_keymaps(bufnr)
     -- Check if action exists
     local action = actions[action_name]
     if not action then
-      log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "keymaps" })
+      log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
       goto continue
     end
 
@@ -93,7 +93,7 @@ function M.setup_keymaps(bufnr)
         mode_desc = mode_desc .. " (visual)"
       end
 
-      log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "keymaps" })
+      log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "api" })
       vim.api.nvim_buf_set_keymap(bufnr, mode, key, string.format("<cmd>%s<CR>", action.command), {
         noremap = true,
         silent = true,
@@ -102,6 +102,29 @@ function M.setup_keymaps(bufnr)
     end
 
     ::continue::
+  end
+
+  -- Setup metadata keymaps
+  if config.options.use_metadata_keymaps then
+    -- For each metadata tag with a key defined
+    for meta_name, meta_props in pairs(config.options.metadata) do
+      if meta_props.key then
+        -- Map the key to the quick_metadata function
+        log.debug("Mapping n mode key " .. meta_props.key .. " to metadata." .. meta_name, { module = "api" })
+
+        vim.api.nvim_buf_set_keymap(
+          bufnr,
+          "n",
+          meta_props.key,
+          string.format("<cmd>lua require('checkmate').toggle_metadata('%s')<CR>", meta_name),
+          {
+            noremap = true,
+            silent = true,
+            desc = "Checkmate: Set toggle '" .. meta_name .. "' metadata",
+          }
+        )
+      end
+    end
   end
 end
 
@@ -197,7 +220,7 @@ end
 ---@param col integer? Col to search for todo item
 ---@param opts? {existing_todo_item?: checkmate.TodoItem, target_state?: "checked"|"unchecked"} Options
 ---@return string? error, checkmate.TodoItem? todo_item
-local function handle_toggle(bufnr, line_row, col, opts)
+function M.handle_toggle(bufnr, line_row, col, opts)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
@@ -292,7 +315,7 @@ function M.toggle_todo_at_cursor(target_state)
   log.debug(string.format("Toggle called with cursor at row=%d, col=%d", row, col), { module = "api" })
 
   -- Try to toggle the item
-  local error, success = handle_toggle(bufnr, row, col, { target_state = target_state })
+  local error, success = M.handle_toggle(bufnr, row, col, { target_state = target_state })
 
   if success then
     -- Re-apply highlighting after toggle
@@ -357,7 +380,7 @@ function M.toggle_todo_visual(target_state)
   for marker_key, todo_item in pairs(unique_todo_items) do
     -- Now toggle the item
     local error, success =
-      handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
+      M.handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
     if success then
       modified_count = modified_count + 1
       log.debug("Toggled todo item at marker position: " .. marker_key, { module = "api" })
@@ -445,9 +468,76 @@ function M.create_todo()
   end
 end
 
+---Sorts metadata entries based on their configured sort_order
+---@param entries checkmate.MetadataEntry[] The metadata entries to sort
+---@return checkmate.MetadataEntry[] The sorted entries
+function M.sort_metadata_entries(entries)
+  local config = require("checkmate.config")
+
+  -- Create a copy to avoid modifying the original array
+  local sorted = vim.deepcopy(entries)
+
+  table.sort(sorted, function(a, b)
+    -- Get canonical names
+    local a_name = a.alias_for or a.tag
+    local b_name = b.alias_for or b.tag
+
+    -- Get sort_order values, default to 100 if not specified
+    local a_config = config.options.metadata[a_name] or {}
+    local b_config = config.options.metadata[b_name] or {}
+
+    local a_order = a_config.sort_order or 100
+    local b_order = b_config.sort_order or 100
+
+    -- If sort_order is the same, maintain original order
+    if a_order == b_order then
+      return (a.position_in_line or 0) < (b.position_in_line or 0)
+    end
+
+    return a_order < b_order
+  end)
+
+  return sorted
+end
+
+---Rebuilds a buffer line with sorted metadata tags
+---@param line string The original buffer line
+---@param metadata checkmate.TodoMetadata The metadata structure
+---@return string: The rebuilt line with sorted metadata
+function M.rebuild_line_with_sorted_metadata(line, metadata)
+  local log = require("checkmate.log")
+
+  -- Remove all metadata tags but preserve all other content including whitespace
+  local content_without_metadata = line:gsub("@%w+%([^)]*%)", "")
+
+  -- Remove trailing whitespace but keep all indentation
+  content_without_metadata = content_without_metadata:gsub("%s+$", "")
+
+  -- If no metadata entries, just return the cleaned content
+  if not metadata or not metadata.entries or #metadata.entries == 0 then
+    log.debug("Removed all metadata tags from line", { module = "parser" })
+    return content_without_metadata
+  end
+
+  -- Sort the metadata entries
+  local sorted_entries = M.sort_metadata_entries(metadata.entries)
+
+  -- Rebuild the line with content and sorted metadata
+  local result_line = content_without_metadata
+
+  -- Add back each metadata tag in sorted order
+  for _, entry in ipairs(sorted_entries) do
+    result_line = result_line .. " @" .. entry.tag .. "(" .. entry.value .. ")"
+  end
+
+  log.debug("Rebuilt line with sorted metadata: " .. result_line, { module = "parser" })
+  return result_line
+end
+
 --- Add or update a metadata tag to the current todo item
 ---@param meta_name string Name of the metadata to add/update
 ---@param custom_value? string Optional custom value (uses default get_value if nil)
+---@return boolean
 function M.apply_metadata(meta_name, custom_value)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
@@ -465,15 +555,15 @@ function M.apply_metadata(meta_name, custom_value)
   })
 
   if not todo_item then
-    util.notify("No todo item found at cursor position", vim.log.levels.INFO)
-    return
+    util.notify("Checkmate: No todo item found at cursor position", vim.log.levels.INFO)
+    return false
   end
 
   -- Get the metadata config
   local meta_config = config.options.metadata[meta_name]
   if not meta_config then
-    util.notify("Metadata type '" .. meta_name .. "' is not configured", vim.log.levels.ERROR)
-    return
+    util.notify("Checkmate: Metadata type '" .. meta_name .. "' is not configured", vim.log.levels.ERROR)
+    return false
   end
 
   -- Get the first line of the todo item (where metadata should be added)
@@ -484,45 +574,67 @@ function M.apply_metadata(meta_name, custom_value)
   local value = custom_value
   if not value and meta_config.get_value then
     value = meta_config.get_value()
+    -- trim whitespace
+    value = value:gsub("^%s+", ""):gsub("%s+$", "")
   elseif not value then
     value = ""
   end
 
   -- Check if this metadata already exists in the line
   local existing_entry = todo_item.metadata.by_tag[meta_name]
-  local new_line
+
+  -- Create an updated metadata structure
+  local updated_metadata = vim.deepcopy(todo_item.metadata)
 
   if existing_entry then
-    -- Update existing metadata by replacing between the start and end columns
-    new_line = line:sub(1, existing_entry.range.start.col)
-      .. "@"
-      .. meta_name
-      .. "("
-      .. value
-      .. ")"
-      .. line:sub(existing_entry.range["end"].col + 1)
-
+    -- Update existing entry
+    for i, entry in ipairs(updated_metadata.entries) do
+      if entry.tag == existing_entry.tag then
+        updated_metadata.entries[i].value = value
+        break
+      end
+    end
+    updated_metadata.by_tag[meta_name].value = value
     log.debug("Updated existing metadata: " .. meta_name, { module = "api" })
   else
-    -- Add new metadata at the end of the line
-    new_line = line .. " @" .. meta_name .. "(" .. value .. ")"
+    -- Add new entry
+    ---@type checkmate.MetadataEntry
+    local new_entry = {
+      tag = meta_name,
+      value = value,
+      range = {
+        start = { row = todo_row, col = #line }, -- Will be at end of line
+        ["end"] = { row = todo_row, col = #line + #meta_name + #value + 3 }, -- +3 for "@()"
+      },
+      position_in_line = #line + 1, -- Will be added at the end
+    }
+    table.insert(updated_metadata.entries, new_entry)
+    updated_metadata.by_tag[meta_name] = new_entry
     log.debug("Added new metadata: " .. meta_name, { module = "api" })
   end
+
+  -- Rebuild the line with sorted metadata
+  local new_line = M.rebuild_line_with_sorted_metadata(line, updated_metadata)
 
   -- Update the line
   vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
 
-  -- Update the metadata
+  -- Re-extract metadata to ensure consistency
   todo_item.metadata = parser.extract_metadata(new_line, todo_row)
 
   -- Reapply highlighting
   require("checkmate.highlights").apply_highlighting(bufnr)
 
-  util.notify("Applied metadata: @" .. meta_name .. "(" .. value .. ")", vim.log.levels.INFO)
+  if meta_config.on_add then
+    meta_config.on_add(todo_item)
+  end
+
+  return true
 end
 
 --- Remove a metadata tag from the current todo item
 ---@param meta_name string Name of the metadata to remove
+---@return boolean
 function M.remove_metadata(meta_name)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
@@ -540,8 +652,8 @@ function M.remove_metadata(meta_name)
   })
 
   if not todo_item then
-    util.notify("No todo item found at cursor position", vim.log.levels.INFO)
-    return
+    util.notify("Checkmate: No todo item found at cursor position", vim.log.levels.INFO)
+    return false
   end
 
   -- Check if the metadata exists
@@ -565,12 +677,26 @@ function M.remove_metadata(meta_name)
     local todo_row = todo_item.range.start.row
     local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
 
-    -- Remove the metadata tag by excluding the range from start to end
-    -- including any preceding space
-    local pre_char = entry.range.start.col > 0 and line:sub(entry.range.start.col, entry.range.start.col) or ""
-    local space_adjust = (pre_char == " ") and 1 or 0
+    -- Create a copy of the metadata with the entry removed
+    local updated_metadata = vim.deepcopy(todo_item.metadata)
 
-    local new_line = line:sub(1, entry.range.start.col - space_adjust) .. line:sub(entry.range["end"].col + 1)
+    -- Remove from entries
+    for i = #updated_metadata.entries, 1, -1 do
+      if updated_metadata.entries[i].tag == entry.tag then
+        table.remove(updated_metadata.entries, i)
+        break
+      end
+    end
+
+    -- Remove from by_tag
+    updated_metadata.by_tag[entry.tag] = nil
+    if entry.alias_for then
+      updated_metadata.by_tag[entry.alias_for] = nil
+    end
+
+    -- Rebuild the line with sorted metadata
+    log.debug("rebuilding line: " .. line)
+    local new_line = M.rebuild_line_with_sorted_metadata(line, updated_metadata)
 
     -- Update the line
     vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
@@ -581,10 +707,77 @@ function M.remove_metadata(meta_name)
     -- Reapply highlighting
     require("checkmate.highlights").apply_highlighting(bufnr)
 
-    util.notify("Removed metadata: @" .. entry.tag, vim.log.levels.INFO)
+    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+    if meta_config.on_remove then
+      meta_config.on_remove(todo_item)
+    end
+
     log.debug("Removed metadata: " .. entry.tag, { module = "api" })
+    return true
   else
-    util.notify("Metadata @" .. meta_name .. " not found on this todo item", vim.log.levels.INFO)
+    util.notify("Checkmate: Metadata @" .. meta_name .. " not found on this todo item", vim.log.levels.INFO)
+    return false
+  end
+end
+
+--- Toggle a metadata tag on the current todo item
+---@param meta_name string Name of the metadata to toggle
+---@param custom_value? string Optional custom value to use when adding (uses default get_value if nil)
+---@return boolean success
+function M.toggle_metadata(meta_name, custom_value)
+  local log = require("checkmate.log")
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+  local util = require("checkmate.util")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1 -- 0-indexed
+  local col = cursor[2]
+
+  -- Find the todo item at cursor position
+  local todo_item = parser.get_todo_item_at_position(bufnr, row, col, {
+    max_depth = config.options.todo_action_depth,
+  })
+
+  if not todo_item then
+    util.notify("Checkmate: No todo item found at cursor position", vim.log.levels.INFO)
+    return false
+  end
+
+  -- Check if the metadata exists (directly or via alias)
+  local entry = todo_item.metadata.by_tag[meta_name]
+  local canonical_name = meta_name
+
+  -- If not found, check for aliases
+  if not entry then
+    for c_name, props in pairs(config.options.metadata) do
+      if c_name == meta_name then
+        break -- Already using canonical name
+      end
+
+      for _, alias in ipairs(props.aliases or {}) do
+        if alias == meta_name then
+          entry = todo_item.metadata.by_tag[c_name]
+          canonical_name = c_name
+          break
+        end
+      end
+      if entry then
+        break
+      end
+    end
+  end
+
+  -- Toggle action
+  if entry then
+    -- It exists, remove it
+    log.debug("Toggling OFF metadata: " .. canonical_name, { module = "api" })
+    return M.remove_metadata(canonical_name)
+  else
+    -- It doesn't exist, add it
+    log.debug("Toggling ON metadata: " .. canonical_name, { module = "api" })
+    return M.apply_metadata(canonical_name, custom_value)
   end
 end
 

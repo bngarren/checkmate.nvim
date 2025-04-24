@@ -23,6 +23,9 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+---Whether to register keymappings defined in each metadata definition. If set the false,
+---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
+---@field use_metadata_keymaps boolean
 ---@field metadata checkmate.Metadata
 
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
@@ -82,6 +85,16 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
 ---Function that returns the default value for this metadata tag
 ---@field get_value fun():string
+---Keymapping for toggling this metadata tag
+---@field key string?
+---Used for displaying metadata in a consistent order
+---@field sort_order integer?
+---Callback to run after this metadata tag is added to a todo item
+---E.g. can be used to change the todo item state
+---@field on_add fun(todo_item: checkmate.TodoItem)?
+---Callback to run after this metadata tag is removed from a todo item
+---E.g. can be used to change the todo item state
+---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
@@ -137,21 +150,8 @@ local _DEFAULTS = {
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 
+  use_metadata_keymaps = true,
   metadata = {
-    started = {
-      aliases = { "init" },
-      style = { fg = "#9fd6d5" },
-      get_value = function()
-        return tostring(os.date("%Y-%m-%d"))
-      end,
-    },
-    done = {
-      aliases = { "completed", "finished" },
-      style = { fg = "#96de7a" },
-      get_value = function()
-        return tostring(os.date("%Y-%m-%d"))
-      end,
-    },
     priority = {
       style = function(value)
         -- Return different styles based on priority value
@@ -166,6 +166,32 @@ local _DEFAULTS = {
       get_value = function()
         return "medium" -- Default priority
       end,
+      key = "<leader>Tp",
+      sort_order = 10,
+    },
+    started = {
+      aliases = { "init" },
+      style = { fg = "#9fd6d5" },
+      get_value = function()
+        return tostring(os.date("%Y-%m-%d"))
+      end,
+      key = "<leader>Ts",
+      sort_order = 20,
+    },
+    done = {
+      aliases = { "completed", "finished" },
+      style = { fg = "#96de7a" },
+      get_value = function()
+        return tostring(os.date("%Y-%m-%d"))
+      end,
+      key = "<leader>Td",
+      on_add = function(todo_item)
+        require("checkmate").toggle_todo(todo_item, "checked")
+      end,
+      on_remove = function(todo_item)
+        require("checkmate").toggle_todo(todo_item, "unchecked")
+      end,
+      sort_order = 30,
     },
   },
 }

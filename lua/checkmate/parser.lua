@@ -19,6 +19,7 @@ local M = {}
 ---@field value string The value
 ---@field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Position range
 ---@field alias_for? string The canonical tag name if this is an alias
+---@field position_in_line integer
 
 ---@class checkmate.TodoMetadata
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
@@ -123,6 +124,9 @@ function M.setup()
       -- Re-apply highlight groups after a small delay
       vim.defer_fn(function()
         highlights.setup_highlights()
+
+        -- Clear the dynamic highlight cache to ensure they're recreated with the new colorscheme
+        highlights.clear_highlight_cache()
       end, 10)
     end,
   })
@@ -556,12 +560,14 @@ function M.extract_metadata(line, row)
   -- Find all @tag(value) patterns and their positions
   local pos = 1
   while true do
-    local tag_start, tag_end, tag, value = line:find("@(%w+)%((.-)%)", pos)
-    if not tag_start then
+    -- Will capture tag names that include underscores and hypens
+    local tag_start, tag_end, tag, value = line:find("@([%w_%-]+)%((.-)%)", pos)
+    if not tag_start or not tag_end then
       break
     end
 
     -- Create metadata entry with position information
+    ---@type checkmate.MetadataEntry
     local entry = {
       tag = tag,
       value = value,
@@ -570,6 +576,7 @@ function M.extract_metadata(line, row)
         ["end"] = { row = row, col = tag_end },
       },
       alias_for = nil, -- Will be set later if it's an alias
+      position_in_line = tag_start, -- track original position in the line
     }
 
     -- Check if this is an alias and map to canonical name

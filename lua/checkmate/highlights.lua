@@ -46,6 +46,53 @@ function M.clear_line_cache(bufnr)
   M._line_cache[bufnr] = {}
 end
 
+---Some highlights are created from factory functions via the config module. Instead of re-running these every time
+---highlights are re-applied, we cache the results of the highlight generating functions
+M._dynamic_highlight_cache = {
+  metadata = {},
+}
+
+-- Generic function to get or create a dynamic highlight group
+---@param category string The category of highlight (e.g., 'metadata', etc.)
+---@param key string A unique identifier within the category
+---@param base_name string The base name for the highlight group
+---@param style_fn function|table A function that returns style options or a style table directly
+---@return string highlight_group The name of the highlight group
+function M.get_or_create_dynamic_highlight(category, key, base_name, style_fn)
+  -- Initialize category if needed
+  M._dynamic_highlight_cache[category] = M._dynamic_highlight_cache[category] or {}
+
+  -- Check if already cached
+  if M._dynamic_highlight_cache[category][key] then
+    return M._dynamic_highlight_cache[category][key]
+  end
+
+  -- Create highlight group name
+  local highlight_group = base_name .. "_" .. key:gsub("[^%w]", "_")
+
+  -- Apply style - handle both functions and direct style tables
+  local style = type(style_fn) == "function" and style_fn(key) or style_fn
+
+  -- Create the highlight group
+  ---@diagnostic disable-next-line: param-type-mismatch
+  vim.api.nvim_set_hl(0, highlight_group, style)
+
+  -- Cache it
+  M._dynamic_highlight_cache[category][key] = highlight_group
+
+  return highlight_group
+end
+
+-- Clear cache for a specific category or all categories
+---@param category? string Optional category to clear (nil clears all)
+function M.clear_highlight_cache(category)
+  if category then
+    M._dynamic_highlight_cache[category] = {}
+  else
+    M._dynamic_highlight_cache = {}
+  end
+end
+
 function M.setup_highlights()
   local config = require("checkmate.config")
   local log = require("checkmate.log")
@@ -204,16 +251,18 @@ function M.highlight_metadata(bufnr, config, metadata)
     -- Find the metadata configuration
     local meta_config = config.options.metadata[canonical_name]
     if meta_config then
-      local highlight_group = "CheckmateMeta_" .. canonical_name
+      local highlight_group
 
-      -- If style is a function, calculate the dynamic highlight
+      -- Get or create the highlight group
       if type(meta_config.style) == "function" then
-        local dynamic_style = meta_config.style(value)
-
-        -- Create a dynamic highlight group for this specific value
-        local dynamic_group = highlight_group .. "_" .. value:gsub("[^%w]", "_")
-        vim.api.nvim_set_hl(0, dynamic_group, dynamic_style)
-        highlight_group = dynamic_group
+        -- For dynamic styles
+        local cache_key = canonical_name .. "_" .. value
+        highlight_group = M.get_or_create_dynamic_highlight("metadata", cache_key, "CheckmateMeta", function()
+          return meta_config.style(value)
+        end)
+      else
+        -- For static styles
+        highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
       -- Apply the highlight

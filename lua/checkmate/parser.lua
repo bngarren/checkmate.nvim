@@ -556,12 +556,14 @@ function M.extract_metadata(line, row)
     entries = {},
     by_tag = {},
   }
+  ---Tags must begin with a letter, but can then contain letters, digits, underscores, or hyphens
+  local tag_value_pattern = "@([%a][%w_%-]*)%(%s*(.-)%s*%)"
 
   -- Find all @tag(value) patterns and their positions
   local pos = 1
   while true do
     -- Will capture tag names that include underscores and hypens
-    local tag_start, tag_end, tag, value = line:find("@([%w_%-]+)%((.-)%)", pos)
+    local tag_start, tag_end, tag, value = line:find(tag_value_pattern, pos)
     if not tag_start or not tag_end then
       break
     end

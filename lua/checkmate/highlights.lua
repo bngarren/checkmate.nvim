@@ -132,13 +132,25 @@ function M.setup_highlights()
   end
 end
 
+---@class ApplyHighlightingOpts
+---@field debug_reason string? Reason for call (to help debug why highlighting update was called)
+
 --- TODO: This redraws all highlights and can be expensive for large files.
 --- For future optimization, consider implementing incremental updates.
-function M.apply_highlighting(bufnr)
+---
+---@param bufnr integer Buffer number
+---@param opts ApplyHighlightingOpts? Options
+function M.apply_highlighting(bufnr, opts)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  opts = opts or {}
+
+  if opts.debug_reason then
+    log.debug(("apply_highlighting called for: %s"):format(opts.debug_reason), { module = "highlights" })
+  end
 
   -- Clear existing extmarks
   vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
@@ -150,14 +162,11 @@ function M.apply_highlighting(bufnr)
   ---@type table<string, checkmate.TodoItem>
   local todo_map = parser.discover_todos(bufnr)
 
-  -- First, find and mark non-todo list items to know their scope
-  -- local non_todo_list_items = M.identify_non_todo_list_items(bufnr)
-
   -- Process todo items in hierarchical order (top-down)
   for _, todo_item in pairs(todo_map) do
     if not todo_item.parent_id then
       -- Only process top-level todo items (children handled recursively)
-      M.highlight_todo_item_and_children(bufnr, todo_item, todo_map, config)
+      M.highlight_todo_item(bufnr, todo_item, todo_map, { recursive = true })
     end
   end
 
@@ -167,24 +176,35 @@ function M.apply_highlighting(bufnr)
   M.clear_line_cache(bufnr)
 end
 
--- Process a todo item and all its children
-function M.highlight_todo_item_and_children(bufnr, todo_item, todo_map, config)
-  local log = require("checkmate.log")
+---@class HighlightTodoOpts
+---@field recursive boolean? If `true`, also highlight all descendant todos.
+
+---Process a todo item (and, if requested via `opts.recursive`, its descendants).
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem The todo item to highlight.
+---@param todo_map table<string, checkmate.TodoItem> Todo map from `discover_todos`
+---@param opts HighlightTodoOpts? Optional settings.
+---@return nil
+function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
+  opts = opts or {}
 
   -- 1. Highlight the todo marker
-  M.highlight_todo_marker(bufnr, todo_item, config)
+  M.highlight_todo_marker(bufnr, todo_item)
 
   -- 2. Highlight the list marker
-  M.highlight_list_marker(bufnr, todo_item, config)
+  M.highlight_list_marker(bufnr, todo_item)
 
   -- 3. Highlight content directly in this todo item
-  M.highlight_content(bufnr, todo_item, config)
+  M.highlight_content(bufnr, todo_item)
 
-  -- 5. Process child todo items
-  for _, child_id in ipairs(todo_item.children) do
-    local child = todo_map[child_id]
-    if child then
-      M.highlight_todo_item_and_children(bufnr, child, todo_map, config)
+  -- 4. If recursive option is enabled, also highlight all children
+  if opts.recursive then
+    for _, child_id in ipairs(todo_item.children or {}) do
+      local child = todo_map[child_id]
+      if child then
+        -- pass the same opts so grandchildren respect `recursive`
+        M.highlight_todo_item(bufnr, child, todo_map, opts)
+      end
     end
   end
 end
@@ -192,8 +212,8 @@ end
 -- Highlight the todo marker (✓ or □)
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
----@param config checkmate.Config.mod
-function M.highlight_todo_marker(bufnr, todo_item, config)
+function M.highlight_todo_marker(bufnr, todo_item)
+  local config = require("checkmate.config")
   local marker_pos = todo_item.todo_marker.position
   local marker_text = todo_item.todo_marker.text
 
@@ -211,7 +231,8 @@ function M.highlight_todo_marker(bufnr, todo_item, config)
 end
 
 -- Highlight the list marker (-, +, *, 1., etc.)
-function M.highlight_list_marker(bufnr, todo_item, config)
+function M.highlight_list_marker(bufnr, todo_item)
+  local config = require("checkmate.config")
   -- Skip if no list marker found
   if not todo_item.list_marker or not todo_item.list_marker.node then
     return
@@ -292,8 +313,8 @@ end
 -- Highlight content directly attached to the todo item
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
----@param config checkmate.Config.mod
-function M.highlight_content(bufnr, todo_item, config)
+function M.highlight_content(bufnr, todo_item)
+  local config = require("checkmate.config")
   local log = require("checkmate.log")
 
   -- Select highlight groups based on todo state

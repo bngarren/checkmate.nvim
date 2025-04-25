@@ -17,7 +17,7 @@ function M.setup(bufnr)
   parser.convert_markdown_to_unicode(bufnr)
 
   -- Apply highlighting
-  highlights.apply_highlighting(bufnr)
+  highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
 
   local has_nvim_treesitter, _ = pcall(require, "nvim-treesitter")
   if has_nvim_treesitter then
@@ -195,7 +195,7 @@ function M.setup_autocmds(bufnr)
       callback = function()
         if vim.bo[bufnr].modified then
           parser.convert_markdown_to_unicode(bufnr)
-          require("checkmate.highlights").apply_highlighting(bufnr)
+          require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'InsertLeave'" })
         end
       end,
     })
@@ -205,8 +205,8 @@ function M.setup_autocmds(bufnr)
       group = augroup,
       buffer = bufnr,
       callback = require("checkmate.util").debounce(function()
-        require("checkmate.highlights").apply_highlighting(bufnr)
-      end, { ms = 50 }),
+        require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'TextChanged'" })
+      end, { ms = 10 }),
     })
 
     -- Mark autocmds as set up
@@ -319,7 +319,7 @@ function M.toggle_todo_at_cursor(target_state)
 
   if success then
     -- Re-apply highlighting after toggle
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "toggle_todo_at_cursor" })
   else
     log.debug("aborting toggle_todo_at_cursor: " .. error, { module = "api" })
     require("checkmate.util").notify("No todo item found at cursor position", vim.log.levels.INFO)
@@ -393,7 +393,7 @@ function M.toggle_todo_visual(target_state)
 
   -- Apply highlighting after all toggles
   if modified_count > 0 then
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "toggle_todo_visual" })
     log.debug(string.format("Successfully toggled %d todo items", modified_count), { module = "api" })
     notify(("Toggled %d todo items"):format(modified_count), vim.log.levels.INFO)
   else
@@ -461,7 +461,7 @@ function M.create_todo()
 
   -- Apply highlighting immediately
   -- parser.apply_highlighting(bufnr)
-  require("checkmate.highlights").apply_highlighting(bufnr)
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "create_todo" })
 
   if config.options.enter_insert_after_new then
     vim.cmd("startinsert!")
@@ -566,6 +566,10 @@ function M.apply_metadata(meta_name, custom_value)
     return false
   end
 
+  if meta_config.on_add then
+    meta_config.on_add(todo_item)
+  end
+
   -- Get the first line of the todo item (where metadata should be added)
   local todo_row = todo_item.range.start.row
   local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
@@ -623,11 +627,7 @@ function M.apply_metadata(meta_name, custom_value)
   todo_item.metadata = parser.extract_metadata(new_line, todo_row)
 
   -- Reapply highlighting
-  require("checkmate.highlights").apply_highlighting(bufnr)
-
-  if meta_config.on_add then
-    meta_config.on_add(todo_item)
-  end
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "apply_metadata" })
 
   return true
 end
@@ -674,6 +674,11 @@ function M.remove_metadata(meta_name)
   end
 
   if entry then
+    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+    if meta_config.on_remove then
+      meta_config.on_remove(todo_item)
+    end
+
     local todo_row = todo_item.range.start.row
     local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
 
@@ -705,12 +710,7 @@ function M.remove_metadata(meta_name)
     todo_item.metadata = parser.extract_metadata(new_line, todo_row)
 
     -- Reapply highlighting
-    require("checkmate.highlights").apply_highlighting(bufnr)
-
-    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-    if meta_config.on_remove then
-      meta_config.on_remove(todo_item)
-    end
+    require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_metadata" })
 
     log.debug("Removed metadata: " .. entry.tag, { module = "api" })
     return true

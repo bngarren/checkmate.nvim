@@ -89,10 +89,10 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field key string?
 ---Used for displaying metadata in a consistent order
 ---@field sort_order integer?
----Callback to run after this metadata tag is added to a todo item
+---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_add fun(todo_item: checkmate.TodoItem)?
----Callback to run after this metadata tag is removed from a todo item
+---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
@@ -173,7 +173,7 @@ local _DEFAULTS = {
       aliases = { "init" },
       style = { fg = "#9fd6d5" },
       get_value = function()
-        return tostring(os.date("%Y-%m-%d"))
+        return tostring(os.date("%m/%d/%y %H:%M"))
       end,
       key = "<leader>Ts",
       sort_order = 20,
@@ -182,7 +182,7 @@ local _DEFAULTS = {
       aliases = { "completed", "finished" },
       style = { fg = "#96de7a" },
       get_value = function()
-        return tostring(os.date("%Y-%m-%d"))
+        return tostring(os.date("%m/%d/%y %H:%M"))
       end,
       key = "<leader>Td",
       on_add = function(todo_item)
@@ -299,6 +299,58 @@ local function validate_options(opts)
 
     if math.floor(opts.todo_action_depth) ~= opts.todo_action_depth or opts.todo_action_depth < 0 then
       error("todo_action_depth must be a non-negative integer")
+    end
+  end
+
+  -- Validate use_metadata_keymaps
+  if opts.use_metadata_keymaps ~= nil then
+    validate_type(opts.use_metadata_keymaps, "boolean", "use_metadata_keymaps", false)
+  end
+
+  -- Validate metadata
+  if opts.metadata ~= nil then
+    if type(opts.metadata) ~= "table" then
+      error("metadata must be a table")
+    end
+
+    for meta_name, meta_props in pairs(opts.metadata) do
+      validate_type(meta_props, "table", "metadata." .. meta_name, false)
+
+      -- validate 'style' (can be table or function)
+      if meta_props.style ~= nil then
+        local style_type = type(meta_props.style)
+        if style_type ~= "table" and style_type ~= "function" then
+          error("metadata." .. meta_name .. ".style must be a table or function")
+        end
+      end
+
+      -- validate 'get_value'
+      validate_type(meta_props.get_value, "function", "metadata." .. meta_name .. ".get_value", true)
+
+      -- validate 'key'
+      validate_type(meta_props.key, "string", "metadata." .. meta_name .. ".key", true)
+
+      -- validate 'sort_order'
+      validate_type(meta_props.sort_order, "integer", "metadata." .. meta_name .. ".sort_order", true)
+
+      -- validate 'on_add'
+      validate_type(meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true)
+
+      -- validate 'on_remove'
+      validate_type(meta_props.on_remove, "function", "metadata." .. meta_name .. ".on_remove", true)
+
+      -- Validate aliases must be a table of strings
+      if meta_props.aliases ~= nil then
+        if type(meta_props.aliases) ~= "table" then
+          error("metadata." .. meta_name .. ".aliases must be a table")
+        end
+
+        for i, alias in ipairs(meta_props.aliases) do
+          if type(alias) ~= "string" then
+            error("metadata." .. meta_name .. ".aliases[" .. i .. "] must be a string")
+          end
+        end
+      end
     end
   end
 

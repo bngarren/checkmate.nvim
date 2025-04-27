@@ -425,10 +425,10 @@ function M.discover_todos(bufnr)
       }
 
       -- Find and store list marker information
-      M.find_list_marker_info(node, bufnr, todo_map[node_id])
+      M.update_list_marker_info(node, bufnr, todo_map[node_id])
 
       -- Find and store content nodes
-      M.find_content_nodes(node, bufnr, todo_map[node_id])
+      M.update_content_nodes(node, bufnr, todo_map[node_id])
     end
   end
 
@@ -438,10 +438,10 @@ function M.discover_todos(bufnr)
   return todo_map
 end
 
--- Find list marker information
-function M.find_list_marker_info(node, bufnr, todo_item)
-  -- Find all child nodes that could be list markers
-  local list_marker_query = vim.treesitter.query.parse(
+---Returns a TS query for finding markdown list_markers
+---@return vim.treesitter.Query
+function M.get_list_marker_query()
+  return vim.treesitter.query.parse(
     "markdown",
     [[
     (list_marker_minus) @list_marker_minus
@@ -449,13 +449,30 @@ function M.find_list_marker_info(node, bufnr, todo_item)
     (list_marker_star) @list_marker_star
     (list_marker_dot) @list_marker_ordered
     (list_marker_parenthesis) @list_marker_ordered
-  ]]
+    ]]
   )
+end
+
+---Returns the list_marker type as "unordered" or "ordered"
+---@param capture_name string A capture name returned from a TS query
+---@return string: "ordered" or "unordered"
+function M.get_marker_type_from_capture_name(capture_name)
+  local is_ordered = capture_name:match("ordered") ~= nil
+  return is_ordered and "ordered" or "unordered"
+end
+
+---Finds the markdown list_marker associated with the given node and updates the todo_item's
+---list_marker field
+---@param node TSNode The list_item node of a todo item
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem
+function M.update_list_marker_info(node, bufnr, todo_item)
+  -- Find all child nodes that could be list markers
+  local list_marker_query = M.get_list_marker_query()
 
   for id, marker_node, _ in list_marker_query:iter_captures(node, bufnr, 0, -1) do
     local name = list_marker_query.captures[id]
-    local is_ordered = name:match("ordered") ~= nil
-    local marker_type = is_ordered and "ordered" or "unordered"
+    local marker_type = M.get_marker_type_from_capture_name(name)
 
     -- Verify this marker is a direct child of this list_item
     local parent = marker_node:parent()
@@ -474,7 +491,7 @@ function M.find_list_marker_info(node, bufnr, todo_item)
 end
 
 -- Find content nodes (paragraphs, etc.)
-function M.find_content_nodes(node, bufnr, todo_item)
+function M.update_content_nodes(node, bufnr, todo_item)
   -- Find child nodes containing content
   local content_query = vim.treesitter.query.parse(
     "markdown",

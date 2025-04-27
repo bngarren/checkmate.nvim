@@ -191,13 +191,16 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   -- 1. Highlight the todo marker
   M.highlight_todo_marker(bufnr, todo_item)
 
-  -- 2. Highlight the list marker
+  -- 2. Highlight the list marker of the todo item
   M.highlight_list_marker(bufnr, todo_item)
 
-  -- 3. Highlight content directly in this todo item
+  -- 3. Highlight the child list markers within this todo item
+  M.highlight_child_list_markers(bufnr, todo_item)
+
+  -- 4. Highlight content directly in this todo item
   M.highlight_content(bufnr, todo_item)
 
-  -- 4. If recursive option is enabled, also highlight all children
+  -- 5. If recursive option is enabled, also highlight all children
   if opts.recursive then
     for _, child_id in ipairs(todo_item.children or {}) do
       local child = todo_map[child_id]
@@ -230,15 +233,18 @@ function M.highlight_todo_marker(bufnr, todo_item)
   end
 end
 
--- Highlight the list marker (-, +, *, 1., etc.)
+---Highlight the list marker (-, +, *, 1., etc.)
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem
 function M.highlight_list_marker(bufnr, todo_item)
   local config = require("checkmate.config")
+  local list_marker = todo_item.list_marker
+
   -- Skip if no list marker found
-  if not todo_item.list_marker or not todo_item.list_marker.node then
+  if not list_marker or not todo_item.list_marker.node then
     return
   end
 
-  local list_marker = todo_item.list_marker
   local start_row, start_col, end_row, end_col = list_marker.node:range()
 
   local hl_group = list_marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
@@ -249,6 +255,64 @@ function M.highlight_list_marker(bufnr, todo_item)
     hl_group = hl_group,
     priority = M.PRIORITY.LIST_MARKER, -- Medium priority for list markers
   })
+end
+
+---Finds and highlights all markdown list_markers within the todo item, excluding the
+---list_marker for the todo item itself (i.e. the first list_marker in the todo item's list_item node)
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem
+function M.highlight_child_list_markers(bufnr, todo_item)
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+  local log = require("checkmate.log")
+
+  -- Skip if no node
+  if not todo_item.node then
+    return
+  end
+
+  -- Get all list markers using the parser's query helper
+  local list_marker_query = parser.get_list_marker_query()
+
+  for id, marker_node, _ in list_marker_query:iter_captures(todo_item.node, bufnr, 0, -1) do
+    local name = list_marker_query.captures[id]
+    local marker_type = parser.get_marker_type_from_capture_name(name)
+
+    -- Skip the todo item's own list marker
+    -- Its highlighting is handled separately by `highlight_list_marker`
+    if todo_item.list_marker and todo_item.list_marker.node == marker_node then
+      goto continue
+    end
+
+    -- Get the marker range
+    local marker_start_row, marker_start_col, marker_end_row, marker_end_col = marker_node:range()
+
+    -- Only highlight markers within the todo item's range
+    if marker_start_row >= todo_item.range.start.row and marker_end_row <= todo_item.range["end"].row then
+      local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+        end_row = marker_end_row,
+        end_col = marker_end_col,
+        hl_group = hl_group,
+        priority = M.PRIORITY.LIST_MARKER,
+      })
+
+      log.trace(
+        string.format(
+          "Highlighted child list marker at [%d,%d]-[%d,%d] with %s",
+          marker_start_row,
+          marker_start_col,
+          marker_end_row,
+          marker_end_col,
+          hl_group
+        ),
+        { module = "highlights" }
+      )
+    end
+
+    ::continue::
+  end
 end
 
 ---Applies highlight groups to metadata entries

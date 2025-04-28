@@ -303,6 +303,21 @@ function M.handle_toggle(bufnr, line_row, col, opts)
   return "Failed to update todo item", nil
 end
 
+---Toggles a todo item from checked to unchecked or vice versa.
+---If a target_state is passed, the todo_item will only be toggled to this state.
+---@param todo_item any
+---@param target_state any
+---@return boolean
+function M.toggle_todo_item(todo_item, target_state)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local error, success =
+    M.handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
+  if error then
+    require("checkmate.log").error(error, { module = "api" })
+  end
+  return success ~= nil
+end
+
 -- Toggle the todo item under the cursor
 ---@param target_state checkmate.TodoItemState?
 function M.toggle_todo_at_cursor(target_state)
@@ -779,6 +794,146 @@ function M.toggle_metadata(meta_name, custom_value)
     log.debug("Toggling ON metadata: " .. canonical_name, { module = "api" })
     return M.apply_metadata(canonical_name, custom_value)
   end
+end
+
+---A callback function passed to `apply_todo_operation` that will act on the given todo_item
+---@alias checkmate.TodoOperation fun(todo_item: checkmate.TodoItem, params: any?): boolean
+
+---@class ApplyTodoOperationOpts table Operation configuration
+---@field operation checkmate.TodoOperation The operation to perform on each todo item
+---@field is_visual boolean Whether to process a visual selection (true) or cursor position (false)
+---@field action_name string Human-readable name of the action (for logging and notifications)
+---@field params any? Additional parameters to pass to the operation function, excluding the todo_item
+---Apply an operation to todo items either at cursor or in a visual selection
+---@param opts ApplyTodoOperationOpts
+---@return table results Operation results { success: boolean, processed: number, succeeded: number, errors: table[] }
+function M.apply_todo_operation(opts)
+  local log = require("checkmate.log")
+  local parser = require("checkmate.parser")
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  -- Initialize results
+  local results = {
+    success = false,
+    processed = 0,
+    succeeded = 0,
+    errors = {},
+  }
+
+  -- Create undo block
+  vim.cmd("undojoin")
+
+  -- Collection of todo items to process
+  local todo_items = {}
+
+  local restore_cursor
+
+  -- Get todo items based on mode (visual or normal)
+  if opts.is_visual then
+    -- Exit visual mode first
+    vim.cmd([[execute "normal! \<Esc>"]])
+
+    -- Get visual selection range
+    local start_line = vim.fn.line("'<") - 1 -- 0-indexed
+    local end_line = vim.fn.line("'>") - 1 -- 0-indexed
+
+    log.debug(
+      string.format("Visual mode %s from line %d to %d", opts.action_name, start_line + 1, end_line + 1),
+      { module = "api" }
+    )
+
+    -- Collect unique todo items in selection
+    local todo_map = {}
+
+    for line_row = start_line, end_line do
+      local todo_item =
+        parser.get_todo_item_at_position(bufnr, line_row, 0, { max_depth = config.options.todo_action_depth })
+
+      if todo_item then
+        -- Create a unique key based on the marker position
+        local marker_key =
+          string.format("%d:%d", todo_item.todo_marker.position.row, todo_item.todo_marker.position.col)
+
+        if not todo_map[marker_key] then
+          todo_map[marker_key] = true
+          table.insert(todo_items, todo_item)
+        end
+      end
+    end
+  else
+    -- Normal mode - just get the item at cursor
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1 -- 0-indexed
+    local col = cursor[2]
+
+    local todo_item =
+      parser.get_todo_item_at_position(bufnr, row, col, { max_depth = config.options.todo_action_depth })
+
+    if todo_item then
+      table.insert(todo_items, todo_item)
+    end
+
+    -- Store cursor for later restoration
+    restore_cursor = cursor
+  end
+
+  -- Process collected todo items
+  if #todo_items > 0 then
+    for _, todo_item in ipairs(todo_items) do
+      results.processed = results.processed + 1
+
+      -- Apply the operation and catch any errors
+      local success, result = pcall(opts.operation, todo_item, opts.params)
+
+      if success and result then
+        results.succeeded = results.succeeded + 1
+      else
+        -- Handle error
+        local error_msg = (not success and result) or "Operation failed"
+        table.insert(results.errors, {
+          item = todo_item,
+          message = error_msg,
+        })
+        log.error(string.format("Error in %s: %s", opts.action_name, error_msg), { module = "api" })
+      end
+    end
+
+    -- Determine overall success
+    results.success = (results.succeeded > 0)
+
+    -- Apply highlighting after all operations
+    if results.succeeded > 0 then
+      require("checkmate.highlights").apply_highlighting(bufnr, {
+        debug_reason = opts.action_name,
+      })
+
+      -- Notify user of results
+      if opts.is_visual and results.processed > 1 then
+        util.notify(
+          string.format(
+            "%s: %d/%d items processed successfully",
+            opts.action_name:gsub("^%l", string.upper),
+            results.succeeded,
+            results.processed
+          ),
+          vim.log.levels.INFO
+        )
+      end
+    end
+  else
+    -- No todo items found
+    local mode_msg = opts.is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+  end
+
+  -- Restore cursor in normal mode operations
+  if not opts.is_visual and restore_cursor then
+    vim.api.nvim_win_set_cursor(0, restore_cursor)
+  end
+
+  return results
 end
 
 return M

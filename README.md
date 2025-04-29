@@ -21,8 +21,7 @@ A markdown-based todo list plugin for Neovim with a clean UI and full customizat
 
 <br/>
 
-https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
-
+https://github.com/user-attachments/assets/438a4866-edb9-4080-860f-81192c9dca26
 
 # ☑️ Installation
 

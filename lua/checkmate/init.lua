@@ -104,7 +104,7 @@ function M.add_metadata(metadata_name, value)
   local is_visual = util.is_visual_mode()
 
   api.apply_todo_operation({
-    operation = api.apply_metadata_new,
+    operation = api.apply_metadata,
     is_visual = is_visual,
     action_name = "add metadata",
     params = { meta_name = metadata_name, custom_value = value },
@@ -118,7 +118,7 @@ function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
 
   api.apply_todo_operation({
-    operation = api.remove_metadata_new,
+    operation = api.remove_metadata,
     is_visual = is_visual,
     action_name = "remove metadata",
     params = { meta_name = metadata_name },
@@ -133,7 +133,7 @@ function M.toggle_metadata(meta_name, custom_value)
   local api = require("checkmate.api")
 
   return api.apply_todo_operation({
-    operation = api.toggle_metadata_new,
+    operation = api.toggle_metadata,
     is_visual = is_visual,
     action_name = "toggle metadata",
     params = { meta_name = meta_name, custom_value = custom_value },

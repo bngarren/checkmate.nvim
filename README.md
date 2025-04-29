@@ -52,7 +52,7 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 
 #### 2. Create Todo Items
 
-- Use `:CheckmateCreate` command or the mapped key (default: `<leader>Tn`)
+- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command 
 - Or manually using Markdown syntax:
 ```md
 - [ ] Unchecked todo
@@ -67,6 +67,8 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 - Select multiple items in visual mode and use the same commands
 
 Enhance your todos with custom [metadata](#metadata)!
+
+> Your .todo file is saved as regular markdown!
 
 # ☑️ Commands
 

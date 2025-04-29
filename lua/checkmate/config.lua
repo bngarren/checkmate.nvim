@@ -7,12 +7,15 @@ local util = require("checkmate.util")
 -- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
 
+-----------------------------------------------------
 --- Checkmate configuration
 ---@class checkmate.Config
 ---@field enabled boolean Whether the plugin is enabled
 ---@field notify boolean Whether to show notifications
 ---@field log checkmate.LogSettings Logging settings
----@field keys ( table<string, checkmate.Action>| false ) Keymappings (false to disable)
+---Keymappings (false to disable)
+---Note: mappings for metadata are set separately in the `metadata` table
+---@field keys ( table<string, checkmate.Action>| false )
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
@@ -26,24 +29,16 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---Whether to register keymappings defined in each metadata definition. If set the false,
 ---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
+---Custom @tag(value) fields that can be toggled on todo items
 ---@field metadata checkmate.Metadata
 
+---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
 
+-----------------------------------------------------
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
----@field level (
----    | "trace"
----    | "debug"
----    | "info"
----    | "warn"
----    | "error"
----    | "fatal"
----    | vim.log.levels.DEBUG
----    | vim.log.levels.ERROR
----    | vim.log.levels.INFO
----    | vim.log.levels.TRACE
----    | vim.log.levels.WARN)?
+---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 --- Should print log output to a file
 --- Open with `:Checkmate debug_file`
 ---@field use_file boolean
@@ -54,10 +49,12 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 --- Open with `require("checkmate").debug_log()`
 ---@field use_buffer boolean
 
+-----------------------------------------------------
 ---@class checkmate.TodoMarkers
 ---@field unchecked string Character used for unchecked items
 ---@field checked string Character used for checked items
 
+-----------------------------------------------------
 ---@class checkmate.StyleSettings Customize the style of markers and content
 ---@field list_marker_unordered vim.api.keyset.highlight Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_ordered vim.api.keyset.highlight Highlight settings for ordered (numerical) list markers (1.,2.)
@@ -76,6 +73,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
 
+-----------------------------------------------------
 ---@class checkmate.MetadataProps
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
@@ -99,19 +97,15 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
+-----------------------------------------------------
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
   notify = true,
-  log = {
-    level = "info",
-    use_file = false,
-    use_buffer = true,
-  },
   -- Default keymappings
   keys = {
     ["<leader>Tt"] = "toggle", -- Toggle todo item
-    ["<leader>Td"] = "check", -- Set todo item as checked (done)
+    ["<leader>Tc"] = "check", -- Set todo item as checked (done)
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
   },
@@ -123,18 +117,12 @@ local _DEFAULTS = {
   style = {
     -- List markers, such as "-" and "1."
     list_marker_unordered = {
-      fg = util.blend(
-        util.color("Normal", "fg", "#bbbbbb"), -- Fallback to light gray
-        util.color("Normal", "bg", "#222222"), -- Fallback to dark gray
-        0.2
-      ),
+      -- Can use util functions to get existing highlight colors and blend them together
+      -- This is one way to integrate with an existing colorscheme
+      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.2),
     },
     list_marker_ordered = {
-      fg = util.blend(
-        util.color("Normal", "fg", "#bbbbbb"), -- Fallback to light gray
-        util.color("Normal", "bg", "#222222"), -- Fallback to dark gray
-        0.5
-      ),
+      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.5),
     },
 
     -- Unchecked todo items
@@ -149,17 +137,19 @@ local _DEFAULTS = {
   },
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
-
   use_metadata_keymaps = true,
   metadata = {
+    -- Example: A @priority tag that has dynamic color based on the priority value
     priority = {
-      style = function(value)
-        -- Return different styles based on priority value
-        if value:match("[Hh]igh") then
+      style = function(_value)
+        local value = _value:lower()
+        if value == "high" then
           return { fg = "#ff5555", bold = true }
-        elseif value:match("[Mm]edium") then
+        elseif value == "medium" then
           return { fg = "#ffb86c" }
-        else -- low or default
+        elseif value == "low" then
+          return { fg = "#8be9fd" }
+        else -- fallback
           return { fg = "#8be9fd" }
         end
       end,
@@ -169,6 +159,7 @@ local _DEFAULTS = {
       key = "<leader>Tp",
       sort_order = 10,
     },
+    -- Example: A @started tag that uses a default date/time string when added
     started = {
       aliases = { "init" },
       style = { fg = "#9fd6d5" },
@@ -178,6 +169,7 @@ local _DEFAULTS = {
       key = "<leader>Ts",
       sort_order = 20,
     },
+    -- Example: A @done tag that also sets the todo item state when it is added and removed
     done = {
       aliases = { "completed", "finished" },
       style = { fg = "#96de7a" },
@@ -186,13 +178,18 @@ local _DEFAULTS = {
       end,
       key = "<leader>Td",
       on_add = function(todo_item)
-        require("checkmate").toggle_todo(todo_item, "checked")
+        require("checkmate").set_todo_item(todo_item, "checked")
       end,
       on_remove = function(todo_item)
-        require("checkmate").toggle_todo(todo_item, "unchecked")
+        require("checkmate").set_todo_item(todo_item, "unchecked")
       end,
       sort_order = 30,
     },
+  },
+  log = {
+    level = "info",
+    use_file = false,
+    use_buffer = false,
   },
 }
 

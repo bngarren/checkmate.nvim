@@ -10,23 +10,18 @@
 <img alt="Checkmate Mate" height="220" src="./assets/checkmate-logo.png" />
 </div><br/>
 
-A markdown-based todo list manager for Neovim with a clean UI, multi-line support, and full customization options.
+A markdown-based todo list plugin for Neovim with a clean UI and full customization options.
 
 - Stores todos in plain Markdown format (compatible with other apps)
 - Unicode symbol support for more beautiful todo items
 - Customizable markers and colors
-- Multi-line todo item support with hierarchical toggling
 - Visual mode support for toggling multiple items at once
-- Full keyboard shortcut customization
+- Metadata (`@tag(value)`) annotations with extensive customization
+  - e.g. @started, @done, @priority
 
 <br/>
 
-
-
 https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
-
-
-
 
 
 # ☑️ Installation
@@ -67,9 +62,11 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 
 #### 3. Manage Your Tasks
 - Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
-- Check items with `:CheckmateCheck` (default: `<leader>Td`)
+- Check items with `:CheckmateCheck` (default: `<leader>Tc`)
 - Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
 - Select multiple items in visual mode and use the same commands
+
+Enhance your todos with custom [metadata](#metadata)!
 
 # ☑️ Commands
 
@@ -93,7 +90,9 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 ---@field enabled boolean Whether the plugin is enabled
 ---@field notify boolean Whether to show notifications
 ---@field log checkmate.LogSettings Logging settings
----@field keys ( table<string, checkmate.Action>| false ) Keymappings (false to disable)
+---Keymappings (false to disable)
+---Note: mappings for metadata are set separately in the `metadata` table
+---@field keys ( table<string, checkmate.Action>| false )
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
@@ -104,25 +103,19 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+---Whether to register keymappings defined in each metadata definition. If set the false,
+---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
+---@field use_metadata_keymaps boolean
+---Custom @tag(value) fields that can be toggled on todo items
+---@field metadata checkmate.Metadata
 
-
+---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
 
-
+-----------------------------------------------------
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
----@field level (
----    | "trace"
----    | "debug"
----    | "info"
----    | "warn"
----    | "error"
----    | "fatal"
----    | vim.log.levels.DEBUG
----    | vim.log.levels.ERROR
----    | vim.log.levels.INFO
----    | vim.log.levels.TRACE
----    | vim.log.levels.WARN)?
+---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 --- Should print log output to a file
 --- Open with `:Checkmate debug_file`
 ---@field use_file boolean
@@ -130,15 +123,15 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 --- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
 ---@field file_path string?
 --- Should print log output to a scratch buffer
---- Open with `:Checkmate debug_log`
+--- Open with `require("checkmate").debug_log()`
 ---@field use_buffer boolean
 
-
+-----------------------------------------------------
 ---@class checkmate.TodoMarkers
 ---@field unchecked string Character used for unchecked items
 ---@field checked string Character used for checked items
 
-
+-----------------------------------------------------
 ---@class checkmate.StyleSettings Customize the style of markers and content
 ---@field list_marker_unordered vim.api.keyset.highlight Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_ordered vim.api.keyset.highlight Highlight settings for ordered (numerical) list markers (1.,2.)
@@ -157,20 +150,39 @@ https://github.com/user-attachments/assets/ac18f810-2bf7-40a7-96d7-9de492c75445
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
 
+-----------------------------------------------------
+---@class checkmate.MetadataProps
+---Additional string values that can be used interchangably with the canonical tag name.
+---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
+---also be used and have the same styling/functionality
+---@field aliases string[]?
+---Highlight settings or function that returns highlight settings based on the metadata's current value
+---@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+---Function that returns the default value for this metadata tag
+---@field get_value fun():string
+---Keymapping for toggling this metadata tag
+---@field key string?
+---Used for displaying metadata in a consistent order
+---@field sort_order integer?
+---Callback to run when this metadata tag is added to a todo item
+---E.g. can be used to change the todo item state
+---@field on_add fun(todo_item: checkmate.TodoItem)?
+---Callback to run when this metadata tag is removed from a todo item
+---E.g. can be used to change the todo item state
+---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
+---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
+
+-----------------------------------------------------
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
   notify = true,
-  log = {
-    level = "info",
-    use_file = false,
-    use_buffer = true,
-  },
   -- Default keymappings
   keys = {
     ["<leader>Tt"] = "toggle", -- Toggle todo item
-    ["<leader>Td"] = "check", -- Set todo item as checked (done)
+    ["<leader>Tc"] = "check", -- Set todo item as checked (done)
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
   },
@@ -181,31 +193,147 @@ local _DEFAULTS = {
   },
   style = {
     -- List markers, such as "-" and "1."
-    list_marker_unordered = { fg = "#666666" },
-    list_marker_ordered = { fg = "#333333" },
+    list_marker_unordered = {
+      -- Can use util functions to get existing highlight colors and blend them together
+      -- This is one way to integrate with an existing colorscheme
+      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.2),
+    },
+    list_marker_ordered = {
+      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.5),
+    },
 
     -- Unchecked todo items
     unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typicallly the first line/paragraph
+    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typically the first line/paragraph
     unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
 
     -- Checked todo items
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typicallly the first line/paragraph
+    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
     checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
   },
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
+  use_metadata_keymaps = true,
+  metadata = {
+    -- Example: A @priority tag that has dynamic color based on the priority value
+    priority = {
+      style = function(_value)
+        local value = _value:lower()
+        if value == "high" then
+          return { fg = "#ff5555", bold = true }
+        elseif value == "medium" then
+          return { fg = "#ffb86c" }
+        elseif value == "low" then
+          return { fg = "#8be9fd" }
+        else -- fallback
+          return { fg = "#8be9fd" }
+        end
+      end,
+      get_value = function()
+        return "medium" -- Default priority
+      end,
+      key = "<leader>Tp",
+      sort_order = 10,
+    },
+    -- Example: A @started tag that uses a default date/time string when added
+    started = {
+      aliases = { "init" },
+      style = { fg = "#9fd6d5" },
+      get_value = function()
+        return tostring(os.date("%m/%d/%y %H:%M"))
+      end,
+      key = "<leader>Ts",
+      sort_order = 20,
+    },
+    -- Example: A @done tag that also sets the todo item state when it is added and removed
+    done = {
+      aliases = { "completed", "finished" },
+      style = { fg = "#96de7a" },
+      get_value = function()
+        return tostring(os.date("%m/%d/%y %H:%M"))
+      end,
+      key = "<leader>Td",
+      on_add = function(todo_item)
+        require("checkmate").set_todo_item(todo_item, "checked")
+      end,
+      on_remove = function(todo_item)
+        require("checkmate").set_todo_item(todo_item, "unchecked")
+      end,
+      sort_order = 30,
+    },
+  },
+  log = {
+    level = "info",
+    use_file = false,
+    use_buffer = false,
+  },
 }
 ```
 
 Note: `checkmate.StyleSettings` uses highlight definition maps to define the colors/style, refer to `:h nvim_set_hl()`
 
+## Metadata
+Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
+
+<img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
+
+
+- Default tags:
+  - `@started` - default value is the current date/time
+  - `@done` - default value is the current date/time
+  - `@priority` - "low" | "medium" (default) | "high"
+
+#### @priority example
+```lua
+priority = {
+  -- Dynamic styling based on the tag's current value
+  style = function(value)
+    local value = value:lower()
+    if value == "high" then
+      return { fg = "#ff5555", bold = true }
+    elseif value == "medium" then
+      return { fg = "#ffb86c" }
+    elseif value == "low" then
+      return { fg = "#8be9fd" }
+    else -- fallback
+      return { fg = "#8be9fd" }
+    end
+  end,
+  get_value = function() return "medium" end,  -- Default value
+  key = "<leader>Tp",                          -- Keymap to toggle
+  sort_order = 10,                             -- Order when multiple tags exist (lower comes first)
+},
+```
+
+#### @done example
+```lua
+done = {
+  aliases = { "completed", "finished" },
+  style = { fg = "#96de7a" },
+  get_value = function()
+    return tostring(os.date("%m/%d/%y %H:%M"))
+  end,
+  key = "<leader>Td",
+  -- Changes todo state when tag is added
+  on_add = function(todo_item)
+    require("checkmate").set_todo_item(todo_item, "checked")
+  end,
+  -- Changes todo state when tag is removed
+  on_remove = function(todo_item)
+    require("checkmate").set_todo_item(todo_item, "unchecked")
+  end,
+  sort_order = 30,
+},
+```
+
 # Roadmap
 Planned features:
-1. **Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting
+1. ~~**Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting~~ Added v0.2.0
 
 2. **Archiving** - manually or automatically move completed items to the bottom of the document
+
+3. **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items
 
 # Contributing
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!

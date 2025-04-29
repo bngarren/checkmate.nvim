@@ -40,11 +40,13 @@ function M.debounce(fn, opts)
   end
 end
 
---- Borrowed from github.com/folke/snacks.nvim
----@param fg string|nil foreground color
----@param bg string|nil background color
----@param alpha number number between 0 and 1. 0 results in bg, 1 results in fg
----@return string color in hex format
+---Blends the foreground color with the background color
+---
+---Credit to github.com/folke/snacks.nvim
+---@param fg string|nil Foreground color (default #ffffff)
+---@param bg string|nil Background color (default #000000)
+---@param alpha number Number between 0 and 1. 0 results in bg, 1 results in fg.
+---@return string: Color in hex format
 function M.blend(fg, bg, alpha)
   -- Default colors if nil
   fg = fg or "#ffffff"
@@ -65,17 +67,18 @@ function M.blend(fg, bg, alpha)
   return string.format("#%02x%02x%02x", blend(1), blend(2), blend(3))
 end
 
---- Borrowed from github.com/folke/snacks.nvim
---- Get a color from a highlight group
----@param group string|string[] hl group to get color from
----@param prop? string property to get. Defaults to "fg"
----@param default? string fallback color if not found
----@return string? color in hex format or nil
-function M.color(group, prop, default)
+---Gets a color from an existing highlight group (see :highlight-groups)
+---
+---Credit to github.com/folke/snacks.nvim
+---@param hl_group string|string[] Highlight group(s) to get prop's color
+---@param prop? string Property to get color from (default "fg")
+---@param default? string Fallback color if not found (in hex format)
+---@return string?: Color in hex format or nil
+function M.get_hl_color(hl_group, prop, default)
   prop = prop or "fg"
-  group = type(group) == "table" and group or { group }
-  ---@cast group string[]
-  for _, g in ipairs(group) do
+  hl_group = type(hl_group) == "table" and hl_group or { hl_group }
+  ---@cast hl_group string[]
+  for _, g in ipairs(hl_group) do
     local hl = vim.api.nvim_get_hl(0, { name = g, link = false })
     if hl[prop] then
       return string.format("#%06x", hl[prop])

@@ -87,7 +87,9 @@ function M.create()
   require("checkmate.api").create_todo()
 end
 
---- Insert a metadata tag into a todo item at the cursor
+--- Insert a metadata tag into a todo item at the cursor or per todo in the visual selection
+---@param metadata_name string Name of the metadata tag (defined in the config)
+---@param value string Value contained in the tag
 function M.add_metadata(metadata_name, value)
   local config = require("checkmate.config")
   local util = require("checkmate.util")
@@ -109,7 +111,8 @@ function M.add_metadata(metadata_name, value)
   })
 end
 
---- Remove a metadata tag from a todo item at the cursor
+--- Remove a metadata tag from a todo item at the cursor or per todo in the visual selection
+---@param metadata_name string Name of the metadata tag (defined in the config)
 function M.remove_metadata(metadata_name)
   local is_visual = require("checkmate.util").is_visual_mode()
   local api = require("checkmate.api")
@@ -122,7 +125,9 @@ function M.remove_metadata(metadata_name)
   })
 end
 
---- Toggle a metadata tag on/off at the cursor
+--- Toggle a metadata tag on/off at the cursor or for each todo in the visual selection
+---@param meta_name string Name of the metadata tag (defined in the config)
+---@param custom_value string Value contained in tag
 function M.toggle_metadata(meta_name, custom_value)
   local is_visual = require("checkmate.util").is_visual_mode()
   local api = require("checkmate.api")

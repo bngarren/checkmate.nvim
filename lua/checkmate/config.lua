@@ -19,13 +19,24 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
----@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
 --- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+---@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
+---Enable/disable the todo count indicator (shows number of sub-todo items completed)
+---@field show_todo_count boolean
+---Position to show the todo count indicator (if enabled)
+---eol = End of the todo item line
+---inline = After the todo marker, before the todo item text
+---@field todo_count_position checkmate.TodoCountPosition
+---Formatter function for displaying the todo count indicator
+---@field todo_count_formatter? fun(completed: integer, total: integer): string
+---Whether to count sub-todo items recursively in the todo_count
+---If true, all nested todo items will count towards the parent todo's count
+---@field todo_count_recursive boolean
 ---Whether to register keymappings defined in each metadata definition. If set the false,
 ---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
@@ -34,6 +45,9 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+
+---Options for todo count indicator position
+---@alias checkmate.TodoCountPosition "eol" | "inline"
 
 -----------------------------------------------------
 ---@class checkmate.LogSettings
@@ -72,6 +86,8 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---Highlight settings for additional content of checked todo items
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
+---Highlight settings for the todo count indicator (e.g. x/x)
+---@field todo_count_indicator vim.api.keyset.highlight
 
 -----------------------------------------------------
 ---@class checkmate.MetadataProps
@@ -134,9 +150,19 @@ local _DEFAULTS = {
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
     checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
     checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
+
+    -- Todo count indicator
+    todo_count_indicator = {
+      fg = util.blend("#e3b3ff", util.get_hl_color("Normal", "bg", "'#222222"), 0.9),
+      bg = util.blend("#ffffff", util.get_hl_color("Normal", "bg", "'#222222"), 0.02),
+      italic = true,
+    },
   },
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
+  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  show_todo_count = true,
+  todo_count_position = "eol",
+  todo_count_recursive = true,
   use_metadata_keymaps = true,
   metadata = {
     -- Example: A @priority tag that has dynamic color based on the priority value

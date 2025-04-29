@@ -1046,4 +1046,32 @@ function M.apply_todo_operation(opts)
   return results
 end
 
+--- Count completed and total child todos for a todo item
+---@param todo_item checkmate.TodoItem The parent todo item
+---@param todo_map table<string, checkmate.TodoItem> Full todo map
+---@param opts? {recursive: boolean?}
+---@return {completed: number, total: number} Counts
+function M.count_child_todos(todo_item, todo_map, opts)
+  local counts = { completed = 0, total = 0 }
+
+  for _, child_id in ipairs(todo_item.children or {}) do
+    local child = todo_map[child_id]
+    if child then
+      counts.total = counts.total + 1
+      if child.state == "checked" then
+        counts.completed = counts.completed + 1
+      end
+
+      -- Recursively count grandchildren
+      if opts and opts.recursive then
+        local child_counts = M.count_child_todos(child, todo_map)
+        counts.total = counts.total + child_counts.total
+        counts.completed = counts.completed + child_counts.completed
+      end
+    end
+  end
+
+  return counts
+end
+
 return M

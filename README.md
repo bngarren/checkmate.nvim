@@ -18,6 +18,7 @@ A markdown-based todo list plugin for Neovim with a clean UI and full customizat
 - Visual mode support for toggling multiple items at once
 - Metadata (`@tag(value)`) annotations with extensive customization
   - e.g. @started, @done, @priority
+- Todo completion counts
 
 <br/>
 
@@ -26,6 +27,7 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 # ☑️ Installation
 
 ## Requirements
+
 - Neovim 0.10 or higher
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
@@ -44,6 +46,7 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 # ☑️ Usage
 
 #### 1. Open or Create a Todo File
+
 - Create or open a file with the `.todo` extension
 - The plugin automatically activates for `.todo` files, treating them as Markdown
 
@@ -51,15 +54,18 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 
 #### 2. Create Todo Items
 
-- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command 
+- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command
 - Or manually using Markdown syntax:
+
 ```md
 - [ ] Unchecked todo
 - [x] Checked todo
 ```
+
 (These will automatically convert when you leave insert mode!)
 
 #### 3. Manage Your Tasks
+
 - Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
 - Check items with `:CheckmateCheck` (default: `<leader>Tc`)
 - Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
@@ -97,13 +103,24 @@ Enhance your todos with custom [metadata](#metadata)!
 ---@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
 ---@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
 ---@field style checkmate.StyleSettings Highlight settings
----@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
 --- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
+---@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
+---Enable/disable the todo count indicator (shows number of sub-todo items completed)
+---@field show_todo_count boolean
+---Position to show the todo count indicator (if enabled)
+---eol = End of the todo item line
+---inline = After the todo marker, before the todo item text
+---@field todo_count_position checkmate.TodoCountPosition
+---Formatter function for displaying the todo count indicator
+---@field todo_count_formatter? fun(completed: integer, total: integer): string
+---Whether to count sub-todo items recursively in the todo_count
+---If true, all nested todo items will count towards the parent todo's count
+---@field todo_count_recursive boolean
 ---Whether to register keymappings defined in each metadata definition. If set the false,
 ---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
@@ -112,6 +129,9 @@ Enhance your todos with custom [metadata](#metadata)!
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+
+---Options for todo count indicator position
+---@alias checkmate.TodoCountPosition "eol" | "inline"
 
 -----------------------------------------------------
 ---@class checkmate.LogSettings
@@ -150,6 +170,8 @@ Enhance your todos with custom [metadata](#metadata)!
 ---Highlight settings for additional content of checked todo items
 ---This is the content below the first line/paragraph
 ---@field checked_additional_content vim.api.keyset.highlight
+---Highlight settings for the todo count indicator (e.g. x/x)
+---@field todo_count_indicator vim.api.keyset.highlight
 
 -----------------------------------------------------
 ---@class checkmate.MetadataProps
@@ -212,9 +234,19 @@ local _DEFAULTS = {
     checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
     checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
     checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
+
+    -- Todo count indicator
+    todo_count_indicator = {
+      fg = util.blend("#e3b3ff", util.get_hl_color("Normal", "bg", "'#222222"), 0.9),
+      bg = util.blend("#ffffff", util.get_hl_color("Normal", "bg", "'#222222"), 0.02),
+      italic = true,
+    },
   },
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
+  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  show_todo_count = true,
+  todo_count_position = "eol",
+  todo_count_recursive = true,
   use_metadata_keymaps = true,
   metadata = {
     -- Example: A @priority tag that has dynamic color based on the priority value
@@ -275,10 +307,10 @@ local _DEFAULTS = {
 Note: `checkmate.StyleSettings` uses highlight definition maps to define the colors/style, refer to `:h nvim_set_hl()`
 
 ## Metadata
+
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
 <img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
-
 
 - Default tags:
   - `@started` - default value is the current date/time
@@ -286,6 +318,7 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
   - `@priority` - "low" | "medium" (default) | "high"
 
 #### @priority example
+
 ```lua
 priority = {
   -- Dynamic styling based on the tag's current value
@@ -308,6 +341,7 @@ priority = {
 ```
 
 #### @done example
+
 ```lua
 done = {
   aliases = { "completed", "finished" },
@@ -328,17 +362,72 @@ done = {
 },
 ```
 
+## Todo count indicator
+
+<table>
+  <tr>
+    <td align="center">
+      <img
+        src="./assets/count-indicator-eol.png"
+        alt="Todo count indicator using 'eol' position"
+        height="75"
+      /><br/>
+      <sub>Todo count indicator using <code>eol</code> position</sub>
+    </td>
+    <td align="center">
+      <img
+        src="./assets/count-indicator-inline.png"
+        alt="Todo count indicator using 'inline' position"
+        height="75"
+      /><br/>
+      <sub>Todo count indicator using <code>inline</code> position</sub>
+    </td>
+  </tr>
+</table>
+
+#### Change the default display by passing a custom formatter
+
+```lua
+-- Custom formatter that returns the % completed
+todo_count_formatter = function(completed, total)
+  return string.format("%.0f%%", completed / total * 100)
+end,
+```
+
+<img
+        src="./assets/count-indicator-custom-formatter.png"
+        alt="Todo count indicator using a custom formatter function"
+        height="75"
+      /><br/>
+<sub>Todo count indicator using <code>todo_count_formatter</code> function</sub>
+
+#### Count all nested todo items
+If you want the todo count of a parent todo item to include _all_ nested todo items, set the recursive option.
+
+```lua
+todo_count_recursive = true,
+```
+<img
+        src="./assets/count-indicator-recursive.png"
+        alt="Todo count indicator using recursive option"
+        height="90"
+      /><br/>
+<sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
+
 # Roadmap
+
 Planned features:
-1. ~~**Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting~~ Added v0.2.0
 
-2. **Archiving** - manually or automatically move completed items to the bottom of the document
+- ~~**Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting~~ Added v0.2.0
 
-3. **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items
+- **Archiving** - manually or automatically move completed items to the bottom of the document
+
+- ~~**Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items~~ Added v0.3.0
 
 # Contributing
+
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!
 
 # Credits
-- Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))
 
+- Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))

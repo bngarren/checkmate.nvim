@@ -112,6 +112,9 @@ function M.setup_highlights()
     CheckmateCheckedMarker = config.options.style.checked_marker,
     CheckmateCheckedMainContent = config.options.style.checked_main_content,
     CheckmateCheckedAdditionalContent = config.options.style.checked_additional_content,
+
+    -- Todo count
+    CheckmateTodoCountIndicator = config.options.style.todo_count_indicator,
   }
 
   -- For metadata tags, we only set up the base highlight groups from static styles
@@ -199,6 +202,9 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
 
   -- 4. Highlight content directly in this todo item
   M.highlight_content(bufnr, todo_item)
+
+  -- 5. Show child count indicator
+  M.show_todo_count_indicator(bufnr, todo_item, todo_map)
 
   -- 5. If recursive option is enabled, also highlight all children
   if opts.recursive then
@@ -458,6 +464,56 @@ function M.highlight_content(bufnr, todo_item)
   -- If no paragraphs were found or processed, log a warning
   if not first_para_processed then
     log.debug("No paragraphs found in todo item at line " .. (todo_item.range.start.row + 1), { module = "highlights" })
+  end
+end
+
+---Show todo count indicator
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem
+---@param todo_map table<string, checkmate.TodoItem>
+function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
+  local config = require("checkmate.config")
+
+  if not config.options.show_todo_count then
+    return
+  end
+
+  -- Skip if no children
+  if not todo_item.children or #todo_item.children == 0 then
+    return
+  end
+
+  local use_recursive = config.options.todo_count_recursive ~= false
+  local counts = require("checkmate.api").count_child_todos(todo_item, todo_map, { recursive = use_recursive })
+
+  if counts.total == 0 then
+    return
+  end
+
+  -- Create the count indicator text
+  local indicator_text
+  -- use custom formatter if exists
+  if config.options.todo_count_formatter and type(config.options.todo_count_formatter) == "function" then
+    indicator_text = config.options.todo_count_formatter(counts.completed, counts.total)
+  else
+    -- default
+    indicator_text = string.format("%d/%d", counts.completed, counts.total)
+  end
+
+  -- Add virtual text using extmark
+  if config.options.todo_count_position == "inline" then
+    local extmark_start_col = todo_item.todo_marker.position.col + #todo_item.todo_marker.text + 1
+    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, extmark_start_col, {
+      virt_text = { { indicator_text, "CheckmateTodoCountIndicator" }, { " ", "Normal" } },
+      virt_text_pos = "inline",
+      priority = M.PRIORITY.TODO_MARKER + 1,
+    })
+  elseif config.options.todo_count_position == "eol" then
+    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, 0, {
+      virt_text = { { indicator_text, "CheckmateTodoCountIndicator" } },
+      virt_text_pos = "eol",
+      priority = M.PRIORITY.CONTENT,
+    })
   end
 end
 

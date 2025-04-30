@@ -143,49 +143,71 @@ function M.setup_autocmds(bufnr)
   local augroup_name = "CheckmateApiGroup_" .. bufnr
   local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = augroup,
-    buffer = bufnr,
-    desc = "Checkmate: Convert and save .todo files",
-    callback = function()
-      log.debug("BufWriteCmd triggered for buffer " .. bufnr, { module = "api" })
+  if not vim.b[bufnr].checkmate_autocmds_setup then
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      group = augroup,
+      buffer = bufnr,
+      desc = "Checkmate: Convert and save .todo files",
+      callback = function()
+        log.debug("BufWriteCmd triggered for buffer " .. bufnr, { module = "api" })
 
-      -- This prevents Vim from thinking the write is unnecessary
-      local was_modified = vim.bo[bufnr].modified
-      vim.bo[bufnr].modified = true
+        -- This prevents Vim from thinking the write is unnecessary
+        local was_modified = vim.bo[bufnr].modified
+        vim.bo[bufnr].modified = true
 
-      -- Get the current lines and filename
-      local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      local filename = vim.api.nvim_buf_get_name(bufnr)
+        -- Get the current lines and filename
+        local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local filename = vim.api.nvim_buf_get_name(bufnr)
 
-      -- Create temp buffer and convert to markdown
-      local temp_bufnr = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
-      parser.convert_unicode_to_markdown(temp_bufnr)
+        -- Create temp buffer and convert to markdown
+        local temp_bufnr = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
+        parser.convert_unicode_to_markdown(temp_bufnr)
 
-      -- Get converted lines and write to file
-      local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
+        -- Get converted lines and write to file
+        local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-      local write_ok = (vim.fn.writefile(markdown_lines, filename, "b") == 0)
+        local write_ok = (vim.fn.writefile(markdown_lines, filename, "b") == 0)
 
-      -- Clean up temp buffer
-      vim.api.nvim_buf_delete(temp_bufnr, { force = true })
+        -- Clean up temp buffer
+        vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
-      if write_ok then
-        -- CRITICAL: Set modified to what it was before
-        -- but let Vim handle this AFTER we return
-        vim.schedule(function()
-          vim.bo[bufnr].modified = false
-        end)
+        if write_ok then
+          -- CRITICAL: Set modified to what it was before
+          -- but let Vim handle this AFTER we return
+          vim.schedule(function()
+            vim.bo[bufnr].modified = false
+          end)
 
-        vim.notify("File saved", vim.log.levels.INFO)
-      else
-        vim.notify("Failed to save file", vim.log.levels.ERROR)
-        vim.bo[bufnr].modified = was_modified
-        return false -- Only return early on failure
-      end
-    end,
-  })
+          vim.notify("File saved", vim.log.levels.INFO)
+        else
+          vim.notify("Failed to save file", vim.log.levels.ERROR)
+          vim.bo[bufnr].modified = was_modified
+          return false -- Only return early on failure
+        end
+      end,
+    })
+
+    vim.api.nvim_create_autocmd("InsertLeave", {
+      group = augroup,
+      buffer = bufnr,
+      callback = function()
+        if vim.bo[bufnr].modified then
+          parser.convert_markdown_to_unicode(bufnr)
+          require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'InsertLeave'" })
+        end
+      end,
+    })
+
+    -- Re-apply highlighting when text changes
+    vim.api.nvim_create_autocmd({ "TextChanged" }, {
+      group = augroup,
+      buffer = bufnr,
+      callback = require("checkmate.util").debounce(function()
+        require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'TextChanged'" })
+      end, { ms = 10 }),
+    })
+  end
 end
 
 ---Toggles or sets a todo item's state

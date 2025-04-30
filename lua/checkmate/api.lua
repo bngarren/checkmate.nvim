@@ -139,87 +139,53 @@ end
 function M.setup_autocmds(bufnr)
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
-  local augroup = vim.api.nvim_create_augroup("CheckmateApiGroup_" .. bufnr, { clear = true })
+  local util = require("checkmate.util")
+  local augroup_name = "CheckmateApiGroup_" .. bufnr
+  local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 
-  if not vim.b[bufnr].checkmate_autocmds_setup then
-    -- We create a temporary buffer that the user never sees. We convert to markdown in the temp buffer.
-    -- Then, manually write to file using io lib. We mark the real buffer as saved without ever modifying it.
-    -- The user continues to see their Unicode style todo items and highlighting.
-    vim.api.nvim_create_autocmd("BufWriteCmd", {
-      group = augroup,
-      buffer = bufnr,
-      callback = function()
-        local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local filename = vim.api.nvim_buf_get_name(bufnr)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = augroup,
+    buffer = bufnr,
+    desc = "Checkmate: Convert and save .todo files",
+    callback = function()
+      log.debug("BufWriteCmd triggered for buffer " .. bufnr, { module = "api" })
 
-        -- Create a temporary buffer (hidden from user)
-        local temp_bufnr = vim.api.nvim_create_buf(false, true)
+      -- This prevents Vim from thinking the write is unnecessary
+      local was_modified = vim.bo[bufnr].modified
+      vim.bo[bufnr].modified = true
 
-        -- Copy content to temp buffer
-        vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
+      -- Get the current lines and filename
+      local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local filename = vim.api.nvim_buf_get_name(bufnr)
 
-        -- Convert Unicode to markdown in the temporary buffer
-        local success = parser.convert_unicode_to_markdown(temp_bufnr)
+      -- Create temp buffer and convert to markdown
+      local temp_bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
+      parser.convert_unicode_to_markdown(temp_bufnr)
 
-        if not success then
-          log.error("Failed to convert Unicode to Markdown", { module = "api" })
-          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          return false
-        end
+      -- Get converted lines and write to file
+      local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-        -- Get the converted markdown content
-        local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
+      local write_ok = (vim.fn.writefile(markdown_lines, filename, "b") == 0)
 
-        -- Write directly to file
-        local file = io.open(filename, "w")
-        if file then
-          for _, line in ipairs(markdown_lines) do
-            file:write(line .. "\n")
-          end
-          file:close()
+      -- Clean up temp buffer
+      vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
-          -- Mark buffer as saved
+      if write_ok then
+        -- CRITICAL: Set modified to what it was before
+        -- but let Vim handle this AFTER we return
+        vim.schedule(function()
           vim.bo[bufnr].modified = false
+        end)
 
-          -- Clean up temp buffer
-          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-
-          -- Signal success
-          vim.api.nvim_echo({ { "File saved" } }, false, {})
-          return true
-        else
-          -- Signal failure
-          vim.api.nvim_echo({ { "Failed to write file", "ErrorMsg" } }, false, {})
-          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          return false
-        end
-      end,
-    })
-
-    -- When leaving insert mode, detect and convert any manually typed todo items
-    vim.api.nvim_create_autocmd("InsertLeave", {
-      group = augroup,
-      buffer = bufnr,
-      callback = function()
-        if vim.bo[bufnr].modified then
-          parser.convert_markdown_to_unicode(bufnr)
-          require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'InsertLeave'" })
-        end
-      end,
-    })
-
-    -- Re-apply highlighting when text changes
-    vim.api.nvim_create_autocmd({ "TextChanged" }, {
-      group = augroup,
-      buffer = bufnr,
-      callback = require("checkmate.util").debounce(function()
-        require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'TextChanged'" })
-      end, { ms = 10 }),
-    })
-
-    -- Mark autocmds as set up
-    vim.b[bufnr].checkmate_autocmds_setup = true
-  end
+        vim.notify("File saved", vim.log.levels.INFO)
+      else
+        vim.notify("Failed to save file", vim.log.levels.ERROR)
+        vim.bo[bufnr].modified = was_modified
+        return false -- Only return early on failure
+      end
+    end,
+  })
 end
 
 ---Toggles or sets a todo item's state

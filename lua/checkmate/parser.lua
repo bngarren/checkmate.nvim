@@ -135,26 +135,28 @@ end
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
 function M.convert_markdown_to_unicode(bufnr)
   local log = require("checkmate.log")
+  local util = require("checkmate.util")
+  local config = require("checkmate.config")
+
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Get all lines in the buffer
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
-  -- Store current modified state to restore it later
-  local was_modified = vim.api.nvim_get_option_value("modified", { buf = bufnr })
+  local original_modified = vim.bo[bufnr].modified
 
-  local util = require("checkmate.util")
-  local config = require("checkmate.config")
-
+  -- Build patterns only once
   local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[%s%]")
   local checked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[[xX]%]")
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
 
+  -- Create new_lines table to avoid modifying while iterating
+  local new_lines = {}
+
   -- Replace markdown syntax with Unicode
   for i, line in ipairs(lines) do
     local new_line = line
-    local original_line = line
 
     -- Apply all unchecked replacements
     for _, pat in ipairs(unchecked_patterns) do
@@ -166,23 +168,21 @@ function M.convert_markdown_to_unicode(bufnr)
       new_line = new_line:gsub(pat, "%1" .. checked)
     end
 
-    -- Update line if changed
-    if new_line ~= original_line then
-      lines[i] = new_line
+    -- Check if line was modified
+    if new_line ~= line then
       modified = true
     end
+
+    table.insert(new_lines, new_line)
   end
 
   -- Update buffer if changes were made
   if modified then
-    -- Disable undo and modification tracking temporarily
+    -- Disable undo to avoid breaking undo sequence
     vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd("silent! undojoin") -- Avoid breaking undo sequence
-      local old_modifiable = vim.api.nvim_get_option_value("modifiable", { buf = bufnr })
-      vim.api.nvim_set_option_value("modifiable", true, { buf = bufnr })
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-      vim.api.nvim_set_option_value("modified", was_modified, { buf = bufnr }) -- Reset modified flag
-      vim.api.nvim_set_option_value("modifiable", old_modifiable, { buf = bufnr })
+      vim.cmd("silent! undojoin")
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
+      vim.bo[bufnr].modified = original_modified
     end)
 
     log.debug("Converted Markdown todo symbols to Unicode", { module = "parser" })
@@ -197,53 +197,46 @@ function M.convert_unicode_to_markdown(bufnr)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
+
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Get all lines in the buffer
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
-  -- Store current modified state to restore it later
-  local was_modified = vim.api.nvim_get_option_value("modified", { buf = bufnr })
 
+  -- Build patterns
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
-
   local unchecked_patterns = util.build_unicode_todo_patterns(M.list_item_markers, unchecked)
   local checked_patterns = util.build_unicode_todo_patterns(M.list_item_markers, checked)
 
-  -- Replace Unicode with markdown syntax
-  for i, line in ipairs(lines) do
-    local new_line = line
-    local original_line = line
+  -- Create new_lines table
+  local new_lines = {}
 
-    -- Replace unchecked Unicode markers (e.g., "□") with "[ ]"
+  -- Replace Unicode with markdown syntax
+  for _, line in ipairs(lines) do
+    local new_line = line
+
+    -- Replace unchecked Unicode markers with "[ ]"
     for _, pattern in ipairs(unchecked_patterns) do
       new_line = new_line:gsub(pattern, "%1[ ]")
     end
 
-    -- Replace checked Unicode markers (e.g., "✔") with "[x]"
+    -- Replace checked Unicode markers with "[x]"
     for _, pattern in ipairs(checked_patterns) do
       new_line = new_line:gsub(pattern, "%1[x]")
     end
 
-    if new_line ~= original_line then
-      lines[i] = new_line
+    if new_line ~= line then
       modified = true
     end
+
+    table.insert(new_lines, new_line)
   end
 
   -- Update buffer if changes were made
   if modified then
-    -- Disable undo and modification tracking temporarily
-    vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd("silent! undojoin") -- Avoid breaking undo sequence
-      local old_modifiable = vim.api.nvim_get_option_value("modifiable", { buf = bufnr })
-      vim.api.nvim_set_option_value("modifiable", true, { buf = bufnr })
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-      vim.api.nvim_set_option_value("modified", was_modified, { buf = bufnr }) -- Reset modified flag
-      vim.api.nvim_set_option_value("modifiable", old_modifiable, { buf = bufnr })
-    end)
-
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
     log.debug("Converted Unicode todo symbols to Markdown", { module = "parser" })
     return true
   end

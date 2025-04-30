@@ -144,16 +144,22 @@ function M.setup_autocmds(bufnr)
   local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 
   if not vim.b[bufnr].checkmate_autocmds_setup then
+    -- This implementation addresses several subtle behavior issues:
+    --   1. vim.schedule() is used to defer setting the modified=false until after
+    -- the autocmd completes. Otherwise, Neovim wasn't calling BufWritCmd on subsequent rewrites.
+    --   2. Atomic write operation - ensures data integrity (either complete write success or
+    -- complete failure, with preservation of the original buffer) by using temp file with a
+    -- rename operation (which is atomic at the POSIX filesystem level)
+    --   3. A temp buffer is used to perform the unicode to markdown conversion in order to
+    -- keep a consistent visual experience for the user, maintain a clean undo history, and
+    -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
     vim.api.nvim_create_autocmd("BufWriteCmd", {
       group = augroup,
       buffer = bufnr,
       desc = "Checkmate: Convert and save .todo files",
       callback = function()
-        log.debug("BufWriteCmd triggered for buffer " .. bufnr, { module = "api" })
-
-        -- This prevents Vim from thinking the write is unnecessary
+        local uv = vim.uv
         local was_modified = vim.bo[bufnr].modified
-        vim.bo[bufnr].modified = true
 
         -- Get the current lines and filename
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -162,28 +168,60 @@ function M.setup_autocmds(bufnr)
         -- Create temp buffer and convert to markdown
         local temp_bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
-        parser.convert_unicode_to_markdown(temp_bufnr)
+
+        -- Convert Unicode to markdown
+        local success = parser.convert_unicode_to_markdown(temp_bufnr)
+        if not success then
+          log.error("Failed to convert Unicode to Markdown", { module = "api" })
+          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
+          util.notify("Failed to save: conversion error", vim.log.levels.ERROR)
+          return false
+        end
 
         -- Get converted lines and write to file
         local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-        local write_ok = (vim.fn.writefile(markdown_lines, filename, "b") == 0)
+        -- Create temporary file path
+        local temp_filename = filename .. ".tmp"
+
+        -- Write to temporary file first
+        local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
 
         -- Clean up temp buffer
         vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
-        if write_ok then
-          -- CRITICAL: Set modified to what it was before
-          -- but let Vim handle this AFTER we return
+        if write_result == 0 then
+          -- Atomically rename the temp file to the target file
+          local ok, rename_err = pcall(function()
+            uv.fs_rename(temp_filename, filename)
+          end)
+
+          if not ok then
+            -- If rename fails, try to clean up and report error
+            pcall(function()
+              uv.fs_unlink(temp_filename)
+            end)
+            log.error("Failed to rename temp file: " .. (rename_err or "unknown error"), { module = "api" })
+            util.notify("Failed to save file", vim.log.levels.ERROR)
+            vim.bo[bufnr].modified = was_modified
+            return false
+          end
+
+          -- Use schedule to set modified flag after command completes
           vim.schedule(function()
             vim.bo[bufnr].modified = false
           end)
 
-          vim.notify("File saved", vim.log.levels.INFO)
+          util.notify("File saved", vim.log.levels.INFO)
         else
-          vim.notify("Failed to save file", vim.log.levels.ERROR)
+          -- Failed to write temp file
+          -- Try to clean up
+          pcall(function()
+            uv.fs_unlink(temp_filename)
+          end)
+          util.notify("Failed to write file", vim.log.levels.ERROR)
           vim.bo[bufnr].modified = was_modified
-          return false -- Only return early on failure
+          return false
         end
       end,
     })
@@ -258,6 +296,7 @@ function M.handle_toggle(bufnr, line_row, col, opts)
   elseif target_state == todo_item.state then
     -- Already in target state, no change needed
     log.debug("Todo item already in target state: " .. target_state, { module = "api" })
+    util.notify("Todo item is already " .. target_state, log.levels.INFO)
     return nil, todo_item
   end
 
@@ -327,10 +366,10 @@ function M.create_todo()
   local row = cursor[1] - 1 -- 0-indexed
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
-  local todo_markers = config.options.todo_markers
-  -- Check if line already has a task marker
-  if line:match(todo_markers.unchecked) or line:match(todo_markers.checked) then
+  local todo_state = parser.get_todo_item_state(line)
+  if todo_state ~= nil then
     log.debug("Line already has a todo marker, skipping", { module = "api" })
+    util.notify(("Todo item already exists on row %d!"):format(row + 1), log.levels.INFO)
     return
   end
 

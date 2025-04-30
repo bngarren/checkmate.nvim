@@ -1,0 +1,16 @@
+return {
+  _all = {
+    -- Path to search for Lua modules
+    lpath = "./lua/?.lua;./lua/?/init.lua",
+    -- Initial file to load before running tests
+    helper = "tests/minimal_init.lua",
+    -- Don't generate coverage reports (can be enabled if needed)
+    coverage = false,
+  },
+  default = {
+    -- Run tests in 'tests' directory by default
+    ROOT = { "tests/checkmate" },
+    pattern = "_spec.lua$",
+    verbose = true,
+  },
+}

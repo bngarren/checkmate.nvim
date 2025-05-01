@@ -30,6 +30,7 @@ _G.reset_state = function()
   package.loaded["checkmate.util"] = nil
   package.loaded["checkmate.log"] = nil
   package.loaded["checkmate.api"] = nil
+  package.loaded["checkmate.highlights"] = nil
 
   -- Re-require the main module to reset its state
   return require("checkmate").setup()

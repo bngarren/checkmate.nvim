@@ -1,4 +1,5 @@
 describe("API", function()
+  local h = require("tests.checkmate.helpers")
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
@@ -13,39 +14,9 @@ describe("API", function()
     _G.reset_state()
   end)
 
-  -- Create a temporary file for testing
-  local function create_temp_file()
-    local temp_dir = vim.fn.tempname()
-    vim.fn.mkdir(temp_dir, "p")
-    local file_path = temp_dir .. "/test.todo"
-    return file_path
-  end
-
-  -- Read file contents directly (not via Neovim buffer)
-  local function read_file_content(file_path)
-    local f = io.open(file_path, "r")
-    if not f then
-      return nil
-    end
-    local content = f:read("*all")
-    f:close()
-    return content
-  end
-
-  -- Write content to file directly
-  local function write_file_content(file_path, content)
-    local f = io.open(file_path, "w")
-    if not f then
-      return false
-    end
-    f:write(content)
-    f:close()
-    return true
-  end
-
   -- Set up a todo file in a buffer with autocmds
   local function setup_todo_buffer(file_path, content)
-    write_file_content(file_path, content)
+    h.write_file_content(file_path, content)
 
     -- Open the file in a buffer
     vim.cmd("edit " .. file_path)
@@ -67,27 +38,66 @@ describe("API", function()
       local checked = config.options.todo_markers.checked
 
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
-      -- Initial content with Unicode symbols
-      local content = "# Todo List\n\n- " .. unchecked .. " Unchecked task\n- " .. checked .. " Checked task\n"
+      -- Initial content with Unicode symbols, hierarchical structure, and different list markers
+      local content = [[
+# Complex Todo List
+## Work Tasks
+- ]] .. unchecked .. [[ Major project planning
+  * ]] .. unchecked .. [[ Research competitors
+  * ]] .. checked .. [[ Create timeline
+  * ]] .. unchecked .. [[ Assign resources
+    + ]] .. checked .. [[ Allocate budget
+    + ]] .. unchecked .. [[ Schedule meetings
+    + ]] .. unchecked .. [[ Set milestones
+  * ]] .. checked .. [[ Draft proposal
+- ]] .. checked .. [[ Email weekly report
+## Personal Tasks
+1. ]] .. unchecked .. [[ Grocery shopping
+2. ]] .. checked .. [[ Call dentist
+3. ]] .. unchecked .. [[ Plan vacation
+   - ]] .. unchecked .. [[ Research destinations
+   - ]] .. checked .. [[ Check budget]]
 
-      -- Setup buffer with the content
       local bufnr = setup_todo_buffer(file_path, content)
 
       -- Force a write operation - triggering our BufWriteCmd handler
       vim.cmd("write")
 
-      -- Wait for the save operation to complete
       vim.cmd("sleep 10m")
 
       -- Read the saved file content directly (should be in Markdown format)
-      local saved_content = read_file_content(file_path)
+      local saved_content = h.read_file_content(file_path)
 
-      -- Verify content was saved as Markdown
-      assert.not_nil(saved_content)
-      assert.matches("- %[%s%] Unchecked task", saved_content) -- "- [ ] Unchecked task"
-      assert.matches("- %[x%] Checked task", saved_content) -- "- [x] Checked task"
+      if not saved_content then
+        error("error reading file content")
+      end
+
+      -- Split into lines and check each line individually
+      local lines = vim.split(saved_content, "\n")
+
+      assert.equals("# Complex Todo List", lines[1])
+      assert.equals("## Work Tasks", lines[2])
+      assert.equals("- [ ] Major project planning", lines[3]:gsub("%s+$", ""))
+      assert.equals("  * [ ] Research competitors", lines[4]:gsub("%s+$", ""))
+      assert.equals("  * [x] Create timeline", lines[5]:gsub("%s+$", ""))
+      assert.equals("  * [ ] Assign resources", lines[6]:gsub("%s+$", ""))
+      assert.equals("    + [x] Allocate budget", lines[7]:gsub("%s+$", ""))
+      assert.equals("    + [ ] Schedule meetings", lines[8]:gsub("%s+$", ""))
+      assert.equals("    + [ ] Set milestones", lines[9]:gsub("%s+$", ""))
+      assert.equals("  * [x] Draft proposal", lines[10]:gsub("%s+$", ""))
+      assert.equals("- [x] Email weekly report", lines[11]:gsub("%s+$", ""))
+      assert.equals("## Personal Tasks", lines[12])
+      assert.equals("1. [ ] Grocery shopping", lines[13]:gsub("%s+$", ""))
+      assert.equals("2. [x] Call dentist", lines[14]:gsub("%s+$", ""))
+      assert.equals("3. [ ] Plan vacation", lines[15]:gsub("%s+$", ""))
+      assert.equals("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
+      assert.equals("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
+
+      -- Verify Unicode symbols are NOT present in the saved file
+      assert.not_matches(vim.pesc(unchecked), saved_content)
+      assert.not_matches(vim.pesc(checked), saved_content)
 
       finally(function()
         -- Clean up
@@ -98,11 +108,11 @@ describe("API", function()
 
     it("should load todo file with Markdown checkboxes converted to Unicode", function()
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with Markdown format
       local content = "# Todo List\n\n- [ ] Unchecked task\n- [x] Checked task\n"
-      write_file_content(file_path, content)
+      h.write_file_content(file_path, content)
 
       -- Open the file in Neovim
       vim.cmd("edit " .. file_path)
@@ -139,7 +149,7 @@ describe("API", function()
       local unchecked = config.options.todo_markers.unchecked
 
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with just unchecked items
       local content = "# Todo List\n\n- [ ] Task 1\n- [ ] Task 2\n- [ ] Task 3\n"
@@ -210,7 +220,7 @@ describe("API", function()
   describe("todo creation and manipulation", function()
     it("should create a new todo item", function()
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with no todos
       local content = "# Todo List\n\nThis is a regular line\n"
@@ -244,7 +254,7 @@ describe("API", function()
       local unchecked = config.options.todo_markers.unchecked
 
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with a todo
       local content = "# Todo List\n\n- [ ] Task without metadata\n"
@@ -273,7 +283,7 @@ describe("API", function()
       vim.cmd("sleep 10m")
 
       -- Read file directly
-      local saved_content = read_file_content(file_path)
+      local saved_content = h.read_file_content(file_path)
 
       -- Verify metadata was saved
       assert.matches("- %[ %] Task without metadata @priority%(high%)", saved_content)
@@ -291,7 +301,7 @@ describe("API", function()
       local checked = config.options.todo_markers.checked
 
       -- Create a test todo file with nested todos
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with hierarchical todos
       local content = [[
@@ -341,7 +351,7 @@ describe("API", function()
       vim.cmd("sleep 10m")
 
       -- Read directly
-      local saved_content = read_file_content(file_path)
+      local saved_content = h.read_file_content(file_path)
 
       if not saved_content then
         error("error reading file content")
@@ -374,7 +384,7 @@ describe("API", function()
       local config = require("checkmate.config")
 
       -- Create a test todo file
-      local file_path = create_temp_file()
+      local file_path = h.create_temp_file()
 
       -- Initial content with todos
       local content = [[
@@ -418,7 +428,7 @@ describe("API", function()
       vim.cmd("sleep 10m")
 
       -- Read directly
-      local saved_content = read_file_content(file_path)
+      local saved_content = h.read_file_content(file_path)
 
       -- Verify saved correctly
       assert.matches("- %[x%] Task 1", saved_content)

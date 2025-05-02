@@ -7,7 +7,7 @@ test:
 # Run a specific test file
 # Usage: make test-file FILE=tests/specs/parser_spec.lua
 test-file:
-	nvim -l tests/busted.lua $(FILE) tests/custom_reporter --color
+	nvim -l tests/busted.lua $(FILE) tests/custom_reporter -Xoutput color
 
 # Enter test environment for interactive testing
 test-interactive:

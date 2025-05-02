@@ -16,7 +16,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    if: false
     strategy:
       matrix:
         nvim-versions: ["stable", "nightly"]
@@ -24,11 +23,19 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
-      - uses: rhysd/action-setup-vim@v1
+        with:
+          fetch-depth: 0
+      - name: setup neovim
+        uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
           version: ${{ matrix.nvim-versions }}
-
+      # Install Lua and LuaRocks - for busted and other dependencies
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v11
+        with:
+          luaVersion: "5.1" # match Neovim's Lua version
+      - name: Setup LuaRocks
+        uses: leafo/gh-actions-luarocks@v5
       - name: run tests
         run: make test

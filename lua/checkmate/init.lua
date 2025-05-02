@@ -125,6 +125,17 @@ function M.remove_metadata(metadata_name)
   })
 end
 
+function M.remove_all_metadata()
+  local is_visual = require("checkmate.util").is_visual_mode()
+  local api = require("checkmate.api")
+
+  api.apply_todo_operation({
+    operation = api.remove_all_metadata,
+    is_visual = is_visual,
+    action_name = "remove all metadata",
+  })
+end
+
 --- Toggle a metadata tag on/off at the cursor or for each todo in the visual selection
 ---@param meta_name string Name of the metadata tag (defined in the config)
 ---@param custom_value string Value contained in tag

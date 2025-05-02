@@ -44,6 +44,14 @@ M.regular_commands = {
     end,
     opts = { desc = "Set todo item to unchecked state" },
   },
+  {
+    name = "Remove All Metadata",
+    cmd = "CheckmateRemoveAllMetadata",
+    func = function()
+      require("checkmate").remove_all_metadata()
+    end,
+    opts = { desc = "Remove all metadata from todo item" },
+  },
 }
 
 -- Debug commands only available when INCLUDE_DEBUG_COMMANDS is true

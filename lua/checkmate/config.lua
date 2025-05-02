@@ -44,7 +44,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field metadata checkmate.Metadata
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -124,6 +124,7 @@ local _DEFAULTS = {
     ["<leader>Tc"] = "check", -- Set todo item as checked (done)
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
+    ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
   },
   default_list_marker = "-",
   todo_markers = {

@@ -5,20 +5,31 @@
 ### A simple Todo plugin
 
 [![Lua](https://img.shields.io/badge/Lua-blue.svg?style=for-the-badge&logo=lua)](http://www.lua.org)
-[![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim)](https://neovim.io)
+[![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim&color=%2343743f)](https://neovim.io)
+<br>
+![GitHub Release](https://img.shields.io/github/v/release/bngarren/checkmate.nvim?style=for-the-badge&logoSize=200&color=%23f3d38a)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/bngarren/checkmate.nvim/lint-test.yml?branch=main&style=for-the-badge&label=CI)
+
+
+
 
 <img alt="Checkmate Mate" height="220" src="./assets/checkmate-logo.png" />
 </div><br/>
 
-A markdown-based todo list plugin for Neovim with a clean UI and full customization options.
+A Markdown-based todo list plugin for Neovim with a nice UI and full customization options.
 
+### Features
 - Stores todos in plain Markdown format (compatible with other apps)
 - Unicode symbol support for more beautiful todo items
 - Customizable markers and colors
 - Visual mode support for toggling multiple items at once
-- Metadata (`@tag(value)`) annotations with extensive customization
-  - e.g. @started, @done, @priority
+- Metadata e.g. `@tag(value)` annotations with extensive customization
+  - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
+
+<br/>
+<img alt="Todo markers customization example 1" height="50" src="./assets/todo-markers-example-1.png" />
+<img alt="Todo markers customization example 2" height="50" src="./assets/todo-markers-example-2.png" />
 
 <br/>
 
@@ -71,9 +82,9 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 - Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
 - Select multiple items in visual mode and use the same commands
 
-Enhance your todos with custom [metadata](#metadata)!
+Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
-> Your .todo file is saved as regular markdown!
+> Your .todo file is saved as regular markdown ✔
 
 # ☑️ Commands
 
@@ -418,11 +429,11 @@ todo_count_recursive = true,
 
 Planned features:
 
-- ~~**Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting~~ Added v0.2.0
+- [x] **Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting. _Added v0.2.0_
 
-- **Archiving** - manually or automatically move completed items to the bottom of the document
+- [ ] **Archiving** - manually or automatically move completed items to the bottom of the document
 
-- ~~**Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items~~ Added v0.3.0
+- [x] **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items. _Added v0.3.0_
 
 # Contributing
 

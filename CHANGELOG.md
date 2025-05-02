@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/bngarren/checkmate.nvim/compare/v0.3.3...v0.4.0) (2025-05-02)
+
+
+### Features
+
+* **api:** buf writes are now atomic to maintain data integrity with markdown conversion ([464f539](https://github.com/bngarren/checkmate.nvim/commit/464f539c6eba4e4ca0f38d6af2c0fb5dbba0cc07))
+* **tests:** added proper testing with Busted. Decent coverage of parser, api, and config ([464f539](https://github.com/bngarren/checkmate.nvim/commit/464f539c6eba4e4ca0f38d6af2c0fb5dbba0cc07))
+
+
+### Bug Fixes
+
+* **api:** added notifications for toggles attempted at invalid locations ([464f539](https://github.com/bngarren/checkmate.nvim/commit/464f539c6eba4e4ca0f38d6af2c0fb5dbba0cc07))
+* **log:** adjusted log module's log levels table to match vim's ([464f539](https://github.com/bngarren/checkmate.nvim/commit/464f539c6eba4e4ca0f38d6af2c0fb5dbba0cc07))
+
 ## [0.3.3](https://github.com/bngarren/checkmate.nvim/compare/v0.3.2...v0.3.3) (2025-05-01)
 
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/bngarren/checkmate.nvim/compare/v0.3.3...v0.4.0) (2025-05-02)
+
+
+### Features
+
+* add atomic write strategy to improve data integrity ([732c13e](https://github.com/bngarren/checkmate.nvim/commit/732c13e62868d55db3770c4cf604edd7be05886c))
+* improved test coverage ([f786a42](https://github.com/bngarren/checkmate.nvim/commit/f786a42af66391795ad847ae6288aa4266e078a1))
+
+
+### Bug Fixes
+
+* added notifications for toggles attempted at invalid locations ([7712cc7](https://github.com/bngarren/checkmate.nvim/commit/7712cc7757bc57639c65be7d2520912f8de710f4))
+* adjusted log module's log levels table to match vim's ([886ad15](https://github.com/bngarren/checkmate.nvim/commit/886ad156d22a8fbf61ca920f79ebad05d249a27a))
+
+
+### Continuous Integration
+
+* update lint-test workflow ([750b7e7](https://github.com/bngarren/checkmate.nvim/commit/750b7e71720b89460b6ac0d17807cb621627520b))
+
 ## [0.3.3](https://github.com/bngarren/checkmate.nvim/compare/v0.3.2...v0.3.3) (2025-05-01)
 
 

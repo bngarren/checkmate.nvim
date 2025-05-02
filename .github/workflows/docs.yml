@@ -3,12 +3,14 @@ on:
   push:
     branches:
       - main
+      - develop
     paths:
       - README.md
       - .github/workflows/panvimdoc.yml
   pull_request:
     branches:
       - main # Run on PRs targeting main
+      - develop
     paths:
       - README.md
       - .github/workflows/panvimdoc.yml

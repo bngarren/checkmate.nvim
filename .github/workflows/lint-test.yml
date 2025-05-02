@@ -3,10 +3,12 @@ name: lint-test
 on:
   push:
     branches:
-      - main # Only run on push to main
+      - main
+      - develop
   pull_request:
     branches:
       - main # Run on PRs targeting main
+      - develop
   workflow_dispatch: # Allow manual triggering
 
 jobs:

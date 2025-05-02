@@ -296,6 +296,7 @@ function M.handle_toggle(bufnr, line_row, col, opts)
   elseif target_state == todo_item.state then
     -- Already in target state, no change needed
     log.debug("Todo item already in target state: " .. target_state, { module = "api" })
+    util.notify("Todo item is already " .. target_state, log.levels.INFO)
     return nil, todo_item
   end
 
@@ -365,10 +366,10 @@ function M.create_todo()
   local row = cursor[1] - 1 -- 0-indexed
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
-  local todo_markers = config.options.todo_markers
-  -- Check if line already has a task marker
-  if line:match(todo_markers.unchecked) or line:match(todo_markers.checked) then
+  local todo_state = parser.get_todo_item_state(line)
+  if todo_state ~= nil then
     log.debug("Line already has a todo marker, skipping", { module = "api" })
+    util.notify(("Todo item already exists on row %d!"):format(row + 1), log.levels.INFO)
     return
   end
 

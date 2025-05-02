@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - "release/**"
 
 permissions:
   contents: write
@@ -27,5 +26,3 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           config-file: release-please-config.json
-          # Tell it to open/update the PR against whichever branch triggered this run:
-          target-branch: ${{ github.ref_name }}

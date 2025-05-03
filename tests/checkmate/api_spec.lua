@@ -552,6 +552,99 @@ describe("API", function()
         os.remove(file_path)
       end)
     end)
+
+    it("should preserve cursor position in all operations", function()
+      local file_path = h.create_temp_file()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      -- Content with multiple todos for testing
+      local content = [[
+# Cursor Position Test
+
+- ]] .. unchecked .. [[ First todo item
+- ]] .. unchecked .. [[ Second todo item
+  - ]] .. unchecked .. [[ Child of second todo
+- ]] .. unchecked .. [[ Third todo item
+- ]] .. checked .. [[ Fourth todo item (already checked)
+
+Normal content line (not a todo)]]
+
+      h.write_file_content(file_path, content)
+      vim.cmd("edit " .. file_path)
+      local bufnr = vim.api.nvim_get_current_buf()
+      vim.bo[bufnr].filetype = "markdown"
+      require("checkmate.api").setup(bufnr)
+
+      -- Test 1: Normal mode with cursor on todo item
+      vim.api.nvim_win_set_cursor(0, { 4, 10 }) -- Line 4, column 10
+      local cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").toggle()
+      local cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Normal mode: cursor should be preserved on todo toggle")
+
+      -- Test 2: Normal mode with cursor on non-todo line
+      vim.api.nvim_win_set_cursor(0, { 9, 5 }) -- Non-todo line
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").toggle() -- This should fail (no todo)
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Normal mode: cursor should be preserved when no todo found")
+
+      -- Test 3: Visual mode with multiple todo items
+      -- Enter visual line mode on lines 3-5
+      vim.cmd("normal! 3GV5G")
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").toggle()
+      vim.cmd("normal! \27") -- Escape from any remaining visual mode
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Visual mode: cursor should be preserved after multi-line operation")
+
+      -- Test 4: Adding metadata in normal mode
+      vim.api.nvim_win_set_cursor(0, { 5, 15 }) -- On a todo line
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").add_metadata("priority", "high")
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when adding metadata in normal mode")
+
+      -- Test 5: Adding metadata in visual mode
+      vim.cmd("normal! 3GV4G") -- Select first and second todo items
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").add_metadata("priority", "medium")
+      vim.cmd("normal! \27") -- Escape from any remaining visual mode
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when adding metadata in visual mode")
+
+      -- Test 6: Removing metadata in normal and visual modes
+      -- First add metadata to a todo item
+      vim.api.nvim_win_set_cursor(0, { 6, 15 }) -- Child todo item
+      require("checkmate").add_metadata("due", "tomorrow")
+
+      -- Now test removing it in normal mode
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").remove_metadata("due")
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when removing metadata in normal mode")
+
+      -- Add metadata to multiple items for visual mode test
+      vim.cmd("normal! 3GV4G") -- Select first and second todo items
+      require("checkmate").add_metadata("tags", "test")
+      vim.cmd("normal! \27") -- Escape
+
+      -- Now test removing in visual mode
+      vim.cmd("normal! 3GV4G") -- Select same items again
+      cursor_before = vim.api.nvim_win_get_cursor(0)
+      require("checkmate").remove_metadata("tags")
+      vim.cmd("normal! \27") -- Escape
+      cursor_after = vim.api.nvim_win_get_cursor(0)
+      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when removing metadata in visual mode")
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
   end)
 
   describe("metadata callbacks", function()

@@ -471,7 +471,6 @@ function M.rebuild_line_with_sorted_metadata(line, metadata)
 
   -- If no metadata entries, just return the cleaned content
   if not metadata or not metadata.entries or #metadata.entries == 0 then
-    log.debug("Removed all metadata tags from line", { module = "parser" })
     return content_without_metadata
   end
 
@@ -512,13 +511,14 @@ function M.apply_metadata(todo_item, opts)
     return false
   end
 
-  if meta_config.on_add then
-    meta_config.on_add(todo_item)
-  end
-
   -- Get the first line of the todo item (where metadata should be added)
   local todo_row = todo_item.range.start.row
   local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
+
+  -- This is an error if the todo_item passed in doesn't have a legit line in the buffer...
+  if not line or #line == 0 then
+    return false
+  end
 
   -- Determine the value to insert
   local value = opts.custom_value
@@ -569,6 +569,11 @@ function M.apply_metadata(todo_item, opts)
   -- Update the line
   vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
 
+  -- Call the on_add callback after successful operation
+  if meta_config.on_add then
+    meta_config.on_add(todo_item)
+  end
+
   require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "apply_metadata" })
 
   return true
@@ -606,13 +611,13 @@ function M.remove_metadata(todo_item, opts)
   end
 
   if entry then
-    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-    if meta_config.on_remove then
-      meta_config.on_remove(todo_item)
-    end
-
     local todo_row = todo_item.range.start.row
     local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
+
+    -- This is an error if the todo_item passed in doesn't have a legit line in the buffer...
+    if not line or #line == 0 then
+      return false
+    end
 
     -- Create updated metadata structure
     local updated_metadata = vim.deepcopy(todo_item.metadata)
@@ -636,6 +641,12 @@ function M.remove_metadata(todo_item, opts)
 
     -- Update the line
     vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
+
+    -- Call the on_remove callback if successful
+    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+    if meta_config.on_remove then
+      meta_config.on_remove(todo_item)
+    end
 
     require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_metadata" })
 
@@ -712,12 +723,17 @@ function M.remove_all_metadata(todo_item)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  -- Loop through each metadata entry and run its on_remove callback, if present
+  -- Store the callbacks to run after successful operation
+  local callbacks = {}
+
+  -- Collect the callbacks, but don't run them yet
   for _, entry in ipairs(todo_item.metadata.entries) do
     local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
     if meta_config.on_remove then
-      log.debug(("running on_remove callback for todo_item on row %d"):format(todo_item.range.start.row + 1))
-      meta_config.on_remove(todo_item)
+      table.insert(callbacks, {
+        tag = entry.tag,
+        func = meta_config.on_remove,
+      })
     end
   end
 
@@ -735,6 +751,17 @@ function M.remove_all_metadata(todo_item)
 
   -- Update the line
   vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
+
+  -- Run all callbacks after successful update
+  for _, item in ipairs(callbacks) do
+    log.debug(
+      ("running on_remove callback for metadata %s on todo_item on row %d"):format(
+        item.tag,
+        todo_item.range.start.row + 1
+      )
+    )
+    item.func(todo_item)
+  end
 
   require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_all_metadata" })
 

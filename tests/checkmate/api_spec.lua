@@ -553,4 +553,178 @@ describe("API", function()
       end)
     end)
   end)
+
+  describe("metadata callbacks", function()
+    it("should call on_add only when metadata is successfully added", function()
+      -- Set up a test file
+      local file_path = h.create_temp_file()
+      local unchecked = require("checkmate.config").options.todo_markers.unchecked
+
+      -- Initial content with one todo
+      local content = "# Metadata Callbacks Test\n\n- " .. unchecked .. " A test todo"
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- Create a spy to track callback execution
+      local on_add_called = false
+      local test_todo_item = nil
+
+      -- Configure a test metadata tag with on_add callback
+      local config = require("checkmate.config")
+      ---@diagnostic disable-next-line: missing-fields
+      config.setup({
+        metadata = {
+          ---@diagnostic disable-next-line: missing-fields
+          test = {
+            on_add = function(todo_item)
+              on_add_called = true
+              test_todo_item = todo_item
+            end,
+          },
+        },
+      })
+
+      -- Get the todo item at row 2 (0-indexed)
+      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local todo_item = nil
+      for _, item in pairs(todo_map) do
+        if item.range.start.row == 2 then
+          todo_item = item
+          break
+        end
+      end
+
+      -- Verify we found the todo
+      if not todo_item then
+        error("missing todo item!")
+      end
+
+      -- Apply the metadata
+      local success = require("checkmate.api").apply_metadata(todo_item, {
+        meta_name = "test",
+        custom_value = "test_value",
+      })
+
+      -- Check that the operation succeeded
+      assert.is_true(success)
+      -- Check that the callback was called
+      assert.is_true(on_add_called)
+      -- Check that the todo item was passed to the callback
+      assert.is_not_nil(test_todo_item)
+      -- Verify the metadata was added
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.matches("@test%(test_value%)", lines[3])
+
+      -- Reset the callback flag
+      on_add_called = false
+
+      -- Try to apply metadata to a non-existent todo
+      local fake_todo = {
+        range = { start = { row = 999, col = 0 } },
+        metadata = { entries = {}, by_tag = {} },
+      }
+
+      -- This should fail and the callback should not be called
+      success = require("checkmate.api").apply_metadata(fake_todo, {
+        meta_name = "test",
+        custom_value = "test_value",
+      })
+
+      -- Check that the operation failed
+      assert.is_false(success)
+
+      -- Check that the callback was not called
+      assert.is_false(on_add_called)
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+
+    it("should call on_remove only when metadata is successfully removed", function()
+      local file_path = h.create_temp_file()
+      local unchecked = require("checkmate.config").options.todo_markers.unchecked
+
+      -- Initial content with one todo with metadata
+      local content = "# Metadata Callbacks Test\n\n- " .. unchecked .. " A test todo @test(test_value)"
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- Create a spy to track callback execution
+      local on_remove_called = false
+      local test_todo_item = nil
+
+      -- Configure a test metadata tag with on_remove callback
+      local config = require("checkmate.config")
+      ---@diagnostic disable-next-line: missing-fields
+      config.setup({
+        metadata = {
+          ---@diagnostic disable-next-line: missing-fields
+          test = {
+            on_remove = function(todo_item)
+              on_remove_called = true
+              test_todo_item = todo_item
+            end,
+          },
+        },
+      })
+
+      -- Get the todo item at row 2 (0-indexed)
+      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local todo_item = nil
+      for _, item in pairs(todo_map) do
+        if item.range.start.row == 2 then
+          todo_item = item
+          break
+        end
+      end
+
+      -- Verify we found the todo
+      if not todo_item then
+        error("missing todo item!")
+      end
+
+      -- Remove the metadata
+      local success = require("checkmate.api").remove_metadata(todo_item, {
+        meta_name = "test",
+      })
+
+      -- Check that the operation succeeded
+      assert.is_true(success)
+      -- Check that the callback was called
+      assert.is_true(on_remove_called)
+      -- Check that the todo item was passed to the callback
+      assert.is_not_nil(test_todo_item)
+      -- Verify the metadata was removed
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.not_matches("@test", lines[3])
+
+      -- Reset the callback flag
+      on_remove_called = false
+
+      -- Try to remove metadata from a non-existent todo
+      local fake_todo = {
+        range = { start = { row = 999, col = 0 } },
+        metadata = { entries = {}, by_tag = {} },
+      }
+
+      -- This should fail and the callback should not be called
+      success = require("checkmate.api").remove_metadata(fake_todo, {
+        meta_name = "test",
+      })
+
+      -- Check that the operation failed
+      assert.is_false(success)
+      -- Check that the callback was not called
+      assert.is_false(on_remove_called)
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+  end)
 end)

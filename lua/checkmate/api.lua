@@ -254,7 +254,7 @@ end
 
 ---Toggles a todo item from checked to unchecked or vice versa
 ---@param todo_item checkmate.TodoItem The todo item to modify
----@param opts {target_state?: checkmate.TodoItemState}
+---@param opts {target_state?: checkmate.TodoItemState, notify: boolean?}
 ---@return boolean success Whether the operation succeeded
 function M.toggle_todo_item(todo_item, opts)
   local config = require("checkmate.config")
@@ -284,7 +284,9 @@ function M.toggle_todo_item(todo_item, opts)
     target_state = todo_item.state == "unchecked" and "checked" or "unchecked"
   elseif target_state == todo_item.state then
     -- Already in target state, no change needed
-    util.notify("Todo item is already " .. target_state, log.levels.INFO)
+    if opts.notify ~= false then
+      util.notify("Todo item is already " .. target_state, log.levels.INFO)
+    end
     return true
   end
 
@@ -734,7 +736,10 @@ function M.remove_all_metadata(todo_item)
 end
 
 ---A callback function passed to `apply_todo_operation` that will act on the given todo_item
----@alias checkmate.TodoOperation fun(todo_item: checkmate.TodoItem, params: any?): boolean
+---params
+---  notify - whether to allow notify for this operation. This allows notify to be turned off
+---  if an operation is run in visual selection mode, i.e. so we don't get a bunch of notifications for one action
+---@alias checkmate.TodoOperation fun(todo_item: checkmate.TodoItem, params: {notify: boolean?}): boolean
 
 ---@class ApplyTodoOperationOpts table Operation configuration
 ---@field operation checkmate.TodoOperation The operation to perform on each todo item
@@ -816,8 +821,12 @@ function M.apply_todo_operation(opts)
     for _, todo_item in ipairs(todo_items) do
       results.processed = results.processed + 1
 
+      -- We pass a notify=false option to the todo operation so that notifications
+      -- can be ignored when multiple todos are being actioned
+      local params = vim.tbl_extend("force", opts.params or {}, { notify = #todo_items < 2 })
+
       -- Apply the operation and catch any errors
-      local success, result = pcall(opts.operation, todo_item, opts.params)
+      local success, result = pcall(opts.operation, todo_item, params)
 
       if success and result then
         results.succeeded = results.succeeded + 1

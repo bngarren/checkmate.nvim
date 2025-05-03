@@ -66,10 +66,10 @@ end
 
 ---Sets a given todo item to a specific state
 ---@param todo_item checkmate.TodoItem
+---@param target_state checkmate.TodoItemState
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
-  local bufnr = vim.api.nvim_get_current_buf()
-  api.handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
+  return api.toggle_todo_item(todo_item, { target_state = target_state })
 end
 
 --- Set todo item to checked state

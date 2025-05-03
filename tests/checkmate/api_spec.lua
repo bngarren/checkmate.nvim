@@ -168,16 +168,14 @@ describe("API", function()
         end
       end
 
-      assert.is_not_nil(task_2)
+      if not task_2 then
+        error("missing todo item (task_2)")
+      end
 
       -- Toggle task 2 to checked
-      local err, toggled = api.handle_toggle(bufnr, nil, nil, {
-        existing_todo_item = task_2,
-      })
+      local success = require("checkmate").set_todo_item(task_2, "checked")
 
-      assert.is_nil(err)
-      ---@diagnostic disable-next-line: need-check-nil
-      assert.equals("checked", toggled.state)
+      assert.is_true(success)
 
       -- Save the file
       vim.cmd("write")
@@ -335,10 +333,7 @@ describe("API", function()
       assert.equals(3, #parent_todo.children, "Parent should have 3 children")
 
       -- Toggle parent to checked
-      require("checkmate.api").handle_toggle(bufnr, nil, nil, {
-        existing_todo_item = parent_todo,
-        target_state = "checked",
-      })
+      require("checkmate").set_todo_item(parent_todo, "checked")
 
       -- Get updated content
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)

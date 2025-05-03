@@ -252,33 +252,20 @@ function M.setup_autocmds(bufnr)
   end
 end
 
----Toggles or sets a todo item's state
----@param bufnr integer Buffer number
----@param line_row integer? Row to search for todo item
----@param col integer? Col to search for todo item
----@param opts? {existing_todo_item?: checkmate.TodoItem, target_state?: "checked"|"unchecked"} Options
----@return string? error, checkmate.TodoItem? todo_item
-function M.handle_toggle(bufnr, line_row, col, opts)
-  local log = require("checkmate.log")
+---Toggles a todo item from checked to unchecked or vice versa
+---@param todo_item checkmate.TodoItem The todo item to modify
+---@param opts {target_state?: checkmate.TodoItemState}
+---@return boolean success Whether the operation succeeded
+function M.toggle_todo_item(todo_item, opts)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
   local util = require("checkmate.util")
+  local log = require("checkmate.log")
 
   opts = opts or {}
+  local bufnr = vim.api.nvim_get_current_buf()
 
-  -- Get todo item - either use provided one or find at position
-  local todo_item = opts.existing_todo_item
-  if not todo_item then
-    todo_item = parser.get_todo_item_at_position(bufnr, line_row, col, {
-      max_depth = config.options.todo_action_depth,
-    })
-  end
-
-  if not todo_item then
-    return "No todo item found at position", nil
-  end
-
-  -- Get the line with the todo marker - use the row from the todo_item's range
+  -- Get the line with the todo marker
   local todo_line_row = todo_item.todo_marker.position.row
   local line = vim.api.nvim_buf_get_lines(bufnr, todo_line_row, todo_line_row + 1, false)[1]
 
@@ -286,22 +273,19 @@ function M.handle_toggle(bufnr, line_row, col, opts)
     string.format("Found todo item at (editor) line %d (type: %s)", todo_line_row + 1, todo_item.state),
     { module = "api" }
   )
-  log.debug("Line content: '" .. line .. "'", { module = "api" })
 
   local unchecked_marker = config.options.todo_markers.unchecked
   local checked_marker = config.options.todo_markers.checked
 
-  -- Determine target state based on options
-  -- i.e. do we simply toggle, or do we set to a specific state only?
+  -- Determine target state
   local target_state = opts.target_state
   if not target_state then
     -- Traditional toggle behavior
     target_state = todo_item.state == "unchecked" and "checked" or "unchecked"
   elseif target_state == todo_item.state then
     -- Already in target state, no change needed
-    log.debug("Todo item already in target state: " .. target_state, { module = "api" })
     util.notify("Todo item is already " .. target_state, log.levels.INFO)
-    return nil, todo_item
+    return true
   end
 
   local patterns, replacement_marker
@@ -309,16 +293,13 @@ function M.handle_toggle(bufnr, line_row, col, opts)
   if target_state == "checked" then
     patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
     replacement_marker = checked_marker
-    log.debug("Setting to checked", { module = "api" })
   else
     patterns = util.build_unicode_todo_patterns(parser.list_item_markers, checked_marker)
     replacement_marker = unchecked_marker
-    log.debug("Setting to unchecked", { module = "api" })
   end
 
-  local new_line
-
   -- Try to apply the first matching pattern
+  local new_line
   for _, pattern in ipairs(patterns) do
     local replaced, count = line:gsub(pattern, "%1" .. replacement_marker, 1)
     if count > 0 then
@@ -333,29 +314,11 @@ function M.handle_toggle(bufnr, line_row, col, opts)
 
     -- Update the todo item's state to reflect the change
     todo_item.state = target_state
-
-    return nil, todo_item
+    return true
   else
-    log.error("failed to replace (gsub) todo marker during toggle", { module = "api" })
+    log.error("failed to replace todo marker during toggle", { module = "api" })
+    return false
   end
-
-  return "Failed to update todo item", nil
-end
-
----Toggles a todo item from checked to unchecked or vice versa.
----If a target_state is passed, the todo_item will only be toggled to this state.
----@param todo_item checkmate.TodoItem
----@param opts {target_state: checkmate.TodoItemState?}
----@return boolean
-function M.toggle_todo_item(todo_item, opts)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local target_state = opts and opts.target_state
-  local error, success =
-    M.handle_toggle(bufnr, nil, nil, { existing_todo_item = todo_item, target_state = target_state })
-  if error then
-    require("checkmate.log").error(error, { module = "api" })
-  end
-  return success ~= nil
 end
 
 -- Create a new todo item from the current line

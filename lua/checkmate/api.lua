@@ -708,8 +708,18 @@ function M.remove_all_metadata(todo_item)
   end
 
   local log = require("checkmate.log")
+  local config = require("checkmate.config")
 
   local bufnr = vim.api.nvim_get_current_buf()
+
+  -- Loop through each metadata entry and run its on_remove callback, if present
+  for _, entry in ipairs(todo_item.metadata.entries) do
+    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+    if meta_config.on_remove then
+      log.debug(("running on_remove callback for todo_item on row %d"):format(todo_item.range.start.row + 1))
+      meta_config.on_remove(todo_item)
+    end
+  end
 
   todo_item.metadata.entries = {}
   todo_item.metadata.by_tag = {}

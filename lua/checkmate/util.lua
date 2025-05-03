@@ -285,4 +285,56 @@ function M.get_sorted_todo_list(todo_map)
   return todo_list
 end
 
+-- Cursor helper
+M.Cursor = {}
+
+---@class CursorState
+---@field win integer Window handle
+---@field cursor integer[] Cursor position as [row, col] (1-indexed row)
+---@field bufnr integer Buffer number
+
+---Saves the current cursor state
+---@return CursorState Current cursor position information
+function M.Cursor.save()
+  return {
+    win = vim.api.nvim_get_current_win(),
+    cursor = vim.api.nvim_win_get_cursor(0),
+    bufnr = vim.api.nvim_get_current_buf(),
+  }
+end
+
+---Restores a previously saved cursor state
+---@param state CursorState The cursor state returned by Cursor.save()
+---@return boolean success Whether restoration was successful
+function M.Cursor.restore(state)
+  -- Make sure we have a valid state
+  if not state or not state.win or not state.cursor or not state.bufnr then
+    return false
+  end
+
+  -- Make sure the window and buffer still exist
+  if not (vim.api.nvim_win_is_valid(state.win) and vim.api.nvim_buf_is_valid(state.bufnr)) then
+    return false
+  end
+
+  -- Ensure the cursor position is valid for the buffer
+  local line_count = vim.api.nvim_buf_line_count(state.bufnr)
+  if state.cursor[1] > line_count then
+    state.cursor[1] = line_count
+  end
+
+  -- Get the line at the cursor position
+  local line = vim.api.nvim_buf_get_lines(state.bufnr, state.cursor[1] - 1, state.cursor[1], false)[1] or ""
+
+  -- Ensure cursor column is valid for the line
+  if state.cursor[2] >= #line then
+    state.cursor[2] = math.max(0, #line - 1)
+  end
+
+  -- Restore cursor
+  local success = pcall(vim.api.nvim_win_set_cursor, state.win, state.cursor)
+
+  return success
+end
+
 return M

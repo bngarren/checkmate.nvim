@@ -778,6 +778,7 @@ end
 ---@field is_visual boolean Whether to process a visual selection (true) or cursor position (false)
 ---@field action_name string Human-readable name of the action (for logging and notifications)
 ---@field params any? Additional parameters to pass to the operation function, excluding the todo_item
+
 ---Apply an operation to todo items either at cursor or in a visual selection
 ---@param opts ApplyTodoOperationOpts
 ---@return table results Operation results { success: boolean, processed: number, succeeded: number, errors: table[] }
@@ -799,7 +800,8 @@ function M.apply_todo_operation(opts)
   -- Collection of todo items to process
   local todo_items = {}
 
-  local restore_cursor
+  -- Save current cursor state
+  local cursor_state = util.Cursor.save()
 
   -- Get todo items based on mode (visual or normal)
   if opts.is_visual then
@@ -835,9 +837,8 @@ function M.apply_todo_operation(opts)
     end
   else
     -- Normal mode - just get the item at cursor
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local row = cursor[1] - 1 -- 0-indexed
-    local col = cursor[2]
+    local row = cursor_state.cursor[1] - 1 -- 0-indexed
+    local col = cursor_state.cursor[2]
 
     local todo_item =
       parser.get_todo_item_at_position(bufnr, row, col, { max_depth = config.options.todo_action_depth })
@@ -845,9 +846,6 @@ function M.apply_todo_operation(opts)
     if todo_item then
       table.insert(todo_items, todo_item)
     end
-
-    -- Store cursor for later restoration
-    restore_cursor = cursor
   end
 
   -- Process collected todo items
@@ -894,10 +892,8 @@ function M.apply_todo_operation(opts)
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
   end
 
-  -- Restore cursor in normal mode operations
-  if not opts.is_visual and restore_cursor then
-    vim.api.nvim_win_set_cursor(0, restore_cursor)
-  end
+  -- Restore cursor position
+  util.Cursor.restore(cursor_state)
 
   return results
 end

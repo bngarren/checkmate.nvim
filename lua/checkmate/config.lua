@@ -500,6 +500,8 @@ function M.stop()
   for buf, _ in pairs(M._active_buffers or {}) do
     pcall(function()
       vim.b[buf].checkmate_api_setup_complete = nil
+
+      require("checkmate.highlights").clear_line_cache(buf)
     end)
   end
   M._active_buffers = {}

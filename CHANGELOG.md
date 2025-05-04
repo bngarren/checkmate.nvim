@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/bngarren/checkmate.nvim/compare/v0.3.3...v0.4.0) (2025-05-04)
+
+
+### Features
+
+* **api:** adds a 'remove_all_metadata' function with default keymap and user command ([#28](https://github.com/bngarren/checkmate.nvim/issues/28)) ([a5950ef](https://github.com/bngarren/checkmate.nvim/commit/a5950ef85445df062848c678ff37c4fa564db613))
+
+
+### Bug Fixes
+
+* **api:** adjusted timing of metadata callbacks and improved tests ([#31](https://github.com/bngarren/checkmate.nvim/issues/31)) ([b68633d](https://github.com/bngarren/checkmate.nvim/commit/b68633d684c6a4e4e06262497d3ea9c2f55548c9))
+* **api:** preserve cursor state during todo operations ([#32](https://github.com/bngarren/checkmate.nvim/issues/32)) ([882e0a7](https://github.com/bngarren/checkmate.nvim/commit/882e0a75557cc713918e0127fbb4bddd583a1fcd))
+* **api:** suppress some notifications in visual mode ([#34](https://github.com/bngarren/checkmate.nvim/issues/34)) ([9e07329](https://github.com/bngarren/checkmate.nvim/commit/9e07329233673cda1d21def0ea1bfa2183137003))
+
+
+### Miscellaneous Chores
+
+* fix release-please manifest ([09d6a0f](https://github.com/bngarren/checkmate.nvim/commit/09d6a0f9ae9b0efc468b534b2c8bdadaf214755b))
+
 ## [0.3.3](https://github.com/bngarren/checkmate.nvim/compare/v0.3.2...v0.3.3) (2025-05-01)
 
 

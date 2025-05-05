@@ -103,6 +103,16 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field key string?
 ---Used for displaying metadata in a consistent order
 ---@field sort_order integer?
+---Moves the cursor to the metadata after it is inserted
+---  - "tag" - moves to the beginning of the tag
+---  - "value" - moves to the beginning of the value
+---  - false - disables jump (default)
+---@field jump_to_on_insert "tag" | "value" | false?
+---Selects metadata text in visual mode after metadata is inserted
+---The `jump_to_on_insert` field must be set (not false)
+---The selected text will be the tag or value, based on jump_to_on_insert setting
+---Default (false) - off
+---@field select_on_insert boolean?
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_add fun(todo_item: checkmate.TodoItem)?
@@ -185,6 +195,8 @@ local _DEFAULTS = {
       end,
       key = "<leader>Tp",
       sort_order = 10,
+      jump_to_on_insert = "value",
+      select_on_insert = true,
     },
     -- Example: A @started tag that uses a default date/time string when added
     started = {

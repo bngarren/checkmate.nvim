@@ -53,6 +53,14 @@ M.regular_commands = {
     opts = { desc = "Remove all metadata from todo item" },
   },
   {
+    name = "Archive",
+    cmd = "CheckmateArchive",
+    func = function()
+      require("checkmate").archive()
+    end,
+    opts = { desc = "Archive checked todo items" },
+  },
+  {
     name = "Lint",
     cmd = "CheckmateLint",
     func = function()

@@ -387,6 +387,14 @@ function M.lint(opts)
   return true, results
 end
 
+--- Archive checked todo items to a special section
+--- If a parent todo is checked, all its children will be archived regardless of state
+--- If a child todo is checked but its parent is not, the child will not be archived
+function M.archive()
+  local api = require("checkmate.api")
+  return api.archive_todos()
+end
+
 --- Open debug log
 function M.debug_log()
   require("checkmate.log").open()

@@ -293,28 +293,26 @@ function M.highlight_child_list_markers(bufnr, todo_item)
     -- Get the marker range
     local marker_start_row, marker_start_col, marker_end_row, marker_end_col = marker_node:range()
 
+    local raw_range = {
+      start = { row = marker_start_row, col = marker_start_col },
+      ["end"] = { row = marker_end_row, col = marker_end_col },
+    }
+
+    -- Get the adjusted range
+    local marker_range = require("checkmate.util").get_true_range(raw_range, bufnr)
+
     -- Only highlight markers within the todo item's range
-    if marker_start_row >= todo_item.range.start.row and marker_end_row <= todo_item.range["end"].row then
+    if
+      marker_range.start.row >= todo_item.range.start.row and marker_range["end"].row <= todo_item.range["end"].row
+    then
       local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
-        end_row = marker_end_row,
-        end_col = marker_end_col,
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_range.start.row, marker_range.start.col, {
+        end_row = marker_range["end"].row,
+        end_col = marker_range["end"].col,
         hl_group = hl_group,
         priority = M.PRIORITY.LIST_MARKER,
       })
-
-      log.trace(
-        string.format(
-          "Highlighted child list marker at [%d,%d]-[%d,%d] with %s",
-          marker_start_row,
-          marker_start_col,
-          marker_end_row,
-          marker_end_col,
-          hl_group
-        ),
-        { module = "highlights" }
-      )
     end
 
     ::continue::
@@ -421,9 +419,13 @@ function M.highlight_content(bufnr, todo_item)
     )
 
     -- Process each line of the paragraph individually
-    for row = para_start_row, para_end_row do
+    for row = para_start_row, math.min(para_end_row, todo_item.range["end"].row) do
       local line = M.get_buffer_line(bufnr, row)
       local content_start = nil
+
+      -- For the end column, handle specially for the final row
+      local end_col = (row == todo_item.range["end"].row) and todo_item.range["end"].col
+        or #vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
       if is_first_para and row == para_start_row then
         -- Special handling for first line of first paragraph
@@ -442,9 +444,6 @@ function M.highlight_content(bufnr, todo_item)
       if content_start then
         -- Adjust to 0-based indexing
         content_start = content_start - 1
-
-        -- Calculate end column for this line
-        local end_col = (row == para_end_row) and para_end_col or #line
 
         -- Apply highlighting for this line
         vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {

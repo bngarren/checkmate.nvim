@@ -28,7 +28,9 @@ local M = {}
 --- @class checkmate.TodoItem
 --- @field state checkmate.TodoItemState The todo state
 --- @field node TSNode The Treesitter node
---- @field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Item range
+--- Todo item range
+--- 0 based index and end col are end exclusive
+--- @field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
 --- @field content_nodes ContentNodeInfo[] List of content nodes
 --- @field todo_marker TodoMarkerInfo Information about the todo marker
 --- @field list_marker ListMarkerInfo? Information about the list marker
@@ -343,6 +345,7 @@ end
 function M.discover_todos(bufnr)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
+  local util = require("checkmate.util")
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Initialize the node map
@@ -376,7 +379,9 @@ function M.discover_todos(bufnr)
   -- First pass: Discover all todo items
   for _, node, _ in list_item_query:iter_captures(root, bufnr, 0, -1) do
     -- Get node information
+    -- TS ranges are 0 indexed and the end col is end exclusive
     local start_row, start_col, end_row, end_col = node:range()
+
     local node_id = node:id()
 
     -- Get the first line to check if it's a todo item
@@ -386,6 +391,15 @@ function M.discover_todos(bufnr)
     if todo_state then
       -- This is a todo item, add it to the map
       log.trace("Found todo item at line " .. (start_row + 1) .. ", type: " .. todo_state, { module = "parser" })
+
+      -- Create the raw range first
+      local raw_range = {
+        start = { row = start_row, col = start_col },
+        ["end"] = { row = end_row, col = end_col },
+      }
+
+      -- Get the adjusted range
+      local true_range = util.get_true_range(raw_range, bufnr)
 
       -- Find the todo marker position
       local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
@@ -398,10 +412,7 @@ function M.discover_todos(bufnr)
       todo_map[node_id] = {
         state = todo_state,
         node = node,
-        range = {
-          start = { row = start_row, col = start_col },
-          ["end"] = { row = end_row, col = end_col },
-        },
+        range = true_range,
         todo_text = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1],
         content_nodes = {},
         todo_marker = {
@@ -505,37 +516,57 @@ function M.update_content_nodes(node, bufnr, todo_item)
   end
 end
 
--- Build the hierarchy of todo items
+---Build the hierarchy of todo items based on indentation
+---The Treesitter tree-based list item hierachy doesn't always match what you might expect in terms of parent/child
+---relationships. The user expects parent/child order based on indentation and thus we build the todo hierarchy
+---based on indentation differences rather than relying on TS tree.
+---The natural rule is: "your parent is the closest todo item above you with less indentation"
 ---@param todo_map table<string, checkmate.TodoItem>
 function M.build_todo_hierarchy(todo_map)
   local log = require("checkmate.log")
 
-  -- For each todo item, find its true parent (if any)
-  for child_id, child_item in pairs(todo_map) do
-    local child_node = child_item.node
+  -- Reset all children arrays and parent_ids
+  for _, item in pairs(todo_map) do
+    item.children = {}
+    item.parent_id = nil
+  end
 
-    -- Get the direct parent node
-    local parent_node = child_node:parent()
+  -- Create a sorted list of todos by row
+  local todos_by_row = {}
+  for id, item in pairs(todo_map) do
+    table.insert(todos_by_row, { id = id, item = item })
+  end
 
-    -- If the parent is a 'list', we need to check if it's part of another list_item
-    -- This helps us determine if this is a nested list or a top-level list
-    if parent_node and parent_node:type() == "list" then
-      local grandparent = parent_node:parent()
+  table.sort(todos_by_row, function(a, b)
+    return a.item.range.start.row < b.item.range.start.row
+  end)
 
-      -- If the grandparent is a list_item, this might be a nested list
-      if grandparent and grandparent:type() == "list_item" then
-        -- Get the grandparent's ID
-        local gp_row, gp_col = grandparent:range()
-        local gp_id = grandparent:id()
-        -- Check if grandparent is in our todo map
-        if todo_map[gp_id] then
-          -- This is a nested todo item
-          child_item.parent_id = gp_id
-          table.insert(todo_map[gp_id].children, child_id)
+  -- Process each todo to establish parent-child relationships based on indentation
+  for i, entry in ipairs(todos_by_row) do
+    local current_id = entry.id
+    local current_item = entry.item
+    local current_indent = current_item.range.start.col
+
+    -- Only process indented items (non-root items)
+    if current_indent > 0 then
+      -- Find the closest previous item with less indentation
+      for j = i - 1, 1, -1 do
+        local prev_entry = todos_by_row[j]
+        local prev_id = prev_entry.id
+        local prev_item = prev_entry.item
+        local prev_indent = prev_item.range.start.col
+
+        if prev_indent < current_indent then
+          -- Found a parent - it's the first item above with less indentation
+          current_item.parent_id = prev_id
+          table.insert(todo_map[prev_id].children, current_id)
+          break
         end
       end
     end
   end
+
+  return todo_map
 end
 
 function M.get_markdown_tree_root(bufnr)

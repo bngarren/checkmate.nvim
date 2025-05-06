@@ -285,6 +285,34 @@ function M.get_sorted_todo_list(todo_map)
   return todo_list
 end
 
+--- Interprets a TS range's true end position, accounting for end_col = 0
+---@param range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
+---@param bufnr integer Buffer number
+---@return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Adjusted range
+function M.get_true_range(range, bufnr)
+  -- Create a new range object to avoid modifying the original
+  local new_range = {
+    start = { row = range.start.row, col = range.start.col },
+    ["end"] = { row = range["end"].row, col = range["end"].col },
+  }
+
+  -- If end_col is 0, it means we're at the start of the next line
+  -- which actually means the end of the previous line
+  if new_range["end"].col == 0 then
+    new_range["end"].row = new_range["end"].row - 1
+  end
+
+  -- For both cases (end_col=0 or multi-line), set end column to end of line
+  if new_range["end"].col == 0 or new_range.start.row < new_range["end"].row then
+    local lines = vim.api.nvim_buf_get_lines(bufnr, new_range["end"].row, new_range["end"].row + 1, false)
+    if #lines > 0 then
+      new_range["end"].col = #lines[1]
+    end
+  end
+
+  return new_range
+end
+
 -- Cursor helper
 M.Cursor = {}
 

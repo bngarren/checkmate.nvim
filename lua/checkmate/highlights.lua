@@ -299,7 +299,7 @@ function M.highlight_child_list_markers(bufnr, todo_item)
     }
 
     -- Get the adjusted range
-    local marker_range = require("checkmate.util").get_true_range(raw_range, bufnr)
+    local marker_range = require("checkmate.util").get_semantic_range(raw_range, bufnr)
 
     -- Only highlight markers within the todo item's range
     if

@@ -285,24 +285,35 @@ function M.get_sorted_todo_list(todo_map)
   return todo_list
 end
 
---- Interprets a TS range's true end position, accounting for end_col = 0
----@param range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
----@param bufnr integer Buffer number
----@return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Adjusted range
-function M.get_true_range(range, bufnr)
+--- Converts TreeSitter's technical range to a semantically meaningful range for todo items
+---
+--- TreeSitter ranges have two quirks to address:
+--- 1. End-of-line positions are represented as [next_line, 0] instead of [current_line, line_length]
+--- 2. Multi-line nodes may not include the full line content in their ranges
+---
+--- This function transforms these ranges to better represent the semantic boundaries of todo items:
+--- - When end_col=0, it means "end of previous line" rather than "start of current line"
+--- - For multi-line ranges, ensures the end position captures the entire line content
+---
+--- @param range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Raw TreeSitter range (0-indexed, end-exclusive)
+--- @param bufnr integer Buffer number
+--- @return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Adjusted range suitable for semantic operations
+function M.get_semantic_range(range, bufnr)
   -- Create a new range object to avoid modifying the original
   local new_range = {
     start = { row = range.start.row, col = range.start.col },
     ["end"] = { row = range["end"].row, col = range["end"].col },
   }
 
-  -- If end_col is 0, it means we're at the start of the next line
-  -- which actually means the end of the previous line
+  -- Handle TreeSitter's end-of-line representation: when a node ends at the end of a line,
+  -- TreeSitter represents it as [next_line, 0] instead of [current_line, line_length]
   if new_range["end"].col == 0 then
     new_range["end"].row = new_range["end"].row - 1
   end
 
-  -- For both cases (end_col=0 or multi-line), set end column to end of line
+  -- Ensure end column points to the actual end of the line for:
+  -- 1. Ranges adjusted from [next_line, 0] representation (end_col=0)
+  -- 2. Multi-line ranges that need to include the entire content
   if new_range["end"].col == 0 or new_range.start.row < new_range["end"].row then
     local lines = vim.api.nvim_buf_get_lines(bufnr, new_range["end"].row, new_range["end"].row + 1, false)
     if #lines > 0 then

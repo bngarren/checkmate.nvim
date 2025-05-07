@@ -3,23 +3,23 @@ local M = {}
 ---@alias checkmate.TodoItemState "checked" | "unchecked"
 
 --- @class TodoMarkerInfo
---- @field position {row: integer, col: integer} Position of the marker
+--- @field position {row: integer, col: integer} Position of the marker (0-indexed)
 --- @field text string The marker text (e.g., "□" or "✓")
 
 --- @class ListMarkerInfo
---- @field node TSNode Treesitter node of the list marker
+--- @field node TSNode Treesitter node of the list marker (uses 0-indexed row/col coordinates)
 --- @field type "ordered"|"unordered" Type of list marker
 
 --- @class ContentNodeInfo
---- @field node TSNode Treesitter node containing content
+--- @field node TSNode Treesitter node containing content (uses 0-indexed row/col coordinates)
 --- @field type string Type of content node (e.g., "paragraph")
 
 ---@class checkmate.MetadataEntry
 ---@field tag string The tag name
 ---@field value string The value
----@field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Position range
+---@field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Position range (0-indexed)
 ---@field alias_for? string The canonical tag name if this is an alias
----@field position_in_line integer
+---@field position_in_line integer (1-indexed)
 
 ---@class checkmate.TodoMetadata
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
@@ -28,12 +28,12 @@ local M = {}
 --- @class checkmate.TodoItem
 --- @field state checkmate.TodoItemState The todo state
 --- @field node TSNode The Treesitter node
---- Todo item range
---- 0 based index and end col are end exclusive
+--- Todo item's buffer range
+--- The end col is expected to be adjusted (get_semantic_range) so that it accurately reflects the end of the content
 --- @field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
 --- @field content_nodes ContentNodeInfo[] List of content nodes
---- @field todo_marker TodoMarkerInfo Information about the todo marker
---- @field list_marker ListMarkerInfo? Information about the list marker
+--- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
+--- @field list_marker ListMarkerInfo? Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
 --- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging.
 --- @field children string[] IDs of child todo items
@@ -378,10 +378,8 @@ function M.discover_todos(bufnr)
 
   -- First pass: Discover all todo items
   for _, node, _ in list_item_query:iter_captures(root, bufnr, 0, -1) do
-    -- Get node information
-    -- TS ranges are 0 indexed and the end col is end exclusive
+    -- Get node information (TS ranges are 0-indexed and end-exclusive)
     local start_row, start_col, end_row, end_col = node:range()
-
     local node_id = node:id()
 
     -- Get the first line to check if it's a todo item
@@ -398,13 +396,20 @@ function M.discover_todos(bufnr)
         ["end"] = { row = end_row, col = end_col },
       }
 
-      -- Get the adjusted range
-      local true_range = util.get_true_range(raw_range, bufnr)
+      -- Get the adjusted range with proper semantic boundaries
+      -- This more meaningful range encompasses the todo content better than the quirky Treesitter technical range for a node
+      local semantic_range = util.get_semantic_range(raw_range, bufnr)
 
       -- Find the todo marker position
       local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
         or config.options.todo_markers.unchecked
+
+      -- Find marker position, defaulting to -1 if not found
+      local marker_col = -1
       local todo_marker_pos = first_line:find(todo_marker, 1, true)
+      if todo_marker_pos then
+        marker_col = todo_marker_pos - 1 -- Adjust for 0-indexing
+      end
 
       local metadata = M.extract_metadata(first_line, start_row)
 
@@ -412,20 +417,20 @@ function M.discover_todos(bufnr)
       todo_map[node_id] = {
         state = todo_state,
         node = node,
-        range = true_range,
-        todo_text = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1],
+        range = semantic_range,
+        todo_text = first_line,
         content_nodes = {},
         todo_marker = {
           position = {
             row = start_row,
-            col = todo_marker_pos and todo_marker_pos - 1 or -1,
+            col = marker_col,
           },
           text = todo_marker,
         },
         list_marker = nil, -- Will be set by find_list_marker_info
         metadata = metadata,
-        children = {},
-        parent_id = nil, -- Will be set in second pass
+        children = {}, -- Will be set in second pass, if applicable
+        parent_id = nil, -- Will be set in second pass, if applicable
       }
 
       -- Find and store list marker information
@@ -517,14 +522,17 @@ function M.update_content_nodes(node, bufnr, todo_item)
 end
 
 ---Build the hierarchy of todo items based on indentation
----The Treesitter tree-based list item hierachy doesn't always match what you might expect in terms of parent/child
----relationships. The user expects parent/child order based on indentation and thus we build the todo hierarchy
----based on indentation differences rather than relying on TS tree.
----The natural rule is: "your parent is the closest todo item above you with less indentation"
+---
+---The Treesitter tree-based list item hierarchy doesn't always match the expected parent/child
+---relationships from a user perspective. Users expect parent/child relationships based on
+---indentation, so we build the todo hierarchy based on indentation differences rather than
+---relying solely on the Treesitter tree structure.
+---
+---The rule is: "your parent is the closest todo item above you with less indentation"
+---
 ---@param todo_map table<string, checkmate.TodoItem>
+---@return table<string, checkmate.TodoItem> result The updated todo map with hierarchy information
 function M.build_todo_hierarchy(todo_map)
-  local log = require("checkmate.log")
-
   -- Reset all children arrays and parent_ids
   for _, item in pairs(todo_map) do
     item.children = {}

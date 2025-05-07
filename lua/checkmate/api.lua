@@ -534,6 +534,34 @@ function M.apply_metadata(todo_item, opts)
   -- Update the line
   vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
 
+  -- Jump the cursor, if enabled
+  ---@type "tag" | "value" | false
+  local jump_to = meta_config.jump_to_on_insert or false
+  if jump_to ~= false then
+    local updated_line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
+    local tag_position = updated_line:find("@" .. meta_name .. "%(")
+    local value_position = tag_position and updated_line:find("%(", tag_position) + 1 or nil
+    -- ensure cursor movement happens after buffer update is complete
+    vim.schedule(function()
+      -- Safety checks before trying to set cursor position
+      local win = vim.api.nvim_get_current_win()
+
+      -- Only attempt to set cursor if buffer is still valid and loaded
+      if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
+        if jump_to == "tag" and tag_position then
+          vim.api.nvim_win_set_cursor(0, { todo_row + 1, tag_position - 1 })
+        elseif jump_to == "value" and value_position then
+          vim.api.nvim_win_set_cursor(0, { todo_row + 1, value_position - 1 })
+        end
+
+        -- Select the word (tag or value), if enabled
+        if meta_config.select_on_insert then
+          vim.cmd("normal! viwO")
+        end
+      end
+    end)
+  end
+
   -- Call the on_add callback after successful operation
   if meta_config.on_add then
     meta_config.on_add(todo_item)

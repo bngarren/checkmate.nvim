@@ -139,7 +139,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---@field metadata checkmate.Metadata
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -198,6 +198,17 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---@field key string?
 ---Used for displaying metadata in a consistent order
 ---@field sort_order integer?
+---Moves the cursor to the metadata after it is inserted
+---  - "tag" - moves to the beginning of the tag
+---  - "value" - moves to the beginning of the value
+---  - false - disables jump (default)
+---@field jump_to_on_insert "tag" | "value" | false?
+---Selects metadata text in visual mode after metadata is inserted
+---The `jump_to_on_insert` field must be set (not false)
+---The selected text will be the tag or value, based on jump_to_on_insert setting
+---Default (false) - off
+---@field select_on_insert boolean?
+
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_add fun(todo_item: checkmate.TodoItem)?
@@ -219,6 +230,7 @@ local _DEFAULTS = {
     ["<leader>Tc"] = "check", -- Set todo item as checked (done)
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
+    ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
   },
   default_list_marker = "-",
   todo_markers = {
@@ -279,6 +291,8 @@ local _DEFAULTS = {
       end,
       key = "<leader>Tp",
       sort_order = 10,
+      jump_to_on_insert = "value",
+      select_on_insert = true
     },
     -- Example: A @started tag that uses a default date/time string when added
     started = {
@@ -348,6 +362,8 @@ priority = {
   get_value = function() return "medium" end,  -- Default value
   key = "<leader>Tp",                          -- Keymap to toggle
   sort_order = 10,                             -- Order when multiple tags exist (lower comes first)
+  jump_to_on_insert = "value",                 -- Move the cursor after insertion
+  select_on_insert = true                      -- Select the 'value' (visual mode) on insert
 },
 ```
 

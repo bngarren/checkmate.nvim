@@ -52,6 +52,23 @@ M.regular_commands = {
     end,
     opts = { desc = "Remove all metadata from todo item" },
   },
+  {
+    name = "Lint",
+    cmd = "CheckmateLint",
+    func = function()
+      local bufnr = vim.api.nvim_get_current_buf()
+      local linter = require("checkmate.linter")
+      local results = linter.lint_buffer(bufnr)
+
+      if #results == 0 then
+        vim.notify("No Markdown formatting issues found", vim.log.levels.INFO)
+      else
+        vim.notify(string.format("Found %d formatting issues", #results), vim.log.levels.WARN)
+        require("checkmate.util").notify(vim.inspect(results), vim.log.levels.DEBUG)
+      end
+    end,
+    opts = { desc = "Check for Markdown formatting issues" },
+  },
 }
 
 -- Debug commands only available when INCLUDE_DEBUG_COMMANDS is true

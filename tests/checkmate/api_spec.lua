@@ -77,27 +77,27 @@ describe("API", function()
       -- Split into lines and check each line individually
       local lines = vim.split(saved_content, "\n")
 
-      assert.equals("# Complex Todo List", lines[1])
-      assert.equals("## Work Tasks", lines[2])
-      assert.equals("- [ ] Major project planning", lines[3]:gsub("%s+$", ""))
-      assert.equals("  * [ ] Research competitors", lines[4]:gsub("%s+$", ""))
-      assert.equals("  * [x] Create timeline", lines[5]:gsub("%s+$", ""))
-      assert.equals("  * [ ] Assign resources", lines[6]:gsub("%s+$", ""))
-      assert.equals("    + [x] Allocate budget", lines[7]:gsub("%s+$", ""))
-      assert.equals("    + [ ] Schedule meetings", lines[8]:gsub("%s+$", ""))
-      assert.equals("    + [ ] Set milestones", lines[9]:gsub("%s+$", ""))
-      assert.equals("  * [x] Draft proposal", lines[10]:gsub("%s+$", ""))
-      assert.equals("- [x] Email weekly report", lines[11]:gsub("%s+$", ""))
-      assert.equals("## Personal Tasks", lines[12])
-      assert.equals("1. [ ] Grocery shopping", lines[13]:gsub("%s+$", ""))
-      assert.equals("2. [x] Call dentist", lines[14]:gsub("%s+$", ""))
-      assert.equals("3. [ ] Plan vacation", lines[15]:gsub("%s+$", ""))
-      assert.equals("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
-      assert.equals("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
+      assert.equal("# Complex Todo List", lines[1])
+      assert.equal("## Work Tasks", lines[2])
+      assert.equal("- [ ] Major project planning", lines[3]:gsub("%s+$", ""))
+      assert.equal("  * [ ] Research competitors", lines[4]:gsub("%s+$", ""))
+      assert.equal("  * [x] Create timeline", lines[5]:gsub("%s+$", ""))
+      assert.equal("  * [ ] Assign resources", lines[6]:gsub("%s+$", ""))
+      assert.equal("    + [x] Allocate budget", lines[7]:gsub("%s+$", ""))
+      assert.equal("    + [ ] Schedule meetings", lines[8]:gsub("%s+$", ""))
+      assert.equal("    + [ ] Set milestones", lines[9]:gsub("%s+$", ""))
+      assert.equal("  * [x] Draft proposal", lines[10]:gsub("%s+$", ""))
+      assert.equal("- [x] Email weekly report", lines[11]:gsub("%s+$", ""))
+      assert.equal("## Personal Tasks", lines[12])
+      assert.equal("1. [ ] Grocery shopping", lines[13]:gsub("%s+$", ""))
+      assert.equal("2. [x] Call dentist", lines[14]:gsub("%s+$", ""))
+      assert.equal("3. [ ] Plan vacation", lines[15]:gsub("%s+$", ""))
+      assert.equal("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
+      assert.equal("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
 
       -- Verify Unicode symbols are NOT present in the saved file
-      assert.not_matches(vim.pesc(unchecked), saved_content)
-      assert.not_matches(vim.pesc(checked), saved_content)
+      assert.no.matches(vim.pesc(unchecked), saved_content)
+      assert.no.matches(vim.pesc(checked), saved_content)
 
       finally(function()
         -- Clean up
@@ -205,7 +205,7 @@ describe("API", function()
       end
 
       assert.is_not_nil(task_2_reloaded)
-      assert.equals("checked", task_2_reloaded.state)
+      assert.equal("checked", task_2_reloaded.state)
 
       finally(function()
         -- Clean up
@@ -282,6 +282,9 @@ describe("API", function()
 
       -- Read file directly
       local saved_content = h.read_file_content(file_path)
+      if not saved_content then
+        error("error reading file content")
+      end
 
       -- Verify metadata was saved
       assert.matches("- %[ %] Task without metadata @priority%(high%)", saved_content)
@@ -330,7 +333,7 @@ describe("API", function()
       end
 
       assert.is_not_nil(parent_todo)
-      assert.equals(3, #parent_todo.children, "Parent should have 3 children")
+      assert.equal(3, #parent_todo.children)
 
       -- Toggle parent to checked
       require("checkmate").set_todo_item(parent_todo, "checked")
@@ -339,7 +342,7 @@ describe("API", function()
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
       -- Verify parent is checked
-      assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[3], "Parent should be checked after toggle")
+      assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[3])
 
       -- Save
       vim.cmd("write")
@@ -359,14 +362,14 @@ describe("API", function()
       end
 
       -- Verify saved correctly with exact indentation
-      assert.equals("# Todo Hierarchy", saved_lines[1])
-      assert.equals("", saved_lines[2])
-      assert.equals("- [x] Parent task", saved_lines[3])
-      assert.equals("  - [ ] Child task 1", saved_lines[4], "Child task 1 should preserve 2-space indentation")
-      assert.equals("  - [ ] Child task 2", saved_lines[5], "Child task 2 should preserve 2-space indentation")
-      assert.equals("    - [ ] Grandchild task", saved_lines[6], "Grandchild task should preserve 4-space indentation")
-      assert.equals("  - [ ] Child task 3", saved_lines[7], "Child task 3 should preserve 2-space indentation")
-      assert.equals("- [ ] Another parent", saved_lines[8])
+      assert.equal("# Todo Hierarchy", saved_lines[1])
+      assert.equal("", saved_lines[2])
+      assert.equal("- [x] Parent task", saved_lines[3])
+      assert.equal("  - [ ] Child task 1", saved_lines[4])
+      assert.equal("  - [ ] Child task 2", saved_lines[5])
+      assert.equal("    - [ ] Grandchild task", saved_lines[6])
+      assert.equal("  - [ ] Child task 3", saved_lines[7])
+      assert.equal("- [ ] Another parent", saved_lines[8])
 
       finally(function()
         -- Clean up
@@ -424,6 +427,9 @@ describe("API", function()
 
       -- Read directly
       local saved_content = h.read_file_content(file_path)
+      if not saved_content then
+        error("error reading file content")
+      end
 
       -- Verify saved correctly
       assert.matches("- %[x%] Task 1", saved_content)
@@ -497,10 +503,10 @@ describe("API", function()
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
       -- 3. Verify metadata was removed
-      assert.not_matches("@priority", lines[3], "Metadata tag 'priority' should be removed")
-      assert.not_matches("@due", lines[3], "Metadata tag 'due' should be removed")
-      assert.not_matches("@tags", lines[3], "Metadata tag 'tags' should be removed")
-      assert.matches("- " .. vim.pesc(unchecked) .. " Task with", lines[3], "Todo item text should remain")
+      assert.no.matches("@priority", lines[3])
+      assert.no.matches("@due", lines[3])
+      assert.no.matches("@tags", lines[3])
+      assert.matches("- " .. vim.pesc(unchecked) .. " Task with", lines[3])
 
       -- Also verify that on_remove callback was called for @tags tag
       assert.is_true(tags_on_removed_called)
@@ -535,11 +541,11 @@ describe("API", function()
       lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
       -- Verify second todo's metadata was removed
-      assert.not_matches("@priority", lines[4], "Metadata tag 'priority' should be removed from second todo")
-      assert.not_matches("@assigned", lines[4], "Metadata tag 'assigned' should be removed from second todo")
+      assert.no.matches("@priority", lines[4])
+      assert.no.matches("@assigned", lines[4])
 
       -- Verify third todo's line text wasn't changed
-      assert.matches("A todo without metadata", lines[5], "Todo item without metadata should not be affected")
+      assert.matches("A todo without metadata", lines[5])
 
       finally(function()
         -- Clean up
@@ -787,7 +793,7 @@ Normal content line (not a todo)]]
       assert.is_not_nil(test_todo_item)
       -- Verify the metadata was removed
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.not_matches("@test", lines[3])
+      assert.no.matches("@test", lines[3])
 
       -- Reset the callback flag
       on_remove_called = false

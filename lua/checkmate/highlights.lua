@@ -4,8 +4,8 @@ local M = {}
 --- Highlight priority levels
 ---@enum HighlightPriority
 M.PRIORITY = {
-  CONTENT = 100,
-  LIST_MARKER = 101,
+  LIST_MARKER = 100,
+  CONTENT = 101,
   TODO_MARKER = 102,
 }
 
@@ -136,6 +136,7 @@ function M.setup_highlights()
 end
 
 ---@class ApplyHighlightingOpts
+---@field todo_map table<string, checkmate.TodoItem>? Will use this todo_map instead of running discover_todos
 ---@field debug_reason string? Reason for call (to help debug why highlighting update was called)
 
 --- TODO: This redraws all highlights and can be expensive for large files.
@@ -163,7 +164,7 @@ function M.apply_highlighting(bufnr, opts)
 
   -- Discover all todo items
   ---@type table<string, checkmate.TodoItem>
-  local todo_map = parser.discover_todos(bufnr)
+  local todo_map = opts.todo_map or parser.discover_todos(bufnr)
 
   -- Process todo items in hierarchical order (top-down)
   for _, todo_item in pairs(todo_map) do
@@ -201,7 +202,7 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   M.highlight_child_list_markers(bufnr, todo_item)
 
   -- 4. Highlight content directly in this todo item
-  M.highlight_content(bufnr, todo_item)
+  M.highlight_content(bufnr, todo_item, todo_map)
 
   -- 5. Show child count indicator
   M.show_todo_count_indicator(bufnr, todo_item, todo_map)
@@ -284,38 +285,23 @@ function M.highlight_child_list_markers(bufnr, todo_item)
     local name = list_marker_query.captures[id]
     local marker_type = parser.get_marker_type_from_capture_name(name)
 
-    -- Skip the todo item's own list marker
-    -- Its highlighting is handled separately by `highlight_list_marker`
-    if todo_item.list_marker and todo_item.list_marker.node == marker_node then
-      goto continue
+    -- Only process if it's not the todo item's own list marker
+    if not (todo_item.list_marker and todo_item.list_marker.node == marker_node) then
+      -- Get the marker range directly from the TreeSitter node
+      local marker_start_row, marker_start_col, marker_end_row, marker_end_col = marker_node:range()
+
+      -- Only highlight markers within the todo item's range
+      if marker_start_row >= todo_item.range.start.row and marker_end_row <= todo_item.range["end"].row then
+        local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+
+        vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+          end_row = marker_end_row,
+          end_col = marker_end_col,
+          hl_group = hl_group,
+          priority = M.PRIORITY.LIST_MARKER,
+        })
+      end
     end
-
-    -- Get the marker range
-    local marker_start_row, marker_start_col, marker_end_row, marker_end_col = marker_node:range()
-
-    local raw_range = {
-      start = { row = marker_start_row, col = marker_start_col },
-      ["end"] = { row = marker_end_row, col = marker_end_col },
-    }
-
-    -- Get the adjusted range
-    local marker_range = require("checkmate.util").get_semantic_range(raw_range, bufnr)
-
-    -- Only highlight markers within the todo item's range
-    if
-      marker_range.start.row >= todo_item.range.start.row and marker_range["end"].row <= todo_item.range["end"].row
-    then
-      local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
-
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_range.start.row, marker_range.start.col, {
-        end_row = marker_range["end"].row,
-        end_col = marker_range["end"].col,
-        hl_group = hl_group,
-        priority = M.PRIORITY.LIST_MARKER,
-      })
-    end
-
-    ::continue::
   end
 end
 
@@ -381,9 +367,10 @@ end
 -- Highlight content directly attached to the todo item
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
-function M.highlight_content(bufnr, todo_item)
+function M.highlight_content(bufnr, todo_item, todo_map)
   local config = require("checkmate.config")
   local log = require("checkmate.log")
+  local util = require("checkmate.util")
 
   -- Select highlight groups based on todo state
   local main_content_hl = M.get_todo_content_highlight(todo_item.state, true)
@@ -393,77 +380,63 @@ function M.highlight_content(bufnr, todo_item)
     return
   end
 
-  -- Query to find all paragraphs within this todo item
-  local paragraph_query = vim.treesitter.query.parse("markdown", [[(paragraph) @paragraph]])
-
-  -- Track if we've processed the first paragraph
-  local first_para_processed = false
-
-  for _, para_node, _ in paragraph_query:iter_captures(todo_item.node, bufnr, 0, -1) do
-    local para_start_row, para_start_col, para_end_row, para_end_col = para_node:range()
-    local is_first_para = para_start_row == todo_item.range.start.row
-
-    -- Choose highlight group based on whether this is the main paragraph or a child paragraph
-    local highlight_group = is_first_para and main_content_hl or additional_content_hl
-
-    log.trace(
-      string.format(
-        "Processing paragraph at [%d,%d]-[%d,%d], first_para=%s",
-        para_start_row,
-        para_start_col,
-        para_end_row,
-        para_end_col,
-        tostring(is_first_para)
-      ),
-      { module = "highlights" }
-    )
-
-    -- Process each line of the paragraph individually
-    for row = para_start_row, math.min(para_end_row, todo_item.range["end"].row) do
-      local line = M.get_buffer_line(bufnr, row)
-      local content_start = nil
-
-      -- For the end column, handle specially for the final row
-      local end_col = (row == todo_item.range["end"].row) and todo_item.range["end"].col
-        or #vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
-
-      if is_first_para and row == para_start_row then
-        -- Special handling for first line of first paragraph
-        -- because content starts AFTER the list marker and todo marker
-        local marker_pos = todo_item.todo_marker.position.col
-        local marker_len = #todo_item.todo_marker.text
-
-        -- Find first non-whitespace character after the marker
-        content_start = line:find("[^%s]", marker_pos + marker_len + 1)
-      else
-        -- For all other lines, find first non-whitespace
-        content_start = line:find("[^%s]")
+  -- Map of row ranges that belong to child todo items (only exclude todo items, not regular list items)
+  local child_todo_rows = {}
+  for _, child_id in ipairs(todo_item.children or {}) do
+    local child = todo_map[child_id]
+    if child then
+      for row = child.range.start.row, child.range["end"].row do
+        child_todo_rows[row] = true
       end
-
-      -- Only highlight if we found non-whitespace content
-      if content_start then
-        -- Adjust to 0-based indexing
-        content_start = content_start - 1
-
-        -- Apply highlighting for this line
-        vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
-          end_row = row,
-          end_col = end_col,
-          hl_group = highlight_group,
-          priority = M.PRIORITY.CONTENT,
-        })
-      end
-
-      M.highlight_metadata(bufnr, config, todo_item.metadata)
     end
-
-    first_para_processed = true
   end
 
-  -- If no paragraphs were found or processed, log a warning
-  if not first_para_processed then
-    log.debug("No paragraphs found in todo item at line " .. (todo_item.range.start.row + 1), { module = "highlights" })
+  -- Now highlight the content
+  -- First line (main content) of the todo item
+  local first_row = todo_item.range.start.row
+  local line = M.get_buffer_line(bufnr, first_row)
+  local marker_pos = todo_item.todo_marker.position.col
+  local marker_len = #todo_item.todo_marker.text
+
+  -- Main content highlight is everything on the first line after the marker
+  -- Find content start position (after the marker)
+  local main_content_start = line:find("[^%s]", marker_pos + marker_len + 1)
+  if main_content_start then
+    main_content_start = main_content_start - 1
+    vim.api.nvim_buf_set_extmark(bufnr, config.ns, first_row, main_content_start, {
+      end_row = first_row,
+      end_col = #line,
+      hl_group = main_content_hl,
+      priority = M.PRIORITY.CONTENT,
+    })
   end
+
+  -- Process additional content (lines after the first)
+  -- Only exclude child todo items, non-todo list items should get additional content highlighting
+  for row = first_row + 1, todo_item.range["end"].row do
+    -- Skip rows that belong to child todo items
+    if not child_todo_rows[row] then
+      local row_line = M.get_buffer_line(bufnr, row)
+      local is_empty = row_line:match("^%s*$")
+
+      -- Only highlight non-empty lines
+      if not is_empty then
+        local additional_content_start = row_line:find("[^%s]")
+        if additional_content_start then
+          additional_content_start = additional_content_start - 1
+          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, additional_content_start, {
+            end_row = row,
+            end_col = #row_line,
+            hl_group = additional_content_hl,
+            priority = M.PRIORITY.CONTENT,
+          })
+        end
+      end
+    end
+  end
+
+  -- Highlight metadata (already using proper range information)
+  M.highlight_metadata(bufnr, config, todo_item.metadata)
 end
 
 ---Show todo count indicator

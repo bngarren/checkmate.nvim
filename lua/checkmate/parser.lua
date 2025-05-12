@@ -33,7 +33,7 @@ local M = {}
 --- @field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
 --- @field content_nodes ContentNodeInfo[] List of content nodes
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
---- @field list_marker ListMarkerInfo? Information about the list marker (0-indexed position)
+--- @field list_marker ListMarkerInfo Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
 --- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging.
 --- @field children string[] IDs of child todo items
@@ -427,7 +427,8 @@ function M.discover_todos(bufnr)
           },
           text = todo_marker,
         },
-        list_marker = nil, -- Will be set by find_list_marker_info
+        ---@diagnostic disable-next-line: assign-type-mismatch
+        list_marker = nil, -- Will be set by update_list_marker_info
         metadata = metadata,
         children = {}, -- Will be set in second pass, if applicable
         parent_id = nil, -- Will be set in second pass, if applicable
@@ -521,55 +522,42 @@ function M.update_content_nodes(node, bufnr, todo_item)
   end
 end
 
----Build the hierarchy of todo items based on indentation
----
----The Treesitter tree-based list item hierarchy doesn't always match the expected parent/child
----relationships from a user perspective. Users expect parent/child relationships based on
----indentation, so we build the todo hierarchy based on indentation differences rather than
----relying solely on the Treesitter tree structure.
----
----The rule is: "your parent is the closest todo item above you with less indentation"
----
+---Build the hierarchy of todo items based on Treesitter's parsing of markdown structure
 ---@param todo_map table<string, checkmate.TodoItem>
 ---@return table<string, checkmate.TodoItem> result The updated todo map with hierarchy information
 function M.build_todo_hierarchy(todo_map)
+  local log = require("checkmate.log")
+
   -- Reset all children arrays and parent_ids
   for _, item in pairs(todo_map) do
     item.children = {}
     item.parent_id = nil
   end
 
-  -- Create a sorted list of todos by row
-  local todos_by_row = {}
-  for id, item in pairs(todo_map) do
-    table.insert(todos_by_row, { id = id, item = item })
-  end
+  -- Build parent-child relationships based on Treesitter tree structure
+  for id, todo_item in pairs(todo_map) do
+    local node = todo_item.node
 
-  table.sort(todos_by_row, function(a, b)
-    return a.item.range.start.row < b.item.range.start.row
-  end)
+    -- Find the parent list_item node using Treesitter's structure
+    local parent_node = M.find_parent_list_item(node)
 
-  -- Process each todo to establish parent-child relationships based on indentation
-  for i, entry in ipairs(todos_by_row) do
-    local current_id = entry.id
-    local current_item = entry.item
-    local current_indent = current_item.range.start.col
+    -- If a parent exists, establish the relationship
+    if parent_node then
+      local parent_id = parent_node:id()
 
-    -- Only process indented items (non-root items)
-    if current_indent > 0 then
-      -- Find the closest previous item with less indentation
-      for j = i - 1, 1, -1 do
-        local prev_entry = todos_by_row[j]
-        local prev_id = prev_entry.id
-        local prev_item = prev_entry.item
-        local prev_indent = prev_item.range.start.col
+      -- Only set parent if it's a todo item
+      if todo_map[parent_id] then
+        todo_item.parent_id = parent_id
+        table.insert(todo_map[parent_id].children, id)
 
-        if prev_indent < current_indent then
-          -- Found a parent - it's the first item above with less indentation
-          current_item.parent_id = prev_id
-          table.insert(todo_map[prev_id].children, current_id)
-          break
-        end
+        log.debug(
+          string.format(
+            "Parent-child relationship: '%s' is parent of '%s'",
+            todo_map[parent_id].todo_text:sub(1, 20),
+            todo_item.todo_text:sub(1, 20)
+          ),
+          { module = "parser" }
+        )
       end
     end
   end
@@ -671,6 +659,102 @@ function M.extract_metadata(line, row)
   end
 
   return metadata
+end
+
+-- Helper function to find the parent list_item node of a given list_item node
+---@param node TSNode The list_item node to find the parent for
+---@return TSNode|nil parent_node The parent list_item node, if any
+function M.find_parent_list_item(node)
+  -- In markdown, the hierarchy is typically:
+  -- list_item -> list -> list_item (parent)
+
+  local parent = node:parent()
+
+  -- No parent or parent is root
+  if not parent or parent:type() == "document" then
+    return nil
+  end
+
+  -- In CommonMark, list items are nested inside lists
+  if parent:type() == "list" then
+    local grandparent = parent:parent()
+    if grandparent and grandparent:type() == "list_item" then
+      return grandparent
+    end
+  end
+
+  return nil
+end
+
+function M.get_all_list_items(bufnr)
+  local list_items = {}
+
+  local root = M.get_markdown_tree_root(bufnr)
+  if not root then
+    return {}
+  end
+
+  local list_query = vim.treesitter.query.parse(
+    "markdown",
+    [[
+    (list_item) @list_item
+    ]]
+  )
+
+  -- Collect all list items and their marker information
+  for _, node, _ in list_query:iter_captures(root, bufnr, 0, -1) do
+    local start_row, start_col, end_row, end_col = node:range()
+
+    -- Find the list marker within this list item
+    local marker_node = nil
+    local marker_type = nil
+
+    -- Find direct children that are list markers
+    local marker_query = M.get_list_marker_query()
+    for marker_id, marker, _ in marker_query:iter_captures(node, bufnr, 0, -1) do
+      local name = marker_query.captures[marker_id]
+      local m_type = M.get_marker_type_from_capture_name(name)
+
+      -- Verify this marker is a direct child
+      if marker:parent() == node then
+        marker_node = marker
+        marker_type = m_type
+        break
+      end
+    end
+
+    -- Only add if we found a marker
+    if marker_node then
+      table.insert(list_items, {
+        node = node,
+        range = {
+          start = { row = start_row, col = start_col },
+          ["end"] = { row = end_row, col = end_col },
+        },
+        list_marker = {
+          node = marker_node,
+          type = marker_type,
+        },
+        text = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1],
+        -- Find parent relationship
+        parent_node = M.find_parent_list_item(node), -- List item's parent is usually two levels up
+      })
+    end
+  end
+
+  -- Build parent-child relationships
+  for _, item in ipairs(list_items) do
+    -- Initialize children array
+    item.children = {}
+
+    for _, other in ipairs(list_items) do
+      if item.node:id() ~= other.node:id() and other.parent_node == item.node then
+        table.insert(item.children, other.node:id()) -- Store index in our list
+      end
+    end
+  end
+
+  return list_items
 end
 
 return M

@@ -4,6 +4,7 @@ local M = {}
 function M.setup(bufnr)
   local parser = require("checkmate.parser")
   local highlights = require("checkmate.highlights")
+  local linter = require("checkmate.linter")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
@@ -15,6 +16,9 @@ function M.setup(bufnr)
 
   -- Convert markdown to Unicode
   parser.convert_markdown_to_unicode(bufnr)
+
+  -- Initial lint buffer
+  linter.lint_buffer(bufnr)
 
   -- Apply highlighting
   highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
@@ -236,7 +240,12 @@ function M.setup_autocmds(bufnr)
       callback = function()
         if vim.bo[bufnr].modified then
           parser.convert_markdown_to_unicode(bufnr)
-          require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'InsertLeave'" })
+          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          require("checkmate.highlights").apply_highlighting(
+            bufnr,
+            { todo_map = todo_map, debug_reason = "autocmd 'TextChanged'" }
+          )
+          require("checkmate.linter").lint_buffer(bufnr)
         end
       end,
     })
@@ -246,7 +255,12 @@ function M.setup_autocmds(bufnr)
       group = augroup,
       buffer = bufnr,
       callback = require("checkmate.util").debounce(function()
-        require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "autocmd 'TextChanged'" })
+        local todo_map = require("checkmate.parser").discover_todos(bufnr)
+        require("checkmate.highlights").apply_highlighting(
+          bufnr,
+          { todo_map = todo_map, debug_reason = "autocmd 'TextChanged'" }
+        )
+        require("checkmate.linter").lint_buffer(bufnr)
       end, { ms = 10 }),
     })
   end

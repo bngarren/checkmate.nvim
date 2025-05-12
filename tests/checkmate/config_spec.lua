@@ -40,10 +40,10 @@ describe("Config", function()
 
       assert.is_true(config.options.enabled)
       assert.is_true(config.options.notify)
-      assert.equals("□", config.options.todo_markers.unchecked)
-      assert.equals("✔", config.options.todo_markers.checked)
-      assert.equals("-", config.options.default_list_marker)
-      assert.equals(1, config.options.todo_action_depth)
+      assert.equal("□", config.options.todo_markers.unchecked)
+      assert.equal("✔", config.options.todo_markers.checked)
+      assert.equal("-", config.options.default_list_marker)
+      assert.equal(1, config.options.todo_action_depth)
       assert.is_true(config.options.enter_insert_after_new)
     end)
   end)
@@ -53,8 +53,8 @@ describe("Config", function()
       local config = require("checkmate.config")
 
       -- Default checks
-      assert.equals("□", config.options.todo_markers.unchecked)
-      assert.equals("✔", config.options.todo_markers.checked)
+      assert.equal("□", config.options.todo_markers.unchecked)
+      assert.equal("✔", config.options.todo_markers.checked)
 
       -- Call setup with new options
       ---@diagnostic disable-next-line: missing-fields
@@ -68,9 +68,9 @@ describe("Config", function()
       })
 
       -- Check that options were updated
-      assert.equals("⬜", config.options.todo_markers.unchecked)
-      assert.equals("✅", config.options.todo_markers.checked)
-      assert.equals("+", config.options.default_list_marker)
+      assert.equal("⬜", config.options.todo_markers.unchecked)
+      assert.equal("✅", config.options.todo_markers.checked)
+      assert.equal("+", config.options.default_list_marker)
       assert.is_false(config.options.enter_insert_after_new)
     end)
   end)

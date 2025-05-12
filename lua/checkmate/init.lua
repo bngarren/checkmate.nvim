@@ -43,6 +43,12 @@ M.setup = function(opts)
     log.debug("Parser initialized", { module = "setup" })
   end
 
+  -- Initialize linter if enabled
+  if true then
+    require("checkmate.linter").setup({ enabled = true, auto_fix = false })
+    log.debug("Linter initialized", { module = "setup" })
+  end
+
   setup_formatters()
 end
 
@@ -190,14 +196,19 @@ function M.debug_at_cursor()
     ("Debug called at (0-index): %s:%s"):format(row, col),
     "Todo item at cursor:",
     ("  State: %s"):format(item.state),
-    ("  Todo marker: %s"):format(item.todo_marker.text),
+    ("  List marker: [%s]"):format(util.get_ts_node_range_string(item.list_marker.node)),
+    ("  Todo marker: [%d,%d] → %s"):format(
+      item.todo_marker.position.row,
+      item.todo_marker.position.col,
+      item.todo_marker.text
+    ),
     ("  Range: [%d,%d] → [%d,%d]"):format(
       item.range.start.row,
       item.range.start.col,
       item.range["end"].row,
       item.range["end"].col
     ),
-    ("Metadata: %s"):format(vim.inspect(item.metadata)),
+    ("  Metadata: %s"):format(vim.inspect(item.metadata)),
   }
 
   -- Use native vim.notify here as we want to show this regardless of config.options.notify

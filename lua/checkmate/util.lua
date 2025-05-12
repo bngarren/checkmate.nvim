@@ -305,23 +305,68 @@ function M.get_semantic_range(range, bufnr)
     ["end"] = { row = range["end"].row, col = range["end"].col },
   }
 
-  -- Handle TreeSitter's end-of-line representation: when a node ends at the end of a line,
-  -- TreeSitter represents it as [next_line, 0] instead of [current_line, line_length]
+  -- Standard TS range adjustment when end_col is 0
   if new_range["end"].col == 0 then
     new_range["end"].row = new_range["end"].row - 1
   end
 
-  -- Ensure end column points to the actual end of the line for:
-  -- 1. Ranges adjusted from [next_line, 0] representation (end_col=0)
-  -- 2. Multi-line ranges that need to include the entire content
-  if new_range["end"].col == 0 or new_range.start.row < new_range["end"].row then
-    local lines = vim.api.nvim_buf_get_lines(bufnr, new_range["end"].row, new_range["end"].row + 1, false)
-    if #lines > 0 then
-      new_range["end"].col = #lines[1]
+  -- Get the first line to determine indentation level of this todo item
+  local first_line = vim.api.nvim_buf_get_lines(bufnr, new_range.start.row, new_range.start.row + 1, false)[1] or ""
+  local indent_match = first_line:match("^(%s+)")
+  local current_indent_level = indent_match and #indent_match or 0
+
+  -- Scan through lines to find where this todo item actually ends
+  -- We're looking for the last line that:
+  -- 1. Has content (not just whitespace)
+  -- 2. Is indented at the same level or greater than our todo item
+  -- 3. But stops when we hit another list item at the same indentation level
+  -- (which would be a sibling, not a child)
+  local end_row = new_range.start.row
+  for row = new_range.start.row + 1, new_range["end"].row do
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+    -- Skip empty lines (but don't update end_row)
+    if not line:match("^%s*$") then
+      -- Get this line's indentation
+      local line_indent_match = line:match("^(%s+)")
+      local line_indent = line_indent_match and #line_indent_match or 0
+
+      -- Check if this line is a new list item (contains a list marker)
+      local is_list_item = line:match("^%s*[-+*]%s") or line:match("^%s*%d+[.)]%s")
+
+      -- If this is a list item at same or lower indent level, it's a sibling or parent
+      -- and should not be part of our current todo's range
+      if is_list_item and line_indent <= current_indent_level then
+        break
+      end
+
+      -- Otherwise, this line is part of our todo item's content
+      end_row = row
     end
   end
 
+  -- Update the range
+  new_range["end"].row = end_row
+
+  -- Get the end column by finding the length of the last line (minus trailing whitespace)
+  local last_line = vim.api.nvim_buf_get_lines(bufnr, end_row, end_row + 1, false)[1] or ""
+  local trimmed_line = last_line:gsub("%s+$", "")
+  new_range["end"].col = #trimmed_line
+
+  -- Preserve the actual indentation level in col, not set to 0
+  new_range.start.col = current_indent_level
+
   return new_range
+end
+
+---Returns a string of the node's range data
+---@param node TSNode
+function M.get_ts_node_range_string(node)
+  if not node then
+    return ""
+  end
+  local start_row, start_col, end_row, end_col = node:range()
+  return ("[%d,%d] → [%d,%d]"):format(start_row, start_col, end_row, end_col)
 end
 
 -- Cursor helper

@@ -39,7 +39,7 @@ describe("Parser", function()
     -- If multi-line, end column should be at end of line
     if todo.range.start.row < todo.range["end"].row then
       local end_line = vim.api.nvim_buf_get_lines(bufnr, todo.range["end"].row, todo.range["end"].row + 1, false)[1]
-      assert.equals(#end_line, todo.range["end"].col, "Multi-line todo end column should be at line end")
+      assert.equal(#end_line, todo.range["end"].col)
     end
 
     -- Todo marker should be within text bounds
@@ -47,6 +47,109 @@ describe("Parser", function()
     assert.is_true(todo.todo_marker.position.row <= todo.range["end"].row)
     assert.is_true(todo.todo_marker.position.col >= 0)
   end
+
+  describe("list item discovery", function()
+    it("should find all list items", function()
+      local parser = require("checkmate.parser")
+      local content = [[
+- Parent list item A
+  - Child list item a.1
+  - Child list item a.2
+    - Child list item a.2.1
+    - Child list item a.2.2
+
+- Parent list item B
+    - Child list item b.1 (indented 4-spaces)
+- Parent list item C
+
+* Parent list item D
+
+1. Parent list item E
+   - Child list item e.1
+   * Child list item e.2
+   + Child list item e.3
+      ]]
+
+      local bufnr = h.create_test_buffer(content)
+      local list_items = parser.get_all_list_items(bufnr)
+
+      assert.equal(#list_items, 13)
+
+      local sorted_list_items = {}
+
+      for _, li in ipairs(list_items) do
+        table.insert(sorted_list_items, li)
+      end
+
+      table.sort(sorted_list_items, function(a, b)
+        return a.range.start.row < b.range.start.row -- ascending order
+      end)
+
+      local assert_range = function(range, start_row, start_col, end_row, end_col)
+        assert.is_not_nil(range)
+        if start_row then
+          assert.equal(start_row, range.start.row)
+        end
+        if start_col then
+          assert.equal(start_col, range.start.col)
+        end
+        if end_row then
+          assert.equal(end_row, range["end"].row)
+        end
+        if end_col then
+          assert.equal(end_col, range["end"].col)
+        end
+      end
+
+      local assert_num_children = function(list_item, expected)
+        assert.equal(#list_item.children, expected)
+      end
+
+      ---@param node TSNode
+      local assert_list_marker_range = function(node, expected_start_row, expected_start_col)
+        local start_row, start_col, _, _ = node:range()
+        assert.equal(start_row, expected_start_row)
+        assert.equal(start_col, expected_start_col)
+      end
+
+      -- Parent list item A
+      assert_range(list_items[1].range, 0)
+      assert.is_nil(list_items[1].parent_node)
+      assert_num_children(list_items[1], 2) -- 2 direct children
+      assert_list_marker_range(list_items[1].list_marker.node, 0, 0)
+
+      -- Child list item a.2
+      assert_range(list_items[3].range, 2, 2)
+      assert.equal(list_items[3].parent_node, list_items[1].node)
+      assert_num_children(list_items[3], 2) -- 2 direct children
+      assert_list_marker_range(list_items[3].list_marker.node, 2, 2)
+
+      -- Parent list item B
+      assert_range(list_items[6].range, 6)
+      assert.is_nil(list_items[6].parent_node)
+      assert_num_children(list_items[6], 1) -- 1 direct children
+      assert_list_marker_range(list_items[6].list_marker.node, 6, 0)
+
+      -- Parent list item D
+      assert_range(list_items[9].range, 10)
+      assert.is_nil(list_items[9].parent_node)
+      assert_num_children(list_items[9], 0) -- 0 direct children
+      assert_list_marker_range(list_items[9].list_marker.node, 10, 0)
+
+      -- Parent list item E
+      assert_range(list_items[10].range, 12)
+      assert.is_nil(list_items[10].parent_node)
+      assert_num_children(list_items[10], 3) -- 3 direct children
+      assert_list_marker_range(list_items[10].list_marker.node, 12, 0)
+
+      -- Child list item e.1
+      assert.equal(list_items[10].node, list_items[11].parent_node)
+      -- Child list item e.2
+      assert.equal(list_items[10].node, list_items[12].parent_node)
+      -- Child list item e.3
+      assert.equal(list_items[10].node, list_items[13].parent_node)
+    end)
+  end)
 
   describe("todo discovery", function()
     it("should calculate correct ranges for todos with different lengths", function()
@@ -79,16 +182,16 @@ describe("Parser", function()
       ---@cast three_line checkmate.TodoItem
 
       -- Single line tests
-      assert.equals(1, single_line.range.start.row, "Single line todo should start at line 1")
-      assert.equals(1, single_line.range["end"].row, "Single line todo should end at line 1")
+      assert.equal(1, single_line.range.start.row)
+      assert.equal(1, single_line.range["end"].row)
 
       -- Multi-line tests (2 lines)
-      assert.equals(2, multi_line.range.start.row, "Multi-line todo should start at line 2")
-      assert.equals(3, multi_line.range["end"].row, "Multi-line todo should end at line 3")
+      assert.equal(2, multi_line.range.start.row)
+      assert.equal(3, multi_line.range["end"].row)
 
       -- Three-line tests
-      assert.equals(4, three_line.range.start.row, "Three-line todo should start at line 4")
-      assert.equals(6, three_line.range["end"].row, "Three-line todo should end at line 6")
+      assert.equal(4, three_line.range.start.row)
+      assert.equal(6, three_line.range["end"].row)
 
       -- Additional validation for each todo
       verify_todo_range_matches_content(bufnr, single_line)
@@ -131,7 +234,7 @@ describe("Parser", function()
       for _ in pairs(todo_map) do
         total_todos = total_todos + 1
       end
-      assert.equals(14, total_todos, "Should find all todos in total")
+      assert.equal(14, total_todos)
 
       -- Find top-level todos
       local level1_todo = find_todo_by_text(todo_map, "Level 1 todo")
@@ -149,10 +252,10 @@ describe("Parser", function()
       ---@cast empty_line checkmate.TodoItem
 
       -- Verify parent-child relationships
-      assert.equals(3, #level1_todo.children, "First level 1 todo should have 3 children")
-      assert.equals(1, #another_top.children, "Second level 1 todo should have 1 child")
-      assert.equals(0, #empty_content.children, "Empty content todo should have 0 children")
-      assert.equals(0, #empty_line.children, "Empty line todo should have 0 children")
+      assert.equal(3, #level1_todo.children)
+      assert.equal(1, #another_top.children)
+      assert.equal(0, #empty_content.children)
+      assert.equal(0, #empty_line.children)
 
       -- Find level 2 todo
       local level2_todo = nil
@@ -166,7 +269,7 @@ describe("Parser", function()
 
       assert.is_not_nil(level2_todo)
       ---@cast level2_todo checkmate.TodoItem
-      assert.equals(1, #level2_todo.children, "Level 2 todo should have 1 child")
+      assert.equal(1, #level2_todo.children)
 
       -- Find level 3 via level 2
       local level3_todo = nil
@@ -177,7 +280,7 @@ describe("Parser", function()
 
       assert.is_not_nil(level3_todo)
       ---@cast level3_todo checkmate.TodoItem
-      assert.equals(1, #level3_todo.children, "Level 3 todo should have 1 child")
+      assert.equal(1, #level3_todo.children)
 
       -- Find level 4 and verify it has level 5 child
       local level4_todo = nil
@@ -188,13 +291,13 @@ describe("Parser", function()
 
       assert.is_not_nil(level4_todo)
       ---@cast level4_todo checkmate.TodoItem
-      assert.equals(1, #level4_todo.children, "Level 4 todo should have 1 child")
+      assert.equal(1, #level4_todo.children)
 
       -- Verify deep nesting to level 5
       local level5_todo = find_todo_by_text(todo_map, "Level 5 todo")
       assert.is_not_nil(level5_todo)
       ---@cast level5_todo checkmate.TodoItem
-      assert.equals(level4_todo.node:id(), level5_todo.parent_id, "Level 5 should be child of Level 4")
+      assert.equal(level4_todo.node:id(), level5_todo.parent_id)
 
       -- Verify irregular indentation is still properly nested
       local irregular = find_todo_by_text(todo_map, "Irregular indentation")
@@ -215,14 +318,14 @@ describe("Parser", function()
       assert.is_not_nil(another_level2)
       ---@cast another_level2 checkmate.TodoItem
 
-      assert.equals(level1_todo.node:id(), tab_indent.parent_id, "Tab indented item should be child of Another Level 2")
-      assert.equals(tab_indent.node:id(), double_tab.parent_id, "Double tab should be child of single tab")
+      assert.equal(level1_todo.node:id(), tab_indent.parent_id)
+      assert.equal(tab_indent.node:id(), double_tab.parent_id)
 
       -- Verify unusual hierarchy jump (top level to level 3)
       local unusual = find_todo_by_text(todo_map, "Direct jump to Level 3")
       assert.is_not_nil(unusual)
       ---@cast unusual checkmate.TodoItem
-      assert.equals(another_top.node:id(), unusual.parent_id, "Unusual jump should be direct child despite indentation")
+      assert.equal(another_top.node:id(), unusual.parent_id)
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
@@ -270,34 +373,26 @@ describe("Parser", function()
       ---@cast mixed_child checkmate.TodoItem
 
       -- Verify parent-child relationships
-      assert.equals(2, #parent_dash.children, "Parent with dash should have 2 children")
-      assert.equals(2, #ordered_parent.children, "Ordered parent should have 2 children")
+      assert.equal(2, #parent_dash.children)
+      assert.equal(2, #ordered_parent.children)
 
       -- Verify mixed list marker relationships
-      assert.equals(
+      assert.equal(
         parent_dash.node:id(),
         child_asterisk.parent_id,
         "Child with asterisk should be child of parent with dash"
       )
-      assert.equals(parent_dash.node:id(), child_plus.parent_id, "Child with plus should be child of parent with dash")
-      assert.equals(
-        ordered_parent.node:id(),
-        ordered_child.parent_id,
-        "Ordered child should be child of ordered parent"
-      )
-      assert.equals(
-        ordered_parent.node:id(),
-        mixed_child.parent_id,
-        "Unordered child should be child of ordered parent"
-      )
+      assert.equal(parent_dash.node:id(), child_plus.parent_id)
+      assert.equal(ordered_parent.node:id(), ordered_child.parent_id, "Ordered child should be child of ordered parent")
+      assert.equal(ordered_parent.node:id(), mixed_child.parent_id, "Unordered child should be child of ordered parent")
 
       -- Verify list marker type is correctly detected
-      assert.equals("unordered", parent_dash.list_marker.type, "Dash should be unordered")
-      assert.equals("unordered", child_asterisk.list_marker.type, "Asterisk should be unordered")
-      assert.equals("unordered", child_plus.list_marker.type, "Plus should be unordered")
-      assert.equals("ordered", ordered_parent.list_marker.type, "Numbered should be ordered")
-      assert.equals("ordered", ordered_child.list_marker.type, "Numbered child should be ordered")
-      assert.equals("unordered", mixed_child.list_marker.type, "Asterisk should be unordered even in ordered parent")
+      assert.equal("unordered", parent_dash.list_marker.type)
+      assert.equal("unordered", child_asterisk.list_marker.type)
+      assert.equal("unordered", child_plus.list_marker.type)
+      assert.equal("ordered", ordered_parent.list_marker.type)
+      assert.equal("ordered", ordered_child.list_marker.type)
+      assert.equal("unordered", mixed_child.list_marker.type)
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
@@ -340,18 +435,18 @@ Line that should not affect parent-child relationship
       ---@cast end_todo checkmate.TodoItem
 
       -- Verify edge position todos
-      assert.is_nil(start_todo.parent_id, "Todo at document start should have no parent")
-      assert.is_nil(end_todo.parent_id, "Todo at document end should have no parent")
+      assert.is_nil(start_todo.parent_id)
+      assert.is_nil(end_todo.parent_id)
 
       -- Verify parent-child with content in between
-      assert.equals(2, #parent_todo.children, "Parent todo should have 2 children despite non-todo content")
-      assert.equals(parent_todo.node:id(), checked_child.parent_id, "Checked child should be child of parent")
-      assert.equals(parent_todo.node:id(), unchecked_child.parent_id, "Unchecked child should be child of parent")
+      assert.equal(2, #parent_todo.children)
+      assert.equal(parent_todo.node:id(), checked_child.parent_id)
+      assert.equal(parent_todo.node:id(), unchecked_child.parent_id)
 
       -- Verify checked state is maintained in hierarchy
-      assert.equals("unchecked", parent_todo.state, "Parent todo should be unchecked")
-      assert.equals("checked", checked_child.state, "Child should remain checked even if parent is unchecked")
-      assert.equals("unchecked", unchecked_child.state, "Unchecked child should be unchecked")
+      assert.equal("unchecked", parent_todo.state)
+      assert.equal("checked", checked_child.state)
+      assert.equal("unchecked", unchecked_child.state)
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
@@ -365,7 +460,7 @@ Line that should not affect parent-child relationship
       local line = "- " .. unchecked_marker .. " This is an unchecked todo"
       local state = parser.get_todo_item_state(line)
 
-      assert.equals("unchecked", state)
+      assert.equal("unchecked", state)
     end)
 
     it("should detect checked todo items with default marker", function()
@@ -374,7 +469,7 @@ Line that should not affect parent-child relationship
       local line = "- " .. checked_marker .. " This is a checked todo"
       local state = parser.get_todo_item_state(line)
 
-      assert.equals("checked", state)
+      assert.equal("checked", state)
     end)
 
     it("should detect unchecked todo items with various list markers", function()
@@ -386,7 +481,7 @@ Line that should not affect parent-child relationship
       for _, marker in ipairs(list_markers) do
         local line = marker .. " " .. unchecked_marker .. " Todo with " .. marker
         local state = parser.get_todo_item_state(line)
-        assert.equals("unchecked", state)
+        assert.equal("unchecked", state)
       end
     end)
 
@@ -396,7 +491,7 @@ Line that should not affect parent-child relationship
       local line = "    - " .. unchecked_marker .. " Indented todo"
       local state = parser.get_todo_item_state(line)
 
-      assert.equals("unchecked", state)
+      assert.equal("unchecked", state)
     end)
 
     it("should detect todo items with ordered list markers", function()
@@ -408,7 +503,7 @@ Line that should not affect parent-child relationship
       for _, format in ipairs(formats) do
         local line = format .. unchecked_marker .. " Numbered todo"
         local state = parser.get_todo_item_state(line)
-        assert.equals("unchecked", state)
+        assert.equal("unchecked", state)
       end
     end)
 
@@ -455,7 +550,7 @@ Line that should not affect parent-child relationship
 
       for i, line in ipairs(lines) do
         local state = parser.get_todo_item_state(line)
-        assert.equals(expected[i], state)
+        assert.equal(expected[i], state)
       end
 
       -- Restore original markers
@@ -477,16 +572,16 @@ Line that should not affect parent-child relationship
       assert.is_table(metadata.by_tag)
 
       -- Check content
-      assert.equals(1, #metadata.entries)
-      assert.equals("priority", metadata.entries[1].tag, "tag should have the correct name")
-      assert.equals("high", metadata.entries[1].value, "tag should have the correct value")
+      assert.equal(1, #metadata.entries)
+      assert.equal("priority", metadata.entries[1].tag)
+      assert.equal("high", metadata.entries[1].value)
       assert.same(metadata.entries[1], metadata.by_tag.priority)
 
       -- Check range
-      assert.equals(0, metadata.entries[1].range.start.row)
-      assert.equals(16, metadata.entries[1].range.start.col, "tag should have correct start col")
-      assert.equals(0, metadata.entries[1].range["end"].row)
-      assert.equals(30, metadata.entries[1].range["end"].col, "tag should have correct end col")
+      assert.equal(0, metadata.entries[1].range.start.row)
+      assert.equal(16, metadata.entries[1].range.start.col)
+      assert.equal(0, metadata.entries[1].range["end"].row)
+      assert.equal(30, metadata.entries[1].range["end"].col)
     end)
 
     it("should extract multiple metadata tags", function()
@@ -497,19 +592,19 @@ Line that should not affect parent-child relationship
       local metadata = parser.extract_metadata(line, row)
 
       -- Check basic structure
-      assert.equals(3, #metadata.entries)
+      assert.equal(3, #metadata.entries)
 
       -- Check first metadata tag
-      assert.equals("priority", metadata.entries[1].tag)
-      assert.equals("high", metadata.entries[1].value)
+      assert.equal("priority", metadata.entries[1].tag)
+      assert.equal("high", metadata.entries[1].value)
 
       -- Check second metadata tag
-      assert.equals("due", metadata.entries[2].tag)
-      assert.equals("2023-04-01", metadata.entries[2].value)
+      assert.equal("due", metadata.entries[2].tag)
+      assert.equal("2023-04-01", metadata.entries[2].value)
 
       -- Check third metadata tag
-      assert.equals("tags", metadata.entries[3].tag)
-      assert.equals("important,urgent", metadata.entries[3].value)
+      assert.equal("tags", metadata.entries[3].tag)
+      assert.equal("important,urgent", metadata.entries[3].value)
 
       -- Check by_tag lookup
       assert.same(metadata.entries[1], metadata.by_tag.priority)
@@ -524,9 +619,9 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      assert.equals(1, #metadata.entries)
-      assert.equals("note", metadata.entries[1].tag)
-      assert.equals("this is a note with spaces", metadata.entries[1].value)
+      assert.equal(1, #metadata.entries)
+      assert.equal("note", metadata.entries[1].tag)
+      assert.equal("this is a note with spaces", metadata.entries[1].value)
     end)
 
     it("should handle metadata with trailing and leading spaces in values", function()
@@ -536,9 +631,9 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      assert.equals(1, #metadata.entries)
-      assert.equals("note", metadata.entries[1].tag)
-      assert.equals("spaced value", metadata.entries[1].value) -- Spaces should be trimmed
+      assert.equal(1, #metadata.entries)
+      assert.equal("note", metadata.entries[1].tag)
+      assert.equal("spaced value", metadata.entries[1].value) -- Spaces should be trimmed
     end)
 
     it("should properly track position_in_line", function()
@@ -548,7 +643,7 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      assert.equals(2, #metadata.entries)
+      assert.equal(2, #metadata.entries)
       assert.is_true(metadata.entries[1].position_in_line < metadata.entries[2].position_in_line)
     end)
 
@@ -566,13 +661,13 @@ Line that should not affect parent-child relationship
       local metadata = parser.extract_metadata(line, row)
 
       -- Check that aliases are correctly marked
-      assert.equals(2, #metadata.entries)
+      assert.equal(2, #metadata.entries)
 
-      assert.equals("pri", metadata.entries[1].tag)
-      assert.equals("priority", metadata.entries[1].alias_for)
+      assert.equal("pri", metadata.entries[1].tag)
+      assert.equal("priority", metadata.entries[1].alias_for)
 
-      assert.equals("p", metadata.entries[2].tag)
-      assert.equals("priority", metadata.entries[2].alias_for)
+      assert.equal("p", metadata.entries[2].tag)
+      assert.equal("priority", metadata.entries[2].alias_for)
 
       -- Check by_tag has entries for both alias and canonical name
       assert.same(metadata.entries[1], metadata.by_tag.pri)
@@ -587,9 +682,9 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      assert.equals(2, #metadata.entries)
-      assert.equals("tag-with-hyphens", metadata.entries[1].tag)
-      assert.equals("tag_with_underscores", metadata.entries[2].tag)
+      assert.equal(2, #metadata.entries)
+      assert.equal("tag-with-hyphens", metadata.entries[1].tag)
+      assert.equal("tag_with_underscores", metadata.entries[2].tag)
     end)
 
     it("should return empty structure when no metadata present", function()
@@ -599,7 +694,7 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      assert.equals(0, #metadata.entries)
+      assert.equal(0, #metadata.entries)
       assert.same({}, metadata.by_tag)
     end)
 
@@ -611,10 +706,10 @@ Line that should not affect parent-child relationship
       local metadata = parser.extract_metadata(line, row)
 
       -- Should have both entries
-      assert.equals(2, #metadata.entries)
+      assert.equal(2, #metadata.entries)
 
       -- Last one should win in the by_tag lookup
-      assert.equals("high", metadata.by_tag.priority.value)
+      assert.equal("high", metadata.by_tag.priority.value)
     end)
   end)
 
@@ -657,17 +752,17 @@ Line that should not affect parent-child relationship
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
-        assert.equals("# Todo List", converted_lines[1]) -- Heading unchanged
-        assert.equals("", converted_lines[2]) -- Empty line unchanged
-        assert.equals("- " .. unchecked .. " Unchecked task", converted_lines[3])
-        assert.equals("- " .. checked .. " Checked task", converted_lines[4])
-        assert.equals("- " .. checked .. " Checked task with capital X", converted_lines[5])
-        assert.equals("* " .. unchecked .. " Unchecked with asterisk", converted_lines[6])
-        assert.equals("+ " .. checked .. " Checked with plus", converted_lines[7])
-        assert.equals("1. " .. unchecked .. " Numbered unchecked task", converted_lines[8])
-        assert.equals("2. " .. checked .. " Numbered checked task", converted_lines[9])
-        assert.equals("", converted_lines[10]) -- Empty line unchanged
-        assert.equals("- Not a task", converted_lines[11]) -- Regular list item unchanged
+        assert.equal("# Todo List", converted_lines[1]) -- Heading unchanged
+        assert.equal("", converted_lines[2]) -- Empty line unchanged
+        assert.equal("- " .. unchecked .. " Unchecked task", converted_lines[3])
+        assert.equal("- " .. checked .. " Checked task", converted_lines[4])
+        assert.equal("- " .. checked .. " Checked task with capital X", converted_lines[5])
+        assert.equal("* " .. unchecked .. " Unchecked with asterisk", converted_lines[6])
+        assert.equal("+ " .. checked .. " Checked with plus", converted_lines[7])
+        assert.equal("1. " .. unchecked .. " Numbered unchecked task", converted_lines[8])
+        assert.equal("2. " .. checked .. " Numbered checked task", converted_lines[9])
+        assert.equal("", converted_lines[10]) -- Empty line unchanged
+        assert.equal("- Not a task", converted_lines[11]) -- Regular list item unchanged
 
         -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -709,16 +804,16 @@ Line that should not affect parent-child relationship
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         -- Check that appropriate conversions happened
-        assert.equals("# Todo List", converted_lines[1]) -- Heading unchanged
-        assert.equals("", converted_lines[2]) -- Empty line unchanged
-        assert.equals("- [ ] Unchecked task", converted_lines[3])
-        assert.equals("- [x] Checked task", converted_lines[4])
-        assert.equals("* [ ] Unchecked with asterisk", converted_lines[5])
-        assert.equals("+ [x] Checked with plus", converted_lines[6])
-        assert.equals("1. [ ] Numbered unchecked task", converted_lines[7])
-        assert.equals("2. [x] Numbered checked task", converted_lines[8])
-        assert.equals("", converted_lines[9]) -- Empty line unchanged
-        assert.equals("- Not a task", converted_lines[10]) -- Regular list item unchanged
+        assert.equal("# Todo List", converted_lines[1]) -- Heading unchanged
+        assert.equal("", converted_lines[2]) -- Empty line unchanged
+        assert.equal("- [ ] Unchecked task", converted_lines[3])
+        assert.equal("- [x] Checked task", converted_lines[4])
+        assert.equal("* [ ] Unchecked with asterisk", converted_lines[5])
+        assert.equal("+ [x] Checked with plus", converted_lines[6])
+        assert.equal("1. [ ] Numbered unchecked task", converted_lines[7])
+        assert.equal("2. [x] Numbered checked task", converted_lines[8])
+        assert.equal("", converted_lines[9]) -- Empty line unchanged
+        assert.equal("- Not a task", converted_lines[10]) -- Regular list item unchanged
 
         -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -751,10 +846,10 @@ Line that should not affect parent-child relationship
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         -- Check that appropriate conversions happened
-        assert.equals("# Todo List", converted_lines[1])
-        assert.equals("- [ ] Parent task", converted_lines[2])
-        assert.equals("  - [ ] Indented child task", converted_lines[3])
-        assert.equals("    - [x] Deeply indented task", converted_lines[4])
+        assert.equal("# Todo List", converted_lines[1])
+        assert.equal("- [ ] Parent task", converted_lines[2])
+        assert.equal("  - [ ] Indented child task", converted_lines[3])
+        assert.equal("    - [x] Deeply indented task", converted_lines[4])
 
         -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -791,7 +886,7 @@ Line that should not affect parent-child relationship
 
       -- Verify round-trip produces original content
       for i, line in ipairs(original_lines) do
-        assert.equals(line, final_lines[i])
+        assert.equal(line, final_lines[i])
       end
 
       -- Clean up
@@ -877,14 +972,14 @@ Line that should not affect parent-child relationship
 
       assert.is_not_nil(section3_todo2)
       ---@cast section3_todo2 checkmate.TodoItem
-      assert.equals(3, #section3_todo2.children, "Section 3 todo 2 should have 3 children")
+      assert.equal(3, #section3_todo2.children)
 
       -- Pick one child and verify its properties
       local child_id = section3_todo2.children[1]
       local child = todo_map[child_id]
 
       assert.is_not_nil(child)
-      assert.equals(section3_todo2.node:id(), child.parent_id, "Child's parent_id should match parent's node id")
+      assert.equal(section3_todo2.node:id(), child.parent_id)
 
       -- Spot check some selected todos to ensure they all have valid ranges
       local count = 0
@@ -903,10 +998,10 @@ Line that should not affect parent-child relationship
 
           -- Verify at least one priority and one due date metadata
           if todo.metadata.by_tag.priority then
-            assert.equals("high", todo.metadata.by_tag.priority.value, "Priority should be high")
+            assert.equal("high", todo.metadata.by_tag.priority.value)
           end
           if todo.metadata.by_tag.due then
-            assert.equals("2025-06-01", todo.metadata.by_tag.due.value, "Due date should be correct")
+            assert.equal("2025-06-01", todo.metadata.by_tag.due.value)
           end
         end
       end

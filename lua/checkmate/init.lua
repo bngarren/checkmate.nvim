@@ -4,6 +4,11 @@
 ---@class Checkmate
 local M = {}
 
+-- Internal plugin state
+local _state = {
+  initialized = false, -- Has setup been called?
+}
+
 ---Configure formatters to play nicely with .todo files (which should be parsed as markdown)
 local function setup_formatters()
   -- Setup formatters (currently only for conform.nvim) to use prettier's 'markdown' parser
@@ -26,30 +31,209 @@ local function setup_formatters()
   end
 end
 
+-- Helper function to check if file matches patterns
+-- Note: All pattern matching is case-sensitive.
+-- Users should include multiple patterns for case-insensitive matching.
+function M.should_activate_for_buffer(bufnr, patterns)
+  if not patterns or #patterns == 0 then
+    return false -- Don't activate Checkmate if no pattern specified
+  end
+
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local filename = vim.api.nvim_buf_get_name(bufnr)
+
+  -- No filename, can't check pattern
+  if not filename or filename == "" then
+    return false
+  end
+
+  -- Normalize path for consistent matching
+  local norm_path = filename:gsub("\\", "/")
+  local basename = vim.fn.fnamemodify(norm_path, ":t")
+
+  for _, pattern in ipairs(patterns) do
+    -- 1: Exact basename match
+    if pattern == basename then
+      return true
+    end
+
+    -- 2: If pattern has no extension and file has .md extension,
+    -- check if pattern matches filename without extension
+    if not pattern:match("%.%w+$") and basename:match("%.md$") then
+      local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
+      if pattern == basename_no_ext then
+        return true
+      end
+    end
+
+    -- 3: For directory patterns - exact path ending match
+    if pattern:find("/") then
+      -- Check if the path ends with the pattern
+      if norm_path:match("/" .. vim.pesc(pattern) .. "$") then
+        return true
+      end
+
+      -- Special case: If pattern doesn't end with .md and the file has .md extension,
+      -- check if adding .md to the pattern would match
+      if not pattern:match("%.md$") and norm_path:match("%.md$") then
+        if norm_path:match("/" .. vim.pesc(pattern) .. "%.md$") then
+          return true
+        end
+      end
+    end
+
+    -- 4: Wildcard matching
+    if pattern:find("*") then
+      local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
+
+      -- For path patterns with wildcards
+      if pattern:find("/") then
+        if norm_path:match(lua_pattern .. "$") then
+          return true
+        end
+
+        -- Try with .md appended if pattern doesn't have extension and file does
+        if not pattern:match("%.%w+$") and norm_path:match("%.md$") then
+          if norm_path:match(lua_pattern .. "%.md$") then
+            return true
+          end
+        end
+      else
+        -- For simple filename patterns with wildcards
+        if basename:match("^" .. lua_pattern .. "$") then
+          return true
+        end
+
+        -- If pattern doesn't have extension and file has .md extension,
+        -- try to match pattern against filename without extension
+        if not pattern:match("%.%w+$") and basename:match("%.md$") then
+          local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
+          if basename_no_ext:match("^" .. lua_pattern .. "$") then
+            return true
+          end
+        end
+      end
+    end
+  end
+
+  return false
+end
+
 ---@param opts checkmate.Config?
 M.setup = function(opts)
   local config = require("checkmate.config")
+  opts = opts or {}
+
+  -- Handle initialization
+  _state.initialized = true
+
   config.setup(opts)
 
-  -- Initialize the logger
+  -- Setup filetype autocommand
+  vim.api.nvim_create_autocmd("FileType", {
+    group = vim.api.nvim_create_augroup("checkmate_ft", { clear = true }),
+    pattern = "markdown",
+    callback = function(event)
+      -- Check if this markdown file should activate Checkmate
+      if M.should_activate_for_buffer(event.buf, config.options.files) then
+        -- Schedule the activation to avoid blocking
+        vim.schedule(function()
+          -- Load the plugin
+          M.start()
+          -- Setup this buffer
+          require("checkmate.api").setup(event.buf)
+        end)
+      end
+    end,
+  })
+
+  return config.options
+end
+
+-- Main loading function - loads all plugin components
+function M.start()
+  local config = require("checkmate.config")
+
+  -- Don't reload if already running
+  if config._state.running then
+    return
+  end
+
+  -- If not enabled in config, don't proceed
+  if not config.options.enabled then
+    return
+  end
+
+  -- Step 1: Initialize logger (independent of all other modules)
   local log = require("checkmate.log")
   log.setup()
+  log.debug("Beginning plugin initialization", { module = "init" })
 
-  log.debug(config.options)
+  -- Step 2: Start the configuration module
+  config.start()
 
-  -- Now setup parser after config is fully initialized
-  if config.is_running() then
-    require("checkmate.parser").setup()
-    log.debug("Parser initialized", { module = "setup" })
-  end
+  -- Step 3: Initialize parser (core functionality, no UI dependencies)
+  -- This handles the TS queries that other modules need
+  require("checkmate.parser").setup()
 
-  -- Initialize linter if enabled
-  if true then
-    require("checkmate.linter").setup({ enabled = true, auto_fix = false })
-    log.debug("Linter initialized", { module = "setup" })
-  end
+  -- Step 4: Set up highlights module (depends on parser)
+  require("checkmate.highlights").setup_highlights()
 
+  -- Step 5: Register commands (user-facing features)
+  require("checkmate.commands").setup()
+
+  -- Step 6: Setup formatters
   setup_formatters()
+
+  -- Step 7: Set up the linter if enabled (depends on parser)
+  if config.options.linter and config.options.linter.enabled ~= false then
+    require("checkmate.linter").setup(config.options.linter)
+  end
+
+  -- Step 8: Setup module-specific autocommands
+  M._setup_autocommands()
+
+  -- Mark as fully loaded
+  config._state.running = true
+
+  -- Log successful initialization
+  log.info("Checkmate plugin loaded successfully", { module = "init" })
+end
+
+-- Sets up all plugin autocommands (beyond the lazy detection ones)
+function M._setup_autocommands()
+  local augroup = vim.api.nvim_create_augroup("checkmate", { clear = true })
+
+  -- Track active buffers for cleanup
+  vim.api.nvim_create_autocmd("BufDelete", {
+    group = augroup,
+    callback = function(args)
+      local bufnr = args.buf
+      require("checkmate.config").unregister_buffer(bufnr)
+    end,
+  })
+
+  -- Clean up on exit
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = augroup,
+    callback = function()
+      M.stop()
+    end,
+  })
+end
+
+-- Shutdown the plugin and clean up
+function M.stop()
+  local config = require("checkmate.config")
+  if not config.is_running() then
+    return
+  end
+
+  config.stop()
+
+  config._state.running = false
+
+  require("checkmate.log").shutdown()
 end
 
 -- PUBLIC API --
@@ -155,6 +339,47 @@ function M.toggle_metadata(meta_name, custom_value)
     action_name = "toggle metadata",
     params = { meta_name = meta_name, custom_value = custom_value },
   })
+end
+
+--- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules
+---
+--- This is not intended to be a comprehensive Markdown linter
+--- and could interfere with other active Markdown linters.
+---
+--- The purpose is to catch/warn about a select number of formatting
+--- errors (according to CommonMark spec) that could lead to unexpected
+--- results when using this plugin.
+---
+---@param opts? {bufnr?: integer, fix?: boolean} Optional parameters
+---@return boolean success Whether lint was successful or failed
+---@return table|nil diagnostics Diagnostics table, or nil if failed
+function M.lint(opts)
+  opts = opts or {}
+  local bufnr = vim.api.nvim_get_current_buf()
+  local api = require("checkmate.api")
+
+  if not api.is_valid_buffer(bufnr) then
+    return false, nil
+  end
+
+  local linter = require("checkmate.linter")
+  local log = require("checkmate.log")
+  local util = require("checkmate.util")
+
+  local results = linter.lint_buffer(bufnr)
+
+  if #results == 0 then
+    util.notify("Checkmate linting passed!", vim.log.levels.INFO)
+  else
+    local msg = string.format("Found %d Checkmate formatting issues", #results)
+    util.notify(msg, vim.log.levels.WARN)
+    log.warn(msg, log.levels.WARN)
+    for i, issue in ipairs(results) do
+      log.warn(string.format("Issue %d, row %d [%s]: %s", i, issue.lnum, issue.severity, issue.message))
+    end
+  end
+
+  return true, results
 end
 
 --- Open debug log

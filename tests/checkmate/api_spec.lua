@@ -136,6 +136,14 @@ describe("API", function()
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", buffer_content)
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", buffer_content)
 
+      -- Verify the node structure is properly built
+      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local found_items = 0
+      for _, _ in pairs(todo_map) do
+        found_items = found_items + 1
+      end
+      assert.is_true(found_items == 2)
+
       finally(function()
         -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })

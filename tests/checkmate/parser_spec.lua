@@ -216,8 +216,6 @@ describe("Parser", function()
       - ]] .. checked .. [[ Level 4 todo with 6-space indent
         - ]] .. unchecked .. [[ Level 5 todo with 8-space indent
   - ]] .. unchecked .. [[ Another Level 2 with 2-space indent
-   - ]] .. unchecked .. [[ Irregular indentation (3-spaces)
-    - ]] .. unchecked .. [[ Back to 4-space indent
   - ]] .. checked .. [[ Tab indentation
   	- ]] .. unchecked .. [[ Double tab indentation
 
@@ -234,7 +232,7 @@ describe("Parser", function()
       for _ in pairs(todo_map) do
         total_todos = total_todos + 1
       end
-      assert.equal(14, total_todos)
+      assert.equal(12, total_todos)
 
       -- Find top-level todos
       local level1_todo = find_todo_by_text(todo_map, "Level 1 todo")
@@ -298,12 +296,9 @@ describe("Parser", function()
       assert.is_not_nil(level5_todo)
       ---@cast level5_todo checkmate.TodoItem
       assert.equal(level4_todo.node:id(), level5_todo.parent_id)
-
-      -- Verify irregular indentation is still properly nested
-      local irregular = find_todo_by_text(todo_map, "Irregular indentation")
-      assert.is_not_nil(irregular)
-      ---@cast irregular checkmate.TodoItem
-      assert.is_true(irregular.parent_id ~= nil)
+      -- verify expected TS nodes above it
+      assert.equal("list_item", level5_todo.node:parent():parent():type())
+      assert.equal("list", level5_todo.node:parent():type())
 
       -- Verify tab indentation is handled properly
       local tab_indent = find_todo_by_text(todo_map, "Tab indentation")
@@ -343,9 +338,9 @@ describe("Parser", function()
   + ]] .. checked .. [[ Child with plus
     - ]] .. unchecked .. [[ Grandchild with dash
 1. ]] .. unchecked .. [[ Ordered parent
-  2. ]] .. checked .. [[ Ordered child
-    3. ]] .. unchecked .. [[ Ordered grandchild
-  * ]] .. unchecked .. [[ Unordered child with asterisk in ordered parent
+   1) ]] .. checked .. [[ Ordered child
+      1. ]] .. unchecked .. [[ Ordered grandchild
+   * ]] .. unchecked .. [[ Unordered child with asterisk in ordered parent
 ]]
 
       local bufnr = h.create_test_buffer(content)

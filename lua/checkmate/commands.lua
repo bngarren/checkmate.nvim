@@ -56,19 +56,32 @@ M.regular_commands = {
     name = "Lint",
     cmd = "CheckmateLint",
     func = function()
+      require("checkmate").lint()
+    end,
+    opts = { desc = "Identify Checkmate formatting issues" },
+  },
+  -- TODO: auto-fix
+
+  --[[ {
+    name = "Auto Fix",
+    cmd = "CheckmateFix",
+    func = function()
       local bufnr = vim.api.nvim_get_current_buf()
       local linter = require("checkmate.linter")
-      local results = linter.lint_buffer(bufnr)
+      local result, fixed = linter.fix_issues(bufnr)
 
-      if #results == 0 then
-        vim.notify("No Markdown formatting issues found", vim.log.levels.INFO)
+      if result then
+        if fixed > 0 then
+          vim.notify("Auto fixable issues fixed", vim.log.levels.INFO)
+        else
+          vim.notify("No auto fixable issues found", vim.log.levels.INFO)
+        end
       else
-        vim.notify(string.format("Found %d formatting issues", #results), vim.log.levels.WARN)
-        require("checkmate.util").notify(vim.inspect(results), vim.log.levels.DEBUG)
+        vim.notify("Could not fix auto-fixable issues", vim.log.levels.WARN)
       end
     end,
     opts = { desc = "Check for Markdown formatting issues" },
-  },
+  }, ]]
 }
 
 -- Debug commands only available when INCLUDE_DEBUG_COMMANDS is true

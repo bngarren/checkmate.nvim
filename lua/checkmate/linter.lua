@@ -1,24 +1,34 @@
 -- lua/checkmate/linter.lua
 local M = {}
 
--- Create a dedicated namespace for our linting diagnostics
+-- A dedicated namespace for our linting diagnostics
 M.ns = vim.api.nvim_create_namespace("checkmate_lint")
 
 -- Define lint issue types with descriptions
 M.ISSUES = {
-  INVALID_INDENT = "Improper list item indentation (doesn't follow CommonMark spec)",
   INCONSISTENT_MARKER = "List markers should be consistent among siblings",
   MISALIGNED_CONTENT = "Content on continuation lines should align with the first line's content",
   MIXED_LIST_TYPE = "Mixing ordered/unordered lists at same nesting level",
-  UNALIGNED_MARKER = "List marker should be properly aligned under parent's content",
+  UNALIGNED_MARKER = "List marker is misaligned",
 }
 
 -- Default configuration
+---@type checkmate.LinterConfig
 M.config = {
   enabled = true,
+  -- Which diagnostic namespace to use - default will use the plugin's own namespace
+  -- Set to another namespace string to integrate with other diagnostic providers
+  namespace = nil,
+  -- Virtual text options, forwarded to vim.diagnostic.config
+  ---@type vim.diagnostic.Opts.VirtualText
+  virtual_text = {
+    prefix = "▸",
+  },
+  -- Underline options, forwarded to vim.diagnostic.config
+  ---@type vim.diagnostic.Opts.Underline
+  underline = { severity = "WARN" },
   auto_fix = false,
   severity = {
-    [M.ISSUES.INVALID_INDENT] = vim.diagnostic.severity.WARN,
     [M.ISSUES.INCONSISTENT_MARKER] = vim.diagnostic.severity.INFO,
     [M.ISSUES.MISALIGNED_CONTENT] = vim.diagnostic.severity.HINT,
     [M.ISSUES.MIXED_LIST_TYPE] = vim.diagnostic.severity.WARN,
@@ -27,42 +37,61 @@ M.config = {
 }
 
 -- Setup linter with user config
+---@param opts checkmate.LinterConfig? User configuration options
+---@return checkmate.LinterConfig config Merged configuration
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
-  if M.config.enabled then
-    local augroup = vim.api.nvim_create_augroup("CheckmateLinter", { clear = true })
+  -- If disabled, return early
+  if not M.config.enabled then
+    M.disable()
+    return M.config
+  end
 
-    -- Run linter when buffer is written
-    vim.api.nvim_create_autocmd("BufWritePre", {
-      group = augroup,
+  -- Configure diagnostics with our options
+  vim.diagnostic.config({
+    virtual_text = M.config.virtual_text,
+    underline = M.config.underline,
+    severity_sort = true,
+  }, M.ns)
+
+  -- TODO: Run linter when buffer is written
+  --[[ vim.api.nvim_create_autocmd("BufWritePre", {
+      group = vim.api.nvim_create_augroup("CheckmateLinter", { clear = true }),
       pattern = "*.todo",
       callback = function(args)
+        require("checkmate.util").notify("bufwritepre", vim.log.levels.DEBUG)
         if M.config.auto_fix and args.event == "BufWritePre" then
           M.fix_issues(args.buf)
         end
       end,
-    })
-  end
+    }) ]]
 
   return M.config
 end
 
 -- Main lint function
+---@param bufnr integer? Buffer number to lint, defaults to current buffer
+---@return vim.Diagnostic[] result List of diagnostics produced
 function M.lint_buffer(bufnr)
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
+  -- Skip if buffer is not valid
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return {}
+  end
+
   -- Clear previous diagnostics
   vim.diagnostic.reset(M.ns, bufnr)
 
   -- List to hold diagnostic items
+  ---@type vim.Diagnostic[]
   local diagnostics = {}
 
-  -- Get all list items, but don't rely on their parent-child relationships
+  -- Get all list items
   local list_items = parser.get_all_list_items(bufnr)
-  log.debug("Found " .. #list_items .. " list items", { module = "linter" })
 
   -- Sort items by line number for sequential processing
   table.sort(list_items, function(a, b)
@@ -70,8 +99,9 @@ function M.lint_buffer(bufnr)
   end)
 
   -- Find nesting level for each list item based on indentation
+  -- We don't use TS nesting here because we want to find list items that are misaligned
+  -- Thus, we find them by indentation errors
   for i, item in ipairs(list_items) do
-    -- Get row and line content
     local row = item.range.start.row
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
@@ -95,30 +125,25 @@ function M.lint_buffer(bufnr)
 
     -- If we found a parent, check indentation
     if parent_item then
-      -- Get parent row and line
       local parent_row = parent_item.range.start.row
       local parent_line = vim.api.nvim_buf_get_lines(bufnr, parent_row, parent_row + 1, false)[1] or ""
 
-      -- Get parent list marker details
       local _, _, _, parent_marker_end_col = parent_item.list_marker.node:range()
 
       -- Find the first non-whitespace character after the parent's marker
-      -- Directly calculate using the full line for accuracy
       local content_start_idx = parent_line:find("[^%s]", parent_marker_end_col + 1)
 
       local parent_content_start
       if content_start_idx then
         -- Content starts at the first non-whitespace character
         parent_content_start = content_start_idx - 1 -- Convert to 0-indexed
-        log.debug(string.format("Parent content starts at column %d", parent_content_start + 1), { module = "linter" })
       else
         -- No content after marker, use CommonMark default (one space after marker)
         parent_content_start = parent_marker_end_col + 1
-        log.debug("No content after parent marker, using default position", { module = "linter" })
       end
 
       -- Get this item's marker position
-      local marker_row, marker_col, _, _ = item.list_marker.node:range()
+      local _, marker_col, _, _ = item.list_marker.node:range()
 
       -- Child list marker should align with the start of parent's content
       if marker_col ~= parent_content_start then
@@ -139,20 +164,53 @@ function M.lint_buffer(bufnr)
           col = 0,
           end_lnum = row,
           end_col = #indent,
-          message = M.ISSUES.UNALIGNED_MARKER .. string.format(
-            " (marker should align with parent's content at column %d, currently at column %d)",
-            parent_content_start + 1,
-            marker_col + 1
-          ),
+          message = M.ISSUES.UNALIGNED_MARKER,
           severity = M.config.severity[M.ISSUES.UNALIGNED_MARKER],
-          source = "checkmate-linter",
+          source = "checkmate",
           user_data = {
             fixable = true,
-            fix_fn = function()
-              -- Adjust indentation to align marker properly with parent's content
-              local fixed_line = string.rep(" ", parent_content_start) .. line:gsub("^%s*", "")
-              vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { fixed_line })
-            end,
+            -- TODO: implement auto_fix
+            --
+            --[[ fix_fn = function()
+              -- Fix just the first line with the list marker
+              local fixed_marker_line = string.rep(" ", parent_content_start) .. line:gsub("^%s*", "")
+              vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { fixed_marker_line })
+
+              -- Get the updated list items
+              local list_items = parser.get_all_list_items(bufnr)
+
+              -- Find our newly aligned item
+              local aligned_item = nil
+              for _, item in ipairs(list_items) do
+                if item.range.start.row == row then
+                  aligned_item = item
+                  break
+                end
+              end
+
+              if aligned_item then
+                -- Calculate the full range that needs adjustment
+                -- This should now include all children correctly
+                local item_node = aligned_item.node
+                local start_row, _, end_row, _ = item_node:range()
+
+                -- Calculate the indentation difference we applied
+                local original_indent = #(line:match("^%s*") or "")
+                local indent_adjustment = parent_content_start - original_indent
+
+                -- Adjust all lines *except* the first one which we already fixed
+                for line_row = start_row + 1, end_row do
+                  local line_text = vim.api.nvim_buf_get_lines(bufnr, line_row, line_row + 1, false)[1]
+                  if line_text then
+                    -- Keep relative indentation within the subtree
+                    local line_indent = line_text:match("^%s*") or ""
+                    local new_indent = string.rep(" ", #line_indent + indent_adjustment)
+                    local fixed_line = new_indent .. line_text:gsub("^%s*", "")
+                    vim.api.nvim_buf_set_lines(bufnr, line_row, line_row + 1, false, { fixed_line })
+                  end
+                end
+              end
+            end ]]
           },
         })
       end
@@ -167,103 +225,10 @@ function M.lint_buffer(bufnr)
   return diagnostics
 end
 
--- Check for proper indentation between parent and child
-function M.check_indentation(bufnr, parent_item, child_item, diagnostics)
-  local log = require("checkmate.log")
-
-  log.debug(
-    string.format(
-      "Checking indentation: parent at row %d, child at row %d",
-      parent_item.range.start.row + 1,
-      child_item.range.start.row + 1
-    ),
-    { module = "linter" }
-  )
-
-  -- Skip if parent or child doesn't have list marker info
-  if
-    not parent_item.list_marker
-    or not parent_item.list_marker.node
-    or not child_item.list_marker
-    or not child_item.list_marker.node
-  then
-    log.debug("Skipping check due to missing list marker info", { module = "linter" })
-    return
-  end
-
-  -- Get parent list marker details
-  local parent_marker_row, parent_marker_col, _, parent_marker_end_col = parent_item.list_marker.node:range()
-
-  -- Get child list marker details
-  local child_marker_row, child_marker_col, _, _ = child_item.list_marker.node:range()
-
-  -- Get the parent and child lines
-  local parent_line = vim.api.nvim_buf_get_lines(bufnr, parent_marker_row, parent_marker_row + 1, false)[1]
-  local child_line = vim.api.nvim_buf_get_lines(bufnr, child_marker_row, child_marker_row + 1, false)[1]
-
-  -- Extract child's indentation
-  local child_indent = child_line:match("^(%s*)") or ""
-  log.debug(
-    string.format("Child indentation: '%s' (length: %d)", vim.inspect(child_indent), #child_indent),
-    { module = "linter" }
-  )
-
-  -- According to CommonMark spec:
-  -- Calculate where the parent's content starts - this is where the child's list marker should align
-  local parent_content_start
-
-  -- Debug the lines
-  log.debug(string.format("Parent line: '%s', Child line: '%s'", parent_line, child_line), { module = "linter" })
-
-  -- Get the first non-whitespace character after the list marker
-  local parent_after_marker = parent_line:sub(parent_marker_end_col + 1)
-  local first_content_char = parent_after_marker:find("[^%s]")
-
-  if first_content_char then
-    -- Content starts at first non-whitespace after the marker
-    parent_content_start = parent_marker_end_col + first_content_char - 1
-  else
-    -- No content, use the default CommonMark rule
-    parent_content_start = parent_marker_end_col + 1
-  end
-
-  -- Child list marker should align with the start of parent's content
-  if child_marker_col ~= parent_content_start then
-    log.debug(
-      string.format(
-        "Indentation issue: child at %d, should be at %d (parent content start)",
-        child_marker_col,
-        parent_content_start
-      ),
-      { module = "linter" }
-    )
-
-    table.insert(diagnostics, {
-      bufnr = bufnr,
-      lnum = child_marker_row,
-      col = 0,
-      end_lnum = child_marker_row,
-      end_col = #child_indent,
-      message = M.ISSUES.UNALIGNED_MARKER .. string.format(
-        " (marker should align with parent's content at column %d, currently at column %d)",
-        parent_content_start + 1, -- +1 for 1-indexed display
-        child_marker_col + 1 -- +1 for 1-indexed display
-      ),
-      severity = M.config.severity[M.ISSUES.UNALIGNED_MARKER],
-      source = "checkmate-linter",
-      user_data = {
-        fixable = true,
-        fix_fn = function()
-          -- Adjust indentation to align marker properly with parent's content
-          local fixed_line = string.rep(" ", parent_content_start) .. child_line:gsub("^%s*", "")
-          vim.api.nvim_buf_set_lines(bufnr, child_marker_row, child_marker_row + 1, false, { fixed_line })
-        end,
-      },
-    })
-  end
-end
-
 -- Fix all fixable issues in buffer
+---@param bufnr integer? Buffer number, defaults to current buffer
+---@return boolean success Whether fixes were applied
+---@return integer count Number of issues fixed
 function M.fix_issues(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
@@ -271,7 +236,7 @@ function M.fix_issues(bufnr)
   local diagnostics = vim.diagnostic.get(bufnr, { namespace = M.ns })
 
   -- Track if we've fixed anything
-  local fixed = false
+  local fixed = 0
 
   -- Apply fixes in reverse line order to avoid position shifts
   table.sort(diagnostics, function(a, b)
@@ -281,7 +246,7 @@ function M.fix_issues(bufnr)
   for _, diag in ipairs(diagnostics) do
     if diag.user_data and diag.user_data.fixable and diag.user_data.fix_fn then
       diag.user_data.fix_fn()
-      fixed = true
+      fixed = fixed + 1
     end
   end
 
@@ -290,10 +255,11 @@ function M.fix_issues(bufnr)
     M.lint_buffer(bufnr)
   end
 
-  return fixed
+  return true, fixed
 end
 
 -- Disable linting
+---@param bufnr integer? Buffer number, if nil disables for all buffers
 function M.disable(bufnr)
   if bufnr then
     vim.diagnostic.reset(M.ns, bufnr)

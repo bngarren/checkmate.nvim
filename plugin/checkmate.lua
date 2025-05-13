@@ -1,6 +1,7 @@
 -- loaded automatically when Neovim starts up
--- should primarily define commands, mappings, or autocommands that call functionality defined elsewhere
---
 
--- Load the commands module to register all commands
-require("checkmate.commands").setup()
+-- Prevent reloading
+if vim.g.loaded_checkmate_plugin == 1 then
+  return
+end
+vim.g.loaded_checkmate_plugin = 1

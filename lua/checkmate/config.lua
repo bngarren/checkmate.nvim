@@ -12,6 +12,14 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@class checkmate.Config
 ---@field enabled boolean Whether the plugin is enabled
 ---@field notify boolean Whether to show notifications
+--- Filenames or patterns to activate Checkmate on when the filetype is 'markdown'
+--- - Patterns are CASE-SENSITIVE (e.g., "TODO" won't match "todo.md")
+--- - Include variations like {"TODO", "todo"} for case-insensitive matching
+--- - Patterns can include wildcards (*) for more flexible matching
+--- - Patterns without extensions (e.g., "TODO") will match files both with and without Markdown extension (e.g., "TODO" and "TODO.md")
+--- - Patterns with extensions (e.g., "TODO.md") will only match files with that exact extension
+--- - Examples: {"todo.md", "TODO", "*.todo", "todos/*"}
+---@field files string[]
 ---@field log checkmate.LogSettings Logging settings
 ---Keymappings (false to disable)
 ---Note: mappings for metadata are set separately in the `metadata` table
@@ -42,6 +50,8 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field use_metadata_keymaps boolean
 ---Custom @tag(value) fields that can be toggled on todo items
 ---@field metadata checkmate.Metadata
+---Config for the linter
+---@field linter checkmate.LinterConfig?
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
@@ -123,11 +133,17 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
+---@class checkmate.LinterConfig
+---@field enabled boolean -- (default true) Whether to enable the linter (vim.diagnostics)
+---@field severity table<string, vim.diagnostic.Severity> -- Map of issues to diagnostic severity level
+--- TODO: @field auto_fix boolean Auto fix on buffer write
+
 -----------------------------------------------------
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
   notify = true,
+  files = { "todo", "TODO", "*.todo*" }, -- matches TODO, TODO.md, .todo.md
   -- Default keymappings
   keys = {
     ["<leader>Tt"] = "toggle", -- Toggle todo item
@@ -232,14 +248,11 @@ local _DEFAULTS = {
   },
 }
 
--- Mark as not loaded initially
-vim.g.loaded_checkmate = false
-
--- Combine all defaults
-local defaults = vim.tbl_deep_extend("force", _DEFAULTS, {})
-
--- Runtime state
-M._running = false
+M._state = {
+  initialized = false, -- Has setup() been called? Prevent duplicate initializations of config.
+  running = false, -- Is the plugin currently active?
+  active_buffers = {}, -- Track which buffers have been set up (i.e., have Checkmate functionality loaded)
+}
 
 -- The active configuration
 ---@type checkmate.Config
@@ -268,10 +281,22 @@ local function validate_options(opts)
     error("Options must be a table")
   end
 
+  ---@cast opts checkmate.Config
+
   -- Validate basic options
   validate_type(opts.enabled, "boolean", "enabled", true)
   validate_type(opts.notify, "boolean", "notify", true)
   validate_type(opts.enter_insert_after_new, "boolean", "enter_insert_after_new", true)
+
+  -- Validate files
+  validate_type(opts.files, "table", "files", true)
+  if opts.files and #opts.files > 0 then
+    for i, pattern in ipairs(opts.files) do
+      if type(pattern) ~= "string" then
+        error("files[" .. i .. "] must be a string")
+      end
+    end
+  end
 
   -- Validate log settings
   if opts.log ~= nil then
@@ -393,136 +418,167 @@ local function validate_options(opts)
   return true
 end
 
--- Initialize plugin if needed
-function M.initialize_if_needed()
-  if vim.g.loaded_checkmate then
-    return
-  end
-
-  -- Merge defaults with any global user configuration
-  M.options = vim.tbl_deep_extend("force", defaults, vim.g.checkmate_config or {})
-
-  -- Mark as loaded
-  vim.g.loaded_checkmate = true
-
-  -- Auto-start if enabled
-  if M.options.enabled then
-    M.start()
-  end
-end
-
 --- Setup function
 ---@param opts? checkmate.Config
 function M.setup(opts)
-  -- If already running, stop first to clean up
-  if M._running then
-    M.stop()
+  -- Prevent double initialization but allow reconfiguration
+  local is_reconfigure = M._state.initialized
+
+  local config = vim.deepcopy(_DEFAULTS)
+
+  -- Add global config (vim.g.checkmate_config) if it exists
+  if vim.g.checkmate_config and type(vim.g.checkmate_config) == "table" then
+    config = vim.tbl_extend("force", config, vim.g.checkmate_config)
   end
 
-  opts = opts or {}
-  local success, result = pcall(validate_options, opts)
-  if not success then
-    vim.notify("Checkmate.nvim failed to validate options: " .. result, vim.log.levels.ERROR)
-    return M.options
+  -- Then apply user options if provided
+  if opts and type(opts) == "table" then
+    -- Validate before merging
+    local success, error_msg = pcall(validate_options, opts)
+    if not success then
+      vim.notify("Checkmate config error: " .. error_msg, vim.log.levels.ERROR)
+    else
+      config = vim.tbl_extend("force", config, opts)
+    end
   end
 
-  -- Initialize if this is the first call
-  if not vim.g.loaded_checkmate then
-    M.initialize_if_needed()
+  -- Store the resulting configuration
+  M.options = config
+
+  M._state.initialized = true
+
+  -- Handle reconfiguration: notify dependent modules
+  if is_reconfigure then
+    M.notify_config_changed()
   end
-
-  -- Update configuration with provided options
-  M.options = vim.tbl_deep_extend("force", M.options, opts)
-
-  M.start()
 
   return M.options
 end
 
-function M.is_loaded()
-  return vim.g.loaded_checkmate
-end
-function M.is_running()
-  return M._running
-end
-
-function M.start()
-  if M._running then
+-- Notify modules when config has changed
+function M.notify_config_changed()
+  if not M._state.running then
     return
   end
-  M._running = true
 
-  local augroup = vim.api.nvim_create_augroup("checkmate", { clear = true })
+  -- Update linter config if loaded
+  if package.loaded["checkmate.linter"] and M.options.linter then
+    require("checkmate.linter").setup(M.options.linter)
+  end
 
-  M._active_buffers = {}
+  -- Refresh highlights
+  if package.loaded["checkmate.highlights"] then
+    require("checkmate.highlights").setup_highlights()
 
-  -- If buffer is .todo file, ensure it is treated as Markdown filetype and then
-  -- setup the API with this buffer
-  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-    group = augroup,
-    pattern = "*.todo",
-    callback = function()
-      local buf = vim.api.nvim_get_current_buf()
-
-      if vim.bo[buf].filetype ~= "markdown" then
-        vim.bo[buf].filetype = "markdown"
+    -- Re-apply to all buffers
+    for bufnr, _ in pairs(M._state.active_buffers) do
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        require("checkmate.highlights").apply_highlighting(bufnr, {
+          debug_reason = "config update",
+        })
       end
+    end
+  end
 
-      -- Setup API only once per buffer
-      -- lazy loading the api module
-      if not M._active_buffers[buf] then
-        local success = require("checkmate.api").setup(buf)
-        if success then
-          M._active_buffers[buf] = true
-          vim.b[buf].checkmate_api_setup_complete = true
-        end
-      end
-      -- API setup will run some buffer modifications, e.g. converting from pure markdown to our replacements for todo items
-      -- We don't want this to be seen as "modified" upon initial load of the buffer
-      vim.cmd("set nomodified")
-    end,
-  })
+  -- Handle enable/disable state changes
+  local checkmate = package.loaded["checkmate"]
+  if checkmate then
+    if M._state.running and not M.options.enabled then
+      -- Schedule to avoid doing it during another operation
+      vim.schedule(function()
+        require("checkmate").stop()
+      end)
+    elseif not M._state.running and M.options.enabled then
+      vim.schedule(function()
+        require("checkmate").start()
+      end)
+    end
+  end
+end
 
-  -- Cleanup when buffer is deleted
-  vim.api.nvim_create_autocmd("BufDelete", {
-    group = augroup,
-    callback = function(args)
-      local buf = args.buf
-      if M._active_buffers[buf] then
-        M._active_buffers[buf] = nil
-      end
-    end,
-  })
+function M.is_initialized()
+  return M._state.initialized
+end
 
-  vim.api.nvim_create_autocmd("VimLeavePre", {
-    group = augroup,
-    callback = function()
-      M.stop()
-    end,
-  })
+function M.is_running()
+  return M._state.running
+end
+
+-- Start the configuration system
+function M.start()
+  if M._state.running then
+    return
+  end
+
+  -- Update running state
+  M._state.running = true
+  M._state.active_buffers = {}
+
+  -- Log the startup if the logger is already initialized
+  if package.loaded["checkmate.log"] then
+    require("checkmate.log").debug("Config system started", { module = "config" })
+  end
 end
 
 function M.stop()
-  if not M._running then
+  if not M.is_running() then
     return
   end
-  M._running = false
 
   -- Cleanup buffer state
-  for buf, _ in pairs(M._active_buffers or {}) do
+  for bufnr, _ in pairs(M.get_active_buffers()) do
     pcall(function()
-      vim.b[buf].checkmate_api_setup_complete = nil
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        -- Clear buffer highlights
+        vim.api.nvim_buf_clear_namespace(bufnr, M.ns, 0, -1)
 
-      require("checkmate.highlights").clear_line_cache(buf)
+        -- Clear buffer-specific diagnostics
+        if package.loaded["checkmate.linter"] then
+          local linter = require("checkmate.linter")
+          linter.disable(bufnr)
+        end
+        -- Clear highlights and caches
+        if package.loaded["checkmate.highlights"] then
+          require("checkmate.highlights").clear_line_cache(bufnr)
+        end
+
+        -- Reset buffer state
+        vim.b[bufnr].checkmate_setup_complete = nil
+      end
     end)
   end
-  M._active_buffers = {}
 
-  require("checkmate.log").shutdown()
-  vim.api.nvim_del_augroup_by_name("checkmate")
+  -- Reset active buffers tracking
+  M._state.active_buffers = {}
+
+  -- Log the shutdown if the logger is still available
+  if package.loaded["checkmate.log"] then
+    require("checkmate.log").debug("Config system stopped", { module = "config" })
+  end
 end
 
--- Initialize on module load
-M.initialize_if_needed()
+-- Register a buffer as active - called during API setup
+---@param bufnr integer The buffer number to register
+function M.register_buffer(bufnr)
+  if not M._state.active_buffers then
+    M._state.active_buffers = {}
+  end
+  M._state.active_buffers[bufnr] = true
+end
+
+-- Unregister a buffer (called when buffer is deleted)
+---@param bufnr integer The buffer number to unregister
+function M.unregister_buffer(bufnr)
+  if M._state.active_buffers then
+    M._state.active_buffers[bufnr] = nil
+  end
+  -- Buffer-local vars are automatically cleaned up when buffer is deleted
+end
+
+-- Get all currently active buffers
+---@return table<integer, boolean> The active buffers table
+function M.get_active_buffers()
+  return M._state.active_buffers or {}
+end
 
 return M

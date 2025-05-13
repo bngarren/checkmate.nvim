@@ -1,26 +1,64 @@
 ---@class checkmate.Api
 local M = {}
 
-function M.setup(bufnr)
-  local parser = require("checkmate.parser")
-  local highlights = require("checkmate.highlights")
-  local linter = require("checkmate.linter")
-
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  -- Check if buffer is valid
+--- Validates that the buffer is valid (per nvim) and Markdown filetype
+function M.is_valid_buffer(bufnr)
+  local valid = true
   if not vim.api.nvim_buf_is_valid(bufnr) then
+    valid = false
+  end
+  if vim.bo[bufnr].filetype ~= "markdown" then
+    valid = false
+  end
+
+  if not valid then
     vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
     return false
   end
+  return true
+end
 
+function M.setup(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Check if buffer is valid
+  if not M.is_valid_buffer(bufnr) then
+    return false
+  end
+
+  local config = require("checkmate.config")
+
+  -- Check if already set up
+  if vim.b[bufnr].checkmate_setup_complete then
+    return true
+  end
+
+  if not config.is_running() then
+    require("checkmate").start()
+
+    -- If still not running, there's a real problem
+    if not config.is_running() then
+      vim.notify("Failed to initialize plugin", vim.log.levels.ERROR)
+      return false
+    end
+  end
+
+  vim.b[bufnr].checkmate_setup_complete = true
+
+  local parser = require("checkmate.parser")
   -- Convert markdown to Unicode
   parser.convert_markdown_to_unicode(bufnr)
 
-  -- Initial lint buffer
-  linter.lint_buffer(bufnr)
+  -- Only initialize linter if enabled in config
+  if config.options.linter and config.options.linter.enabled ~= false then
+    local linter = require("checkmate.linter")
+    linter.setup(config.options.linter)
+    -- Initial lint buffer
+    linter.lint_buffer(bufnr)
+  end
 
   -- Apply highlighting
+  local highlights = require("checkmate.highlights")
   highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
 
   local has_nvim_treesitter, _ = pcall(require, "nvim-treesitter")
@@ -35,6 +73,8 @@ function M.setup(bufnr)
 
   -- Set up auto commands for this buffer
   M.setup_autocmds(bufnr)
+
+  config.register_buffer(bufnr)
 
   return true
 end
@@ -148,6 +188,7 @@ function M.setup_autocmds(bufnr)
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
   local util = require("checkmate.util")
+  local config = require("checkmate.config")
   local augroup_name = "CheckmateApiGroup_" .. bufnr
   local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 
@@ -930,7 +971,7 @@ function M.count_child_todos(todo_item, todo_map, opts)
 
       -- Recursively count grandchildren
       if opts and opts.recursive then
-        local child_counts = M.count_child_todos(child, todo_map)
+        local child_counts = M.count_child_todos(child, todo_map, opts)
         counts.total = counts.total + child_counts.total
         counts.completed = counts.completed + child_counts.completed
       end

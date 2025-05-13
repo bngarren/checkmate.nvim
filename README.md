@@ -46,6 +46,7 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 ```lua
 {
     "bngarren/checkmate.nvim",
+    ft = "markdown" -- Lazy loads for Markdown files matching patterns in 'files'
     opts = {
         -- your configuration here
         -- or leave empty to use defaults
@@ -58,10 +59,10 @@ https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
 
 #### 1. Open or Create a Todo File
 
-- Create or open a file with the `.todo` extension
-- The plugin automatically activates for `.todo` files, treating them as Markdown
+- Create or open a markdown file that matches one of your configured patterns (defaults are `TODO.md`, `todo.md`, `*.todo.md`)
+- The plugin automatically activates for markdown files matching your configured patterns
 
-> As of now, the plugin is only activated when a buffer with `.todo` extension is opened.
+> You can customize which files activate Checkmate using the `files` configuration option.
 
 #### 2. Create Todo Items
 
@@ -100,6 +101,9 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 :CheckmateUncheck
 : Mark todo item as unchecked
 
+:CheckmateLint
+: Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+
 # ☑️ Config
 
 ```lua
@@ -107,6 +111,14 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---@class checkmate.Config
 ---@field enabled boolean Whether the plugin is enabled
 ---@field notify boolean Whether to show notifications
+--- Filenames or patterns to activate Checkmate on when the filetype is 'markdown'
+--- - Patterns are CASE-SENSITIVE (e.g., "TODO" won't match "todo.md")
+--- - Include variations like {"TODO", "todo"} for case-insensitive matching
+--- - Patterns can include wildcards (*) for more flexible matching
+--- - Patterns without extensions (e.g., "TODO") will match files both with and without Markdown extension (e.g., "TODO" and "TODO.md")
+--- - Patterns with extensions (e.g., "TODO.md") will only match files with that exact extension
+--- - Examples: {"todo.md", "TODO", "*.todo", "todos/*"}
+---@field files string[]
 ---@field log checkmate.LogSettings Logging settings
 ---Keymappings (false to disable)
 ---Note: mappings for metadata are set separately in the `metadata` table
@@ -137,6 +149,8 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---@field use_metadata_keymaps boolean
 ---Custom @tag(value) fields that can be toggled on todo items
 ---@field metadata checkmate.Metadata
+---Config for the linter
+---@field linter checkmate.LinterConfig?
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
@@ -208,7 +222,6 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---The selected text will be the tag or value, based on jump_to_on_insert setting
 ---Default (false) - off
 ---@field select_on_insert boolean?
-
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_add fun(todo_item: checkmate.TodoItem)?
@@ -219,11 +232,17 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
+---@class checkmate.LinterConfig
+---@field enabled boolean -- Whether to enable the linter (vim.diagnostics)
+---@field severity table<string, vim.diagnostic.Severity> -- Map of issues to diagnostic severity level
+--- TODO: @field auto_fix boolean Auto fix on buffer write
+
 -----------------------------------------------------
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
   notify = true,
+  files = { "todo", "TODO", "*.todo*" }, -- matches TODO, TODO.md, .todo.md
   -- Default keymappings
   keys = {
     ["<leader>Tt"] = "toggle", -- Toggle todo item
@@ -292,7 +311,7 @@ local _DEFAULTS = {
       key = "<leader>Tp",
       sort_order = 10,
       jump_to_on_insert = "value",
-      select_on_insert = true
+      select_on_insert = true,
     },
     -- Example: A @started tag that uses a default date/time string when added
     started = {
@@ -440,6 +459,35 @@ todo_count_recursive = true,
         height="90"
       /><br/>
 <sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
+
+# Linting
+Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
+
+> The embedded linter is NOT a general-purpose Markdown linter and _may_ interfere with other linting tools. Though, in testing with conform.nvim and prettier, I have not found any issues.
+
+#### Example
+
+❌ misaligned list marker
+```md
+1. ☐ Parent todo item
+  - ☐ Child todo item (indented only 2 spaces!)
+```
+
+✅ correctly aligned list marker
+```md
+1. ☐ Parent todo item
+   - ☐ Child todo item (indented 3 spaces!)
+```
+The [CommonMark spec](https://spec.commonmark.org/current) requires that nested list markers begin at the col of the first non-whitespace content after the parent list marker (which will be a different col for bullet list vs ordered list markers)
+
+If you feel comfortable with the nuances of Markdown list syntax, you can disable the linter (default is enabled) via config:
+```lua
+{
+  linter = {
+    enabled = false
+  }
+}
+```
 
 # Roadmap
 

@@ -13,16 +13,18 @@ end
 ---Calls vim.notify with the given message and log_level depending on if config.options.notify enabled
 ---@param msg any
 ---@param log_level any
-function M.notify(msg, log_level)
+function M.notify(msg, log_level, once)
   local config = require("checkmate.config")
+  local current_mopt = vim.o.messagesopt
+  -- Use history but no hit-enter, with a short wait time
+  vim.o.messagesopt = "wait:500,history:100"
+
   if config.options.notify then
-    local hl_group = "Normal"
-    if log_level == vim.log.levels.WARN then
-      hl_group = "WarningMsg"
-    elseif log_level == vim.log.levels.ERROR then
-      hl_group = "ErrorMsg"
+    if once ~= false then
+      vim.notify_once(msg, log_level)
+    else
+      vim.notify(msg, log_level)
     end
-    vim.api.nvim_echo({ { msg, hl_group } }, false, {})
   else
     --[[ local hl_group = "Normal"
     if log_level == vim.log.levels.WARN then
@@ -32,6 +34,11 @@ function M.notify(msg, log_level)
     end
     vim.api.nvim_echo({ msg, hl_group }, true, {}) ]]
   end
+
+  -- Restore original messagesopt
+  vim.defer_fn(function()
+    vim.o.messagesopt = current_mopt
+  end, 600)
 end
 
 ---@generic T

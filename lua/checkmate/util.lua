@@ -18,13 +18,13 @@ function M.notify(msg, log_level)
   if config.options.notify then
     vim.notify(msg, log_level)
   else
-    local hl_group = "Normal"
+    --[[ local hl_group = "Normal"
     if log_level == vim.log.levels.WARN then
       hl_group = "WarningMsg"
     elseif log_level == vim.log.levels.ERROR then
       hl_group = "ErrorMsg"
     end
-    vim.api.nvim_echo({ msg, hl_group }, true, {})
+    vim.api.nvim_echo({ msg, hl_group }, true, {}) ]]
   end
 end
 

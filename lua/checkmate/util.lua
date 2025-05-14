@@ -13,14 +13,16 @@ end
 ---Calls vim.notify with the given message and log_level depending on if config.options.notify enabled
 ---@param msg any
 ---@param log_level any
-function M.notify(msg, log_level, once)
+function M.notify(msg, log_level)
   local config = require("checkmate.config")
   if config.options.notify then
-    if once ~= false then
-      vim.notify_once(msg, log_level)
-    else
-      vim.notify(msg, log_level)
+    local hl_group = "Normal"
+    if log_level == vim.log.levels.WARN then
+      hl_group = "WarningMsg"
+    elseif log_level == vim.log.levels.ERROR then
+      hl_group = "ErrorMsg"
     end
+    vim.api.nvim_echo({ { msg, hl_group } }, false, {})
   else
     --[[ local hl_group = "Normal"
     if log_level == vim.log.levels.WARN then

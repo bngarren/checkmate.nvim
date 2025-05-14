@@ -124,10 +124,13 @@ M.setup = function(opts)
   local config = require("checkmate.config")
   opts = opts or {}
 
-  -- Handle initialization
-  _state.initialized = true
+  if _state.initialized then
+    M.stop()
+  end
 
   config.setup(opts)
+
+  _state.initialized = true
 
   -- Setup filetype autocommand
   vim.api.nvim_create_autocmd("FileType", {

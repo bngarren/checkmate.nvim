@@ -12,8 +12,14 @@ M.ISSUES = {
   UNALIGNED_MARKER = "List marker is misaligned",
 }
 
+-- Internal-only type that extends the user-facing config
+---@class checkmate.InternalLinterConfig : checkmate.LinterConfig
+---@field namespace string? -- Which diagnostic namespace to use
+---@field virtual_text vim.diagnostic.Opts.VirtualText -- Virtual text options
+---@field underline vim.diagnostic.Opts.Underline -- Underline options
+
 -- Default configuration
----@type checkmate.LinterConfig
+---@type checkmate.InternalLinterConfig
 M.config = {
   enabled = true,
   -- Which diagnostic namespace to use - default will use the plugin's own namespace
@@ -38,7 +44,7 @@ M.config = {
 
 -- Setup linter with user config
 ---@param opts checkmate.LinterConfig? User configuration options
----@return checkmate.LinterConfig config Merged configuration
+---@return checkmate.InternalLinterConfig config Merged configuration
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 

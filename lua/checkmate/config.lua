@@ -438,7 +438,7 @@ function M.setup(opts)
     if not success then
       vim.notify("Checkmate config error: " .. error_msg, vim.log.levels.ERROR)
     else
-      config = vim.tbl_extend("force", config, opts)
+      config = vim.tbl_deep_extend("force", config, opts)
     end
   end
 

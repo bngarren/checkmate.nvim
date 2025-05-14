@@ -897,7 +897,6 @@ Line that should not affect parent-child relationship
       local unchecked = config.options.todo_markers.unchecked
       local checked = config.options.todo_markers.checked
 
-      -- Generate a large document with many todos
       local content_lines = { "# Large Document Test" }
 
       -- Helper to generate todo content

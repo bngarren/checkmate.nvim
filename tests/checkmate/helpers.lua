@@ -42,4 +42,14 @@ function M.get_extmarks(bufnr, ns)
   return vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true })
 end
 
+function M.ensure_normal_mode()
+  local mode = vim.fn.mode()
+  if mode ~= "n" then
+    -- Exit any mode back to normal mode
+    vim.cmd([[noautocmd normal! <Esc>]])
+    vim.cmd("stopinsert")
+    vim.cmd("redraw")
+  end
+end
+
 return M

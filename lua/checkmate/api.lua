@@ -3,18 +3,24 @@ local M = {}
 
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
 function M.is_valid_buffer(bufnr)
-  local valid = true
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    valid = false
-  end
-  if vim.bo[bufnr].filetype ~= "markdown" then
-    valid = false
+  if not bufnr or type(bufnr) ~= "number" then
+    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
+    return false
   end
 
-  if not valid then
+  -- pcall to safely check if the buffer is valid
+  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
+  if not ok or not is_valid then
     vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
     return false
   end
+
+  -- Only check filetype if buffer actually exists
+  if vim.bo[bufnr].filetype ~= "markdown" then
+    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
+    return false
+  end
+
   return true
 end
 
@@ -34,13 +40,8 @@ function M.setup(bufnr)
   end
 
   if not config.is_running() then
-    require("checkmate").start()
-
-    -- If still not running, there's a real problem
-    if not config.is_running() then
-      vim.notify("Failed to initialize plugin", vim.log.levels.ERROR)
-      return false
-    end
+    vim.notify("Failed to initialize plugin", vim.log.levels.ERROR)
+    return false
   end
 
   vim.b[bufnr].checkmate_setup_complete = true
@@ -258,7 +259,9 @@ function M.setup_autocmds(bufnr)
 
           -- Use schedule to set modified flag after command completes
           vim.schedule(function()
-            vim.bo[bufnr].modified = false
+            if vim.api.nvim_buf_is_valid(bufnr) then
+              vim.bo[bufnr].modified = false
+            end
           end)
 
           util.notify("File saved", vim.log.levels.INFO)
@@ -592,26 +595,46 @@ function M.apply_metadata(todo_item, opts)
   -- Jump the cursor, if enabled
   ---@type "tag" | "value" | false
   local jump_to = meta_config.jump_to_on_insert or false
+
   if jump_to ~= false then
     local updated_line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
     local tag_position = updated_line:find("@" .. meta_name .. "%(")
     local value_position = tag_position and updated_line:find("%(", tag_position) + 1 or nil
+
     -- ensure cursor movement happens after buffer update is complete
     vim.schedule(function()
       -- Safety checks before trying to set cursor position
       local win = vim.api.nvim_get_current_win()
 
-      -- Only attempt to set cursor if buffer is still valid and loaded
       if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
+        -- First set cursor position based on jump_to setting
         if jump_to == "tag" and tag_position then
           vim.api.nvim_win_set_cursor(0, { todo_row + 1, tag_position - 1 })
+
+          -- Select the tag if enabled
+          if meta_config.select_on_insert then
+            -- Force normal mode first
+            vim.cmd("stopinsert")
+            -- Select the tag text (without the @ symbol)
+            vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
+          end
         elseif jump_to == "value" and value_position then
           vim.api.nvim_win_set_cursor(0, { todo_row + 1, value_position - 1 })
-        end
 
-        -- Select the word (tag or value), if enabled
-        if meta_config.select_on_insert then
-          vim.cmd("normal! viwO")
+          if meta_config.select_on_insert then
+            -- Force normal mode first
+            vim.cmd("stopinsert")
+
+            local closing_paren = updated_line:find(")", value_position)
+            if closing_paren and closing_paren > value_position then
+              -- Select everything between value_position and closing_paren-1
+              local selection_length = closing_paren - value_position
+              if selection_length > 0 then
+                -- Start visual mode and select the content
+                vim.cmd("normal! v" .. string.rep("l", selection_length - 1))
+              end
+            end
+          end
         end
       end
     end)
@@ -848,6 +871,11 @@ function M.apply_todo_operation(opts)
     errors = {},
   }
 
+  if not config.get_active_buffers()[bufnr] then
+    util.notify("attempted to apply_todo_operation on non-existent buffer", log.levels.WARN)
+    return results
+  end
+
   -- Collection of todo items to process
   local todo_items = {}
 
@@ -868,20 +896,27 @@ function M.apply_todo_operation(opts)
       { module = "api" }
     )
 
+    -- Perform full parsing of buffer only once for this operation
+    local full_todo_map = parser.discover_todos(bufnr)
+
     -- Collect unique todo items in selection
-    local todo_map = {}
+    local selected_todo_map = {}
 
     for line_row = start_line, end_line do
-      local todo_item =
-        parser.get_todo_item_at_position(bufnr, line_row, 0, { max_depth = config.options.todo_action_depth })
+      local todo_item = parser.get_todo_item_at_position(
+        bufnr,
+        line_row,
+        0,
+        { todo_map = full_todo_map, max_depth = config.options.todo_action_depth }
+      )
 
       if todo_item then
         -- Create a unique key based on the marker position
         local marker_key =
           string.format("%d:%d", todo_item.todo_marker.position.row, todo_item.todo_marker.position.col)
 
-        if not todo_map[marker_key] then
-          todo_map[marker_key] = true
+        if not selected_todo_map[marker_key] then
+          selected_todo_map[marker_key] = true
           table.insert(todo_items, todo_item)
         end
       end

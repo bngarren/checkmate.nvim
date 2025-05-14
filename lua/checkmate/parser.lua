@@ -246,6 +246,10 @@ function M.convert_unicode_to_markdown(bufnr)
   return false
 end
 
+---@class GetTodoItemAtPositionOpts
+---@field todo_map table<string, checkmate.TodoItem>? Pre-parsed todo item map to use instead of performing within function
+---@field max_depth integer? What depth should still register as a parent todo item (0 = only direct, 1 = include children, etc.)
+
 -- Function to find a todo item at a given buffer position
 --  - If on a blank line, will return nil
 --  - If on the same line as a todo item, will return the todo item
@@ -254,7 +258,7 @@ end
 ---@param bufnr integer? Buffer number
 ---@param row integer? 0-indexed row
 ---@param col integer? 0-indexed column
----@param opts? { max_depth?: integer } What depth should still register as a parent todo item (0 = only direct, 1 = include children, etc.)
+---@param opts GetTodoItemAtPositionOpts?
 ---@return checkmate.TodoItem? todo_item
 function M.get_todo_item_at_position(bufnr, row, col, opts)
   local log = require("checkmate.log")
@@ -273,7 +277,7 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   opts = opts or {}
   local max_depth = opts.max_depth or 0
 
-  local todo_map = M.discover_todos(bufnr)
+  local todo_map = opts.todo_map or M.discover_todos(bufnr)
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)
 

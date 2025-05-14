@@ -271,7 +271,6 @@ end
 function M.highlight_child_list_markers(bufnr, todo_item)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
-  local log = require("checkmate.log")
 
   -- Skip if no node
   if not todo_item.node then
@@ -369,8 +368,6 @@ end
 ---@param todo_item checkmate.TodoItem
 function M.highlight_content(bufnr, todo_item, todo_map)
   local config = require("checkmate.config")
-  local log = require("checkmate.log")
-  local util = require("checkmate.util")
 
   -- Select highlight groups based on todo state
   local main_content_hl = M.get_todo_content_highlight(todo_item.state, true)
@@ -423,7 +420,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       if not is_empty then
         local additional_content_start = row_line:find("[^%s]")
         if additional_content_start then
-          additional_content_start = additional_content_start - 1
+          additional_content_start = additional_content_start - 1 -- convert from 1-indexed to 0-indexed for extmark
           vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, additional_content_start, {
             end_row = row,
             end_col = #row_line,

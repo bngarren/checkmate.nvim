@@ -3,7 +3,7 @@ consolidated.md
 
 logs/
 
-*.todo
+*.todo*
 
 Dockerfile
 

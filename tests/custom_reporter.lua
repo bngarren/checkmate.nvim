@@ -1,11 +1,11 @@
--- custom_reporter.lua
+---@diagnostic disable: unused-local
+---
 local term = require("term")
 local colors = term.colors
 local pretty = require("pl.pretty")
 local io_write = io.write
 local io_flush = io.flush
 local string_format = string.format
-local string_gsub = string.gsub
 
 local function println(msg)
   io_write(msg .. "\n")
@@ -32,17 +32,57 @@ return function(options)
     return use_color and colors.red("✗") or "✗"
   end
   local function yellow_mark()
-    return use_color and colors.yellow("→") or "→"
+    return use_color and colors.yellow("☉") or "☉"
   end
 
-  -- Add cyan for file names
+  local function underscore_text(text)
+    return use_color and colors.underscore(text) or text
+  end
+
   local function cyan_text(text)
     return use_color and colors.cyan(text) or text
   end
 
-  -- Add dim for file paths
+  local function magenta_text(text)
+    return use_color and colors.magenta(text) or text
+  end
+
   local function dim_text(text)
     return use_color and colors.dim(text) or text
+  end
+
+  -- Format error messages consistently
+  local function format_error(err_obj, context_name)
+    local msg = err_obj.message or "Unknown error"
+    if type(msg) ~= "string" then
+      msg = pretty.write(msg)
+    end
+
+    local context = context_name or err_obj.name or "Unknown context"
+    local trace = err_obj.trace or {}
+    local formatted = ""
+
+    -- Add error header with context
+    formatted = formatted .. colors.red("❯ " .. context) .. "\n"
+
+    -- Add error message with proper indentation
+    local first_line = true
+    for line in msg:gmatch("[^\r\n]+") do
+      -- Skip duplicated context name in error
+      if first_line and line:match(context) then
+        -- Skip
+      else
+        formatted = formatted .. "  " .. line .. "\n"
+      end
+      first_line = false
+    end
+
+    -- Add file/line info if available
+    if trace.short_src and trace.currentline then
+      formatted = formatted .. "  " .. dim_text("at " .. trace.short_src .. ":" .. trace.currentline) .. "\n"
+    end
+
+    return formatted
   end
 
   -- State
@@ -52,10 +92,10 @@ return function(options)
   local fileCount = 0
   local filesPassed = 0
   local filesFailed = 0
-  local startTime = 0
   local currentFile = nil
   local currentFileFailed = false
   local hasOutput = false -- Track if we've already output anything
+  local fileDurations = {}
 
   handler.suiteReset = function()
     indentLevel = 0
@@ -67,12 +107,14 @@ return function(options)
     currentFile = nil
     currentFileFailed = false
     hasOutput = false
-    startTime = os.clock()
+    fileDurations = {}
+    return nil, true
   end
 
-  handler.suiteStart = function()
-    startTime = os.clock()
+  handler.suiteStart = function(suite)
+    -- Use Busted's built-in timing
     hasOutput = false
+    return nil, true
   end
 
   -- Handle file events
@@ -90,15 +132,26 @@ return function(options)
     local filename = currentFile:match("([^/\\]+)$") or currentFile
 
     -- Output file header
-    println(cyan_text("● " .. filename))
-    println(dim_text("  " .. currentFile))
+    println(magenta_text("◼︎ ") .. underscore_text(filename))
     println("")
 
     hasOutput = true
     indentLevel = 1 -- Start the file's content at indent level 1
+
+    return nil, true
   end
 
   handler.fileEnd = function(element)
+    -- Store the file's duration from Busted's own timing
+    local duration = element.duration
+    if duration then
+      if fileDurations and currentFile then
+        fileDurations[currentFile] = duration
+      end
+      -- Show file duration
+      println(dim_text(string.format("  Time: %.3fs", duration)))
+    end
+
     -- Mark file as passed or failed
     if not currentFileFailed then
       filesPassed = filesPassed + 1
@@ -108,21 +161,26 @@ return function(options)
 
     -- Add space after a file ends
     println("")
+
+    return nil, true
   end
 
   -- Handle entering a describe/context block
   handler.describeStart = function(element)
-    println(string.rep("  ", indentLevel) .. element.name)
+    println(string.rep("  ", indentLevel) .. cyan_text(element.name))
     indentLevel = indentLevel + 1
+    return nil, true
   end
 
   -- Handle exiting a describe/context block
   handler.describeEnd = function(element)
     indentLevel = math.max(indentLevel - 1, 0)
+    return nil, true
   end
 
   handler.testStart = function(element, parent)
     totalTests = totalTests + 1
+    return nil, true
   end
 
   handler.testEnd = function(element, parent, status)
@@ -143,48 +201,62 @@ return function(options)
 
       -- Get error details
       local t = (status == "failure") and handler.failures[#handler.failures] or handler.errors[#handler.errors]
-      local msg = t.message or "Nil error"
-      if type(msg) ~= "string" then
-        msg = pretty.write(msg)
-      end
 
-      -- Indent error message with a different color and prefix
+      -- Format and display error
       local error_indent = indent .. "  "
-      println(error_indent .. colors.red("❯ " .. element.name))
-
-      -- Format multi-line error message
-      local first_line = true
-      for line in msg:gmatch("[^\r\n]+") do
-        -- Skip duplicated test name in error
-        if first_line and line:match(element.name) then
-          -- Skip
-        else
-          println(error_indent .. "  " .. line)
-        end
-        first_line = false
-      end
-
-      -- Add file/line info if available in trace
-      if t.trace and t.trace.short_src and t.trace.currentline then
-        println(error_indent .. "  " .. dim_text("at " .. t.trace.short_src .. ":" .. t.trace.currentline))
+      local error_lines = format_error(t, element.name)
+      for line in error_lines:gmatch("[^\r\n]+") do
+        println(error_indent .. line)
       end
 
       println("") -- Add empty line after error
     end
 
     io_flush()
+    return nil, true
   end
 
-  handler.error = function() end
+  -- Improved error handler for all types of errors
+  handler.error = function(element, message, parent, trace)
+    currentFileFailed = true
 
-  handler.suiteEnd = function(element)
-    -- Only print summary at the very end
-    if element.descriptor ~= "suite" then
-      return
+    local err_obj = {
+      message = message,
+      trace = trace,
+      name = element and (element.name or element.descriptor),
+    }
+
+    local indent = string.rep("  ", indentLevel)
+    println(indent .. red_mark() .. " " .. colors.red("Error") .. " in " .. (err_obj.name or "unknown context"))
+
+    local error_indent = indent .. "  "
+    local error_lines = format_error(err_obj)
+    for line in error_lines:gmatch("[^\r\n]+") do
+      println(error_indent .. line)
     end
 
-    -- Calculate duration
-    local duration = os.clock() - startTime
+    println("") -- Add empty line after error
+
+    io_flush()
+    return nil, true
+  end
+
+  -- Handle specific failure/error events
+  handler.failure = function(element, parent, message, trace)
+    if element.descriptor ~= "it" then
+      handler.error(element, parent, message, trace)
+    end
+    return nil, true
+  end
+
+  handler.suiteEnd = function(suite)
+    -- Only print summary at the very end
+    if not suite or suite.descriptor ~= "suite" then
+      return nil, true
+    end
+
+    -- Calculate duration using Busted's built-in timing
+    local duration = suite.duration
     local duration_text = string_format("%.2fs", duration)
 
     -- Print summary border
@@ -217,7 +289,7 @@ return function(options)
     test_text = test_text .. string_format(", %d total", totalTests)
     println(test_text)
 
-    -- Time info
+    -- Time info - using Busted's own timing for accuracy
     println(string_format("Time        %s", duration_text))
 
     -- Final status line
@@ -228,6 +300,7 @@ return function(options)
     end
 
     io_flush()
+    return nil, true
   end
 
   -- Subscribe events
@@ -239,6 +312,8 @@ return function(options)
   busted.subscribe({ "describe", "end" }, handler.describeEnd)
   busted.subscribe({ "test", "start" }, handler.testStart, { predicate = handler.cancelOnPending })
   busted.subscribe({ "test", "end" }, handler.testEnd, { predicate = handler.cancelOnPending })
+  busted.subscribe({ "error" }, handler.error)
+  busted.subscribe({ "failure" }, handler.failure)
   busted.subscribe({ "suite", "end" }, handler.suiteEnd)
 
   return handler

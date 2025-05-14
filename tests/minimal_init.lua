@@ -23,14 +23,23 @@ vim.g.loaded_netrwPlugin = 1
 
 -- This function can be called by tests to reset the state between test runs
 _G.reset_state = function()
+  if package.loaded["checkmate"] then
+    pcall(function()
+      require("checkmate").stop()
+    end)
+  end
+
   -- Reset any plugin state as needed
-  -- Example:
   package.loaded["checkmate.config"] = nil
   package.loaded["checkmate.parser"] = nil
   package.loaded["checkmate.util"] = nil
   package.loaded["checkmate.log"] = nil
   package.loaded["checkmate.api"] = nil
   package.loaded["checkmate.highlights"] = nil
+  package.loaded["checkmate.linter"] = nil
+
+  -- Finally unload main module
+  package.loaded["checkmate"] = nil
 
   -- Re-require the main module to reset its state
   return require("checkmate").setup()

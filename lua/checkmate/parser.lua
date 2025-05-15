@@ -394,6 +394,10 @@ function M.discover_todos(bufnr)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("parser.discover_todos")
+
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Initialize the node map
@@ -492,6 +496,8 @@ function M.discover_todos(bufnr)
 
   -- Second pass: Build parent-child relationships
   M.build_todo_hierarchy(todo_map)
+
+  profiler.stop("parser.discover_todos")
 
   return todo_map
 end

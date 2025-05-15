@@ -902,6 +902,9 @@ function M.apply_todo_operation(opts)
   local config = require("checkmate.config")
   local util = require("checkmate.util")
   local bufnr = vim.api.nvim_get_current_buf()
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("api.apply_todo_operation")
 
   -- Initialize results
   local results = {
@@ -1024,6 +1027,8 @@ function M.apply_todo_operation(opts)
 
   -- Restore cursor position
   util.Cursor.restore(cursor_state)
+
+  profiler.stop("apply_todo_operation")
 
   return results
 end

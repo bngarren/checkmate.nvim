@@ -148,6 +148,10 @@ function M.apply_highlighting(bufnr, opts)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("highlights.apply_highlighting")
+
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   opts = opts or {}
@@ -178,6 +182,8 @@ function M.apply_highlighting(bufnr, opts)
 
   -- Clear the line cache to free memory
   M.clear_line_cache(bufnr)
+
+  profiler.stop("highlights.apply_highlighting")
 end
 
 ---@class HighlightTodoOpts

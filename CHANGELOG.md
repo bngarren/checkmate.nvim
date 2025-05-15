@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.5.0](https://github.com/bngarren/checkmate.nvim/compare/v0.4.0...v0.5.0) (2025-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** The plugin no longer auto-loads only `.todo` files; activation now follows the `files` pattern. E.g. the plugin will lazy load for 'markdown' filetype whose filename matches a pattern in the 'files' config option
+
+### Features
+
+* **api:** adds 'jump_to_on_insert' and 'select_on_insert' options to metadata props ([#39](https://github.com/bngarren/checkmate.nvim/issues/39)) ([2772fd4](https://github.com/bngarren/checkmate.nvim/commit/2772fd4fafc3146324e9199ed6a450d709eb3eb1))
+* **core:** improved TS parsing, new custom Markdown linter, more flexible plugin activation, performance improvements, bug fixes ([#42](https://github.com/bngarren/checkmate.nvim/issues/42)) ([f782b8a](https://github.com/bngarren/checkmate.nvim/commit/f782b8a821d330209ca5909a924e63baeb112bd2))
+
+
+### Bug Fixes
+
+* **api:** removed extra apply_highlighting call that was causing perf lag ([#48](https://github.com/bngarren/checkmate.nvim/issues/48)) ([6ae49bf](https://github.com/bngarren/checkmate.nvim/commit/6ae49bfdee044b936f7178ef442e463b45e2e6e0))
+* **config:** clears the line cache in highlights when closing with each buffer ([#38](https://github.com/bngarren/checkmate.nvim/issues/38)) ([fc1bab8](https://github.com/bngarren/checkmate.nvim/commit/fc1bab8b92f4a2305ca7fea023ae795ff54b078b))
+* **config:** linter is enabled by default ([3575222](https://github.com/bngarren/checkmate.nvim/commit/3575222a16d1f60b41529d902480a9ab745fc710))
+* default notify to only once and limit hit-enter prompts ([#45](https://github.com/bngarren/checkmate.nvim/issues/45)) ([d1a0449](https://github.com/bngarren/checkmate.nvim/commit/d1a0449f669f44626155095d2d684dc935d0e0a0))
+* **parser:** critical bug fixed in parser related to TS handling of end col and 0-based indexing ([#41](https://github.com/bngarren/checkmate.nvim/issues/41)) ([cef93fb](https://github.com/bngarren/checkmate.nvim/commit/cef93fbd692240403b7b44e2418e78c2c6cae331))
+* removes nvim_echo from notify as this was causing poor user experience when notify was disabled ([#43](https://github.com/bngarren/checkmate.nvim/issues/43)) ([9ec79fd](https://github.com/bngarren/checkmate.nvim/commit/9ec79fd0d9420c221d6dbc215f8a57beb2183d06))
+
+
+### Performance Improvements
+
+* added a profiler (disabled by default) to help identify performance bottlenecks ([#47](https://github.com/bngarren/checkmate.nvim/issues/47)) ([bca1176](https://github.com/bngarren/checkmate.nvim/commit/bca1176ccdfd90d4bd3717b318210610680cb56b))
+* **api:** combine TextChanged and InsertLeave handling into single process_buffer function with debouncing ([9a5a33d](https://github.com/bngarren/checkmate.nvim/commit/9a5a33d0f4d9b3dfb58707998b556e0ee5143cd8))
+
 ## [0.4.0](https://github.com/bngarren/checkmate.nvim/compare/v0.3.3...v0.4.0) (2025-05-04)
 
 

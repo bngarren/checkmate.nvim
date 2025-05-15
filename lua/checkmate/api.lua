@@ -224,7 +224,7 @@ function M.setup_autocmds(bufnr)
         if not success then
           log.error("Failed to convert Unicode to Markdown", { module = "api" })
           vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          util.notify("Failed to save: conversion error", vim.log.levels.ERROR)
+          util.notify("Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
           return false
         end
 
@@ -267,7 +267,7 @@ function M.setup_autocmds(bufnr)
             end
           end)
 
-          util.notify("File saved", vim.log.levels.INFO)
+          util.notify("Saved", vim.log.levels.INFO)
         else
           -- Failed to write temp file
           -- Try to clean up
@@ -385,9 +385,6 @@ function M.toggle_todo_item(todo_item, opts)
     target_state = todo_item.state == "unchecked" and "checked" or "unchecked"
   elseif target_state == todo_item.state then
     -- Already in target state, no change needed
-    if opts.notify ~= false then
-      util.notify("Todo item is already " .. target_state, log.levels.INFO)
-    end
     return true
   end
 
@@ -915,7 +912,7 @@ function M.apply_todo_operation(opts)
   }
 
   if not config.get_active_buffers()[bufnr] then
-    util.notify("attempted to apply_todo_operation on non-existent buffer", log.levels.WARN)
+    util.notify("Attempted to apply_todo_operation on non-existent buffer", log.levels.WARN)
     return results
   end
 
@@ -1014,7 +1011,7 @@ function M.apply_todo_operation(opts)
       -- Notify user of results
       if opts.is_visual and results.processed > 1 then
         util.notify(
-          string.format("Checkmate: %s %d items", opts.action_name:gsub("^%l", string.upper), results.succeeded),
+          string.format("%s (%d items)", opts.action_name:gsub("^%l", string.upper), results.succeeded),
           vim.log.levels.INFO
         )
       end

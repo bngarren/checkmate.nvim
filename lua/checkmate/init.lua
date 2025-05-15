@@ -374,9 +374,9 @@ function M.lint(opts)
   local results = linter.lint_buffer(bufnr)
 
   if #results == 0 then
-    util.notify("Checkmate linting passed!", vim.log.levels.INFO)
+    util.notify("Linting passed!", vim.log.levels.INFO)
   else
-    local msg = string.format("Found %d Checkmate formatting issues", #results)
+    local msg = string.format("Found %d formatting issues", #results)
     util.notify(msg, vim.log.levels.WARN)
     log.warn(msg, log.levels.WARN)
     for i, issue in ipairs(results) do

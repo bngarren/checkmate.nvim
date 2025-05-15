@@ -77,7 +77,7 @@ describe("Config", function()
 
   describe("file pattern matching", function()
     it("should correctly determine if a buffer should activate Checkmate", function()
-      local should_activate = require("checkmate.init").should_activate_for_buffer
+      local should_activate = require("checkmate").should_activate_for_buffer
 
       -- Test a variety of patterns and file combinations
       local tests = {

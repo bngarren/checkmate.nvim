@@ -15,15 +15,12 @@ end
 ---@param log_level any
 function M.notify(msg, log_level, once)
   local config = require("checkmate.config")
-  local current_mopt = vim.o.messagesopt
-  -- Use history but no hit-enter, with a short wait time
-  vim.o.messagesopt = "wait:500,history:100"
-
+  local prefix = "Checkmate: "
   if config.options.notify then
     if once ~= false then
-      vim.notify_once(msg, log_level)
+      vim.notify_once(prefix .. msg, log_level)
     else
-      vim.notify(msg, log_level)
+      vim.notify(prefix .. msg, log_level)
     end
   else
     --[[ local hl_group = "Normal"
@@ -34,11 +31,6 @@ function M.notify(msg, log_level, once)
     end
     vim.api.nvim_echo({ msg, hl_group }, true, {}) ]]
   end
-
-  -- Restore original messagesopt
-  vim.defer_fn(function()
-    vim.o.messagesopt = current_mopt
-  end, 600)
 end
 
 ---@generic T

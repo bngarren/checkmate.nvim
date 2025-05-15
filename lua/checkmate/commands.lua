@@ -123,7 +123,7 @@ M.debug_commands = {
     name = "DebugProfilerStart",
     cmd = "CheckmateDebugProfilerStart",
     func = function()
-      require("checkmate.profiler").enable()
+      require("checkmate.profiler").start_session()
     end,
     opts = { desc = "Start performance profiling" },
   },
@@ -132,8 +132,7 @@ M.debug_commands = {
     cmd = "CheckmateDebugProfilerStop",
     func = function()
       local profiler = require("checkmate.profiler")
-      profiler.disable()
-      profiler.save_measurements() -- Save measurements when stopping
+      profiler.stop_session()
     end,
     opts = { desc = "Stop performance profiling" },
   },
@@ -142,9 +141,8 @@ M.debug_commands = {
     cmd = "CheckmateDebugProfilerReport",
     func = function()
       local profiler = require("checkmate.profiler")
-      if profiler.is_enabled() then
-        profiler.disable()
-        profiler.save_measurements()
+      if profiler.is_active() then
+        profiler.stop_session()
       end
       require("checkmate.profiler").show_report()
     end,

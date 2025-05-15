@@ -1028,7 +1028,7 @@ function M.apply_todo_operation(opts)
   -- Restore cursor position
   util.Cursor.restore(cursor_state)
 
-  profiler.stop("apply_todo_operation")
+  profiler.stop("api.apply_todo_operation")
 
   return results
 end

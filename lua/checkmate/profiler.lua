@@ -1,14 +1,56 @@
 -- lua/checkmate/profiler.lua
+
+--[[
+Checkmate Performance Profiler
+==============================
+
+OVERVIEW:
+---------
+The profiler helps identify performance bottlenecks by measuring execution time
+of operations and their relationship to each other. It tracks both total time 
+and self time (exclusive of child operations) to identify where optimization 
+efforts should be focused.
+
+KEY CONCEPTS:
+------------
+- Session: A complete profiling period with start and end markers
+- Span: A single measured operation with a label, start time, and end time
+- Measurement: Statistical data about all spans with the same label
+- Active Span: A currently running span that hasn't been stopped yet
+- Call Stack: Hierarchical record of active spans to track parent-child relationships
+- Checkpoint: A time marker within a span to measure progress of sub-operations
+- Self Time: Time spent in a function excluding time spent in child operations
+- Total Time: Complete time spent in a function including all child operations
+- Child Time: Accumulated time of all child operations
+
+INTERPRETING RESULTS:
+--------------------
+- Functions with high total time but low self time have slow child operations
+- Functions with high self time are bottlenecks that should be optimized first
+- Child operations showing high percentage of parent time indicate critical paths
+- Checkpoint deltas show which parts of an operation are slowest
+
+IMPLEMENTATION NOTES:
+--------------------
+- Timing uses high-resolution timer vim.uv.hrtime() (nanosecond precision)
+- Minimal performance impact when not actively profiling
+- Safe to leave profiling code in production (disabled by default)
+- Automatically detects parent-child relationships based on call order
+- Maintains a history of recent profiling sessions
+
+]]
+
 local M = {}
 
 -- Internal state
-M._enabled = false
-M._measurements = {}
-M._last_measurements = {}
+M._enabled = false -- is the profiler feature ON?
+M._active = false -- are we currently collecting measurements
+M._session_name = ""
+M._session_start_time = nil
+M._measurements = {} -- current profile session measurements
+M._history = {}
 M._active_spans = {}
-
--- For tracking call tree and relationships
-M._call_tree = {}
+M._call_stack = {} -- For tracking call tree and relationships
 
 -- Settings
 M._settings = {
@@ -16,54 +58,122 @@ M._settings = {
   max_samples = 20,
 }
 
+-- Get time in ms since start
+local function time_since(start_ns)
+  return (vim.uv.hrtime() - start_ns) / 1000000
+end
+
 function M.enable()
+  local util = require("checkmate.util")
+  if M._enabled then
+    util.notify("Profiler already enabled", vim.log.levels.INFO)
+    return
+  end
+
   M._enabled = true
-  M._measurements = {}
-  M._call_tree = {}
-  M._active_spans = {}
-  require("checkmate.util").notify("Performance profiling started", vim.log.levels.INFO)
+  util.notify("Performance profiling enabled", vim.log.levels.INFO)
 end
 
 function M.disable()
+  if not M._enabled then
+    return
+  end
+
+  if M._active then
+    M.stop_session()
+  else
+    M.save_measurements()
+  end
+
+  M._enabled = false
+  require("checkmate.util").notify("Performance profiler disabled", vim.log.levels.INFO)
+end
+
+function M.start_session(name)
+  local util = require("checkmate.util")
+  if not M._enabled then
+    util.notify("Profiler not enabled", vim.log.levels.WARN)
+    return false
+  end
+
+  if M._active then
+    util.notify("Profiler session already running", vim.log.levels.WARN)
+    return false
+  end
+
+  -- Initialize a new measurement session
+  M._active = true
+  M._measurements = {}
+  M._active_spans = {}
+  M._call_stack = {}
+  M._session_name = name or os.date("%Y-%m-%d %H:%M:%S")
+  M._session_start_time = vim.uv.hrtime()
+
+  util.notify("Performance profiling session started", vim.log.levels.INFO)
+  return true
+end
+
+function M.stop_session()
+  if not M.enabled then
+    return false
+  end
+
+  local util = require("checkmate.util")
+
+  if not M._active then
+    util.notify("No profiler session is running", vim.log.levels.WARN)
+    return false
+  end
+
   -- Auto-close any active spans
   for label, _ in pairs(M._active_spans) do
     M.stop(label)
   end
 
-  M._enabled = false
-  M.save_measurements()
-  require("checkmate.util").notify("Performance profiling stopped", vim.log.levels.INFO)
+  -- Store the current session in history
+  local session = {
+    name = M._session_name,
+    measurements = vim.deepcopy(M._measurements),
+    duration = time_since(M._session_start_time),
+    timestamp = os.time(),
+  }
+
+  -- Add to history (limited to last 5 sessions for memory)
+  table.insert(M._history, 1, session)
+  if #M._history > 5 then
+    table.remove(M._history)
+  end
+
+  -- Reset current session state
+  M._active = false
+  M._active_spans = {}
+  M._call_stack = {}
+  M._session_name = ""
+  M._session_start_time = nil
+
+  util.notify("Performance profiling session stopped", vim.log.levels.INFO)
+  return true
 end
 
 function M.is_enabled()
   return M._enabled
 end
 
--- Get time in ms since start
-local function time_since(start_ns)
-  return (vim.uv.hrtime() - start_ns) / 1000000
+function M.is_active()
+  return M._active
 end
 
 -- Start measuring a new time span
 function M.start(label, parent_label)
-  if not M._enabled then
+  if not M._enabled or not M._active then
     return
   end
 
-  -- Handle auto nesting if parent_label not specified
-  if not parent_label then
-    -- Find the most recently started span that's still active
-    local most_recent = nil
-    local most_recent_time = 0
+  table.insert(M._call_stack, label)
 
-    for other_label, span in pairs(M._active_spans) do
-      if span.start_time > most_recent_time then
-        most_recent = other_label
-        most_recent_time = span.start_time
-      end
-    end
-
-    parent_label = most_recent
+  -- Handle auto nesting by checking call stack
+  if not parent_label and #M._call_stack > 1 then
+    parent_label = M._call_stack[#M._call_stack - 1]
   end
 
   -- Initialize the measurement if it doesn't exist
@@ -88,6 +198,7 @@ function M.start(label, parent_label)
     parent = parent_label,
     children_time = 0,
     checkpoints = {},
+    children = {},
   }
 
   -- If this span has a parent, register it as a child
@@ -102,6 +213,16 @@ end
 -- End measuring a time span
 function M.stop(label)
   if not M._enabled or not M._active_spans[label] then
+    return
+  end
+
+  -- Handle case where label isn't specified but we want to close the most recent span
+  if not label and #M._call_stack > 0 then
+    label = M._call_stack[#M._call_stack]
+  end
+
+  -- If span doesn't exist or already ended, just return
+  if not M._active_spans[label] then
     return
   end
 
@@ -134,14 +255,13 @@ function M.stop(label)
     end
   end
 
-  -- Update parent's children time
+  -- Update parent's children time and measurements
   if span.parent and M._active_spans[span.parent] then
     local parent_span = M._active_spans[span.parent]
     parent_span.children_time = (parent_span.children_time or 0) + time_ms
 
-    -- Also update the parent's measurement
+    -- Update parent's measurement children data
     if M._measurements[span.parent] then
-      -- Add this as a child to the parent measurement
       M._measurements[span.parent].children[label] = M._measurements[span.parent].children[label]
         or {
           count = 0,
@@ -152,7 +272,28 @@ function M.stop(label)
         + time_ms
 
       -- Update parent's total child time
-      M._measurements[span.parent].child_time = M._measurements[span.parent].child_time + time_ms
+      M._measurements[span.parent].child_time = (M._measurements[span.parent].child_time or 0) + time_ms
+    end
+  elseif span.parent and M._measurements[span.parent] then
+    -- Parent span already closed but we still track relationship in measurements
+    M._measurements[span.parent].children[label] = M._measurements[span.parent].children[label]
+      or {
+        count = 0,
+        total_time = 0,
+      }
+    M._measurements[span.parent].children[label].count = M._measurements[span.parent].children[label].count + 1
+    M._measurements[span.parent].children[label].total_time = M._measurements[span.parent].children[label].total_time
+      + time_ms
+
+    -- Update parent's total child time
+    M._measurements[span.parent].child_time = (M._measurements[span.parent].child_time or 0) + time_ms
+  end
+
+  -- Update call stack - remove this span
+  for i = #M._call_stack, 1, -1 do
+    if M._call_stack[i] == label then
+      table.remove(M._call_stack, i)
+      break
     end
   end
 
@@ -163,6 +304,15 @@ end
 -- Record a checkpoint within the current measurement
 function M.checkpoint(label, checkpoint_label)
   if not M._enabled or not M._active_spans[label] then
+    return 0
+  end
+
+  -- If label isn't specified, use the most recent span
+  if not label and #M._call_stack > 0 then
+    label = M._call_stack[#M._call_stack]
+  end
+
+  if not M._active_spans[label] then
     return 0
   end
 
@@ -182,38 +332,37 @@ function M.checkpoint(label, checkpoint_label)
   return elapsed_ms
 end
 
--- For backward compatibility and convenience - wraps start/end in a function
-function M.measure(name, fn, ...)
-  if not M._enabled then
-    return fn(...)
-  end
-
-  M.start(name)
-  local results = { pcall(fn, ...) }
-  M.stop(name)
-
-  local success = table.remove(results, 1)
-
-  if not success then
-    error(results[1])
-  end
-
-  return unpack(results)
-end
-
 -- Save current measurements as last measurements
 function M.save_measurements()
-  M._last_measurements = vim.deepcopy(M._measurements)
+  local session = {
+    name = M._session_name or "Unnamed session",
+    measurements = vim.deepcopy(M._measurements),
+    timestamp = os.time(),
+  }
+
+  table.insert(M._history, 1, session)
+  if #M._history > 5 then
+    table.remove(M._history, #M._history)
+  end
 end
 
 -- Generate a performance report
 function M.report()
-  if not M._enabled and vim.tbl_isempty(M._last_measurements) then
+  if not M._enabled and vim.tbl_isempty(M._history) then
     return "No performance data available. Start profiling with :CheckmateDebugProfilerStart"
   end
 
-  -- Use current measurements if enabled, otherwise use last measurements
-  local measurements = M._enabled and M._measurements or M._last_measurements
+  local measurements
+  if M._active then
+    -- Use current active measurements
+    measurements = M._measurements
+  elseif #M._history > 0 then
+    -- Use most recent history entry
+    measurements = M._history[1].measurements
+  else
+    -- No data available
+    return "No performance data available. Start profiling with :CheckmateDebugProfilerStart"
+  end
 
   local lines = {
     "Checkmate Performance Report",
@@ -228,7 +377,9 @@ function M.report()
   -- Prepare data for sorting
   local sorted = {}
   for name, data in pairs(measurements) do
-    table.insert(sorted, { name = name, data = data })
+    if data.count > 0 then
+      table.insert(sorted, { name = name, data = data })
+    end
   end
 
   -- Sort by total time descending
@@ -243,6 +394,7 @@ function M.report()
 
     -- Calculate self vs. child time
     local self_percent = data.total_time > 0 and (data.self_time / data.total_time) * 100 or 100
+    self_percent = math.min(self_percent, 100)
 
     table.insert(lines, "")
     table.insert(lines, name)
@@ -265,7 +417,7 @@ function M.report()
       table.insert(lines, "")
       table.insert(lines, "Recent execution times (ms):")
       local samples = {}
-      for i, time in ipairs(data.samples) do
+      for _, time in ipairs(data.samples) do
         table.insert(samples, string.format("%.2f", time))
       end
       table.insert(lines, table.concat(samples, ", "))
@@ -276,7 +428,6 @@ function M.report()
       -- Group checkpoints by parent
       local checkpoints_by_parent = {}
 
-      -- Group checkpoints by parent
       for _, cp in ipairs(data.checkpoints) do
         checkpoints_by_parent[cp.parent] = checkpoints_by_parent[cp.parent] or {}
         table.insert(checkpoints_by_parent[cp.parent], cp)
@@ -306,7 +457,6 @@ function M.report()
 
     -- Show children if present
     if not vim.tbl_isempty(data.children) then
-      -- Prepare children for sorting
       local sorted_children = {}
       for child_name, child_data in pairs(data.children) do
         table.insert(sorted_children, { name = child_name, data = child_data })
@@ -323,6 +473,7 @@ function M.report()
       for _, child in ipairs(sorted_children) do
         -- Calculate child's percentage of parent's time
         local percent = (child.data.total_time / data.total_time) * 100
+        percent = math.min(percent, 100)
         table.insert(
           lines,
           string.format(

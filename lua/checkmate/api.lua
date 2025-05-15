@@ -685,8 +685,6 @@ function M.apply_metadata(todo_item, opts)
     meta_config.on_add(todo_item)
   end
 
-  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "apply_metadata" })
-
   return true
 end
 
@@ -873,8 +871,6 @@ function M.remove_all_metadata(todo_item)
     )
     item.func(todo_item)
   end
-
-  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_all_metadata" })
 
   log.debug("Removed all metadata from todo item on row " .. row + 1, { module = "api" })
 

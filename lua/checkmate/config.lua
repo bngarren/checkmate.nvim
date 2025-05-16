@@ -118,8 +118,19 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 
 -----------------------------------------------------
 
+---@alias checkmate.StyleKey
+---| "list_marker_unordered"
+---| "list_marker_ordered"
+---| "unchecked_marker"
+---| "unchecked_main_content"
+---| "unchecked_additional_content"
+---| "checked_marker"
+---| "checked_main_content"
+---| "checked_additional_content"
+---| "todo_count_indicator"
+
 ---Customize the style of markers and content
----@class checkmate.StyleSettings
+---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
 ---
 ---Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_unordered vim.api.keyset.highlight?
@@ -383,15 +394,17 @@ local function validate_options(opts)
   if opts.style ~= nil then
     validate_type(opts.style, "table", "style", false)
 
+    ---@type table<checkmate.StyleKey>
     local style_fields = {
       "list_marker_unordered",
       "list_marker_ordered",
-      "unchecked",
+      "unchecked_marker",
       "unchecked_main_content",
-      "unchecked_child_content",
-      "checked",
+      "unchecked_additional_content",
+      "checked_marker",
       "checked_main_content",
-      "checked_child_content",
+      "checked_additional_content",
+      "todo_count_indicator",
     }
 
     for _, field in ipairs(style_fields) do
@@ -469,44 +482,29 @@ function M.setup(opts)
   -- Prevent double initialization but allow reconfiguration
   local is_reconfigure = M._state.initialized
 
+  -- 1. Start with static defaults
   local config = vim.deepcopy(_DEFAULTS)
 
-  local colorscheme_aware_style = require("checkmate.theme").generate_style_defaults()
-
-  -- Save user's explicit style settings for future colorscheme changes
-  local user_style = nil
-
-  -- Add settings from global config (vim.g.checkmate_config) if it exists
-  if vim.g.checkmate_config and type(vim.g.checkmate_config) == "table" then
-    if vim.g.checkmate_config.style then
-      user_style = vim.deepcopy(vim.g.checkmate_config.style)
-    end
+  -- 2. (optional) Merge in global checkmate config
+  if type(vim.g.checkmate_config) == "table" then
     config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
   end
 
-  -- Then apply user options if provided
-  if opts and type(opts) == "table" then
-    -- Validate before merging
-    local success, error_msg = pcall(validate_options, opts)
-    if not success then
-      vim.notify("Checkmate config error: " .. error_msg, vim.log.levels.ERROR)
-    else
-      if opts.style then
-        user_style = user_style or {}
-        -- Overwrite opts.style into user_style (from global config.style)
-        user_style = vim.tbl_deep_extend("force", user_style, opts.style)
-      end
-      config = vim.tbl_deep_extend("force", config, opts)
-    end
+  -- 3. Merge override user opts
+  if type(opts) == "table" then
+    assert(validate_options(opts))
+    config = vim.tbl_deep_extend("force", config, opts)
   end
 
-  -- Apply theme defaults for any style properties not explicitly set
-  config.style = vim.tbl_deep_extend("keep", config.style, colorscheme_aware_style)
+  -- capture the explicit user-provided style (for later colorscheme updates)
+  M._state.user_style = config.style and vim.deepcopy(config.style) or {}
+
+  -- 4. Finally, backfill any missing keys from theme defaults
+  local colorscheme_aware_style = require("checkmate.theme").generate_style_defaults()
+  config.style = vim.tbl_deep_extend("keep", config.style or {}, colorscheme_aware_style)
 
   -- Store the resulting configuration
   M.options = config
-
-  M._state.user_style = user_style
 
   M._state.initialized = true
 

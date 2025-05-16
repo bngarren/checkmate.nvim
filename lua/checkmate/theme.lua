@@ -35,7 +35,7 @@ function M.get_base_colors()
   local perceived_brightness = M.get_color_brightness(colors.bg)
 
   -- Override the is_light_bg setting based on actual calculated brightness
-  -- colors.is_light_bg = perceived_brightness > 128
+  colors.is_light_bg = perceived_brightness > 128
 
   return colors
 end
@@ -166,13 +166,12 @@ function M.ensure_contrast(color, bg, min_ratio)
   local attempts = 0
   local max_attempts = 5
 
+  --   clamp attempt counter AND force larger steps the closer we are.
   while ratio < min_ratio and attempts < max_attempts do
-    adjusted = M.adjust_color_brightness(adjusted, adjustment)
+    local step = adjustment * (1 + attempts) -- 20%, 40%, 60% ...
+    adjusted = M.adjust_color_brightness(adjusted, step)
     ratio = M.get_contrast_ratio(adjusted, bg)
     attempts = attempts + 1
-
-    -- Increase adjustment with each attempt
-    adjustment = is_light_bg and adjustment * 1.5 or adjustment * 1.5
   end
 
   -- If we still don't have adequate contrast, fallback to black/white
@@ -185,6 +184,12 @@ end
 
 -- Generate style defaults based on the current colorscheme
 function M.generate_style_defaults()
+  -- Detect "startup phase": Normal highlight missing → fg/bg = nil.
+  local ok, normal = pcall(vim.api.nvim_get_hl, 0, { name = "Normal", link = false })
+  if not ok or (not normal.fg and not normal.bg) then
+    return {} -- nothing to work with *yet*
+  end
+
   local util = require("checkmate.util")
   local base = M.get_base_colors()
   local accents = M.get_accent_colors()
@@ -203,9 +208,9 @@ function M.generate_style_defaults()
   end
 
   -- Default colors if accent colors weren't available
-  local default_warn = base.is_light_bg and "#e65100" or "#ff9500" -- orange
-  local default_ok = base.is_light_bg and "#008800" or "#00cc66" -- green
-  local default_special = base.is_light_bg and "#8060a0" or "#e3b3ff" -- purple
+  local default_warn = M.ensure_contrast(base.is_light_bg and "#e65100" or "#ff9500", base.bg, ui_contrast_ratio) -- orange
+  local default_ok = M.ensure_contrast(base.is_light_bg and "#008800" or "#00cc66", base.bg, ui_contrast_ratio) -- green
+  local default_special = M.ensure_contrast(base.is_light_bg and "#8060a0" or "#e3b3ff", base.bg, ui_contrast_ratio) -- purple
 
   -- Style settings for highlights
   local style = {}

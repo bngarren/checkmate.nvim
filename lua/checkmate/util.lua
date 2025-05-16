@@ -82,13 +82,25 @@ end
 function M.get_hl_color(hl_group, prop, default)
   prop = prop or "fg"
   hl_group = type(hl_group) == "table" and hl_group or { hl_group }
-  ---@cast hl_group string[]
+
   for _, g in ipairs(hl_group) do
+    -- First try to get attributes with link = false
+    ---@cast g string
     local hl = vim.api.nvim_get_hl(0, { name = g, link = false })
+
     if hl[prop] then
       return string.format("#%06x", hl[prop])
     end
+
+    -- If no direct attribute, try following the link
+    if hl.link then
+      local linked_hl = vim.api.nvim_get_hl(0, { name = hl.link, link = false })
+      if linked_hl[prop] then
+        return string.format("#%06x", linked_hl[prop])
+      end
+    end
   end
+
   return default
 end
 

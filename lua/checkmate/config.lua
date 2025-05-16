@@ -80,24 +80,24 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 
 -----------------------------------------------------
 ---@class checkmate.StyleSettings Customize the style of markers and content
----@field list_marker_unordered vim.api.keyset.highlight Highlight settings for unordered list markers (-,+,*)
----@field list_marker_ordered vim.api.keyset.highlight Highlight settings for ordered (numerical) list markers (1.,2.)
----@field unchecked_marker vim.api.keyset.highlight Highlight settings for unchecked markers
+---@field list_marker_unordered vim.api.keyset.highlight? Highlight settings for unordered list markers (-,+,*)
+---@field list_marker_ordered vim.api.keyset.highlight? Highlight settings for ordered (numerical) list markers (1.,2.)
+---@field unchecked_marker vim.api.keyset.highlight? Highlight settings for unchecked markers
 ---Highlight settings for main content of unchecked todo items
 ---This is typically the first line/paragraph
----@field unchecked_main_content vim.api.keyset.highlight
+---@field unchecked_main_content vim.api.keyset.highlight?
 ---Highlight settings for additional content of unchecked todo items
 ---This is the content below the first line/paragraph
----@field unchecked_additional_content vim.api.keyset.highlight
----@field checked_marker vim.api.keyset.highlight Highlight settings for checked markers
+---@field unchecked_additional_content vim.api.keyset.highlight?
+---@field checked_marker vim.api.keyset.highlight? Highlight settings for checked markers
 ---Highlight settings for main content of checked todo items
 ---This is typically the first line/paragraph
----@field checked_main_content vim.api.keyset.highlight
+---@field checked_main_content vim.api.keyset.highlight?
 ---Highlight settings for additional content of checked todo items
 ---This is the content below the first line/paragraph
----@field checked_additional_content vim.api.keyset.highlight
+---@field checked_additional_content vim.api.keyset.highlight?
 ---Highlight settings for the todo count indicator (e.g. x/x)
----@field todo_count_indicator vim.api.keyset.highlight
+---@field todo_count_indicator vim.api.keyset.highlight?
 
 -----------------------------------------------------
 ---@class checkmate.MetadataProps
@@ -162,34 +162,7 @@ local _DEFAULTS = {
     unchecked = "□",
     checked = "✔",
   },
-  style = {
-    -- List markers, such as "-" and "1."
-    list_marker_unordered = {
-      -- Can use util functions to get existing highlight colors and blend them together
-      -- This is one way to integrate with an existing colorscheme
-      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.2),
-    },
-    list_marker_ordered = {
-      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.5),
-    },
-
-    -- Unchecked todo items
-    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typically the first line/paragraph
-    unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
-
-    -- Checked todo items
-    checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
-    checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
-
-    -- Todo count indicator
-    todo_count_indicator = {
-      fg = util.blend("#e3b3ff", util.get_hl_color("Normal", "bg", "'#222222"), 0.9),
-      bg = util.blend("#ffffff", util.get_hl_color("Normal", "bg", "'#222222"), 0.02),
-      italic = true,
-    },
-  },
+  style = {},
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   show_todo_count = true,
@@ -255,6 +228,7 @@ M._state = {
   initialized = false, -- Has setup() been called? Prevent duplicate initializations of config.
   running = false, -- Is the plugin currently active?
   active_buffers = {}, -- Track which buffers have been set up (i.e., have Checkmate functionality loaded)
+  user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
 }
 
 -- The active configuration
@@ -429,9 +403,17 @@ function M.setup(opts)
 
   local config = vim.deepcopy(_DEFAULTS)
 
-  -- Add global config (vim.g.checkmate_config) if it exists
+  local colorscheme_aware_style = require("checkmate.theme").generate_style_defaults()
+
+  -- Save user's explicit style settings for future colorscheme changes
+  local user_style = nil
+
+  -- Add settings from global config (vim.g.checkmate_config) if it exists
   if vim.g.checkmate_config and type(vim.g.checkmate_config) == "table" then
-    config = vim.tbl_extend("force", config, vim.g.checkmate_config)
+    if vim.g.checkmate_config.style then
+      user_style = vim.deepcopy(vim.g.checkmate_config.style)
+    end
+    config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
   end
 
   -- Then apply user options if provided
@@ -441,18 +423,31 @@ function M.setup(opts)
     if not success then
       vim.notify("Checkmate config error: " .. error_msg, vim.log.levels.ERROR)
     else
+      if opts.style then
+        user_style = user_style or {}
+        -- Overwrite opts.style into user_style (from global config.style)
+        user_style = vim.tbl_deep_extend("force", user_style, opts.style)
+      end
       config = vim.tbl_deep_extend("force", config, opts)
     end
   end
 
+  -- Apply theme defaults for any style properties not explicitly set
+  config.style = vim.tbl_deep_extend("keep", config.style, colorscheme_aware_style)
+
   -- Store the resulting configuration
   M.options = config
+
+  M._state.user_style = user_style
 
   M._state.initialized = true
 
   -- Handle reconfiguration: notify dependent modules
   if is_reconfigure then
     M.notify_config_changed()
+  else
+    -- Save the intial setup's user opts
+    vim.g.checkmate_user_opts = opts or {}
   end
 
   return M.options

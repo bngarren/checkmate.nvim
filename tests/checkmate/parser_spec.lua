@@ -576,7 +576,7 @@ Line that should not affect parent-child relationship
       assert.equal(0, metadata.entries[1].range.start.row)
       assert.equal(16, metadata.entries[1].range.start.col)
       assert.equal(0, metadata.entries[1].range["end"].row)
-      assert.equal(30, metadata.entries[1].range["end"].col)
+      assert.equal(31, metadata.entries[1].range["end"].col)
     end)
 
     it("should extract multiple metadata tags", function()

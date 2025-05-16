@@ -666,7 +666,9 @@ function M.extract_metadata(line, row)
       value = value,
       range = {
         start = { row = row, col = tag_start - 1 }, -- 0-indexed column
-        ["end"] = { row = row, col = tag_end - 1 },
+        -- For the end col, we need 0 indexed (subtract 1) and since it is end-exclusive we add 1, cancelling out
+        -- end-exclusive means the end col points to the pos after the last char
+        ["end"] = { row = row, col = tag_end },
       },
       alias_for = nil, -- Will be set later if it's an alias
       position_in_line = tag_start, -- track original position in the line

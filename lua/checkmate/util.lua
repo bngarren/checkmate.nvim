@@ -274,7 +274,7 @@ end
 ---Returns a todo_map table sorted by start row
 ---@generic T: table<string, checkmate.TodoItem>
 ---@param todo_map T
----@return table T
+---@return table<string, checkmate.TodoItem>
 function M.get_sorted_todo_list(todo_map)
   -- Convert map to array of {id, item} pairs
   local todo_list = {}

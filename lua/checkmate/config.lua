@@ -50,6 +50,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field use_metadata_keymaps boolean
 ---Custom @tag(value) fields that can be toggled on todo items
 ---@field metadata checkmate.Metadata
+---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
 
@@ -132,6 +133,9 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
+
+---@class checkmate.ArchiveSettings
+---@field heading string? Title for the archived todos section. (Default is "Archived")
 
 ---@class checkmate.LinterConfig
 ---@field enabled boolean -- (default true) Whether to enable the linter (vim.diagnostics)
@@ -245,6 +249,9 @@ local _DEFAULTS = {
       end,
       sort_order = 30,
     },
+  },
+  archive = {
+    heading = "Archive",
   },
   linter = {
     enabled = true,

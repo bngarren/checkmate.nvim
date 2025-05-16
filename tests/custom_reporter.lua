@@ -196,8 +196,6 @@ return function(options)
       -- Get error details
       local t = (status == "failure") and handler.failures[#handler.failures] or handler.errors[#handler.errors]
 
-      println(vim.inspect(t))
-
       -- Store failed test info for summary
       table.insert(failedTests, {
         name = t.name,

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/bngarren/checkmate.nvim/compare/v0.5.0...v0.5.1) (2025-05-16)
+
+
+### Bug Fixes
+
+* **parser:** fixed off-by-one error in metadata parsing, leading to highlighting bug ([#51](https://github.com/bngarren/checkmate.nvim/issues/51)) ([436092e](https://github.com/bngarren/checkmate.nvim/commit/436092ed88d46de54d6c583a93bd483eb170617e))
+
 ## [0.5.0](https://github.com/bngarren/checkmate.nvim/compare/v0.4.0...v0.5.0) (2025-05-15)
 
 

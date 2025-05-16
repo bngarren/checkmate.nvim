@@ -220,8 +220,19 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 -----------------------------------------------------
 
+---@alias checkmate.StyleKey
+---| "list_marker_unordered"
+---| "list_marker_ordered"
+---| "unchecked_marker"
+---| "unchecked_main_content"
+---| "unchecked_additional_content"
+---| "checked_marker"
+---| "checked_main_content"
+---| "checked_additional_content"
+---| "todo_count_indicator"
+
 ---Customize the style of markers and content
----@class checkmate.StyleSettings
+---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
 ---
 ---Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_unordered vim.api.keyset.highlight?
@@ -308,11 +319,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 --- TODO: @field auto_fix boolean Auto fix on buffer write
 
 -----------------------------------------------------
-```
-</details>
 
-### Defaults
-```lua
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,

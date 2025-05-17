@@ -59,8 +59,9 @@ describe("Config", function()
       -- Call setup with new options
       ---@diagnostic disable-next-line: missing-fields
       config.setup({
+        ---@diagnostic disable-next-line: missing-fields
         todo_markers = {
-          unchecked = "⬜",
+          -- unchecked = "□", -- this is the default
           checked = "✅",
         },
         default_list_marker = "+",
@@ -68,10 +69,81 @@ describe("Config", function()
       })
 
       -- Check that options were updated
-      assert.equal("⬜", config.options.todo_markers.unchecked)
       assert.equal("✅", config.options.todo_markers.checked)
       assert.equal("+", config.options.default_list_marker)
       assert.is_false(config.options.enter_insert_after_new)
+
+      -- untouched keys inside the same table must survive
+      assert.equal("□", config.options.todo_markers.unchecked)
+
+      -- shouldn't touch unrelated options
+      assert.is_true(config.options.enabled)
+    end)
+
+    describe("style merging", function()
+      local config = require("checkmate.config")
+      local theme
+      before_each(function()
+        theme = require("checkmate.theme")
+        stub(theme, "generate_style_defaults", function()
+          return {
+            unchecked_marker = { fg = "#111111", bold = true },
+            checked_marker = { fg = "#222222", bold = true },
+            list_marker_unordered = { fg = "#333333" },
+          }
+        end)
+      end)
+      after_each(function()
+        theme.generate_style_defaults:revert()
+      end)
+
+      it("fills in missing nested keys but keeps user-supplied values", function()
+        ---@diagnostic disable-next-line: missing-fields
+        config.setup({
+          style = {
+            unchecked_marker = { fg = "#ff0000" }, -- user overrides fg only
+          },
+        })
+
+        local st = config.options.style
+
+        if not st or not st.unchecked_marker then
+          error()
+        end
+
+        -- user wins on explicit key
+        assert.equal("#ff0000", st.unchecked_marker.fg)
+
+        -- default sub-key is retained
+        assert.is_true(st.unchecked_marker.bold)
+
+        -- untouched style tables are copied wholesale from defaults
+        assert.same({ fg = "#222222", bold = true }, st.checked_marker)
+        assert.same({ fg = "#333333" }, st.list_marker_unordered)
+
+        assert.stub(theme.generate_style_defaults).was.called(1)
+      end)
+
+      it("never overwrites an explicit user value on back-fill", function()
+        ---@diagnostic disable-next-line: missing-fields
+        config.setup({
+          style = {
+            unchecked_marker = { fg = "#00ff00", bold = false }, -- user sets both
+          },
+        })
+
+        local st = config.options.style
+
+        if not st or not st.unchecked_marker then
+          error()
+        end
+
+        assert.equal("#00ff00", st.unchecked_marker.fg)
+        assert.is_false(st.unchecked_marker.bold)
+
+        -- Again, ensure we only called the style factory once
+        assert.stub(theme.generate_style_defaults).was.called(1)
+      end)
     end)
   end)
 

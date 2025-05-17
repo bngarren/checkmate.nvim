@@ -148,7 +148,7 @@ function M.convert_markdown_to_unicode(bufnr)
   local original_modified = vim.bo[bufnr].modified
 
   -- Build patterns only once
-  local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[%s%]")
+  local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[ %]")
   local checked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[[xX]%]")
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
@@ -157,7 +157,7 @@ function M.convert_markdown_to_unicode(bufnr)
   local new_lines = {}
 
   -- Replace markdown syntax with Unicode
-  for i, line in ipairs(lines) do
+  for _, line in ipairs(lines) do
     local new_line = line
 
     -- Apply all unchecked replacements

@@ -82,13 +82,25 @@ end
 function M.get_hl_color(hl_group, prop, default)
   prop = prop or "fg"
   hl_group = type(hl_group) == "table" and hl_group or { hl_group }
-  ---@cast hl_group string[]
+
   for _, g in ipairs(hl_group) do
+    -- First try to get attributes with link = false
+    ---@cast g string
     local hl = vim.api.nvim_get_hl(0, { name = g, link = false })
+
     if hl[prop] then
       return string.format("#%06x", hl[prop])
     end
+
+    -- If no direct attribute, try following the link
+    if hl.link then
+      local linked_hl = vim.api.nvim_get_hl(0, { name = hl.link, link = false })
+      if linked_hl[prop] then
+        return string.format("#%06x", linked_hl[prop])
+      end
+    end
   end
+
   return default
 end
 
@@ -265,9 +277,15 @@ function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
     error("checkbox_pattern cannot be nil or empty")
   end
 
+  -- CommonMark specifies that checkboxes have:
+  -- - exactly one space inside [ ]
+  -- - at least one whitespace char (or EOL) after the closing bracket
+  local cm_suffix = "%f[%s]" -- Lua frontier ⇒ next char is whitespace/EOL
+  local full_box_pattern = checkbox_pattern .. cm_suffix
+
   return M.build_list_pattern({
     simple_markers = list_item_markers,
-    right_pattern = checkbox_pattern,
+    right_pattern = full_box_pattern,
   })
 end
 

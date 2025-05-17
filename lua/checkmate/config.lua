@@ -2,8 +2,6 @@
 ---@class checkmate.Config.mod
 local M = {}
 
-local util = require("checkmate.util")
-
 -- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
 

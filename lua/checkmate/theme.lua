@@ -14,7 +14,7 @@ function M.ensure_hex_color(color, default)
   if M.is_valid_hex_color(color) then
     return color
   end
-  return default or "#000000"
+  return M.is_valid_hex_color(default) and default or "#000000"
 end
 
 -- Get primary foreground and background colors from current colorscheme

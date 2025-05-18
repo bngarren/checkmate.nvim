@@ -1,16 +1,19 @@
--- lua/checkmate/linter.lua
+--[[
+-- Two critical CommonMark list
+indentation rules (spec 0.31.2 §6):
+
+1. **Indentation <= 3 spaces** – A child's marker may appear up to
+   three spaces further to the right of its parent's *content* column.
+2. **Nested items >= parent content column** – A child's marker must start
+   at or to the right of its parent's content column.
+
+It also warns when ordered & unordered markers are mixed at the same indent.
+The algorithm is an *O(lines)* single pass with a tiny stack — perfect for
+real‑time linting of large Markdown buffers.
+--]]
+
 local M = {}
-
--- A dedicated namespace for our linting diagnostics
-M.ns = vim.api.nvim_create_namespace("checkmate_lint")
-
--- Define lint issue types with descriptions
-M.ISSUES = {
-  INCONSISTENT_MARKER = "List markers should be consistent among siblings",
-  MISALIGNED_CONTENT = "Content on continuation lines should align with the first line's content",
-  MIXED_LIST_TYPE = "Mixing ordered/unordered lists at same nesting level",
-  UNALIGNED_MARKER = "List marker is misaligned",
-}
+local cfg = {} ---@type table<string,any>
 
 -- Internal-only type that extends the user-facing config
 ---@class checkmate.InternalLinterConfig : checkmate.LinterConfig
@@ -18,250 +21,186 @@ M.ISSUES = {
 ---@field virtual_text vim.diagnostic.Opts.VirtualText -- Virtual text options
 ---@field underline vim.diagnostic.Opts.Underline -- Underline options
 
+M.ns = vim.api.nvim_create_namespace("checkmate_lint")
+M.ISSUES = {
+  INCONSISTENT_MARKER = "Mixed ordered / unordered list markers at this indent level",
+  INDENT_SHALLOW = "List marker indented too little for nesting",
+  INDENT_DEEP = "List marker indented too far",
+}
+
 -- Default configuration
 ---@type checkmate.InternalLinterConfig
-M.config = {
+M._defaults = {
   enabled = true,
-  -- Which diagnostic namespace to use - default will use the plugin's own namespace
-  -- Set to another namespace string to integrate with other diagnostic providers
-  namespace = nil,
-  -- Virtual text options, forwarded to vim.diagnostic.config
-  ---@type vim.diagnostic.Opts.VirtualText
-  virtual_text = {
-    prefix = "▸",
-  },
-  -- Underline options, forwarded to vim.diagnostic.config
-  ---@type vim.diagnostic.Opts.Underline
+  virtual_text = { prefix = "▸" },
   underline = { severity = "WARN" },
-  auto_fix = false,
   severity = {
-    [M.ISSUES.INCONSISTENT_MARKER] = vim.diagnostic.severity.INFO,
-    [M.ISSUES.MISALIGNED_CONTENT] = vim.diagnostic.severity.HINT,
-    [M.ISSUES.MIXED_LIST_TYPE] = vim.diagnostic.severity.WARN,
-    [M.ISSUES.UNALIGNED_MARKER] = vim.diagnostic.severity.WARN,
+    INCONSISTENT_MARKER = vim.diagnostic.severity.INFO,
+    INDENT_SHALLOW = vim.diagnostic.severity.WARN,
+    INDENT_DEEP = vim.diagnostic.severity.WARN,
   },
 }
 
--- Setup linter with user config
+--- Helpers
+------------------------------------------------------------
+
+---Return the 0‑based column of the first non‑blank char after `idx`
+---@param line string The line to examine
+---@param idx integer The 0-based starting position
+---@return integer The column of the first non-blank character
+local function first_non_space(line, idx)
+  local pos = line:find("[^ \t]", idx + 1)
+  return pos and (pos - 1) or #line
+end
+
+local function push(tbl, v)
+  tbl[#tbl + 1] = v
+end
+
+---Pop items from stack until we reach a parent whose marker column is less than `col`
+---@param stack table The stack of parent list items
+---@param col integer The marker column to compare against
+---@return table|nil result The parent node, or nil if no suitable parent found
+local function pop_parent(stack, col)
+  while #stack > 0 and stack[#stack].marker_col >= col do
+    stack[#stack] = nil
+  end
+  return stack[#stack]
+end
+
+--- Pattern compilation
+------------------------------------------------------------
+
+---Compile patterns for all types of list markers
+---@return table<{regex:string,marker_type:string}>
+local function compile_patterns()
+  local parser = require("checkmate.parser")
+
+  local markers = parser.list_item_markers
+  local pats = {}
+
+  -- Unordered list markers
+  for _, m in ipairs(markers) do
+    pats[#pats + 1] = {
+      regex = string.format("^(%%s*)(%s)%%s+(.*)$", vim.pesc(m)),
+      marker_type = "unordered",
+    }
+  end
+
+  -- Ordered list markers ("1." / "1)")
+  pats[#pats + 1] = {
+    regex = "^(%s*)(%d+[.)])%s+(.*)$",
+    marker_type = "ordered",
+  }
+
+  return pats
+end
+
+local PATTERNS = compile_patterns()
+
+---Parse a line to determine if it's a list item and extract its structure
+---@param line string Line to parse
+---@return nil|{marker_col:integer,content_col:integer,marker_type:string}
+local function parse_list_item(line)
+  for _, pat in ipairs(PATTERNS) do
+    local indent, marker = line:match(pat.regex)
+    if indent then
+      local mc = #indent -- marker column (0‑based)
+      return {
+        marker_col = mc,
+        content_col = first_non_space(line, mc + #marker),
+        marker_type = pat.marker_type,
+      }
+    end
+  end
+end
+
+---Add a diagnostic to the diagnostics table
+---@param bufnr integer Buffer number
+---@param diags table Table of diagnostics
+---@param key string The issue key from M.ISSUES
+---@param row integer The 0-based row number
+---@param col integer The 0-based column number
+local function add_diag(bufnr, diags, key, row, col)
+  table.insert(diags, {
+    bufnr = bufnr,
+    lnum = row,
+    col = col,
+    end_lnum = row,
+    end_col = col + 1,
+    severity = cfg.severity[key],
+    message = M.ISSUES[key],
+    source = "checkmate",
+  })
+end
+
+--- Public API
+------------------------------------------------------------
+
+---Set up the linter with given options
 ---@param opts checkmate.LinterConfig? User configuration options
 ---@return checkmate.InternalLinterConfig config Merged configuration
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+  cfg = vim.tbl_deep_extend("force", vim.deepcopy(M._defaults), opts or {})
 
-  -- If disabled, return early
-  if not M.config.enabled then
+  if not cfg.enabled then
     M.disable()
-    return M.config
+    return cfg
   end
 
-  -- Configure diagnostics with our options
   vim.diagnostic.config({
-    virtual_text = M.config.virtual_text,
-    underline = M.config.underline,
+    virtual_text = cfg.virtual_text,
+    underline = cfg.underline,
     severity_sort = true,
   }, M.ns)
 
-  -- TODO: Run linter when buffer is written
-  --[[ vim.api.nvim_create_autocmd("BufWritePre", {
-      group = vim.api.nvim_create_augroup("CheckmateLinter", { clear = true }),
-      pattern = "*.todo",
-      callback = function(args)
-        require("checkmate.util").notify("bufwritepre", vim.log.levels.DEBUG)
-        if M.config.auto_fix and args.event == "BufWritePre" then
-          M.fix_issues(args.buf)
-        end
-      end,
-    }) ]]
+  M.config = cfg
 
-  return M.config
+  return cfg
 end
 
--- Main lint function
----@param bufnr integer? Buffer number to lint, defaults to current buffer
----@return vim.Diagnostic[] result List of diagnostics produced
+---@param bufnr? integer
+---@return table diagnostics
 function M.lint_buffer(bufnr)
-  local parser = require("checkmate.parser")
-  local log = require("checkmate.log")
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  -- Skip if buffer is not valid
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if not (cfg.enabled and vim.api.nvim_buf_is_valid(bufnr)) then
     return {}
   end
 
-  -- Clear previous diagnostics
-  vim.diagnostic.reset(M.ns, bufnr)
+  local diags = {} ---@type vim.Diagnostic[]
+  local stack = {} ---@type table<{marker_col:integer,content_col:integer}>
+  local level_marker_type = {} ---@type table<integer,string>
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  -- List to hold diagnostic items
-  ---@type vim.Diagnostic[]
-  local diagnostics = {}
+  for i, line in ipairs(lines) do
+    local row = i - 1 -- diagnostics are 0‑based
+    local list_item_info = parse_list_item(line)
 
-  -- Get all list items
-  local list_items = parser.get_all_list_items(bufnr)
-
-  -- Sort items by line number for sequential processing
-  table.sort(list_items, function(a, b)
-    return a.range.start.row < b.range.start.row
-  end)
-
-  -- Find nesting level for each list item based on indentation
-  -- We don't use TS nesting here because we want to find list items that are misaligned
-  -- Thus, we find them by indentation errors
-  for i, item in ipairs(list_items) do
-    local row = item.range.start.row
-    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-
-    -- Get this item's indentation
-    local indent = line:match("^(%s*)") or ""
-    local indent_level = #indent
-
-    -- Find the nearest preceding list item with less indentation - that's the parent
-    local parent_item = nil
-    for j = i - 1, 1, -1 do
-      local prev_item = list_items[j]
-      local prev_row = prev_item.range.start.row
-      local prev_line = vim.api.nvim_buf_get_lines(bufnr, prev_row, prev_row + 1, false)[1] or ""
-      local prev_indent = prev_line:match("^(%s*)") or ""
-
-      if #prev_indent < indent_level then
-        parent_item = prev_item
-        break
-      end
-    end
-
-    -- If we found a parent, check indentation
-    if parent_item then
-      local parent_row = parent_item.range.start.row
-      local parent_line = vim.api.nvim_buf_get_lines(bufnr, parent_row, parent_row + 1, false)[1] or ""
-
-      local _, _, _, parent_marker_end_col = parent_item.list_marker.node:range()
-
-      -- Find the first non-whitespace character after the parent's marker
-      local content_start_idx = parent_line:find("[^%s]", parent_marker_end_col + 1)
-
-      local parent_content_start
-      if content_start_idx then
-        -- Content starts at the first non-whitespace character
-        parent_content_start = content_start_idx - 1 -- Convert to 0-indexed
+    if list_item_info then
+      -- Marker‑type consistency among siblings
+      local sibling_type = level_marker_type[list_item_info.marker_col]
+      if sibling_type and sibling_type ~= list_item_info.marker_type then
+        add_diag(bufnr, diags, "INCONSISTENT_MARKER", row, list_item_info.marker_col)
       else
-        -- No content after marker, use CommonMark default (one space after marker)
-        parent_content_start = parent_marker_end_col + 1
+        level_marker_type[list_item_info.marker_col] = list_item_info.marker_type
       end
 
-      -- Get this item's marker position
-      local _, marker_col, _, _ = item.list_marker.node:range()
-
-      -- Child list marker should align with the start of parent's content
-      if marker_col ~= parent_content_start then
-        log.debug(
-          string.format(
-            "INDENTATION ISSUE: line %d marker at column %d, should be at column %d to align with parent at line %d",
-            row + 1,
-            marker_col + 1,
-            parent_content_start + 1,
-            parent_row + 1
-          ),
-          { module = "linter" }
-        )
-
-        table.insert(diagnostics, {
-          bufnr = bufnr,
-          lnum = row,
-          col = 0,
-          end_lnum = row,
-          end_col = #indent,
-          message = M.ISSUES.UNALIGNED_MARKER,
-          severity = M.config.severity[M.ISSUES.UNALIGNED_MARKER],
-          source = "checkmate",
-          user_data = {
-            fixable = true,
-            -- TODO: implement auto_fix
-            --
-            --[[ fix_fn = function()
-              -- Fix just the first line with the list marker
-              local fixed_marker_line = string.rep(" ", parent_content_start) .. line:gsub("^%s*", "")
-              vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { fixed_marker_line })
-
-              -- Get the updated list items
-              local list_items = parser.get_all_list_items(bufnr)
-
-              -- Find our newly aligned item
-              local aligned_item = nil
-              for _, item in ipairs(list_items) do
-                if item.range.start.row == row then
-                  aligned_item = item
-                  break
-                end
-              end
-
-              if aligned_item then
-                -- Calculate the full range that needs adjustment
-                -- This should now include all children correctly
-                local item_node = aligned_item.node
-                local start_row, _, end_row, _ = item_node:range()
-
-                -- Calculate the indentation difference we applied
-                local original_indent = #(line:match("^%s*") or "")
-                local indent_adjustment = parent_content_start - original_indent
-
-                -- Adjust all lines *except* the first one which we already fixed
-                for line_row = start_row + 1, end_row do
-                  local line_text = vim.api.nvim_buf_get_lines(bufnr, line_row, line_row + 1, false)[1]
-                  if line_text then
-                    -- Keep relative indentation within the subtree
-                    local line_indent = line_text:match("^%s*") or ""
-                    local new_indent = string.rep(" ", #line_indent + indent_adjustment)
-                    local fixed_line = new_indent .. line_text:gsub("^%s*", "")
-                    vim.api.nvim_buf_set_lines(bufnr, line_row, line_row + 1, false, { fixed_line })
-                  end
-                end
-              end
-            end ]]
-          },
-        })
+      -- Parent/child indentation rules
+      local parent = pop_parent(stack, list_item_info.marker_col)
+      if parent then
+        if list_item_info.marker_col < parent.content_col then
+          add_diag(bufnr, diags, "INDENT_SHALLOW", row, list_item_info.marker_col)
+        elseif list_item_info.marker_col > parent.content_col + 3 then
+          add_diag(bufnr, diags, "INDENT_DEEP", row, list_item_info.marker_col)
+        end
       end
+
+      push(stack, list_item_info)
     end
   end
 
-  -- Set diagnostics in the buffer using our namespace
-  vim.diagnostic.set(M.ns, bufnr, diagnostics)
-
-  log.debug(string.format("Linted buffer %d, found %d issues", bufnr, #diagnostics), { module = "linter" })
-
-  return diagnostics
-end
-
--- Fix all fixable issues in buffer
----@param bufnr integer? Buffer number, defaults to current buffer
----@return boolean success Whether fixes were applied
----@return integer count Number of issues fixed
-function M.fix_issues(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  -- Get current diagnostics from our namespace
-  local diagnostics = vim.diagnostic.get(bufnr, { namespace = M.ns })
-
-  -- Track if we've fixed anything
-  local fixed = 0
-
-  -- Apply fixes in reverse line order to avoid position shifts
-  table.sort(diagnostics, function(a, b)
-    return a.lnum > b.lnum
-  end)
-
-  for _, diag in ipairs(diagnostics) do
-    if diag.user_data and diag.user_data.fixable and diag.user_data.fix_fn then
-      diag.user_data.fix_fn()
-      fixed = fixed + 1
-    end
-  end
-
-  -- Re-lint after fixing
-  if fixed then
-    M.lint_buffer(bufnr)
-  end
-
-  return true, fixed
+  vim.diagnostic.set(M.ns, bufnr, diags)
+  return diags
 end
 
 -- Disable linting

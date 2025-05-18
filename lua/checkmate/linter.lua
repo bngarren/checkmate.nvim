@@ -22,10 +22,24 @@ local cfg = {} ---@type table<string,any>
 ---@field underline vim.diagnostic.Opts.Underline -- Underline options
 
 M.ns = vim.api.nvim_create_namespace("checkmate_lint")
-M.ISSUES = {
-  INCONSISTENT_MARKER = "Mixed ordered / unordered list markers at this indent level",
-  INDENT_SHALLOW = "List marker indented too little for nesting",
-  INDENT_DEEP = "List marker indented too far",
+
+-- Define linter rules
+M.RULES = {
+  INCONSISTENT_MARKER = {
+    id = "INCONSISTENT_MARKER",
+    message = "Mixed ordered / unordered list markers at this indent level",
+    severity = vim.diagnostic.severity.INFO,
+  },
+  INDENT_SHALLOW = {
+    id = "INDENT_SHALLOW",
+    message = "List marker indented too little for nesting",
+    severity = vim.diagnostic.severity.WARN,
+  },
+  INDENT_DEEP = {
+    id = "INDENT_DEEP",
+    message = "List marker indented too far",
+    severity = vim.diagnostic.severity.WARN,
+  },
 }
 
 -- Default configuration
@@ -34,12 +48,14 @@ M._defaults = {
   enabled = true,
   virtual_text = { prefix = "▸" },
   underline = { severity = "WARN" },
-  severity = {
-    INCONSISTENT_MARKER = vim.diagnostic.severity.INFO,
-    INDENT_SHALLOW = vim.diagnostic.severity.WARN,
-    INDENT_DEEP = vim.diagnostic.severity.WARN,
-  },
+  severity = {}, -- will be initialized from M.RULES
+  verbose = false,
 }
+
+-- Initialize default severities from rules
+for id, rule in pairs(M.RULES) do
+  M._defaults.severity[id] = rule.severity
+end
 
 --- Helpers
 ------------------------------------------------------------
@@ -115,24 +131,108 @@ local function parse_list_item(line)
   end
 end
 
+-- Diagnostic handling
+------------------------------------------------------------
+
 ---Add a diagnostic to the diagnostics table
 ---@param bufnr integer Buffer number
 ---@param diags table Table of diagnostics
----@param key string The issue key from M.ISSUES
+---@param rule_id string The rule ID from M.RULES
 ---@param row integer The 0-based row number
 ---@param col integer The 0-based column number
-local function add_diag(bufnr, diags, key, row, col)
+---@param extra_info? string Optional context to append to message
+local function add_diag(bufnr, diags, rule_id, row, col, extra_info)
+  local rule = M.RULES[rule_id]
+  if not rule then
+    return
+  end
+
+  local message = rule.message
+  if extra_info and M.config.verbose then
+    message = message .. " " .. extra_info
+  end
+
   table.insert(diags, {
     bufnr = bufnr,
     lnum = row,
     col = col,
     end_lnum = row,
     end_col = col + 1,
-    severity = cfg.severity[key],
-    message = M.ISSUES[key],
+    severity = cfg.severity[rule_id],
+    message = message,
     source = "checkmate",
+    code = rule_id,
   })
 end
+
+-- Rule validator implementation
+------------------------------------------------------------
+
+---@class LintContext
+---@field bufnr integer Buffer being linted
+---@field diags table Diagnostics collection
+---@field list_item table Current list item
+---@field row integer Current row (0-indexed)
+---@field marker_types table Map of marker columns to marker types
+---@field parent table|nil Parent list item (if any)
+
+---@class LinterRuleValidator
+---@field validate fun(ctx:LintContext):boolean
+local Validator = {}
+
+---Create validator for checking inconsistent markers
+---@return LinterRuleValidator
+function Validator.inconsistent_marker()
+  return {
+    validate = function(ctx)
+      local sibling_type = ctx.marker_types[ctx.list_item.marker_col]
+      if sibling_type and sibling_type ~= ctx.list_item.marker_type then
+        add_diag(ctx.bufnr, ctx.diags, "INCONSISTENT_MARKER", ctx.row, ctx.list_item.marker_col)
+        return true
+      else
+        ctx.marker_types[ctx.list_item.marker_col] = ctx.list_item.marker_type
+        return false
+      end
+    end,
+  }
+end
+
+---Create validator for checking shallow indentation
+---@return LinterRuleValidator
+function Validator.indent_shallow()
+  return {
+    validate = function(ctx)
+      if ctx.parent and ctx.list_item.marker_col < ctx.parent.content_col then
+        local extra_info = string.format("(should be at column %d or greater)", ctx.parent.content_col)
+        add_diag(ctx.bufnr, ctx.diags, "INDENT_SHALLOW", ctx.row, ctx.list_item.marker_col, extra_info)
+        return true
+      end
+      return false
+    end,
+  }
+end
+
+---Create validator for checking excessive indentation
+---@return LinterRuleValidator
+function Validator.indent_deep()
+  return {
+    validate = function(ctx)
+      if ctx.parent and ctx.list_item.marker_col > ctx.parent.content_col + 3 then
+        local extra_info = string.format("(maximum allowed is column %d)", ctx.parent.content_col + 3)
+        add_diag(ctx.bufnr, ctx.diags, "INDENT_DEEP", ctx.row, ctx.list_item.marker_col, extra_info)
+        return true
+      end
+      return false
+    end,
+  }
+end
+
+-- The list of validators to run
+local validators = {
+  Validator.inconsistent_marker(),
+  Validator.indent_shallow(),
+  Validator.indent_deep(),
+}
 
 --- Public API
 ------------------------------------------------------------
@@ -159,8 +259,9 @@ function M.setup(opts)
   return cfg
 end
 
----@param bufnr? integer
----@return table diagnostics
+---Lint a buffer against CommonMark list formatting rules
+---@param bufnr? integer Buffer number (defaults to current buffer)
+---@return table diagnostics Table of diagnostic issues
 function M.lint_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   if not (cfg.enabled and vim.api.nvim_buf_is_valid(bufnr)) then
@@ -169,33 +270,34 @@ function M.lint_buffer(bufnr)
 
   local diags = {} ---@type vim.Diagnostic[]
   local stack = {} ---@type table<{marker_col:integer,content_col:integer}>
-  local level_marker_type = {} ---@type table<integer,string>
+  local marker_types = {} ---@type table<integer,string>
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
   for i, line in ipairs(lines) do
     local row = i - 1 -- diagnostics are 0‑based
-    local list_item_info = parse_list_item(line)
+    local list_item = parse_list_item(line)
 
-    if list_item_info then
-      -- Marker‑type consistency among siblings
-      local sibling_type = level_marker_type[list_item_info.marker_col]
-      if sibling_type and sibling_type ~= list_item_info.marker_type then
-        add_diag(bufnr, diags, "INCONSISTENT_MARKER", row, list_item_info.marker_col)
-      else
-        level_marker_type[list_item_info.marker_col] = list_item_info.marker_type
+    if list_item then
+      -- Get parent (if any) for nested list item checks
+      local parent = pop_parent(stack, list_item.marker_col)
+
+      -- Create a context for validation
+      local ctx = {
+        bufnr = bufnr,
+        diags = diags,
+        list_item = list_item,
+        row = row,
+        marker_types = marker_types,
+        parent = parent,
+      }
+
+      -- Run all validators
+      for _, validator in ipairs(validators) do
+        validator.validate(ctx)
       end
 
-      -- Parent/child indentation rules
-      local parent = pop_parent(stack, list_item_info.marker_col)
-      if parent then
-        if list_item_info.marker_col < parent.content_col then
-          add_diag(bufnr, diags, "INDENT_SHALLOW", row, list_item_info.marker_col)
-        elseif list_item_info.marker_col > parent.content_col + 3 then
-          add_diag(bufnr, diags, "INDENT_DEEP", row, list_item_info.marker_col)
-        end
-      end
-
-      push(stack, list_item_info)
+      -- Add this item to the stack for future children
+      push(stack, list_item)
     end
   end
 
@@ -211,6 +313,41 @@ function M.disable(bufnr)
   else
     vim.diagnostic.reset(M.ns)
   end
+end
+
+---Register a new validator
+---@param factory function Factory function that creates a validator
+---@return integer Index of the new validator
+function M.register_validator(factory)
+  local validator = factory()
+  table.insert(validators, validator)
+  return #validators
+end
+
+---Register a new rule definition
+---@param id string Rule identifier
+---@param rule {message:string, severity:integer} Rule definition
+function M.register_rule(id, rule)
+  if M.RULES[id] then
+    error("Rule ID '" .. id .. "' already exists")
+  end
+
+  M.RULES[id] = {
+    id = id,
+    message = rule.message,
+    severity = rule.severity or vim.diagnostic.severity.WARN,
+  }
+
+  -- Set default severity
+  if not cfg.severity then
+    cfg.severity = {}
+  end
+  cfg.severity[id] = rule.severity
+end
+
+-- For testing - get validators
+function M._get_validators()
+  return validators
 end
 
 return M

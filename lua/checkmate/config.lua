@@ -213,6 +213,10 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---Map of issues to diagnostic severity level
 ---@field severity table<string, vim.diagnostic.Severity>?
 --- TODO: @field auto_fix boolean Auto fix on buffer write
+---
+---Whether to use verbose linter/diagnostic messages
+---Default: false
+---@field verbose boolean?
 
 -----------------------------------------------------
 

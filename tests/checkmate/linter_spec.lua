@@ -44,7 +44,7 @@ describe("Linter", function()
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
-    starts_with(diags[1].message, linter.ISSUES.INDENT_SHALLOW)
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
 
@@ -56,7 +56,7 @@ describe("Linter", function()
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
-    starts_with(diags[1].message, linter.ISSUES.INDENT_DEEP)
+    starts_with(diags[1].message, linter.RULES.INDENT_DEEP.message)
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
 
@@ -68,7 +68,7 @@ describe("Linter", function()
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
-    assert.equal(linter.ISSUES.INCONSISTENT_MARKER, diags[1].message)
+    assert.equal(linter.RULES.INCONSISTENT_MARKER.message, diags[1].message)
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
 
@@ -111,7 +111,7 @@ describe("Linter", function()
 
     assert.equal(1, #diags, "Only the bad child should be flagged")
     assert.equal(3, diags[1].lnum, "The bad child is on the 4th line (0-indexed = 3)")
-    starts_with(diags[1].message, linter.ISSUES.INDENT_SHALLOW)
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
 
@@ -160,7 +160,7 @@ Code block:
     local diags = run(bufnr)
 
     assert.equal(1, #diags, "Only bad alignment should be flagged")
-    starts_with(diags[1].message, linter.ISSUES.INDENT_SHALLOW)
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
 

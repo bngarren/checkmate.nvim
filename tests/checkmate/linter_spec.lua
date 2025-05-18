@@ -25,6 +25,19 @@ describe("Linter", function()
     )
   end
 
+  ---Find diagnostic with specific issue code
+  ---@param diags table Diagnostic table
+  ---@param issue_code string The issue code to find
+  ---@return table|nil
+  local function find_issue(diags, issue_code)
+    for _, diag in ipairs(diags) do
+      if diag.code == issue_code then
+        return diag
+      end
+    end
+    return nil
+  end
+
   it("emits no diagnostics for a perfectly aligned list", function()
     local content = [[
 - Parent
@@ -176,5 +189,101 @@ Code block:
 
     assert.equal(0, #diags, "Continuation lines should not affect list item detection")
     vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  describe("custom validators", function()
+    it("allows registering custom validators with ctx.report function", function()
+      -- Register a custom rule
+      linter.register_rule("LONG_ITEM", {
+        message = "List item is very long",
+        severity = vim.diagnostic.severity.INFO,
+      })
+
+      -- Register custom validator with simplified reporting
+      linter.register_validator(function()
+        return {
+          validate = function(ctx)
+            local lines = vim.api.nvim_buf_get_lines(ctx.bufnr, ctx.row, ctx.row + 1, false)
+            local line = lines[1]
+
+            -- Check if content is longer than 30 characters
+            if #line > 30 then
+              ctx.report("LONG_ITEM", ctx.list_item.marker_col, "(over 30 characters)")
+              return true
+            end
+            return false
+          end,
+        }
+      end)
+
+      local content = [[
+- Short item
+- This is a very long list item that will trigger our custom rule]]
+
+      local bufnr = h.create_test_buffer(content)
+      local diags = run(bufnr)
+
+      -- Should have our custom diagnostic
+      local diag = find_issue(diags, "LONG_ITEM")
+      if not diag then
+        error("missing diag")
+      end
+      starts_with(diag.message, "List item is very long")
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+
+    it("supports validator priorities", function()
+      -- Register a rule that will track the order validators were called
+      linter.register_rule("VALIDATOR_ORDER", {
+        message = "Validator order test",
+        severity = vim.diagnostic.severity.INFO,
+      })
+
+      local call_order = {}
+
+      -- Register a validator to run last (default)
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "last")
+            return false
+          end,
+        }
+      end)
+
+      -- Register a validator to run first
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "first")
+            return false
+          end,
+        }
+      end, { priority = -1 }) -- negative priority = first
+
+      -- Register a validator to run in middle
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "middle")
+            return false
+          end,
+        }
+      end, { priority = 2 }) -- specific position
+
+      local content = "- List item to trigger validators"
+      local bufnr = h.create_test_buffer(content)
+
+      -- Run the linter (this will trigger all validators)
+      run(bufnr)
+
+      -- Check the call order
+      assert.equal("first", call_order[1])
+      assert.equal("middle", call_order[2])
+      assert.equal("last", call_order[3])
+
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
   end)
 end)

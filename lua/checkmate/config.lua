@@ -2,16 +2,19 @@
 ---@class checkmate.Config.mod
 local M = {}
 
-local util = require("checkmate.util")
-
 -- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
 
 -----------------------------------------------------
---- Checkmate configuration
+---Checkmate configuration
 ---@class checkmate.Config
----@field enabled boolean Whether the plugin is enabled
----@field notify boolean Whether to show notifications
+---
+---Whether the plugin is enabled
+---@field enabled boolean
+---
+---Whether to show notifications
+---@field notify boolean
+---
 --- Filenames or patterns to activate Checkmate on when the filetype is 'markdown'
 --- - Patterns are CASE-SENSITIVE (e.g., "TODO" won't match "todo.md")
 --- - Include variations like {"TODO", "todo"} for case-insensitive matching
@@ -20,39 +23,64 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 --- - Patterns with extensions (e.g., "TODO.md") will only match files with that exact extension
 --- - Examples: {"todo.md", "TODO", "*.todo", "todos/*"}
 ---@field files string[]
----@field log checkmate.LogSettings Logging settings
+---
+---Logging settings
+---@field log checkmate.LogSettings
+---
 ---Keymappings (false to disable)
 ---Note: mappings for metadata are set separately in the `metadata` table
 ---@field keys ( table<string, checkmate.Action>| false )
----@field todo_markers checkmate.TodoMarkers Characters for todo markers (checked and unchecked)
----@field default_list_marker "-" | "*" | "+" Default list item marker to be used when creating new Todo items
----@field style checkmate.StyleSettings Highlight settings
+---
+---Characters for todo markers (checked and unchecked)
+---@field todo_markers checkmate.TodoMarkers
+---
+---Default list item marker to be used when creating new Todo items
+---@field default_list_marker "-" | "*" | "+"
+---
+---Highlight settings (override merge with defaults)
+---Default style will attempt to integrate with current colorscheme (experimental)
+---May need to tweak some colors to your liking
+---@field style checkmate.StyleSettings?
+---
 --- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
----@field enter_insert_after_new boolean Enter insert mode after `:CheckmateCreate`
+---
+---Enter insert mode after `:CheckmateCreate`, require("checkmate").create()
+---@field enter_insert_after_new boolean
+---
 ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
 ---@field show_todo_count boolean
+---
 ---Position to show the todo count indicator (if enabled)
----eol = End of the todo item line
----inline = After the todo marker, before the todo item text
+--- `eol` = End of the todo item line
+--- `inline` = After the todo marker, before the todo item text
 ---@field todo_count_position checkmate.TodoCountPosition
+---
 ---Formatter function for displaying the todo count indicator
----@field todo_count_formatter? fun(completed: integer, total: integer): string
+---@field todo_count_formatter fun(completed: integer, total: integer)?: string
+---
 ---Whether to count sub-todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
+---
 ---Whether to register keymappings defined in each metadata definition. If set the false,
 ---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
+---
 ---Custom @tag(value) fields that can be toggled on todo items
+---To add custom metadata tag, simply add a field and props to this metadata table and it
+---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
+
+-----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
@@ -61,72 +89,118 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
 
 -----------------------------------------------------
+
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
+---
 --- Should print log output to a file
 --- Open with `:Checkmate debug_file`
 ---@field use_file boolean
+---
 --- The default path on-disk where log files will be written to.
 --- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
 ---@field file_path string?
+---
 --- Should print log output to a scratch buffer
 --- Open with `require("checkmate").debug_log()`
 ---@field use_buffer boolean
 
 -----------------------------------------------------
+
 ---@class checkmate.TodoMarkers
----@field unchecked string Character used for unchecked items
----@field checked string Character used for checked items
+---Character used for unchecked items
+---@field unchecked string
+---
+---Character used for checked items
+---@field checked string
 
 -----------------------------------------------------
----@class checkmate.StyleSettings Customize the style of markers and content
----@field list_marker_unordered vim.api.keyset.highlight Highlight settings for unordered list markers (-,+,*)
----@field list_marker_ordered vim.api.keyset.highlight Highlight settings for ordered (numerical) list markers (1.,2.)
----@field unchecked_marker vim.api.keyset.highlight Highlight settings for unchecked markers
+
+---@alias checkmate.StyleKey
+---| "list_marker_unordered"
+---| "list_marker_ordered"
+---| "unchecked_marker"
+---| "unchecked_main_content"
+---| "unchecked_additional_content"
+---| "checked_marker"
+---| "checked_main_content"
+---| "checked_additional_content"
+---| "todo_count_indicator"
+
+---Customize the style of markers and content
+---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
+---
+---Highlight settings for unordered list markers (-,+,*)
+---@field list_marker_unordered vim.api.keyset.highlight?
+---
+---Highlight settings for ordered (numerical) list markers (1.,2.)
+---@field list_marker_ordered vim.api.keyset.highlight?
+---
+---Highlight settings for unchecked markers
+---@field unchecked_marker vim.api.keyset.highlight?
+---
 ---Highlight settings for main content of unchecked todo items
 ---This is typically the first line/paragraph
----@field unchecked_main_content vim.api.keyset.highlight
+---@field unchecked_main_content vim.api.keyset.highlight?
+---
 ---Highlight settings for additional content of unchecked todo items
 ---This is the content below the first line/paragraph
----@field unchecked_additional_content vim.api.keyset.highlight
----@field checked_marker vim.api.keyset.highlight Highlight settings for checked markers
+---@field unchecked_additional_content vim.api.keyset.highlight?
+---
+---Highlight settings for checked markers
+---@field checked_marker vim.api.keyset.highlight?
+---
 ---Highlight settings for main content of checked todo items
 ---This is typically the first line/paragraph
----@field checked_main_content vim.api.keyset.highlight
+---@field checked_main_content vim.api.keyset.highlight?
+---
 ---Highlight settings for additional content of checked todo items
 ---This is the content below the first line/paragraph
----@field checked_additional_content vim.api.keyset.highlight
+---@field checked_additional_content vim.api.keyset.highlight?
+---
 ---Highlight settings for the todo count indicator (e.g. x/x)
----@field todo_count_indicator vim.api.keyset.highlight
+---@field todo_count_indicator vim.api.keyset.highlight?
 
 -----------------------------------------------------
+
+---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
+
 ---@class checkmate.MetadataProps
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
 ---also be used and have the same styling/functionality
 ---@field aliases string[]?
+---
 ---Highlight settings or function that returns highlight settings based on the metadata's current value
 ---@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+---
 ---Function that returns the default value for this metadata tag
 ---@field get_value fun():string
+---
 ---Keymapping for toggling this metadata tag
 ---@field key string?
+---
 ---Used for displaying metadata in a consistent order
 ---@field sort_order integer?
+---
 ---Moves the cursor to the metadata after it is inserted
 ---  - "tag" - moves to the beginning of the tag
 ---  - "value" - moves to the beginning of the value
 ---  - false - disables jump (default)
 ---@field jump_to_on_insert "tag" | "value" | false?
+---
 ---Selects metadata text in visual mode after metadata is inserted
 ---The `jump_to_on_insert` field must be set (not false)
 ---The selected text will be the tag or value, based on jump_to_on_insert setting
 ---Default (false) - off
 ---@field select_on_insert boolean?
+---
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_add fun(todo_item: checkmate.TodoItem)?
+---
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_remove fun(todo_item: checkmate.TodoItem)?
@@ -138,11 +212,21 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---@field heading string? Title for the archived todos section. (Default is "Archived")
 
 ---@class checkmate.LinterConfig
----@field enabled boolean -- (default true) Whether to enable the linter (vim.diagnostics)
----@field severity table<string, vim.diagnostic.Severity>? -- Map of issues to diagnostic severity level
+---
+---Whether to enable the linter (vim.diagnostics)
+---Default: true
+---@field enabled boolean
+---
+---Map of issues to diagnostic severity level
+---@field severity table<string, vim.diagnostic.Severity>?
 --- TODO: @field auto_fix boolean Auto fix on buffer write
+---
+---Whether to use verbose linter/diagnostic messages
+---Default: false
+---@field verbose boolean?
 
 -----------------------------------------------------
+
 ---@type checkmate.Config
 local _DEFAULTS = {
   enabled = true,
@@ -166,34 +250,7 @@ local _DEFAULTS = {
     unchecked = "□",
     checked = "✔",
   },
-  style = {
-    -- List markers, such as "-" and "1."
-    list_marker_unordered = {
-      -- Can use util functions to get existing highlight colors and blend them together
-      -- This is one way to integrate with an existing colorscheme
-      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.2),
-    },
-    list_marker_ordered = {
-      fg = util.blend(util.get_hl_color("Normal", "fg", "#bbbbbb"), util.get_hl_color("Normal", "bg", "#222222"), 0.5),
-    },
-
-    -- Unchecked todo items
-    unchecked_marker = { fg = "#ff9500", bold = true }, -- The marker itself
-    unchecked_main_content = { fg = "#ffffff" }, -- Style settings for main content: typically the first line/paragraph
-    unchecked_additional_content = { fg = "#dddddd" }, -- Settings for additional content
-
-    -- Checked todo items
-    checked_marker = { fg = "#00cc66", bold = true }, -- The marker itself
-    checked_main_content = { fg = "#aaaaaa", strikethrough = true }, -- Style settings for main content: typically the first line/paragraph
-    checked_additional_content = { fg = "#aaaaaa" }, -- Settings for additional content
-
-    -- Todo count indicator
-    todo_count_indicator = {
-      fg = util.blend("#e3b3ff", util.get_hl_color("Normal", "bg", "'#222222"), 0.9),
-      bg = util.blend("#ffffff", util.get_hl_color("Normal", "bg", "'#222222"), 0.02),
-      italic = true,
-    },
-  },
+  style = {},
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   show_todo_count = true,
@@ -262,6 +319,7 @@ M._state = {
   initialized = false, -- Has setup() been called? Prevent duplicate initializations of config.
   running = false, -- Is the plugin currently active?
   active_buffers = {}, -- Track which buffers have been set up (i.e., have Checkmate functionality loaded)
+  user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
 }
 
 -- The active configuration
@@ -348,15 +406,17 @@ local function validate_options(opts)
   if opts.style ~= nil then
     validate_type(opts.style, "table", "style", false)
 
+    ---@type table<checkmate.StyleKey>
     local style_fields = {
       "list_marker_unordered",
       "list_marker_ordered",
-      "unchecked",
+      "unchecked_marker",
       "unchecked_main_content",
-      "unchecked_child_content",
-      "checked",
+      "unchecked_additional_content",
+      "checked_marker",
       "checked_main_content",
-      "checked_child_content",
+      "checked_additional_content",
+      "todo_count_indicator",
     }
 
     for _, field in ipairs(style_fields) do
@@ -434,23 +494,26 @@ function M.setup(opts)
   -- Prevent double initialization but allow reconfiguration
   local is_reconfigure = M._state.initialized
 
+  -- 1. Start with static defaults
   local config = vim.deepcopy(_DEFAULTS)
 
-  -- Add global config (vim.g.checkmate_config) if it exists
-  if vim.g.checkmate_config and type(vim.g.checkmate_config) == "table" then
-    config = vim.tbl_extend("force", config, vim.g.checkmate_config)
+  -- 2. (optional) Merge in global checkmate config
+  if type(vim.g.checkmate_config) == "table" then
+    config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
   end
 
-  -- Then apply user options if provided
-  if opts and type(opts) == "table" then
-    -- Validate before merging
-    local success, error_msg = pcall(validate_options, opts)
-    if not success then
-      vim.notify("Checkmate config error: " .. error_msg, vim.log.levels.ERROR)
-    else
-      config = vim.tbl_deep_extend("force", config, opts)
-    end
+  -- 3. Merge override user opts
+  if type(opts) == "table" then
+    assert(validate_options(opts))
+    config = vim.tbl_deep_extend("force", config, opts)
   end
+
+  -- capture the explicit user-provided style (for later colorscheme updates)
+  M._state.user_style = config.style and vim.deepcopy(config.style) or {}
+
+  -- 4. Finally, backfill any missing keys from theme defaults
+  local colorscheme_aware_style = require("checkmate.theme").generate_style_defaults()
+  config.style = vim.tbl_deep_extend("keep", config.style or {}, colorscheme_aware_style)
 
   -- Store the resulting configuration
   M.options = config
@@ -460,6 +523,9 @@ function M.setup(opts)
   -- Handle reconfiguration: notify dependent modules
   if is_reconfigure then
     M.notify_config_changed()
+  else
+    -- Save the intial setup's user opts
+    vim.g.checkmate_user_opts = opts or {}
   end
 
   return M.options

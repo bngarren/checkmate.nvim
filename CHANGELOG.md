@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.6.0](https://github.com/bngarren/checkmate.nvim/compare/v0.5.1...v0.6.0) (2025-05-18)
+
+
+### Features
+
+* added 'color scheme aware' reasonable default styles. Can still override highlights via config.style ([#53](https://github.com/bngarren/checkmate.nvim/issues/53)) ([b57b88f](https://github.com/bngarren/checkmate.nvim/commit/b57b88f79cd99679fcd0c098b78d5132f9eb8b7c))
+* **linter:** adds a 'verbose' field to config.linter (LinterConfig), default is false ([62e5f9b](https://github.com/bngarren/checkmate.nvim/commit/62e5f9b722900047e1b5880668c9cf45871bd8e2))
+
+
+### Bug Fixes
+
+* adjusted default style (additional content too dim) ([db10370](https://github.com/bngarren/checkmate.nvim/commit/db10370f243ee901c194658c441434bdcc24be7b))
+* **linter:** fixes bug in inconsistent_markers rule ([5de7d3e](https://github.com/bngarren/checkmate.nvim/commit/5de7d3e8e5d0bc0bee1a8d7c3dd0f485b0799c1e))
+* **linter:** fixes linter impl that didn't follow CommonMark exactly. Refactored for easier future additions. ([#56](https://github.com/bngarren/checkmate.nvim/issues/56)) ([62e5f9b](https://github.com/bngarren/checkmate.nvim/commit/62e5f9b722900047e1b5880668c9cf45871bd8e2))
+* **parser:** adjusted markdown checkbox parsing to align with commonmark spec ([f3bfadf](https://github.com/bngarren/checkmate.nvim/commit/f3bfadf8bfd804626a7e1e2dee118e8ff1d5602a))
+* remove code related to deprecated .todo extension requirement ([977fee1](https://github.com/bngarren/checkmate.nvim/commit/977fee1ca5518fbf369c2a1ee62c139ced492596))
+
+
+### Miscellaneous Chores
+
+* release as 0.6.0 ([03d22af](https://github.com/bngarren/checkmate.nvim/commit/03d22af626ac24329d94982e5960d520bcba1198))
+
+## [0.5.1](https://github.com/bngarren/checkmate.nvim/compare/v0.5.0...v0.5.1) (2025-05-16)
+
+
+### Bug Fixes
+
+* **parser:** fixed off-by-one error in metadata parsing, leading to highlighting bug ([#51](https://github.com/bngarren/checkmate.nvim/issues/51)) ([436092e](https://github.com/bngarren/checkmate.nvim/commit/436092ed88d46de54d6c583a93bd483eb170617e))
+
 ## [0.5.0](https://github.com/bngarren/checkmate.nvim/compare/v0.4.0...v0.5.0) (2025-05-15)
 
 

@@ -1,201 +1,289 @@
+-- tests/checkmate/linter_spec.lua
 describe("Linter", function()
   local h = require("tests.checkmate.helpers")
+  local linter = require("checkmate.linter")
 
   before_each(function()
     _G.reset_state()
   end)
 
-  describe("linting functionality", function()
-    it("should identify indentation issues", function()
-      local linter = require("checkmate.linter")
+  -- helper to run linter & fetch diags in one go
+  local function run(bufnr, linter_opts)
+    linter.setup(linter_opts)
+    local diags = linter.lint_buffer(bufnr)
+    local vdiag = vim.diagnostic.get(bufnr, { namespace = linter.ns })
+    assert.equal(#diags, #vdiag, "internal vs vim.diagnostic count mismatch")
+    return diags
+  end
 
-      -- Setup test content with deliberate misalignment
-      local content = [[
-# Misaligned List
-- Parent item
- - Misaligned child (indented only 1 space)
-   - Grandchild (properly indented from misaligned parent)
-]]
+  ---@param diag_msg string
+  local function starts_with(diag_msg, issue_const)
+    assert.equal(
+      diag_msg:sub(1, #issue_const) == issue_const,
+      true,
+      string.format("expected message to start with %q, got %q", issue_const, diag_msg)
+    )
+  end
 
-      local bufnr = h.create_test_buffer(content)
-
-      -- Run linter
-      local diagnostics = linter.lint_buffer(bufnr)
-
-      -- Should find at one issue
-      assert.equal(#diagnostics, 1)
-
-      -- Verify it is also in vim.diagnostics
-      local vim_diagnostics = vim.diagnostic.get(bufnr, { namespace = linter.ns })
-      assert.equal(#vim_diagnostics, 1)
-
-      -- Verify issue is about alignment
-      local found_alignment_issue = false
-      for _, diag in ipairs(diagnostics) do
-        if diag.message:match(linter.ISSUES.UNALIGNED_MARKER) then
-          found_alignment_issue = true
-          break
-        end
+  ---Find diagnostic with specific issue code
+  ---@param diags table Diagnostic table
+  ---@param issue_code string The issue code to find
+  ---@return table|nil
+  local function find_issue(diags, issue_code)
+    for _, diag in ipairs(diags) do
+      if diag.code == issue_code then
+        return diag
       end
+    end
+    return nil
+  end
 
-      assert.is_true(found_alignment_issue)
-
-      -- TODO: Test auto-fix functionality
-
-      --[[ local result, fixed = linter.fix_issues(bufnr)
-      assert.is_true(result)
-      assert.equal(fixed, 1)
-
-      -- Verify that after fixing, there are no more issues
-      local post_fix_diagnostics = linter.lint_buffer(bufnr)
-      assert.equal(0, #post_fix_diagnostics)
-
-      -- Verify the content was actually fixed
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      -- Second line should now be indented with 2 spaces
-      assert.matches("^  %- ", lines[3]) ]]
-
-      -- Clean up
-      finally(function()
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-      end)
-    end)
-
-    it("should respect config severity levels", function()
-      local linter = require("checkmate.linter")
-
-      -- Save original config
-      local original_config = vim.deepcopy(linter.config)
-
-      -- Modify severity to ERROR
-      linter.config.severity[linter.ISSUES.UNALIGNED_MARKER] = vim.diagnostic.severity.ERROR
-
-      -- Create test content
-      local content = [[
-# Test
+  it("emits no diagnostics for a perfectly aligned list", function()
+    local content = [[
 - Parent
- - Misaligned child
-]]
+  - Child
+    - Grandchild]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+    assert.equal(0, #diags)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("flags a child indented before the parent’s content (INDENT_SHALLOW)", function()
+    local content = [[
+- Parent
+ - Bad child   ]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(1, #diags)
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("flags a child indented >3 cols past parent content (INDENT_DEEP)", function()
+    local content = [[
+- Parent
+      - Too deep by spec ]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(1, #diags)
+    starts_with(diags[1].message, linter.RULES.INDENT_DEEP.message)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("flags mixed ordered/unordered markers at same indent (INCONSISTENT_MARKER)", function()
+    local content = [[
+- Parent
+  - unordered
+  1. ordered sibling ]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(1, #diags)
+    assert.equal(linter.RULES.INCONSISTENT_MARKER.message, diags[1].message)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("respects severity overrides in config", function()
+    local content = [[
+- Parent
+ - Bad child]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr, { severity = {
+      INDENT_SHALLOW = vim.diagnostic.severity.ERROR,
+    } })
+
+    assert.equal(vim.diagnostic.severity.ERROR, diags[1].severity)
+
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("handles list items with and without spaces after marker", function()
+    local content = [[
+-Parent with no space (not a valid list in CommonMark)
+- Parent with space (valid list)
+ -Child with no space (not valid)
+  - Child with space (valid)]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    -- Should not detect any list items for no-space variants
+    assert.equal(0, #diags, "No diagnostics because invalid items are not recognized as lists")
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("properly aligns against actual content position, not just marker end", function()
+    local content = [[
+- Parent
+  text on next line
+  - Child (correctly aligned with parent's content)
+ - Bad child (before parent's content)]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(1, #diags, "Only the bad child should be flagged")
+    assert.equal(3, diags[1].lnum, "The bad child is on the 4th line (0-indexed = 3)")
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("handles empty lines correctly", function()
+    local content = [[
+- Item 1
+
+- Item 2
+  - Child of item 2
+
+  - Still a child of item 2 despite blank line]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(0, #diags, "Empty lines should not cause issues")
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("handles non-list content mixed with lists", function()
+    local content = [[
+# Heading
+- Item 1
+Regular paragraph
+- Item 2
+  - Child of item 2
+Code block:
+    var x = 1;
+  - Not a child (this is code, not a list)]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    -- Only items that parse as valid list items should be analyzed
+    assert.equal(0, #diags, "Non-list content should be ignored")
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("handles list items with multiple paragraphs correctly", function()
+    local content = [[
+- Item 1
+  with a second paragraph line
+  
+  and a third paragraph
+  - Child item (properly aligned with content)
+ - Bad child (too shallow)]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(1, #diags, "Only bad alignment should be flagged")
+    starts_with(diags[1].message, linter.RULES.INDENT_SHALLOW.message)
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  it("handles continuation lines without creating false positives", function()
+    local content = [[
+- Item 1
+  continuation line
+  more continuation
+- Item 2
+  - Child item]]
+    local bufnr = h.create_test_buffer(content)
+    local diags = run(bufnr)
+
+    assert.equal(0, #diags, "Continuation lines should not affect list item detection")
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
+  describe("custom validators", function()
+    it("allows registering custom validators with ctx.report function", function()
+      -- Register a custom rule
+      linter.register_rule("LONG_ITEM", {
+        message = "List item is very long",
+        severity = vim.diagnostic.severity.INFO,
+      })
+
+      -- Register custom validator with simplified reporting
+      linter.register_validator(function()
+        return {
+          validate = function(ctx)
+            local lines = vim.api.nvim_buf_get_lines(ctx.bufnr, ctx.row, ctx.row + 1, false)
+            local line = lines[1]
+
+            -- Check if content is longer than 30 characters
+            if #line > 30 then
+              ctx.report("LONG_ITEM", ctx.list_item.marker_col, "(over 30 characters)")
+              return true
+            end
+            return false
+          end,
+        }
+      end)
+
+      local content = [[
+- Short item
+- This is a very long list item that will trigger our custom rule]]
 
       local bufnr = h.create_test_buffer(content)
+      local diags = run(bufnr)
 
-      -- Run linter
-      local diagnostics = linter.lint_buffer(bufnr)
+      -- Should have our custom diagnostic
+      local diag = find_issue(diags, "LONG_ITEM")
+      if not diag then
+        error("missing diag")
+      end
+      starts_with(diag.message, "List item is very long")
 
-      -- Verify severity
-      assert.is_true(#diagnostics == 1)
-      assert.equal(vim.diagnostic.severity.ERROR, diagnostics[1].severity, "Should use configured severity level")
-
-      -- Restore original config
-      linter.config = original_config
-
-      -- Clean up
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
-    pending("should correctly fix indentation issues across list item subtrees", function()
-      local linter = require("checkmate.linter")
-      local parser = require("checkmate.parser")
+    it("supports validator priorities", function()
+      -- Register a rule that will track the order validators were called
+      linter.register_rule("VALIDATOR_ORDER", {
+        message = "Validator order test",
+        severity = vim.diagnostic.severity.INFO,
+      })
 
-      -- test content with deliberately complex misalignments
-      local content = [[
-# Indentation Fix Test
-- Parent item
- - Misaligned child (1 space instead of 2)
-   With continuation line
-   - Grandchild (aligned with misaligned parent)
-     With its own continuation
-- Next parent (should not be modified)
-  - Its child (should not be modified)
-# Another section
-Text paragraph]]
+      local call_order = {}
 
+      -- Register a validator to run last (default)
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "last")
+            return false
+          end,
+        }
+      end)
+
+      -- Register a validator to run first
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "first")
+            return false
+          end,
+        }
+      end, { priority = -1 }) -- negative priority = first
+
+      -- Register a validator to run in middle
+      linter.register_validator(function()
+        return {
+          validate = function()
+            table.insert(call_order, "middle")
+            return false
+          end,
+        }
+      end, { priority = 2 }) -- specific position
+
+      local content = "- List item to trigger validators"
       local bufnr = h.create_test_buffer(content)
 
-      local original_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      -- Run the linter (this will trigger all validators)
+      run(bufnr)
 
-      local diagnostics = linter.lint_buffer(bufnr)
+      -- Check the call order
+      assert.equal("first", call_order[1])
+      assert.equal("middle", call_order[2])
+      assert.equal("last", call_order[3])
 
-      assert.is_true(#diagnostics > 0)
-
-      -- Check that only misaligned child is detected
-      local misaligned_row = nil
-      for _, diag in ipairs(diagnostics) do
-        if diag.lnum == 2 then -- The misaligned child is on line 3 (0-indexed = 2)
-          misaligned_row = diag.lnum
-          -- Confirm it's fixable
-          assert.is_not_nil(diag.user_data)
-          assert.is_not_nil(diag.user_data.fix_fn)
-        end
-      end
-
-      assert.is_not_nil(misaligned_row)
-
-      -- Apply fixes
-      local fixed = linter.fix_issues(bufnr)
-      assert.is_true(fixed)
-
-      local fixed_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-      -- Verify fix applied correctly
-
-      -- Check lines that should be modified:
-      -- 1. Misaligned child should now be properly indented with 2 spaces
-      assert.matches("  %- Misaligned", fixed_lines[3])
-
-      -- 2. Child's continuation line should maintain relative indentation (4 spaces)
-      assert.matches("    With continuation", fixed_lines[4])
-
-      -- 3. Grandchild should maintain relative indentation (4 spaces to child)
-      assert.matches("    %- Grandchild", fixed_lines[5])
-
-      -- 4. Grandchild's continuation should maintain relative indentation
-      assert.matches("^     With its own", fixed_lines[6])
-
-      -- Check lines that should NOT be modified:
-      -- 1. Header should remain unchanged
-      assert.equal(original_lines[1], fixed_lines[1])
-
-      -- 2. Parent item should remain unchanged
-      assert.equal(original_lines[2], fixed_lines[2])
-
-      -- 3. Next parent should remain unchanged
-      assert.equal(original_lines[7], fixed_lines[7])
-
-      -- 4. Next parent's child should remain unchanged
-      assert.equal(original_lines[8], fixed_lines[8])
-
-      -- 5. Another section and text should remain unchanged
-      assert.equal(original_lines[9], fixed_lines[9])
-      assert.equal(original_lines[10], fixed_lines[10])
-
-      -- Run linter again to ensure no remaining issues
-      local remaining_diagnostics = linter.lint_buffer(bufnr)
-      assert.equal(0, #remaining_diagnostics)
-
-      -- Verify structure is now correct by checking for parent-child relationships
-      local list_items = parser.get_all_list_items(bufnr)
-
-      -- Build a simple row-indexed map for easier lookup
-      local items_by_row = {}
-      for _, item in ipairs(list_items) do
-        items_by_row[item.range.start.row] = item
-      end
-
-      -- Check parent-child relationship is properly established
-      local parent = items_by_row[1] -- Parent on line 2 (0-indexed = 1)
-      local child = items_by_row[2] -- Child on line 3 (0-indexed = 2)
-      local grandchild = items_by_row[4] -- Grandchild on line 5 (0-indexed = 4)
-
-      assert.is_not_nil(parent)
-      assert.is_not_nil(child)
-      assert.is_not_nil(grandchild)
-
-      -- Verify parent-child relationships through Treesitter
-      assert.equal(parent.node:id(), child.parent_node:id())
-      assert.equal(child.node:id(), grandchild.parent_node:id())
-
-      -- Clean up
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)

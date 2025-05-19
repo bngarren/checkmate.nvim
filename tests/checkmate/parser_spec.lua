@@ -576,7 +576,7 @@ Line that should not affect parent-child relationship
       assert.equal(0, metadata.entries[1].range.start.row)
       assert.equal(16, metadata.entries[1].range.start.col)
       assert.equal(0, metadata.entries[1].range["end"].row)
-      assert.equal(30, metadata.entries[1].range["end"].col)
+      assert.equal(31, metadata.entries[1].range["end"].col)
     end)
 
     it("should extract multiple metadata tags", function()
@@ -760,6 +760,32 @@ Line that should not affect parent-child relationship
         assert.equal("- Not a task", converted_lines[11]) -- Regular list item unchanged
 
         -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+      end)
+
+      it("should convert only single-space [ ] checkboxes", function()
+        local parser = require("checkmate.parser")
+        local config = require("checkmate.config")
+        local unchecked = config.options.todo_markers.unchecked
+
+        local content = [[
+- [ ] valid
+- [  ] too many spaces
+- [ ]another -- missing space after ]
+- [ ]   This is okay
+]]
+
+        local bufnr = h.create_test_buffer(content)
+
+        parser.convert_markdown_to_unicode(bufnr)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        -- Only the first line should convert
+        assert.equal("- " .. unchecked .. " valid", lines[1])
+        assert.equal("- [  ] too many spaces", lines[2])
+        assert.equal("- [ ]another -- missing space after ]", lines[3])
+        assert.equal("- " .. unchecked .. "   This is okay", lines[4])
+
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end)
     end)

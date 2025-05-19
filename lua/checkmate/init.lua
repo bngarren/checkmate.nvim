@@ -9,28 +9,6 @@ local _state = {
   initialized = false, -- Has setup been called?
 }
 
----Configure formatters to play nicely with .todo files (which should be parsed as markdown)
-local function setup_formatters()
-  -- Setup formatters (currently only for conform.nvim) to use prettier's 'markdown' parser
-  -- for the .todo extension
-  local has_conform, conform = pcall(require, "conform")
-  if has_conform then
-    conform.formatters_by_ft.markdown = { "todo_prettier" }
-
-    conform.formatters.todo_prettier = {
-      command = "prettier",
-      args = function(self, ctx)
-        return { "--parser", "markdown" }
-      end,
-      stdin = true,
-      condition = function(self, ctx)
-        -- Only apply to files ending in `.todo`
-        return ctx.filename and ctx.filename:match("%.todo$")
-      end,
-    }
-  end
-end
-
 -- Helper function to check if file matches patterns
 -- Note: All pattern matching is case-sensitive.
 -- Users should include multiple patterns for case-insensitive matching.
@@ -185,15 +163,12 @@ function M.start()
   -- Step 5: Register commands (user-facing features)
   require("checkmate.commands").setup()
 
-  -- Step 6: Setup formatters
-  setup_formatters()
-
-  -- Step 7: Set up the linter if enabled (depends on parser)
+  -- Step 6: Set up the linter if enabled (depends on parser)
   if config.options.linter and config.options.linter.enabled ~= false then
     require("checkmate.linter").setup(config.options.linter)
   end
 
-  -- Step 8: Setup module-specific autocommands
+  -- Step 7: Setup module-specific autocommands
   M._setup_autocommands()
 
   -- Mark as fully loaded

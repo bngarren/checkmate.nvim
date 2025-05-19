@@ -37,6 +37,7 @@ _G.reset_state = function()
   package.loaded["checkmate.api"] = nil
   package.loaded["checkmate.highlights"] = nil
   package.loaded["checkmate.linter"] = nil
+  package.loaded["checkmate.theme"] = nil
 
   -- Finally unload main module
   package.loaded["checkmate"] = nil

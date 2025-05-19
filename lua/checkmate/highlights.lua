@@ -93,7 +93,7 @@ function M.clear_highlight_cache(category)
   end
 end
 
-function M.setup_highlights()
+function M.apply_highlight_groups()
   local config = require("checkmate.config")
   local log = require("checkmate.log")
 
@@ -133,6 +133,44 @@ function M.setup_highlights()
     vim.api.nvim_set_hl(0, group_name, group_settings)
     log.debug("Applied highlight group: " .. group_name, { module = "parser" })
   end
+end
+
+function M.setup_highlights()
+  local config = require("checkmate.config")
+
+  -- Apply highlight groups with current settings
+  M.apply_highlight_groups()
+
+  -- Set up an autocmd to re-apply highlighting when colorscheme changes
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
+    callback = function()
+      -- Re-apply highlight groups after a small delay
+      vim.defer_fn(function()
+        M.clear_highlight_cache()
+
+        -- Get fresh theme-based defaults
+        local theme = require("checkmate.theme")
+        local colorscheme_aware_style = theme.generate_style_defaults()
+
+        -- Get user's style (if any was explicitly set)
+        local user_style = config._state.user_style or {}
+
+        -- Update the style with a fresh merge of user settings and theme defaults
+        config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
+
+        -- Re-apply highlights with updated styles
+        M.apply_highlight_groups()
+
+        -- Re-apply to all active buffers
+        for bufnr, _ in pairs(config.get_active_buffers()) do
+          if vim.api.nvim_buf_is_valid(bufnr) then
+            M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
+          end
+        end
+      end, 10)
+    end,
+  })
 end
 
 ---@class ApplyHighlightingOpts

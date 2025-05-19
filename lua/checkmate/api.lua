@@ -1179,11 +1179,12 @@ function M.archive_todos(opts)
     return a.start_row < b.start_row
   end)
 
-  -- Build new document content
+  -- Build new document content line-by-line
   local new_content = {}
   local archive_content = {}
 
-  -- Extract all active (non-archived) content excluding to-be-archived todos
+  -- Add all active (non-archived) content excluding to-be-archived todos
+  -- This is all the content above the 'archive heading' that isn't a todo item that is about to be archived
   local i = 1
   while i <= #current_buffer_lines do
     local line_idx = i - 1 -- 0-indexed
@@ -1192,15 +1193,22 @@ function M.archive_todos(opts)
     if archive_start_row and line_idx >= archive_start_row and line_idx <= archive_end_row then
       i = archive_end_row + 2 -- Skip to after archive section
     else
-      -- Check if this line should be skipped (is part of a todo being archived)
+      -- Check if this line is part of a todo being archived (skip)
       local should_skip = false
       for _, range in ipairs(archived_line_ranges) do
         if line_idx >= range.start_row and line_idx <= range.end_row then
           should_skip = true
           break
         end
+
+        -- If this line is directly under a to-be-archived todo AND is a blank line, skip it
+        if line_idx == range.end_row + 1 and current_buffer_lines[i] == "" then
+          should_skip = true
+          break
+        end
       end
 
+      -- Otherwise, this is active content to save into new_content
       if not should_skip then
         table.insert(new_content, current_buffer_lines[i])
       end

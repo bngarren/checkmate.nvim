@@ -968,6 +968,58 @@ Some content here
       end)
     end)
 
+    it("should only leave max 1 line between remaining todo items after archive", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      local file_path = h.create_temp_file()
+
+      local content = [[
+# Todo List
+
+- ]] .. unchecked .. [[ Unchecked task 1
+
+- ]] .. checked .. [[ Checked task 1
+  - ]] .. checked .. [[ Checked subtask 1.1
+
+- ]] .. checked .. [[ Checked task 2
+  - ]] .. checked .. [[ Checked subtask 2.1
+
+- ]] .. unchecked .. [[ Unchecked task 2
+
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local success = require("checkmate").archive()
+
+      vim.wait(20)
+      vim.cmd("redraw")
+
+      assert.is_true(success)
+
+      -- Get the modified buffer content
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local main_section = buffer_content:match("^(.-)## " .. vim.pesc(config.options.archive.heading))
+
+      local expected_main_content = {
+        "# Todo List",
+        "",
+        "- " .. unchecked .. " Unchecked task 1",
+        "",
+        "- " .. unchecked .. " Unchecked task 2",
+        "",
+      }
+
+      print(main_section)
+
+      local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(archive_success, true, err)
+    end)
+
     it("should work with custom archive heading", function()
       local config = require("checkmate.config")
       local unchecked = config.options.todo_markers.unchecked

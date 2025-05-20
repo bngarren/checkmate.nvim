@@ -27,13 +27,13 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Todo completion counts
 
 <br/>
-<div style="display: flex; justify-content: space-evenly">
-<img alt="Todo markers customization example 1" height="50" src="./assets/todo-markers-example-1.png" />
-<img alt="Todo markers customization example 2" height="50" src="./assets/todo-markers-example-2.png" />
-</div>
-<br/>
 
-https://github.com/user-attachments/assets/a8c018ac-69a4-4bf7-8ea3-ecbdf4dda661
+<img width="1081" alt="Screenshot 2025-05-19 at 8 45 11 PM" src="https://github.com/user-attachments/assets/d566aa07-5ab3-4853-9ff6-868afb2c8dc1" />
+<img width="1045" alt="Screenshot 2025-05-19 at 8 57 08 PM" src="https://github.com/user-attachments/assets/a2cab5e4-3c1a-4bbd-a393-2fdd83d8383e" />
+
+
+https://github.com/user-attachments/assets/942a4fa2-ce41-4882-8991-c7b7be127630
+
 
 # ☑️ Installation
 

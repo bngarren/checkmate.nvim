@@ -1202,6 +1202,7 @@ function M.archive_todos(opts)
         end
 
         -- If this line is directly under a to-be-archived todo AND is a blank line, skip it
+        -- so we don't leave extra blank rows between the remaining non-archived todos
         if line_idx == range.end_row + 1 and current_buffer_lines[i] == "" then
           should_skip = true
           break

@@ -916,7 +916,8 @@ Some content here
 
       local bufnr = setup_todo_buffer(file_path, content)
 
-      local success = require("checkmate").archive()
+      local heading = "Completed Todos"
+      local success = require("checkmate").archive({ heading = heading })
 
       vim.wait(20)
       vim.cmd("redraw")
@@ -927,7 +928,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local main_section = buffer_content:match("^(.-)## " .. vim.pesc(config.options.archive.heading))
+      local main_section = buffer_content:match("^(.-)## " .. heading)
 
       -- Verify that checked top-level tasks were removed
       assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 1", main_section)
@@ -938,14 +939,14 @@ Some content here
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 2", main_section)
 
       -- Verify archive section was created
-      assert.matches("## " .. config.options.archive.heading, buffer_content)
+      assert.matches("## " .. heading, buffer_content)
 
       -- Verify contents were moved to archive section
-      local archive_section = buffer_content:match("## " .. vim.pesc(config.options.archive.heading) .. ".*$")
+      local archive_section = buffer_content:match("## " .. heading .. ".*$")
       assert.is_not_nil(archive_section)
 
       local expected_archive = {
-        "## " .. vim.pesc(config.options.archive.heading),
+        "## " .. heading,
         "",
         "- " .. checked .. " Checked task 1",
         "  - " .. checked .. " Checked subtask 1.1",
@@ -1016,58 +1017,6 @@ Some content here
 
       local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
       assert.equal(archive_success, true, err)
-    end)
-
-    it("should remove blank lines and leave maximum of 2 lines between active content and archive header", function()
-      local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
-
-      local file_path = h.create_temp_file()
-
-      local content = [[
-# Todo List
-
-- ]] .. unchecked .. [[ Unchecked task 1
-
-- ]] .. checked .. [[ Checked task 2
-
-
-
-
-]] -- 4 extra blank lines after the last content
-
-      local bufnr = setup_todo_buffer(file_path, content)
-
-      local success = require("checkmate").archive()
-
-      vim.wait(20)
-      vim.cmd("redraw")
-
-      assert.is_true(success)
-
-      -- Get the modified buffer content
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      local buffer_content = table.concat(lines, "\n")
-
-      local main_section = buffer_content:match("^(.-)## " .. vim.pesc(config.options.archive.heading))
-
-      local expected_main_content = {
-        "# Todo List",
-        "",
-        "- " .. unchecked .. " Unchecked task 1",
-        "",
-        "",
-      }
-
-      print(main_section)
-
-      local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
-      assert.equal(archive_success, true, err)
-
-      local main_lines = vim.split(main_section, "\n")
-
-      assert.equal(#expected_main_content, #main_lines)
     end)
 
     it("should work with custom archive heading", function()

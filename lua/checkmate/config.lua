@@ -75,6 +75,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---To add custom metadata tag, simply add a field and props to this metadata table and it
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
+---
 ---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
 ---
 ---Config for the linter
@@ -205,11 +206,16 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---E.g. can be used to change the todo item state
 ---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
----A table of canonical metadata tag names and associated properties that define the look and function of the tag
----@alias checkmate.Metadata table<string, checkmate.MetadataProps>
+-----------------------------------------------------
 
 ---@class checkmate.ArchiveSettings
+---
+---Name for the archived todos section
+---Default: "Archived"
+---This section is a level 2 Markdown heading, e.g. ## Archived
 ---@field heading string? Title for the archived todos section. (Default is "Archived")
+
+-----------------------------------------------------
 
 ---@class checkmate.LinterConfig
 ---

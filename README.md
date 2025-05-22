@@ -25,11 +25,12 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
+- <span style="color: #45753f; font-style: italic;">New!</span> Archive completed todos! (_experimental_)
 
 <br/>
 
-<img width="1081" alt="Screenshot 2025-05-19 at 8 45 11 PM" src="https://github.com/user-attachments/assets/d566aa07-5ab3-4853-9ff6-868afb2c8dc1" />
-<img width="1045" alt="Screenshot 2025-05-19 at 8 57 08 PM" src="https://github.com/user-attachments/assets/a2cab5e4-3c1a-4bbd-a393-2fdd83d8383e" />
+<img width="700" alt="Checkmate example 1" src="./assets/todos-example-1.png">
+<img width="700" alt="Checkmate example 2" src="./assets/todos-example-2.png">
 
 
 https://github.com/user-attachments/assets/942a4fa2-ce41-4882-8991-c7b7be127630
@@ -82,6 +83,7 @@ https://github.com/user-attachments/assets/942a4fa2-ce41-4882-8991-c7b7be127630
 - Check items with `:CheckmateCheck` (default: `<leader>Tc`)
 - Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
 - Select multiple items in visual mode and use the same commands
+- Archive completed todos with `:CheckmateArchive` (default: `<leader>Ta`)
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
@@ -96,10 +98,16 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 : Convert the current line to a todo item
 
 :CheckmateCheck
-: Mark todo item as checked (done/completed)
+: Mark todo item as checked (done/completed) in normal or visual mode
 
 :CheckmateUncheck
-: Mark todo item as unchecked
+: Mark todo item as unchecked in normal or visual mode
+
+:CheckmateRemoveAllMetadata
+: Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+
+:CheckmateArchive
+: Reorganize checked/completed todo items to the bottom section
 
 :CheckmateLint
 : Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
@@ -180,13 +188,15 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---
+---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
 
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -308,6 +318,19 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---E.g. can be used to change the todo item state
 ---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
+-----------------------------------------------------
+
+---@class checkmate.ArchiveSettings
+---
+---Name for the archived todos section
+---Default: "Archived"
+---This section is a level 2 Markdown heading, e.g. ## Archived
+---@field heading string? Title for the archived todos section. (Default is "Archived")
+---
+---@field parent_spacing integer? Number of blank lines between archived todo items (root only)
+
+-----------------------------------------------------
+
 ---@class checkmate.LinterConfig
 ---
 ---Whether to enable the linter (vim.diagnostics)
@@ -317,8 +340,10 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---Map of issues to diagnostic severity level
 ---@field severity table<string, vim.diagnostic.Severity>?
 --- TODO: @field auto_fix boolean Auto fix on buffer write
-
------------------------------------------------------
+---
+---Whether to use verbose linter/diagnostic messages
+---Default: false
+---@field verbose boolean?
 ```
 
 </details>
@@ -342,6 +367,7 @@ local _DEFAULTS = {
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
+    ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
   },
   default_list_marker = "-",
   todo_markers = {
@@ -404,6 +430,9 @@ local _DEFAULTS = {
       end,
       sort_order = 30,
     },
+  },
+  archive = {
+    heading = "Archive", -- e.g. ## Archive
   },
   linter = {
     enabled = true,
@@ -537,6 +566,39 @@ todo_count_recursive = true,
       /><br/>
 <sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
 
+# Archiving
+Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
+
+See `CheckmateArchive` command or `require("checkmate").archive()`
+
+By default, a Markdown level 2 header (##) section named "**Archive**" is used. You can change this name by passing a `heading` option in `config.archive`.
+
+> Current behavior (could be adjusted in the future): a checked todo item that is nested under an unchecked parent will not be archived. This prevents 'orphan' todos being separated from their parents. Similarly, a checked parent todo will carry all nested todos (checked and unchecked) when archived.
+
+#### Spacing
+The amount of blank lines between each archived todo item can be customized via `config.archive.parent_spacing`
+
+`parent_spacing = 0`
+```lua
+# Archive
+
+- ✔ Update the dependencies 
+- ✔ Refactor the User api
+- ✔ Add additional tests 
+```
+
+`parent_spacing = 1`
+```lua
+# Archive
+
+- ✔ Update the dependencies 
+
+- ✔ Refactor the User api
+
+- ✔ Add additional tests 
+```
+
+
 # Linting
 Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
 
@@ -572,9 +634,13 @@ Planned features:
 
 - [x] **Metadata support** - mappings for quick addition of metadata/tags such as @start, @done, @due, @priority, etc. with custom highlighting. _Added v0.2.0_
 
-- [ ] **Archiving** - manually or automatically move completed items to the bottom of the document
-
 - [x] **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo items. _Added v0.3.0_
+
+- [x] **Archiving** - manually or automatically move completed items to the bottom of the document. _Added v0.7.0_ (experimental)
+
+- [ ] Smart toggling - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. 
+
+- [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
 
 # Contributing
 

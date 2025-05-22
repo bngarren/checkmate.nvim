@@ -117,6 +117,10 @@ function M.setup_keymaps(bufnr)
       command = "CheckmateRemoveAllMetadata",
       modes = { "n", "v" },
     },
+    archive = {
+      command = "CheckmateArchive",
+      modes = { "n" },
+    },
   }
 
   for key, action_name in pairs(keys) do
@@ -1069,224 +1073,209 @@ function M.archive_todos(opts)
 
   opts = opts or {}
 
-  local archive_heading = opts.heading or config.options.archive.heading or "Archived"
-  archive_heading = "## " .. archive_heading
+  local archive_heading = "## " .. (opts.heading or config.options.archive.heading or "Archived")
+  local include_children = opts.include_children ~= false -- default: true
+  local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
-  local include_children = opts.include_children ~= false -- Default to true
+  -- helpers
+  ---------------------------------------------------------------------------
 
+  -- adds blank lines to the end of string[]
+  local function add_spacing(lines)
+    for _ = 1, parent_spacing do
+      lines[#lines + 1] = ""
+    end
+  end
+
+  local function trim_trailing_blank(lines)
+    while #lines > 0 and lines[#lines] == "" do
+      lines[#lines] = nil
+    end
+  end
+
+  -- discover todos and current archive block boundaries
+  ---------------------------------------------------------------------------
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_map = parser.discover_todos(bufnr)
-
-  -- Get sorted todo items (top to bottom order)
   local sorted_todos = util.get_sorted_todo_list(todo_map)
+  local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  -- Get all lines from the buffer
-  local current_buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local archive_start_row, archive_end_row
+  do
+    local heading_level = archive_heading:match("^(#+)")
+    local heading_level_len = heading_level and #heading_level or 0
+    -- The 'next' heading level is a heading at the same or higher level
+    -- which represents a new section
+    local next_heading_pat = heading_level
+        and ("^%s*" .. string.rep("#", heading_level_len, heading_level_len) .. "+%s")
+      or "^%s*#+%s"
 
-  local archive_start_row = nil
-  local archive_end_row = nil
-  local heading_level = archive_heading:match("^(#+)")
-  local heading_level_count = heading_level and #heading_level or 0
+    for i, line in ipairs(current_buf_lines) do
+      if line:match("^%s*" .. vim.pesc(archive_heading) .. "%s*$") then
+        archive_start_row = i - 1 -- 0-indexed
+        archive_end_row = #current_buf_lines - 1
 
-  -- Find existing archive section
-  for i = 1, #current_buffer_lines do
-    if current_buffer_lines[i]:match("^%s*" .. vim.pesc(archive_heading) .. "%s*$") then
-      archive_start_row = i - 1 -- Convert to 0-indexed
-
-      -- Look for the end of this section (next heading of same or higher level)
-      archive_end_row = #current_buffer_lines - 1 -- Default to end of file
-
-      for j = i + 1, #current_buffer_lines do
-        -- If heading_level is found, look for same or higher level heading
-        -- Otherwise match any heading
-        local pattern = heading_level and ("^%s*" .. string.rep("#", 1, heading_level_count) .. "+%s") or "^%s*#+%s"
-
-        if current_buffer_lines[j]:match(pattern) then
-          archive_end_row = j - 2 -- End before next heading
-          break
+        for j = i + 1, #current_buf_lines do
+          if current_buf_lines[j]:match(next_heading_pat) then
+            archive_end_row = j - 2
+            break
+          end
         end
+        log.debug(("Found existing archive section: lines %d-%d"):format(archive_start_row + 1, archive_end_row + 1))
+        break
       end
-
-      log.debug(
-        string.format("Found existing archive section: lines %d-%d", archive_start_row + 1, archive_end_row + 1)
-      )
-      break
     end
   end
 
-  -- Track which todos we're archiving (by node ID)
+  -- determine which root todos (and descendants) to archive
+  ---------------------------------------------------------------------------
   local todos_to_archive = {}
-  local archived_line_ranges = {}
-  local archived_todo_count = 0
+  local archived_ranges = {} ---@type {start_row:integer, end_row:integer}[]
+  local archived_root_cnt = 0
 
-  -- First pass: identify all root-level completed todos and their descendants
   for _, entry in ipairs(sorted_todos) do
-    ---@type checkmate.TodoItem
-    local todo = entry.item
-    local todo_id = entry.id
+    local todo = entry.item ---@type checkmate.TodoItem
+    local id = entry.id
+    local in_arch = archive_start_row
+      and todo.range.start.row > archive_start_row
+      and todo.range["end"].row <= (archive_end_row or -1)
 
-    -- If the todo item is not within the archive section then process it
-    if
-      not (
-        archive_start_row
-        and todo.range.start.row > archive_start_row
-        and archive_end_row
-        and todo.range["end"].row <= archive_end_row
-      )
-    then
-      -- Only process root-level todos that are checked and not already marked for archiving
-      if todo.state == "checked" and not todo.parent_id and not todos_to_archive[todo_id] then
-        -- Mark this todo for archiving
-        todos_to_archive[todo_id] = true
-        archived_todo_count = archived_todo_count + 1
+    if not in_arch and todo.state == "checked" and not todo.parent_id and not todos_to_archive[id] then
+      -- mark root
+      todos_to_archive[id] = true
+      archived_root_cnt = archived_root_cnt + 1
+      archived_ranges[#archived_ranges + 1] = {
+        start_row = todo.range.start.row,
+        end_row = todo.range["end"].row,
+      }
 
-        -- Track the line range
-        table.insert(archived_line_ranges, {
-          start_row = todo.range.start.row,
-          end_row = todo.range["end"].row,
-        })
-
-        -- If include_children is true, also mark all descendants
-        if include_children then
-          local function mark_descendants(parent_id)
-            for _, child_id in ipairs(todo_map[parent_id].children or {}) do
-              local child = todo_map[child_id]
-              if child and not todos_to_archive[child_id] then
-                todos_to_archive[child_id] = true
-                -- Don't increment archived_todo_count for children
-                -- as they're considered part of their parent
-                mark_descendants(child_id)
-              end
+      -- mark descendants if requested
+      if include_children then
+        local function mark_descendants(pid)
+          for _, child_id in ipairs(todo_map[pid].children or {}) do
+            if not todos_to_archive[child_id] then
+              todos_to_archive[child_id] = true
+              mark_descendants(child_id)
             end
           end
-
-          mark_descendants(todo_id)
         end
+        mark_descendants(id)
       end
     end
   end
 
-  -- Exit early if nothing to archive
-  if archived_todo_count == 0 then
+  if archived_root_cnt == 0 then
     util.notify("No completed todo items to archive", vim.log.levels.INFO)
     return false
   end
+  log.debug(("Found %d root todos to archive"):format(archived_root_cnt))
 
-  log.debug(string.format("Found %d root todos to archive", archived_todo_count))
-
-  -- Sort archived line ranges by start row to maintain original document order
-  table.sort(archived_line_ranges, function(a, b)
+  table.sort(archived_ranges, function(a, b)
     return a.start_row < b.start_row
   end)
 
-  -- Build new document content line-by-line
-  local new_content = {}
-  local archive_content = {}
+  -- rebuild buffer content
+  -- start with re-creating the buffer's 'active' section (non-archived)
+  ---------------------------------------------------------------------------
+  local new_content = {} --- lines that will remain in the main document
+  local archive_lines = {} --- lines that will live under the Archive heading
 
-  -- Add all active (non-archived) content excluding to-be-archived todos
-  -- This is all the content above the 'archive heading' that isn't a todo item that is about to be archived
+  -- Walk every line of the current buffer.
+  --    We copy it into `new_content` unless it is:
+  --       a) part of the existing archive section, or
+  --       b) part of a todo block we’re about to archive, or
+  --       c) the single blank line that immediately follows such a block
+  --         (to avoid stray empty rows after removal).
   local i = 1
-  while i <= #current_buffer_lines do
-    local line_idx = i - 1 -- 0-indexed
+  while i <= #current_buf_lines do
+    local idx = i - 1 -- 0-indexed (current row)
 
-    -- Skip existing archive section
-    if archive_start_row and line_idx >= archive_start_row and line_idx <= archive_end_row then
-      i = archive_end_row + 2 -- Skip to after archive section
+    -- skip over existing archive section in one jump
+    if archive_start_row and idx >= archive_start_row and idx <= archive_end_row then
+      i = archive_end_row + 2
     else
-      -- Check if this line is part of a todo being archived (skip)
-      local should_skip = false
-      for _, range in ipairs(archived_line_ranges) do
-        if line_idx >= range.start_row and line_idx <= range.end_row then
-          should_skip = true
+      -- skip lines inside newly-archived ranges (plus trailing blank directly after each)
+      local skip = false
+      for _, r in ipairs(archived_ranges) do
+        if idx >= r.start_row and idx <= r.end_row then
+          skip = true -- inside a soon-to-be-archived todo
           break
         end
-
-        -- If this line is directly under a to-be-archived todo AND is a blank line, skip it
-        -- so we don't leave extra blank rows between the remaining non-archived todos
-        if line_idx == range.end_row + 1 and current_buffer_lines[i] == "" then
-          should_skip = true
+        if idx == r.end_row + 1 and current_buf_lines[i] == "" then
+          skip = true -- blank line directly after todo (skip/remove it)
           break
         end
       end
-
-      -- Otherwise, this is active content to save into new_content
-      if not should_skip then
-        table.insert(new_content, current_buffer_lines[i])
+      if not skip then
+        new_content[#new_content + 1] = current_buf_lines[i]
       end
-
       i = i + 1
     end
   end
 
-  -- Collect content from existing archive section if found
+  -- preserve existing archive content
+  -- If an archive section already exists, copy everything below its heading
+  ---------------------------------------------------------------------------
   if archive_start_row and archive_end_row and archive_end_row >= archive_start_row + 1 then
-    -- Skip the heading itself and any empty lines right after it
-    local archive_content_start = archive_start_row + 2
-    while
-      archive_content_start <= archive_end_row + 1
-      and (archive_content_start > #current_buffer_lines or current_buffer_lines[archive_content_start] == "")
-    do
-      archive_content_start = archive_content_start + 1
+    local start = archive_start_row + 2
+    while start <= archive_end_row + 1 and current_buf_lines[start] == "" do
+      start = start + 1
+    end
+    for j = start, archive_end_row + 1 do
+      archive_lines[#archive_lines + 1] = current_buf_lines[j]
+    end
+    trim_trailing_blank(archive_lines)
+  end
+
+  -- append newly-archived root todo items with spacing
+  ---------------------------------------------------------------------------
+  if #archived_ranges > 0 then
+    if #archive_lines > 0 and parent_spacing > 0 then
+      add_spacing(archive_lines) -- gap between old and new archive content
     end
 
-    -- Add all non-empty lines from archive section
-    for i = archive_content_start, archive_end_row + 1 do
-      if i <= #current_buffer_lines and current_buffer_lines[i] ~= "" then
-        table.insert(archive_content, current_buffer_lines[i])
+    -- Copy each root todo (and its children) in original order.
+    for idx, r in ipairs(archived_ranges) do
+      for row = r.start_row, r.end_row do
+        archive_lines[#archive_lines + 1] = current_buf_lines[row + 1]
       end
-    end
 
-    if #archive_content > 0 then
-      log.debug(string.format("Preserved %d lines of existing archive content", #archive_content))
+      -- spacing after each root todo except the last (easier to trim once at end)
+      if idx < #archived_ranges and parent_spacing > 0 then
+        add_spacing(archive_lines)
+      end
     end
   end
 
-  -- Extract newly archived todos
-  for _, range in ipairs(archived_line_ranges) do
-    for row = range.start_row, range.end_row do
-      if row < #current_buffer_lines then
-        table.insert(archive_content, current_buffer_lines[row + 1]) -- +1 for 1-indexed lines table
-      end
-    end
-  end
+  -- make sure we don’t leave more than `parent_spacing`
+  -- blank lines at the very end of the archive section.
+  trim_trailing_blank(archive_lines)
 
-  -- Add the archive section to the document if we have any archived content
-  if #archive_content > 0 then
-    -- Ensure empty line before archive section if needed
+  -- inject archive section into document
+  ---------------------------------------------------------------------------
+  if #archive_lines > 0 then
+    -- blank line before archive heading if needed
     if #new_content > 0 and new_content[#new_content] ~= "" then
-      table.insert(new_content, "")
+      new_content[#new_content + 1] = ""
     end
-
-    -- Add archive heading
-    table.insert(new_content, archive_heading)
-
-    -- Add a blank line after the heading
-    table.insert(new_content, "")
-
-    -- Add all archive content (both existing and newly archived)
-    for _, line in ipairs(archive_content) do
-      table.insert(new_content, line)
+    new_content[#new_content + 1] = archive_heading
+    new_content[#new_content + 1] = "" -- blank after heading
+    for _, line in ipairs(archive_lines) do
+      new_content[#new_content + 1] = line
     end
   end
 
-  -- Save cursor position
+  -- write buffer + housekeeping
+  ---------------------------------------------------------------------------
   local cursor_state = util.Cursor.save()
-
-  -- Update the buffer
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_content)
-
-  -- Restore cursor position
   util.Cursor.restore(cursor_state)
-
-  -- Refresh highlighting
   highlights.apply_highlighting(bufnr, { debug_reason = "archive_todos" })
 
-  -- Notify user
   util.notify(
-    string.format("Archived %d todo item%s", archived_todo_count, archived_todo_count > 1 and "s" or ""),
+    ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
     vim.log.levels.INFO
   )
-
   return true
 end
 

@@ -84,7 +84,7 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -214,6 +214,9 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---Default: "Archived"
 ---This section is a level 2 Markdown heading, e.g. ## Archived
 ---@field heading string? Title for the archived todos section. (Default is "Archived")
+---
+---Number of blank lines between archived todo items (root only)
+---@field parent_spacing integer?
 
 -----------------------------------------------------
 
@@ -250,6 +253,7 @@ local _DEFAULTS = {
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
+    ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
   },
   default_list_marker = "-",
   todo_markers = {
@@ -315,6 +319,7 @@ local _DEFAULTS = {
   },
   archive = {
     heading = "Archive",
+    parent_spacing = 0, -- no extra lines between archived todos
   },
   linter = {
     enabled = true,

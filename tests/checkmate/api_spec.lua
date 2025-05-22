@@ -1121,5 +1121,92 @@ Some content here
         os.remove(file_path)
       end)
     end)
+
+    it("should insert the configured parent_spacing between archived parent blocks", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      -- Test with different spacing values
+      for _, spacing in ipairs({ 0, 1, 2 }) do
+        -- test setup
+        local file_path = h.create_temp_file()
+        local content = [[
+# Tasks
+- ]] .. unchecked .. [[ Active task
+- ]] .. checked .. [[ Done task A
+  - ]] .. checked .. [[ Done subtask A.1
+- ]] .. checked .. [[ Done task B
+]]
+
+        local bufnr = setup_todo_buffer(file_path, content, { archive = { parent_spacing = spacing } })
+
+        local success = require("checkmate").archive()
+        vim.wait(20)
+        vim.cmd("redraw")
+        assert.equal(true, success, "Archive failed for parent_spacing = " .. spacing)
+
+        -- assertions
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local buffer_content = table.concat(lines, "\n")
+        local archive_heading = "## " .. config.options.archive.heading
+
+        -- Find the archive section
+        local start_idx = buffer_content:find(archive_heading, 1, true)
+        assert.is_not_nil(start_idx)
+        ---@cast start_idx integer
+
+        -- grab everything from the heading to EOF
+        local archive_section = buffer_content:sub(start_idx)
+        local archive_lines = vim.split(archive_section, "\n", { plain = true })
+
+        -- locate the two parent tasks
+        local first_root = "- " .. checked .. " Done task A"
+        local second_root = "- " .. checked .. " Done task B"
+        local first_idx, second_idx
+
+        for idx, l in ipairs(archive_lines) do
+          if l == first_root then
+            first_idx = idx
+          end
+          if l == second_root then
+            second_idx = idx
+          end
+        end
+
+        assert.is_not_nil(first_idx)
+        assert.is_not_nil(second_idx)
+        assert.is_true(second_idx > first_idx)
+
+        -- Count blank lines between the two roots
+        -- We need to count from after the last line of the first block
+        -- (which includes its subtask) to just before the second root
+        local first_block_end = first_idx + 1 -- The subtask is right after the parent
+        local blanks_between = 0
+
+        for i = first_block_end + 1, second_idx - 1 do
+          if archive_lines[i] == "" then
+            blanks_between = blanks_between + 1
+          end
+        end
+
+        assert.equal(
+          spacing,
+          blanks_between,
+          string.format(
+            "For parent_spacing = %d: Expected %d blank lines between parent blocks, got %d",
+            spacing,
+            spacing,
+            blanks_between
+          )
+        )
+
+        finally(function()
+          -- teardown
+          vim.api.nvim_buf_delete(bufnr, { force = true })
+          os.remove(file_path)
+        end)
+      end
+    end)
   end)
 end)

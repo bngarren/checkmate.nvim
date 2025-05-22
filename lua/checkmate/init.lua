@@ -363,12 +363,13 @@ function M.lint(opts)
 end
 
 ---@class ArchiveOpts
----@field heading string? Custom name for the archive section, a level 2 Markdown heading
+---@field heading {title?: string, level?: integer}
 
 --- Archive checked todo items to a special section
 --- Rules:
 --- - If a parent todo is checked, all its children will be archived regardless of state
 --- - If a child todo is checked but its parent is not, the child will not be archived
+---@param opts ArchiveOpts?
 function M.archive(opts)
   opts = opts or {}
   local api = require("checkmate.api")

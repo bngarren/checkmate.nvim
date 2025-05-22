@@ -916,8 +916,8 @@ Some content here
 
       local bufnr = setup_todo_buffer(file_path, content)
 
-      local heading = "Completed Todos"
-      local success = require("checkmate").archive({ heading = heading })
+      local heading_title = "Completed Todos"
+      local success = require("checkmate").archive({ heading = { title = heading_title } })
 
       vim.wait(20)
       vim.cmd("redraw")
@@ -928,7 +928,10 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local main_section = buffer_content:match("^(.-)## " .. heading)
+      local archive_heading_string =
+        require("checkmate.util").get_heading_string(heading_title, config.options.archive.heading.level)
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       -- Verify that checked top-level tasks were removed
       assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 1", main_section)
@@ -939,14 +942,14 @@ Some content here
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 2", main_section)
 
       -- Verify archive section was created
-      assert.matches("## " .. heading, buffer_content)
+      assert.matches(archive_heading_string, buffer_content)
 
       -- Verify contents were moved to archive section
-      local archive_section = buffer_content:match("## " .. heading .. ".*$")
+      local archive_section = buffer_content:match(archive_heading_string .. ".*$")
       assert.is_not_nil(archive_section)
 
       local expected_archive = {
-        "## " .. heading,
+        "## " .. heading_title,
         "",
         "- " .. checked .. " Checked task 1",
         "  - " .. checked .. " Checked subtask 1.1",
@@ -1004,7 +1007,12 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local main_section = buffer_content:match("^(.-)## " .. vim.pesc(config.options.archive.heading))
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.options.archive.heading.title),
+        config.options.archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       local expected_main_content = {
         "# Todo List",
@@ -1034,9 +1042,10 @@ Some content here
 ]]
 
       -- Setup with custom archive heading
-      local custom_heading = "Completed Items"
+      local heading_title = "Completed Items"
+      local heading_level = 4 -- ####
       local bufnr = setup_todo_buffer(file_path, content, {
-        archive = { heading = custom_heading },
+        archive = { heading = { title = heading_title, level = heading_level } },
       })
 
       -- Archive checked todos
@@ -1050,11 +1059,13 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
+      local archive_heading_string = require("checkmate.util").get_heading_string(heading_title, heading_level)
+
       -- Verify custom heading was used
-      assert.matches("## " .. custom_heading, buffer_content)
+      assert.matches(archive_heading_string, buffer_content)
 
       -- Verify content was archived correctly
-      local archive_section = buffer_content:match("## " .. vim.pesc(custom_heading) .. ".*$")
+      local archive_section = buffer_content:match("#### Completed Items" .. ".*$")
       assert.is_not_nil(archive_section)
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", archive_section)
 
@@ -1072,13 +1083,18 @@ Some content here
 
       local file_path = h.create_temp_file()
 
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.options.archive.heading.title),
+        config.options.archive.heading.level
+      )
+
       local content = [[
 # Existing Archive Test
 
 - ]] .. unchecked .. [[ Unchecked task
 - ]] .. checked .. [[ Checked task to archive
 
-## ]] .. config.options.archive.heading .. [[
+]] .. archive_heading_string .. [[
 
 - ]] .. checked .. [[ Previously archived task
 ]]
@@ -1094,19 +1110,18 @@ Some content here
       local buffer_content = table.concat(lines, "\n")
 
       -- Verify that checked task was removed from main content
-      local main_content = buffer_content:match("^(.-)" .. vim.pesc("## " .. config.options.archive.heading))
+      local main_content = buffer_content:match("^(.-)" .. archive_heading_string)
       assert.is_not_nil(main_content)
       assert.no.matches("- " .. vim.pesc(checked) .. " Checked task to archive", main_content)
 
       -- Verify unchecked task remains in main content
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", main_content)
 
-      -- Verify archive section contains both the previously archived task and newly archived task
-      local archive_section = buffer_content:match("## " .. vim.pesc(config.options.archive.heading) .. ".*$")
+      local archive_section = buffer_content:match(archive_heading_string .. ".*$")
       assert.is_not_nil(archive_section)
 
       local expected_archive = {
-        "## " .. vim.pesc(config.options.archive.heading),
+        "## Archived", -- default title and level
         "",
         "- " .. checked .. " Previously archived task",
         "- " .. checked .. " Checked task to archive",
@@ -1149,10 +1164,14 @@ Some content here
         -- assertions
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local buffer_content = table.concat(lines, "\n")
-        local archive_heading = "## " .. config.options.archive.heading
+
+        local archive_heading_string = require("checkmate.util").get_heading_string(
+          vim.pesc(config.options.archive.heading.title),
+          config.options.archive.heading.level
+        )
 
         -- Find the archive section
-        local start_idx = buffer_content:find(archive_heading, 1, true)
+        local start_idx = buffer_content:find(archive_heading_string, 1, true)
         assert.is_not_nil(start_idx)
         ---@cast start_idx integer
 

@@ -25,7 +25,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
-- <span style="color: #45753f; font-style: italic;">New!</span> Archive completed todos! (_experimental_)
+- :new: Archive completed todos! (_experimental_)
 
 <br/>
 
@@ -120,7 +120,6 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ```lua
 ---Checkmate configuration
 ---@class checkmate.Config
----
 ---Whether the plugin is enabled
 ---@field enabled boolean
 ---
@@ -243,7 +242,6 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 ---Customize the style of markers and content
 ---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
----
 ---Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_unordered vim.api.keyset.highlight?
 ---
@@ -321,18 +319,25 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 -----------------------------------------------------
 
 ---@class checkmate.ArchiveSettings
+---Defines the header section for the archived todos
+---@field heading checkmate.ArchiveHeading
 ---
+---Number of blank lines between archived todo items (root only)
+---@field parent_spacing integer?
+
+---@class checkmate.ArchiveHeading
 ---Name for the archived todos section
 ---Default: "Archived"
----This section is a level 2 Markdown heading, e.g. ## Archived
----@field heading string? Title for the archived todos section. (Default is "Archived")
+---@field title string?
 ---
----@field parent_spacing integer? Number of blank lines between archived todo items (root only)
+---The heading level (e.g. #, ##, ###, ####)
+---Integers 1 to 6
+---Default: 2 (##)
+---@field level integer?
 
 -----------------------------------------------------
 
 ---@class checkmate.LinterConfig
----
 ---Whether to enable the linter (vim.diagnostics)
 ---Default: true
 ---@field enabled boolean
@@ -432,7 +437,11 @@ local _DEFAULTS = {
     },
   },
   archive = {
-    heading = "Archive", -- e.g. ## Archive
+    heading = {
+      title = "Archived",
+      level = 2, -- e.g. ##
+    },
+    parent_spacing = 0, -- no extra lines between archived todos
   },
   linter = {
     enabled = true,
@@ -571,16 +580,29 @@ Allows you to easily reorganize the buffer by moving all checked/completed todo 
 
 See `CheckmateArchive` command or `require("checkmate").archive()`
 
-By default, a Markdown level 2 header (##) section named "**Archive**" is used. You can change this name by passing a `heading` option in `config.archive`.
-
 > Current behavior (could be adjusted in the future): a checked todo item that is nested under an unchecked parent will not be archived. This prevents 'orphan' todos being separated from their parents. Similarly, a checked parent todo will carry all nested todos (checked and unchecked) when archived.
+
+#### Heading
+By default, a Markdown level 2 header (##) section named "**Archive**" is used. You can configure the archive section heading via `config.archive.heading`
+
+This will produce a section like `#### Completed`
+```lua
+opts = {
+  archive = {
+    heading = {
+      title = "Completed",
+      level = 4
+    }
+  }
+}
+```
 
 #### Spacing
 The amount of blank lines between each archived todo item can be customized via `config.archive.parent_spacing`
 
 `parent_spacing = 0`
 ```lua
-# Archive
+## Archive
 
 - ✔ Update the dependencies 
 - ✔ Refactor the User api
@@ -589,7 +611,7 @@ The amount of blank lines between each archived todo item can be customized via 
 
 `parent_spacing = 1`
 ```lua
-# Archive
+## Archive
 
 - ✔ Update the dependencies 
 

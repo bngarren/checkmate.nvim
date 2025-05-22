@@ -210,13 +210,22 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 
 ---@class checkmate.ArchiveSettings
 ---
----Name for the archived todos section
----Default: "Archived"
----This section is a level 2 Markdown heading, e.g. ## Archived
----@field heading string? Title for the archived todos section. (Default is "Archived")
+---Defines the header section for the archived todos
+---@field heading checkmate.ArchiveHeading
 ---
 ---Number of blank lines between archived todo items (root only)
 ---@field parent_spacing integer?
+
+---@class checkmate.ArchiveHeading
+---
+---Name for the archived todos section
+---Default: "Archived"
+---@field title string?
+---
+---The heading level (e.g. #, ##, ###, ####)
+---Integers 1 to 6
+---Default: 2 (##)
+---@field level integer?
 
 -----------------------------------------------------
 
@@ -318,7 +327,10 @@ local _DEFAULTS = {
     },
   },
   archive = {
-    heading = "Archive",
+    heading = {
+      title = "Archived",
+      level = 2, -- e.g. ##
+    },
     parent_spacing = 0, -- no extra lines between archived todos
   },
   linter = {

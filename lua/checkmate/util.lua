@@ -409,6 +409,16 @@ function M.strip_trailing_blank_lines(lines, max_blank)
   return lines
 end
 
+---Build a Markdown heading
+---@param title string text after the hashes
+---@param level? integer 1-6; clamped; defaults to 2
+---@return string
+function M.get_heading_string(title, level)
+  level = tonumber(level) or 2
+  level = math.min(math.max(level, 1), 6)
+  return string.rep("#", level) .. " " .. title
+end
+
 -- Cursor helper
 M.Cursor = {}
 

@@ -1062,7 +1062,7 @@ function M.count_child_todos(todo_item, todo_map, opts)
 end
 
 --- Archives completed todo items to a designated section
---- @param opts? {heading?: string, include_children?: boolean} Archive options
+--- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean} Archive options
 --- @return boolean success Whether any items were archived
 function M.archive_todos(opts)
   local util = require("checkmate.util")
@@ -1073,7 +1073,11 @@ function M.archive_todos(opts)
 
   opts = opts or {}
 
-  local archive_heading = "## " .. (opts.heading or config.options.archive.heading or "Archived")
+  -- Create the Markdown heading that the user has defined, e.g. ## Archived
+  local archive_heading_string = util.get_heading_string(
+    opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
+    opts.heading and opts.heading.level or config.options.archive.heading.level or 2
+  )
   local include_children = opts.include_children ~= false -- default: true
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
@@ -1102,7 +1106,7 @@ function M.archive_todos(opts)
 
   local archive_start_row, archive_end_row
   do
-    local heading_level = archive_heading:match("^(#+)")
+    local heading_level = archive_heading_string:match("^(#+)")
     local heading_level_len = heading_level and #heading_level or 0
     -- The 'next' heading level is a heading at the same or higher level
     -- which represents a new section
@@ -1111,7 +1115,7 @@ function M.archive_todos(opts)
       or "^%s*#+%s"
 
     for i, line in ipairs(current_buf_lines) do
-      if line:match("^%s*" .. vim.pesc(archive_heading) .. "%s*$") then
+      if line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
         archive_start_row = i - 1 -- 0-indexed
         archive_end_row = #current_buf_lines - 1
 
@@ -1258,7 +1262,7 @@ function M.archive_todos(opts)
     if #new_content > 0 and new_content[#new_content] ~= "" then
       new_content[#new_content + 1] = ""
     end
-    new_content[#new_content + 1] = archive_heading
+    new_content[#new_content + 1] = archive_heading_string
     new_content[#new_content + 1] = "" -- blank after heading
     for _, line in ipairs(archive_lines) do
       new_content[#new_content + 1] = line

@@ -1121,7 +1121,7 @@ Some content here
       assert.is_not_nil(archive_section)
 
       local expected_archive = {
-        "## Archived", -- default title and level
+        "## Archive", -- default title and level
         "",
         "- " .. checked .. " Previously archived task",
         "- " .. checked .. " Checked task to archive",

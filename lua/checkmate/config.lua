@@ -328,7 +328,7 @@ local _DEFAULTS = {
   },
   archive = {
     heading = {
-      title = "Archived",
+      title = "Archive",
       level = 2, -- e.g. ##
     },
     parent_spacing = 0, -- no extra lines between archived todos

@@ -585,7 +585,11 @@ See `CheckmateArchive` command or `require("checkmate").archive()`
 #### Heading
 By default, a Markdown level 2 header (##) section named "**Archive**" is used. You can configure the archive section heading via `config.archive.heading`
 
-This will produce a section like `#### Completed`
+The following will produce an archive section labeled:
+```markdown
+#### Completed
+```
+
 ```lua
 opts = {
   archive = {
@@ -600,7 +604,7 @@ opts = {
 #### Spacing
 The amount of blank lines between each archived todo item can be customized via `config.archive.parent_spacing`
 
-`parent_spacing = 0`
+E.g. `parent_spacing = 0`
 ```lua
 ## Archive
 
@@ -609,7 +613,7 @@ The amount of blank lines between each archived todo item can be customized via 
 - ✔ Add additional tests 
 ```
 
-`parent_spacing = 1`
+E.g. `parent_spacing = 1`
 ```lua
 ## Archive
 

@@ -1,6 +1,11 @@
 ---@class checkmate.Api
 local M = {}
 
+---@class checkmate.DiffHunk
+---@field start integer
+---@field delete integer
+---@field insert string[]
+
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
 function M.is_valid_buffer(bufnr)
   if not bufnr or type(bufnr) ~= "number" then
@@ -355,74 +360,6 @@ function M.process_buffer(bufnr, reason)
 
   -- Log that the process was scheduled
   log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
-end
-
----Toggles a todo item from checked to unchecked or vice versa
----@param todo_item checkmate.TodoItem The todo item to modify
----@param opts {target_state?: checkmate.TodoItemState, notify: boolean?}
----@return boolean success Whether the operation succeeded
-function M.toggle_todo_item(todo_item, opts)
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
-  local util = require("checkmate.util")
-  local log = require("checkmate.log")
-
-  opts = opts or {}
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  -- Get the line with the todo marker
-  local todo_line_row = todo_item.todo_marker.position.row
-  local line = vim.api.nvim_buf_get_lines(bufnr, todo_line_row, todo_line_row + 1, false)[1]
-
-  log.info(
-    string.format("Found todo item at (editor) line %d (type: %s)", todo_line_row + 1, todo_item.state),
-    { module = "api" }
-  )
-
-  local unchecked_marker = config.options.todo_markers.unchecked
-  local checked_marker = config.options.todo_markers.checked
-
-  -- Determine target state
-  local target_state = opts.target_state
-  if not target_state then
-    -- Traditional toggle behavior
-    target_state = todo_item.state == "unchecked" and "checked" or "unchecked"
-  elseif target_state == todo_item.state then
-    -- Already in target state, no change needed
-    return true
-  end
-
-  local patterns, replacement_marker
-
-  if target_state == "checked" then
-    patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
-    replacement_marker = checked_marker
-  else
-    patterns = util.build_unicode_todo_patterns(parser.list_item_markers, checked_marker)
-    replacement_marker = unchecked_marker
-  end
-
-  -- Try to apply the first matching pattern
-  local new_line
-  for _, pattern in ipairs(patterns) do
-    local replaced, count = line:gsub(pattern, "%1" .. replacement_marker, 1)
-    if count > 0 then
-      new_line = replaced
-      break
-    end
-  end
-
-  if new_line and new_line ~= line then
-    vim.api.nvim_buf_set_lines(bufnr, todo_line_row, todo_line_row + 1, false, { new_line })
-    log.debug("Successfully toggled todo item", { module = "api" })
-
-    -- Update the todo item's state to reflect the change
-    todo_item.state = target_state
-    return true
-  else
-    log.error("failed to replace todo marker during toggle", { module = "api" })
-    return false
-  end
 end
 
 -- Create a new todo item from the current line
@@ -1281,6 +1218,134 @@ function M.archive_todos(opts)
     vim.log.levels.INFO
   )
   return true
+end
+
+-- EXPERIMENTAL
+
+--- Collect todo items under cursor or visual selection
+---@param is_visual boolean Whether to collect items in visual selection (true) or under cursor (false)
+---@return checkmate.TodoItem[] items
+function M.collect_todo_items_from_selection(is_visual)
+  local parser = require("checkmate.parser")
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local items = {}
+  -- Pre-parse all todos once
+  local full_map = parser.discover_todos(bufnr)
+
+  if is_visual then
+    -- Exit visual mode first
+    vim.cmd([[execute "normal! \<Esc>"]])
+    local start_line = vim.fn.line("'<") - 1
+    local end_line = vim.fn.line("'>") - 1
+    local seen = {}
+    for row = start_line, end_line do
+      local todo = parser.get_todo_item_at_position(
+        bufnr,
+        row,
+        0,
+        { todo_map = full_map, max_depth = config.options.todo_action_depth }
+      )
+      if todo then
+        local key = string.format("%d:%d", todo.todo_marker.position.row, todo.todo_marker.position.col)
+        if not seen[key] then
+          seen[key] = true
+          table.insert(items, todo)
+        end
+      end
+    end
+  else
+    -- Normal mode: single item at cursor
+    local cursor = util.Cursor.save()
+    local row = cursor.cursor[1] - 1
+    local col = cursor.cursor[2]
+    local todo = parser.get_todo_item_at_position(
+      bufnr,
+      row,
+      col,
+      { todo_map = full_map, max_depth = config.options.todo_action_depth }
+    )
+    util.Cursor.restore(cursor)
+    if todo then
+      table.insert(items, todo)
+    end
+  end
+
+  return items
+end
+
+--- Compute diff hunks for toggling a set of todo items
+---@param items checkmate.TodoItem[]
+---@param target_state checkmate.TodoItemState?
+---@return checkmate.DiffHunk[] hunks Each hunk = { start:number, delete:number, insert:string[] }
+function M.compute_toggle_diff(items, target_state)
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+  local unchecked_marker = config.options.todo_markers.unchecked
+  local checked_marker = config.options.todo_markers.checked
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  for _, todo_item in ipairs(items) do
+    local row = todo_item.todo_marker.position.row
+    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+    target_state = target_state or (todo_item.state == "unchecked") and "checked" or "unchecked"
+
+    local patterns, replacement_marker
+
+    if target_state == "checked" then
+      patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
+      replacement_marker = checked_marker
+    else
+      patterns = util.build_unicode_todo_patterns(parser.list_item_markers, checked_marker)
+      replacement_marker = unchecked_marker
+    end
+
+    -- Try to apply the first matching pattern
+    local new_line
+    for _, pattern in ipairs(patterns) do
+      local replaced, count = original_line:gsub(pattern, "%1" .. replacement_marker, 1)
+      if count > 0 then
+        new_line = replaced
+        break
+      end
+    end
+
+    if new_line ~= original_line then
+      table.insert(hunks, { start = row, delete = 1, insert = { new_line } })
+    end
+  end
+
+  return hunks
+end
+
+--- Apply diff hunks to buffer with per-hunk API (single undo entry)
+---@param bufnr integer Buffer number
+---@param hunks checkmate.DiffHunk[]
+function M.apply_diff(bufnr, hunks)
+  if vim.tbl_isempty(hunks) then
+    return
+  end
+
+  local api = vim.api
+  table.sort(hunks, function(a, b)
+    return a.start < b.start
+  end)
+
+  -- First hunk: new undo entry
+  local h0 = hunks[1]
+  api.nvim_buf_set_lines(bufnr, h0.start, h0.start + h0.delete, false, h0.insert)
+
+  -- Subsequent hunks: join into the same undo entry
+  for i = 2, #hunks do
+    local h = hunks[i]
+    vim.cmd("silent! undojoin")
+    api.nvim_buf_set_lines(bufnr, h.start, h.start + h.delete, false, h.insert)
+  end
 end
 
 return M

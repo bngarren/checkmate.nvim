@@ -200,9 +200,7 @@ describe("API", function()
       end
 
       -- Toggle task 2 to checked
-      local success = require("checkmate").set_todo_item(task_2, "checked")
-
-      assert.is_true(success)
+      require("checkmate").set_todo_item(task_2, "checked")
 
       -- Save the file
       vim.cmd("write")

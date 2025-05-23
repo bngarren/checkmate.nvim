@@ -225,21 +225,27 @@ end
 function M.toggle(target_state)
   local api = require("checkmate.api")
   local is_visual = require("checkmate.util").is_visual_mode()
-
-  return api.apply_todo_operation({
-    operation = api.toggle_todo_item,
-    is_visual = is_visual,
-    action_name = "toggle",
-    params = { target_state = target_state },
-  })
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local hunks = api.compute_toggle_diff(todo_items, target_state)
+  api.apply_diff(bufnr, hunks)
+  require("checkmate.highlights").apply_highlighting(bufnr)
+  return true
 end
 
 ---Sets a given todo item to a specific state
 ---@param todo_item checkmate.TodoItem
 ---@param target_state checkmate.TodoItemState
 function M.set_todo_item(todo_item, target_state)
+  if not todo_item then
+    return
+  end
   local api = require("checkmate.api")
-  return api.toggle_todo_item(todo_item, { target_state = target_state })
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = api.compute_toggle_diff({ todo_item }, target_state)
+  api.apply_diff(bufnr, hunks)
+  require("checkmate.highlights").apply_highlighting(bufnr)
+  return true
 end
 
 --- Set todo item to checked state

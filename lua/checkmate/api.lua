@@ -818,158 +818,6 @@ function M.remove_all_metadata(todo_item)
   return true
 end
 
----A callback function passed to `apply_todo_operation` that will act on the given todo_item
----params
----  notify - whether to allow notify for this operation. This allows notify to be turned off
----  if an operation is run in visual selection mode, i.e. so we don't get a bunch of notifications for one action
----@alias checkmate.TodoOperation fun(todo_item: checkmate.TodoItem, params: {notify: boolean?}): boolean
-
----@class ApplyTodoOperationOpts table Operation configuration
----@field operation checkmate.TodoOperation The operation to perform on each todo item
----@field is_visual boolean Whether to process a visual selection (true) or cursor position (false)
----@field action_name string Human-readable name of the action (for logging and notifications)
----@field params any? Additional parameters to pass to the operation function, excluding the todo_item
-
----Apply an operation to todo items either at cursor or in a visual selection
----@param opts ApplyTodoOperationOpts
----@return table results Operation results { success: boolean, processed: number, succeeded: number, errors: table[] }
-function M.apply_todo_operation(opts)
-  local log = require("checkmate.log")
-  local parser = require("checkmate.parser")
-  local config = require("checkmate.config")
-  local util = require("checkmate.util")
-  local bufnr = vim.api.nvim_get_current_buf()
-  local profiler = require("checkmate.profiler")
-
-  profiler.start("api.apply_todo_operation")
-
-  -- Initialize results
-  local results = {
-    success = false,
-    processed = 0,
-    succeeded = 0,
-    errors = {},
-  }
-
-  if not config.get_active_buffers()[bufnr] then
-    util.notify("Attempted to apply_todo_operation on non-existent buffer", log.levels.WARN)
-    return results
-  end
-
-  -- Collection of todo items to process
-  local todo_items = {}
-
-  -- Save current cursor state
-  local cursor_state = util.Cursor.save()
-
-  -- Get todo items based on mode (visual or normal)
-  if opts.is_visual then
-    -- Exit visual mode first
-    vim.cmd([[execute "normal! \<Esc>"]])
-
-    -- Get visual selection range
-    local start_line = vim.fn.line("'<") - 1 -- 0-indexed
-    local end_line = vim.fn.line("'>") - 1 -- 0-indexed
-
-    log.debug(
-      string.format("Visual mode %s from line %d to %d", opts.action_name, start_line + 1, end_line + 1),
-      { module = "api" }
-    )
-
-    -- Perform full parsing of buffer only once for this operation
-    local full_todo_map = parser.discover_todos(bufnr)
-
-    -- Collect unique todo items in selection
-    local selected_todo_map = {}
-
-    for line_row = start_line, end_line do
-      local todo_item = parser.get_todo_item_at_position(
-        bufnr,
-        line_row,
-        0,
-        { todo_map = full_todo_map, max_depth = config.options.todo_action_depth }
-      )
-
-      if todo_item then
-        -- Create a unique key based on the marker position
-        local marker_key =
-          string.format("%d:%d", todo_item.todo_marker.position.row, todo_item.todo_marker.position.col)
-
-        if not selected_todo_map[marker_key] then
-          selected_todo_map[marker_key] = true
-          table.insert(todo_items, todo_item)
-        end
-      end
-    end
-  else
-    -- Normal mode - just get the item at cursor
-    local row = cursor_state.cursor[1] - 1 -- 0-indexed
-    local col = cursor_state.cursor[2]
-
-    local todo_item =
-      parser.get_todo_item_at_position(bufnr, row, col, { max_depth = config.options.todo_action_depth })
-
-    if todo_item then
-      table.insert(todo_items, todo_item)
-    end
-  end
-
-  -- Process collected todo items
-  if #todo_items > 0 then
-    for _, todo_item in ipairs(todo_items) do
-      results.processed = results.processed + 1
-
-      -- We pass a notify=false option to the todo operation so that notifications
-      -- can be ignored when multiple todos are being actioned
-      local params = vim.tbl_extend("force", opts.params or {}, { notify = #todo_items < 2 })
-
-      -- Apply the operation and catch any errors
-      local success, result = pcall(opts.operation, todo_item, params)
-
-      if success and result then
-        results.succeeded = results.succeeded + 1
-      else
-        -- Handle error
-        local error_msg = (not success and result) or "Operation failed"
-        table.insert(results.errors, {
-          item = todo_item,
-          message = error_msg,
-        })
-        log.error(string.format("Error in %s: %s", opts.action_name, error_msg), { module = "api" })
-      end
-    end
-
-    -- Determine overall success
-    results.success = (results.succeeded > 0)
-
-    -- Apply highlighting after all operations
-    if results.succeeded > 0 then
-      require("checkmate.highlights").apply_highlighting(bufnr, {
-        debug_reason = opts.action_name,
-      })
-
-      -- Notify user of results
-      if opts.is_visual and results.processed > 1 then
-        util.notify(
-          string.format("%s (%d items)", opts.action_name:gsub("^%l", string.upper), results.succeeded),
-          vim.log.levels.INFO
-        )
-      end
-    end
-  else
-    -- No todo items found
-    local mode_msg = opts.is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
-  end
-
-  -- Restore cursor position
-  util.Cursor.restore(cursor_state)
-
-  profiler.stop("api.apply_todo_operation")
-
-  return results
-end
-
 --- Count completed and total child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
 ---@param todo_map table<string, checkmate.TodoItem> Full todo map
@@ -1220,6 +1068,51 @@ function M.archive_todos(opts)
   return true
 end
 
+-- Helper function for handling cursor jumps after metadata operations
+function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config)
+  local jump_to = meta_config.jump_to_on_insert
+  if not jump_to or jump_to == false then
+    return
+  end
+
+  vim.schedule(function()
+    local row = todo_item.range.start.row
+    local updated_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+    if not updated_line then
+      return
+    end
+
+    local tag_position = updated_line:find("@" .. meta_name .. "%(")
+    local value_position = tag_position and updated_line:find("%(", tag_position) + 1 or nil
+
+    local win = vim.api.nvim_get_current_win()
+    if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
+      if jump_to == "tag" and tag_position then
+        vim.api.nvim_win_set_cursor(0, { row + 1, tag_position - 1 })
+
+        if meta_config.select_on_insert then
+          vim.cmd("stopinsert")
+          vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
+        end
+      elseif jump_to == "value" and value_position then
+        vim.api.nvim_win_set_cursor(0, { row + 1, value_position - 1 })
+
+        if meta_config.select_on_insert then
+          vim.cmd("stopinsert")
+
+          local closing_paren = updated_line:find(")", value_position)
+          if closing_paren and closing_paren > value_position then
+            local selection_length = closing_paren - value_position
+            if selection_length > 0 then
+              vim.cmd("normal! v" .. string.rep("l", selection_length - 1))
+            end
+          end
+        end
+      end
+    end
+  end)
+end
+
 -- EXPERIMENTAL
 
 --- Collect todo items under cursor or visual selection
@@ -1279,12 +1172,17 @@ end
 ---@param items checkmate.TodoItem[]
 ---@param target_state checkmate.TodoItemState?
 ---@return checkmate.DiffHunk[] hunks Each hunk = { start:number, delete:number, insert:string[] }
-function M.compute_toggle_diff(items, target_state)
+function M.compute_diff_toggle(items, target_state)
   local config = require("checkmate.config")
+  local log = require("checkmate.log")
   local util = require("checkmate.util")
   local parser = require("checkmate.parser")
+  local profiler = require("checkmate.profiler")
+
   local unchecked_marker = config.options.todo_markers.unchecked
   local checked_marker = config.options.todo_markers.checked
+
+  profiler.start("api.compute_diff_toggle")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
@@ -1293,57 +1191,386 @@ function M.compute_toggle_diff(items, target_state)
     local row = todo_item.todo_marker.position.row
     local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
-    target_state = target_state or (todo_item.state == "unchecked") and "checked" or "unchecked"
-
-    local patterns, replacement_marker
-
-    if target_state == "checked" then
-      patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
-      replacement_marker = checked_marker
+    -- Determine target state for THIS specific item
+    local item_target_state
+    if target_state then
+      -- If a specific target state is provided, use it
+      item_target_state = target_state
     else
-      patterns = util.build_unicode_todo_patterns(parser.list_item_markers, checked_marker)
-      replacement_marker = unchecked_marker
+      -- Otherwise, toggle to the opposite of current state
+      item_target_state = (todo_item.state == "unchecked") and "checked" or "unchecked"
     end
 
-    -- Try to apply the first matching pattern
-    local new_line
-    for _, pattern in ipairs(patterns) do
-      local replaced, count = original_line:gsub(pattern, "%1" .. replacement_marker, 1)
-      if count > 0 then
-        new_line = replaced
-        break
+    if todo_item.state ~= item_target_state then
+      local patterns, replacement_marker
+
+      if target_state == "checked" then
+        patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
+        replacement_marker = checked_marker
+      else
+        patterns = util.build_unicode_todo_patterns(parser.list_item_markers, checked_marker)
+        replacement_marker = unchecked_marker
+      end
+
+      log.debug(
+        string.format("Toggle patterns for %s->%s: %s", todo_item.state, target_state, vim.inspect(patterns)),
+        { module = "api" }
+      )
+      log.debug(string.format("Line to match: %q", original_line), { module = "api" })
+
+      -- Try to apply the first matching pattern
+      local new_line
+      for _, pattern in ipairs(patterns) do
+        local replaced, count = original_line:gsub(pattern, "%1" .. replacement_marker, 1)
+        if count > 0 then
+          new_line = replaced
+          break
+        end
+      end
+
+      -- Only create hunk if we successfully found and replaced a pattern
+      if new_line and new_line ~= original_line then
+        table.insert(hunks, { start = row, delete = 1, insert = { new_line } })
+      else
+        -- Log when pattern matching fails - this indicates a bug in pattern generation or todo detection
+        log.warn(
+          string.format(
+            "Failed to toggle line %d: %q (state=%s, target=%s)",
+            row + 1,
+            original_line,
+            todo_item.state,
+            target_state
+          ),
+          { module = "api" }
+        )
       end
     end
+  end
+  profiler.stop("api.compute_diff_toggle")
 
-    if new_line ~= original_line then
-      table.insert(hunks, { start = row, delete = 1, insert = { new_line } })
+  return hunks
+end
+
+---@param items checkmate.TodoItem[]
+---@param meta_name string Metadata tag name
+---@param meta_value string? Metadata default value
+---@return checkmate.DiffHunk[]
+function M.compute_diff_add_metadata(items, meta_name, meta_value)
+  local config = require("checkmate.config")
+  local log = require("checkmate.log")
+
+  local meta_props = config.options.metadata[meta_name]
+  if not meta_props then
+    log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
+    return {}
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  for _, todo_item in ipairs(items) do
+    local row = todo_item.range.start.row
+    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+
+    if original_line and #original_line ~= 0 then
+      -- Determine value
+      local value = meta_value
+      if not value and meta_props.get_value then
+        value = meta_props.get_value()
+        value = value:gsub("^%s+", ""):gsub("%s+$", "")
+      elseif not value then
+        value = ""
+      end
+
+      -- Check if metadata already exists
+      local existing_entry = todo_item.metadata.by_tag[meta_name]
+
+      -- Create updated metadata structure
+      local updated_metadata = vim.deepcopy(todo_item.metadata)
+
+      if existing_entry then
+        -- Update existing entry
+        for i, entry in ipairs(updated_metadata.entries) do
+          if entry.tag == existing_entry.tag then
+            updated_metadata.entries[i].value = value
+            break
+          end
+        end
+        updated_metadata.by_tag[meta_name].value = value
+      else
+        -- Add new entry
+        local new_entry = {
+          tag = meta_name,
+          value = value,
+          range = {
+            start = { row = row, col = #original_line },
+            ["end"] = { row = row, col = #original_line + #meta_name + #value + 3 },
+          },
+          position_in_line = #original_line + 1,
+        }
+        table.insert(updated_metadata.entries, new_entry)
+        updated_metadata.by_tag[meta_name] = new_entry
+      end
+
+      -- Rebuild line with sorted metadata
+      local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
+
+      if new_line ~= original_line then
+        table.insert(hunks, {
+          start = row,
+          delete = 1,
+          insert = { new_line },
+        })
+      end
+    end
+  end
+  return hunks
+end
+
+--- Compute diff hunks for removing metadata from todo items
+---@param items checkmate.TodoItem[]
+---@param meta_name string Metadata tag name
+---@return checkmate.DiffHunk[]
+function M.compute_diff_remove_metadata(items, meta_name)
+  local config = require("checkmate.config")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  for _, todo_item in ipairs(items) do
+    local row = todo_item.range.start.row
+    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+
+    if original_line and #original_line ~= 0 then
+      -- Check if metadata exists (including aliases)
+      local entry = todo_item.metadata.by_tag[meta_name]
+      if not entry then
+        -- Check for aliases
+        for canonical, props in pairs(config.options.metadata) do
+          for _, alias in ipairs(props.aliases or {}) do
+            if alias == meta_name then
+              entry = todo_item.metadata.by_tag[canonical]
+              break
+            end
+          end
+          if entry then
+            break
+          end
+        end
+      end
+
+      if entry then
+        -- Create updated metadata structure
+        local updated_metadata = vim.deepcopy(todo_item.metadata)
+
+        -- Remove from entries
+        for i = #updated_metadata.entries, 1, -1 do
+          if updated_metadata.entries[i].tag == entry.tag then
+            table.remove(updated_metadata.entries, i)
+            break
+          end
+        end
+
+        -- Remove from by_tag
+        updated_metadata.by_tag[entry.tag] = nil
+        if entry.alias_for then
+          updated_metadata.by_tag[entry.alias_for] = nil
+        end
+
+        -- Rebuild line
+        local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
+
+        if new_line ~= original_line then
+          table.insert(hunks, {
+            start = row,
+            delete = 1,
+            insert = { new_line },
+          })
+        end
+      end
     end
   end
 
   return hunks
 end
 
+--- Compute diff hunks for removing all metadata from todo items
+---@param items checkmate.TodoItem[]
+---@return checkmate.DiffHunk[]
+function M.compute_diff_remove_all_metadata(items)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  for _, todo_item in ipairs(items) do
+    if todo_item.metadata and todo_item.metadata.entries and #todo_item.metadata.entries ~= 0 then
+      local row = todo_item.range.start.row
+      local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+
+      if original_line and #original_line ~= 0 then
+        -- Create empty metadata structure
+        local empty_metadata = {
+          entries = {},
+          by_tag = {},
+        }
+
+        -- Rebuild line without metadata
+        local new_line = M.rebuild_line_with_sorted_metadata(original_line, empty_metadata)
+
+        if new_line ~= original_line then
+          table.insert(hunks, {
+            start = row,
+            delete = 1,
+            insert = { new_line },
+          })
+        end
+      end
+    end
+  end
+
+  return hunks
+end
+
+--- Compute diff hunks for toggling metadata on todo items
+---@param items checkmate.TodoItem[]
+---@param meta_name string
+---@param custom_value? string
+---@return checkmate.DiffHunk[]
+function M.compute_diff_toggle_metadata(items, meta_name, custom_value)
+  local profiler = require("checkmate.profiler")
+  profiler.start("api.compute_diff_toggle_metadata")
+
+  local hunks = {}
+
+  for _, todo_item in ipairs(items) do
+    -- Check if metadata exists
+    local entry = todo_item.metadata.by_tag[meta_name]
+    local canonical_name = meta_name
+
+    -- Check for aliases if not found
+    if not entry then
+      local config = require("checkmate.config")
+      for c_name, props in pairs(config.options.metadata) do
+        if c_name == meta_name then
+          break
+        end
+
+        for _, alias in ipairs(props.aliases or {}) do
+          if alias == meta_name then
+            entry = todo_item.metadata.by_tag[c_name]
+            canonical_name = c_name
+            break
+          end
+        end
+        if entry then
+          break
+        end
+      end
+    end
+
+    -- Compute appropriate diff based on whether metadata exists
+    local item_hunks
+    if entry then
+      -- Remove it
+      item_hunks = M.compute_diff_remove_metadata({ todo_item }, canonical_name)
+    else
+      -- Add it
+      item_hunks = M.compute_diff_add_metadata({ todo_item }, canonical_name, custom_value)
+    end
+
+    -- Merge hunks
+    for _, hunk in ipairs(item_hunks) do
+      table.insert(hunks, hunk)
+    end
+  end
+  profiler.stop("api.compute_diff_toggle_metadata")
+
+  return hunks
+end
+
+--- Validate and debug diff hunks
+---@param bufnr integer Buffer number
+---@param hunks checkmate.DiffHunk[]
+---@return boolean valid, string? error_message
+local function validate_and_debug_hunks(bufnr, hunks)
+  local log = require("checkmate.log")
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+
+  log.debug(string.format("Validating %d hunks for buffer with %d lines", #hunks, line_count), { module = "api" })
+
+  for i, hunk in ipairs(hunks) do
+    -- Log each hunk for debugging
+    log.debug(
+      string.format("Hunk %d: start=%d, delete=%d, insert=%d lines", i, hunk.start, hunk.delete, #hunk.insert),
+      { module = "api" }
+    )
+
+    -- Validate hunk bounds
+    if hunk.start < 0 then
+      return false, string.format("Hunk %d has negative start position: %d", i, hunk.start)
+    end
+
+    if hunk.start >= line_count then
+      return false, string.format("Hunk %d start position %d exceeds buffer size %d", i, hunk.start, line_count)
+    end
+
+    if hunk.delete < 0 then
+      return false, string.format("Hunk %d has negative delete count: %d", i, hunk.delete)
+    end
+
+    if hunk.start + hunk.delete > line_count then
+      return false,
+        string.format(
+          "Hunk %d delete range [%d, %d) exceeds buffer size %d",
+          i,
+          hunk.start,
+          hunk.start + hunk.delete,
+          line_count
+        )
+    end
+
+    if not hunk.insert or type(hunk.insert) ~= "table" then
+      return false, string.format("Hunk %d has invalid insert data", i)
+    end
+
+    -- Log the actual content being changed
+    if hunk.delete > 0 then
+      local existing_lines = vim.api.nvim_buf_get_lines(bufnr, hunk.start, hunk.start + hunk.delete, false)
+      log.debug(string.format("Hunk %d deleting: %s", i, vim.inspect(existing_lines)), { module = "api" })
+    end
+    if #hunk.insert > 0 then
+      log.debug(string.format("Hunk %d inserting: %s", i, vim.inspect(hunk.insert)), { module = "api" })
+    end
+  end
+
+  return true, nil
+end
+
 --- Apply diff hunks to buffer with per-hunk API (single undo entry)
 ---@param bufnr integer Buffer number
 ---@param hunks checkmate.DiffHunk[]
 function M.apply_diff(bufnr, hunks)
+  local log = require("checkmate.log")
   if vim.tbl_isempty(hunks) then
     return
   end
 
+  local valid, error_msg = validate_and_debug_hunks(bufnr, hunks)
+  if not valid then
+    log.error("Hunk validation failed: " .. error_msg, { module = "api" })
+    return false, error_msg
+  end
+
   local api = vim.api
+
+  -- Sort hunks by start position (descending - highest line first)
   table.sort(hunks, function(a, b)
-    return a.start < b.start
+    return a.start > b.start
   end)
 
-  -- First hunk: new undo entry
-  local h0 = hunks[1]
-  api.nvim_buf_set_lines(bufnr, h0.start, h0.start + h0.delete, false, h0.insert)
-
-  -- Subsequent hunks: join into the same undo entry
-  for i = 2, #hunks do
-    local h = hunks[i]
-    vim.cmd("silent! undojoin")
+  -- Apply all hunks (first one creates undo entry, rest join)
+  for i, h in ipairs(hunks) do
+    if i > 1 then
+      vim.cmd("silent! undojoin")
+    end
     api.nvim_buf_set_lines(bufnr, h.start, h.start + h.delete, false, h.insert)
   end
 end

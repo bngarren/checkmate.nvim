@@ -224,12 +224,17 @@ end
 ---@param target_state? checkmate.TodoItemState Optional target state ("checked" or "unchecked")
 function M.toggle(target_state)
   local api = require("checkmate.api")
+  local profiler = require("checkmate.profiler")
+  profiler.start("M.toggle")
+
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(is_visual)
-  local hunks = api.compute_toggle_diff(todo_items, target_state)
+  local hunks = api.compute_diff_toggle(todo_items, target_state)
   api.apply_diff(bufnr, hunks)
   require("checkmate.highlights").apply_highlighting(bufnr)
+
+  profiler.stop("M.toggle")
   return true
 end
 
@@ -237,12 +242,12 @@ end
 ---@param todo_item checkmate.TodoItem
 ---@param target_state checkmate.TodoItemState
 function M.set_todo_item(todo_item, target_state)
-  if not todo_item then
+  if not todo_item or todo_item.state == target_state then
     return
   end
   local api = require("checkmate.api")
   local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = api.compute_toggle_diff({ todo_item }, target_state)
+  local hunks = api.compute_diff_toggle({ todo_item }, target_state)
   api.apply_diff(bufnr, hunks)
   require("checkmate.highlights").apply_highlighting(bufnr)
   return true
@@ -265,66 +270,190 @@ end
 
 --- Insert a metadata tag into a todo item at the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
----@param value string Value contained in the tag
+---@param value string? Value contained in the tag
 function M.add_metadata(metadata_name, value)
+  local api = require("checkmate.api")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
-  local api = require("checkmate.api")
-  local meta_config = config.options.metadata[metadata_name]
 
-  if not meta_config then
+  local meta_props = config.options.metadata[metadata_name]
+  if not meta_props then
     util.notify("Unknown metadata tag: " .. metadata_name, vim.log.levels.WARN)
     return
   end
 
   local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
-  api.apply_todo_operation({
-    operation = api.apply_metadata,
-    is_visual = is_visual,
-    action_name = "add metadata",
-    params = { meta_name = metadata_name, custom_value = value },
-  })
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return
+  end
+
+  local hunks = api.compute_diff_add_metadata(todo_items, metadata_name, value)
+  api.apply_diff(bufnr, hunks)
+
+  -- Handle callbacks and cursor operations
+  for _, todo_item in ipairs(todo_items) do
+    -- Call on_add callback if defined
+    if meta_props.on_add then
+      meta_props.on_add(todo_item)
+    end
+
+    -- Handle cursor jump/selection if this is the only item
+    if #todo_items == 1 and meta_props.jump_to_on_insert then
+      api._handle_metadata_cursor_jump(bufnr, todo_item, metadata_name, meta_props)
+    end
+  end
+
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "add_metadata" })
 end
 
 --- Remove a metadata tag from a todo item at the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 function M.remove_metadata(metadata_name)
-  local is_visual = require("checkmate.util").is_visual_mode()
   local api = require("checkmate.api")
 
-  api.apply_todo_operation({
-    operation = api.remove_metadata,
-    is_visual = is_visual,
-    action_name = "remove metadata",
-    params = { meta_name = metadata_name },
-  })
+  local is_visual = require("checkmate.util").is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return
+  end
+
+  -- Store items that have the metadata for callbacks
+  local items_with_metadata = {}
+  for _, item in ipairs(todo_items) do
+    if item.metadata.by_tag[metadata_name] then
+      table.insert(items_with_metadata, item)
+    end
+  end
+
+  local hunks = api.compute_diff_remove_metadata(todo_items, metadata_name)
+  api.apply_diff(bufnr, hunks)
+
+  -- Handle callbacks
+  local config = require("checkmate.config")
+  for _, item in ipairs(items_with_metadata) do
+    local entry = item.metadata.by_tag[metadata_name]
+    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+    if meta_config.on_remove then
+      meta_config.on_remove(item)
+    end
+  end
+
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_metadata" })
 end
 
 function M.remove_all_metadata()
-  local is_visual = require("checkmate.util").is_visual_mode()
   local api = require("checkmate.api")
 
-  api.apply_todo_operation({
-    operation = api.remove_all_metadata,
-    is_visual = is_visual,
-    action_name = "remove all metadata",
-  })
+  local is_visual = require("checkmate.util").is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return
+  end
+
+  -- Collect callbacks before applying diff
+  local callbacks_to_run = {}
+  local config = require("checkmate.config")
+
+  for _, todo_item in ipairs(todo_items) do
+    if todo_item.metadata and todo_item.metadata.entries then
+      for _, entry in ipairs(todo_item.metadata.entries) do
+        local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
+        if meta_config.on_remove then
+          table.insert(callbacks_to_run, {
+            func = meta_config.on_remove,
+            item = todo_item,
+            tag = entry.tag,
+          })
+        end
+      end
+    end
+  end
+
+  local hunks = api.compute_diff_remove_all_metadata(todo_items)
+  api.apply_diff(bufnr, hunks)
+
+  -- Run callbacks
+  for _, callback_info in ipairs(callbacks_to_run) do
+    callback_info.func(callback_info.item)
+  end
+
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_all_metadata" })
 end
 
 --- Toggle a metadata tag on/off at the cursor or for each todo in the visual selection
 ---@param meta_name string Name of the metadata tag (defined in the config)
 ---@param custom_value string Value contained in tag
 function M.toggle_metadata(meta_name, custom_value)
-  local is_visual = require("checkmate.util").is_visual_mode()
   local api = require("checkmate.api")
+  local profiler = require("checkmate.profiler")
+  profiler.start("M.toggle_metadata")
 
-  return api.apply_todo_operation({
-    operation = api.toggle_metadata,
-    is_visual = is_visual,
-    action_name = "toggle metadata",
-    params = { meta_name = meta_name, custom_value = custom_value },
-  })
+  local is_visual = require("checkmate.util").is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return
+  end
+
+  -- Track which items are getting metadata added vs removed for callbacks
+  local items_adding = {}
+  local items_removing = {}
+
+  for _, item in ipairs(todo_items) do
+    if item.metadata.by_tag[meta_name] then
+      table.insert(items_removing, item)
+    else
+      table.insert(items_adding, item)
+    end
+  end
+
+  local hunks = api.compute_diff_toggle_metadata(todo_items, meta_name, custom_value)
+  api.apply_diff(bufnr, hunks)
+
+  -- Handle callbacks
+  local config = require("checkmate.config")
+  local meta_config = config.options.metadata[meta_name]
+
+  if meta_config then
+    -- Run on_remove callbacks
+    if meta_config.on_remove then
+      for _, item in ipairs(items_removing) do
+        meta_config.on_remove(item)
+      end
+    end
+
+    -- Run on_add callbacks
+    if meta_config.on_add then
+      for _, item in ipairs(items_adding) do
+        meta_config.on_add(item)
+      end
+    end
+
+    -- Handle cursor jump for single item toggle
+    if #todo_items == 1 and #items_adding == 1 and meta_config.jump_to_on_insert then
+      api._handle_metadata_cursor_jump(bufnr, items_adding[1], meta_name, meta_config)
+    end
+  end
+
+  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "toggle_metadata" })
+
+  profiler.stop("M.toggle_metadata")
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

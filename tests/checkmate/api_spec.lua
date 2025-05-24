@@ -321,6 +321,57 @@ describe("API", function()
       end)
     end)
 
+    it("should add metadata to a nested todo item", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+
+      local file_path = h.create_temp_file()
+
+      local content = [[
+- [ ] Parent todo
+  - [ ] Child todo A
+  - [ ] Child todo B
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- Move cursor to the Child todo A on line 2 (1-indexed)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      -- Find the todo item at cursor
+      local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 1, 0) -- 0-indexed
+      assert.is_not_nil(todo_item)
+
+      -- Add @priority metadata
+      require("checkmate").add_metadata("priority", "high")
+
+      -- Get the buffer content
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      -- Verify metadata was added
+      assert.matches("- " .. vim.pesc(unchecked) .. " Parent todo", lines[1])
+      assert.matches("- " .. vim.pesc(unchecked) .. " Child todo A @priority%(high%)", lines[2])
+      assert.matches("- " .. vim.pesc(unchecked) .. " Child todo B", lines[3])
+
+      -- Now repeat for the parent todo
+
+      -- Move cursor to the todo line
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      -- Find the todo item at cursor
+      local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+      assert.is_not_nil(todo_item)
+
+      -- Add @priority metadata
+      require("checkmate").add_metadata("priority", "medium")
+
+      -- Get the buffer content
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      -- Verify metadata was added
+      assert.matches("- " .. vim.pesc(unchecked) .. " Parent todo @priority%(medium%)", lines[1])
+      assert.matches("- " .. vim.pesc(unchecked) .. " Child todo", lines[2])
+    end)
+
     it("should work with todo hierarchies", function()
       local config = require("checkmate.config")
       local unchecked = config.options.todo_markers.unchecked

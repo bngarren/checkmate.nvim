@@ -890,4 +890,393 @@ Normal content line (not a todo)]]
       end)
     end)
   end)
+
+  describe("archive system", function()
+    it("should not create archive section when no checked todos exist", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+# Todo List
+- ]] .. unchecked .. [[ Task 1
+- ]] .. unchecked .. [[ Task 2
+  - ]] .. unchecked .. [[ Subtask 2.1
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local success = require("checkmate").archive()
+      assert.is_false(success) -- Should return false when nothing to archive
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      -- Verify no archive section was created
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        config.options.archive.heading.title,
+        config.options.archive.heading.level
+      )
+      assert.no.matches(vim.pesc(archive_heading_string), buffer_content)
+
+      local expected_main_content = {
+        "# Todo List",
+        "- " .. unchecked .. " Task 1",
+        "- " .. unchecked .. " Task 2",
+        "  - " .. unchecked .. " Subtask 2.1",
+      }
+
+      -- Verify original content is unchanged
+      local result, err = h.verify_content_lines(buffer_content, expected_main_content)
+      assert.equal(result, true, err)
+
+      finally(function()
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+
+    it("should archive completed todo items to specified section", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      local file_path = h.create_temp_file()
+
+      local content = [[
+# Todo List
+
+- ]] .. unchecked .. [[ Unchecked task 1
+- ]] .. checked .. [[ Checked task 1
+  - ]] .. checked .. [[ Checked subtask 1.1
+  - ]] .. unchecked .. [[ Unchecked subtask 1.2
+- ]] .. unchecked .. [[ Unchecked task 2
+- ]] .. checked .. [[ Checked task 2
+  - ]] .. checked .. [[ Checked subtask 2.1
+
+## Existing Section
+Some content here
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local heading_title = "Completed Todos"
+      local success = require("checkmate").archive({ heading = { title = heading_title } })
+
+      vim.wait(20)
+      vim.cmd("redraw")
+
+      assert.is_true(success)
+
+      -- Get the modified buffer content
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string =
+        require("checkmate.util").get_heading_string(heading_title, config.options.archive.heading.level)
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      -- Verify that checked top-level tasks were removed
+      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 1", main_section)
+      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 2", main_section)
+
+      -- Verify unchecked tasks remain
+      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 1", main_section)
+      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 2", main_section)
+
+      -- Verify archive section was created
+      assert.matches(archive_heading_string, buffer_content)
+
+      -- Verify contents were moved to archive section
+      local archive_section = buffer_content:match(archive_heading_string .. ".*$")
+      assert.is_not_nil(archive_section)
+
+      local expected_archive = {
+        "## " .. heading_title,
+        "",
+        "- " .. checked .. " Checked task 1",
+        "  - " .. checked .. " Checked subtask 1.1",
+        "  - " .. unchecked .. " Unchecked subtask 1.2",
+        "- " .. checked .. " Checked task 2",
+        "  - " .. checked .. " Checked subtask 2.1",
+      }
+
+      local archive_success, err = h.verify_content_lines(archive_section, expected_archive)
+      assert.equal(archive_success, true, err)
+
+      -- The existing section should still be present
+      assert.matches("## Existing Section", buffer_content)
+      assert.matches("Some content here", buffer_content)
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+
+    it("should only leave max 1 line between remaining todo items after archive", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      local file_path = h.create_temp_file()
+
+      local content = [[
+# Todo List
+
+- ]] .. unchecked .. [[ Unchecked task 1
+
+- ]] .. checked .. [[ Checked task 1
+  - ]] .. checked .. [[ Checked subtask 1.1
+
+- ]] .. checked .. [[ Checked task 2
+  - ]] .. checked .. [[ Checked subtask 2.1
+
+- ]] .. unchecked .. [[ Unchecked task 2
+
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local success = require("checkmate").archive()
+
+      vim.wait(20)
+      vim.cmd("redraw")
+
+      assert.is_true(success)
+
+      -- Get the modified buffer content
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.options.archive.heading.title),
+        config.options.archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      local expected_main_content = {
+        "# Todo List",
+        "",
+        "- " .. unchecked .. " Unchecked task 1",
+        "",
+        "- " .. unchecked .. " Unchecked task 2",
+        "",
+      }
+
+      local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(archive_success, true, err)
+    end)
+
+    it("should work with custom archive heading", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      local file_path = h.create_temp_file()
+
+      local content = [[
+# Custom Archive Heading Test
+
+- ]] .. unchecked .. [[ Unchecked task
+- ]] .. checked .. [[ Checked task
+]]
+
+      -- Setup with custom archive heading
+      local heading_title = "Completed Items"
+      local heading_level = 4 -- ####
+      local bufnr = setup_todo_buffer(file_path, content, {
+        archive = { heading = { title = heading_title, level = heading_level } },
+      })
+
+      -- Archive checked todos
+      local success = require("checkmate").archive()
+      vim.wait(20)
+      vim.cmd("redraw")
+
+      assert.is_true(success)
+
+      -- Get buffer content after archiving
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(heading_title, heading_level)
+
+      -- Verify custom heading was used
+      assert.matches(archive_heading_string, buffer_content)
+
+      -- Verify content was archived correctly
+      local archive_section = buffer_content:match("#### Completed Items" .. ".*$")
+      assert.is_not_nil(archive_section)
+      assert.matches("- " .. vim.pesc(checked) .. " Checked task", archive_section)
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+
+    it("should merge with existing archive section", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      local file_path = h.create_temp_file()
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.options.archive.heading.title),
+        config.options.archive.heading.level
+      )
+
+      local content = [[
+# Existing Archive Test
+
+- ]] .. unchecked .. [[ Unchecked task
+- ]] .. checked .. [[ Checked task to archive
+
+]] .. archive_heading_string .. [[
+
+- ]] .. checked .. [[ Previously archived task
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local success = require("checkmate").archive()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      -- Verify that checked task was removed from main content
+      local main_content = buffer_content:match("^(.-)" .. archive_heading_string)
+      assert.is_not_nil(main_content)
+      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task to archive", main_content)
+
+      -- Verify unchecked task remains in main content
+      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", main_content)
+
+      local archive_section = buffer_content:match(archive_heading_string .. ".*$")
+      assert.is_not_nil(archive_section)
+
+      local expected_archive = {
+        "## Archive", -- default title and level. *This must match the config
+        "",
+        "- " .. checked .. " Previously archived task",
+        "- " .. checked .. " Checked task to archive",
+      }
+
+      local archive_success, err = h.verify_content_lines(archive_section, expected_archive)
+      assert.equal(archive_success, true, err)
+
+      -- Verify that parent_spacing is respected when merging with existing archive
+      -- This assumes default parent_spacing = 0, so no extra blank lines between archived items
+      local lines_array = vim.split(archive_section, "\n", { plain = true })
+      for i = 2, #lines_array - 1 do -- Skip heading and last line
+        if lines_array[i] == "" and lines_array[i + 1] and lines_array[i + 1] == "" then
+          error("Found multiple consecutive blank lines in archive section")
+        end
+      end
+
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
+
+    it("should insert the configured parent_spacing between archived parent blocks", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      -- Test with different spacing values
+      for _, spacing in ipairs({ 0, 1, 2 }) do
+        -- test setup
+        local file_path = h.create_temp_file()
+        local content = [[
+# Tasks
+- ]] .. unchecked .. [[ Active task
+- ]] .. checked .. [[ Done task A
+  - ]] .. checked .. [[ Done subtask A.1
+- ]] .. checked .. [[ Done task B
+]]
+
+        local bufnr = setup_todo_buffer(file_path, content, { archive = { parent_spacing = spacing } })
+
+        local success = require("checkmate").archive()
+        vim.wait(20)
+        vim.cmd("redraw")
+        assert.equal(true, success, "Archive failed for parent_spacing = " .. spacing)
+
+        -- assertions
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local buffer_content = table.concat(lines, "\n")
+
+        local archive_heading_string = require("checkmate.util").get_heading_string(
+          vim.pesc(config.options.archive.heading.title),
+          config.options.archive.heading.level
+        )
+
+        -- Find the archive section
+        local start_idx = buffer_content:find(archive_heading_string, 1, true)
+        assert.is_not_nil(start_idx)
+        ---@cast start_idx integer
+
+        -- grab everything from the heading to EOF
+        local archive_section = buffer_content:sub(start_idx)
+        local archive_lines = vim.split(archive_section, "\n", { plain = true })
+
+        -- locate the two parent tasks
+        local first_root = "- " .. checked .. " Done task A"
+        local second_root = "- " .. checked .. " Done task B"
+        local first_idx, second_idx
+
+        for idx, l in ipairs(archive_lines) do
+          if l == first_root then
+            first_idx = idx
+          end
+          if l == second_root then
+            second_idx = idx
+          end
+        end
+
+        assert.is_not_nil(first_idx)
+        assert.is_not_nil(second_idx)
+        assert.is_true(second_idx > first_idx)
+
+        -- Count blank lines between the two roots
+        -- We need to count from after the last line of the first block
+        -- (which includes its subtask) to just before the second root
+        local first_block_end = first_idx + 1 -- The subtask is right after the parent
+        local blanks_between = 0
+
+        for i = first_block_end + 1, second_idx - 1 do
+          if archive_lines[i] == "" then
+            blanks_between = blanks_between + 1
+          end
+        end
+
+        assert.equal(
+          spacing,
+          blanks_between,
+          string.format(
+            "For parent_spacing = %d: Expected %d blank lines between parent blocks, got %d",
+            spacing,
+            spacing,
+            blanks_between
+          )
+        )
+
+        finally(function()
+          -- teardown
+          vim.api.nvim_buf_delete(bufnr, { force = true })
+          os.remove(file_path)
+        end)
+      end
+    end)
+  end)
 end)

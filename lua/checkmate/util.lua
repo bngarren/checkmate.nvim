@@ -292,7 +292,7 @@ end
 ---Returns a todo_map table sorted by start row
 ---@generic T: table<string, checkmate.TodoItem>
 ---@param todo_map T
----@return table T
+---@return table<string, checkmate.TodoItem>
 function M.get_sorted_todo_list(todo_map)
   -- Convert map to array of {id, item} pairs
   local todo_list = {}
@@ -390,6 +390,33 @@ function M.get_ts_node_range_string(node)
   end
   local start_row, start_col, end_row, end_col = node:range()
   return ("[%d,%d] → [%d,%d]"):format(start_row, start_col, end_row, end_col)
+end
+
+--- Strip trailing blank (all-whitespace) lines, in-place.
+---@param lines string[]
+---@param max_blank integer max amount of blank lines to allow
+---@return table result the same table for convenience
+function M.strip_trailing_blank_lines(lines, max_blank)
+  -- walk backwards until we meet a non-blank line
+  local last = #lines
+  while last >= 1 and lines[last]:match("^%s*$") do
+    last = last - 1
+  end
+
+  for i = #lines, last + 1 + (max_blank or 0), -1 do
+    lines[i] = nil
+  end
+  return lines
+end
+
+---Build a Markdown heading
+---@param title string text after the hashes
+---@param level? integer 1-6; clamped; defaults to 2
+---@return string
+function M.get_heading_string(title, level)
+  level = tonumber(level) or 2
+  level = math.min(math.max(level, 1), 6)
+  return string.rep("#", level) .. " " .. title
 end
 
 -- Cursor helper

@@ -76,13 +76,15 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---
+---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
 
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -204,6 +206,29 @@ M.ns = vim.api.nvim_create_namespace("checkmate")
 ---E.g. can be used to change the todo item state
 ---@field on_remove fun(todo_item: checkmate.TodoItem)?
 
+-----------------------------------------------------
+
+---@class checkmate.ArchiveSettings
+---
+---Defines the header section for the archived todos
+---@field heading checkmate.ArchiveHeading
+---
+---Number of blank lines between archived todo items (root only)
+---@field parent_spacing integer?
+
+---@class checkmate.ArchiveHeading
+---
+---Name for the archived todos section
+---Default: "Archived"
+---@field title string?
+---
+---The heading level (e.g. #, ##, ###, ####)
+---Integers 1 to 6
+---Default: 2 (##)
+---@field level integer?
+
+-----------------------------------------------------
+
 ---@class checkmate.LinterConfig
 ---
 ---Whether to enable the linter (vim.diagnostics)
@@ -237,6 +262,7 @@ local _DEFAULTS = {
     ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
     ["<leader>Tn"] = "create", -- Create todo item
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
+    ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
   },
   default_list_marker = "-",
   todo_markers = {
@@ -299,6 +325,13 @@ local _DEFAULTS = {
       end,
       sort_order = 30,
     },
+  },
+  archive = {
+    heading = {
+      title = "Archive",
+      level = 2, -- e.g. ##
+    },
+    parent_spacing = 0, -- no extra lines between archived todos
   },
   linter = {
     enabled = true,

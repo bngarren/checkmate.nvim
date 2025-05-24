@@ -1204,7 +1204,7 @@ function M.compute_diff_toggle(items, target_state)
     if todo_item.state ~= item_target_state then
       local patterns, replacement_marker
 
-      if target_state == "checked" then
+      if item_target_state == "checked" then
         patterns = util.build_unicode_todo_patterns(parser.list_item_markers, unchecked_marker)
         replacement_marker = checked_marker
       else
@@ -1213,7 +1213,7 @@ function M.compute_diff_toggle(items, target_state)
       end
 
       log.debug(
-        string.format("Toggle patterns for %s->%s: %s", todo_item.state, target_state, vim.inspect(patterns)),
+        string.format("Toggle patterns for %s->%s: %s", todo_item.state, item_target_state, vim.inspect(patterns)),
         { module = "api" }
       )
       log.debug(string.format("Line to match: %q", original_line), { module = "api" })
@@ -1573,6 +1573,208 @@ function M.apply_diff(bufnr, hunks)
     end
     api.nvim_buf_set_lines(bufnr, h.start, h.start + h.delete, false, h.insert)
   end
+end
+
+-----------------------------------------------------------
+-- Bulk context API
+--[[
+-- What does this solve?
+--  - In the prior version, if an api function operated on multiple todo items then any callbacks were individually run on 
+--  each todo item. E.g. If add_metadata was called on 100 items, then on_add callback (which might call set_todo_item)
+--  was called 100 times, which was terrible for performance.
+--  - Now, these callbacks are queued and deduped, such that the primary api function runs first, all callbacks are queued,
+--  and at the end run in batch 
+--
+--]]
+
+M._bulk_context = {
+  active = false,
+  depth = 0,
+  pending_changes = {},
+  queued_operations = {},
+  post_process_fn = nil,
+}
+
+-- Helper to start a bulk operation
+function M._start_bulk_operation()
+  local ctx = M._bulk_context
+  ctx.active = true
+  ctx.depth = 0
+  ctx.pending_changes = {}
+  ctx.queued_operations = {}
+  ctx.post_process_fn = nil
+end
+
+-- Helper to end bulk operation and process all queued changes
+function M._end_bulk_operation(bufnr)
+  local ctx = M._bulk_context
+  if not ctx.active then
+    return {}
+  end
+
+  local pending_changes = M._bulk_context.pending_changes
+
+  -- Reset context
+  ctx.active = false
+  ctx.depth = 0
+  ctx.pending_changes = {}
+  ctx.queued_operations = {}
+  ctx.post_process_fn = nil
+
+  -- Process the pending changes into hunks
+  if #pending_changes > 0 then
+    return M._process_pending_changes(bufnr, pending_changes)
+  end
+
+  return {}
+end
+
+-- Helper to queue a change during bulk operation
+function M._queue_bulk_change(change)
+  if not M._bulk_context.active then
+    return false
+  end
+
+  -- Create a unique key to prevent duplicate operations
+  local key = string.format(
+    "%s:%d:%d:%s",
+    change.type,
+    change.todo_item.range.start.row,
+    change.todo_item.range.start.col,
+    tostring(change.target_state or change.meta_name or "")
+  )
+
+  -- Avoid queueing duplicate operations
+  if not M._bulk_context.queued_operations[key] then
+    M._bulk_context.queued_operations[key] = true
+    table.insert(M._bulk_context.pending_changes, change)
+  end
+
+  return true
+end
+
+---@param bufnr integer Buffer number
+---@param todo_items checkmate.TodoItem[]
+---@param main_op_fn fun(items: checkmate.TodoItem[]) Function that will perform the operation(computing + applying the initial diff)
+---@param post_process_fn fun()? Called after all changes have been applied (e.g. for highlighting or post-processing)
+function M.with_bulk_context(bufnr, todo_items, main_op_fn, post_process_fn)
+  local api = require("checkmate.api")
+  local ctx = api._bulk_context
+
+  -- Track if we are the outermost caller
+  local is_outermost = not ctx.active
+
+  if is_outermost then
+    ctx.active = true
+    ctx.depth = 1
+    ctx.pending_changes = {}
+    ctx.queued_operations = {}
+    ctx.post_process_fn = post_process_fn
+  else
+    ctx.depth = ctx.depth + 1
+    -- Only allow post_process_fn from the outermost call
+  end
+
+  main_op_fn(todo_items)
+
+  -- Only process queued changes on outermost context exit
+  local bulk_hunks = {}
+  ctx.depth = ctx.depth - 1
+  if is_outermost then
+    ctx.active = false
+    local pending_changes = ctx.pending_changes
+    ctx.pending_changes = {}
+    ctx.queued_operations = {}
+    local fn = ctx.post_process_fn
+    ctx.post_process_fn = nil
+
+    if #pending_changes > 0 then
+      bulk_hunks = api._process_pending_changes(bufnr, pending_changes)
+      if #bulk_hunks > 0 then
+        api.apply_diff(bufnr, bulk_hunks)
+      end
+    end
+
+    -- Run post-processing once at the end
+    if fn then
+      fn()
+    end
+  end
+end
+
+-- Process all pending changes into diff hunks
+function M._process_pending_changes(bufnr, pending_changes)
+  local hunks = {}
+  local changes_by_type = {}
+
+  -- Group changes by type for efficient processing
+  for _, change in ipairs(pending_changes) do
+    changes_by_type[change.type] = changes_by_type[change.type] or {}
+    table.insert(changes_by_type[change.type], change)
+  end
+
+  -- Process toggle state changes
+  if changes_by_type.toggle_state then
+    -- Group by target state
+    local by_state = {}
+    for _, change in ipairs(changes_by_type.toggle_state) do
+      local state = change.target_state
+      by_state[state] = by_state[state] or {}
+      table.insert(by_state[state], change.todo_item)
+    end
+
+    -- Compute diffs for each target state
+    for target_state, items in pairs(by_state) do
+      local state_hunks = M.compute_diff_toggle(items, target_state)
+      for _, hunk in ipairs(state_hunks) do
+        table.insert(hunks, hunk)
+      end
+    end
+  end
+
+  -- Process metadata additions
+  if changes_by_type.add_metadata then
+    -- Group by metadata name and value
+    local by_meta = {}
+    for _, change in ipairs(changes_by_type.add_metadata) do
+      local key = change.meta_name .. "|" .. (change.value or "")
+      by_meta[key] = by_meta[key]
+        or {
+          meta_name = change.meta_name,
+          value = change.value,
+          items = {},
+        }
+      table.insert(by_meta[key].items, change.todo_item)
+    end
+
+    -- Compute diffs
+    for _, meta_group in pairs(by_meta) do
+      local meta_hunks = M.compute_diff_add_metadata(meta_group.items, meta_group.meta_name, meta_group.value)
+      for _, hunk in ipairs(meta_hunks) do
+        table.insert(hunks, hunk)
+      end
+    end
+  end
+
+  -- Process metadata removals
+  if changes_by_type.remove_metadata then
+    -- Group by metadata name
+    local by_meta = {}
+    for _, change in ipairs(changes_by_type.remove_metadata) do
+      by_meta[change.meta_name] = by_meta[change.meta_name] or {}
+      table.insert(by_meta[change.meta_name], change.todo_item)
+    end
+
+    -- Compute diffs
+    for meta_name, items in pairs(by_meta) do
+      local meta_hunks = M.compute_diff_remove_metadata(items, meta_name)
+      for _, hunk in ipairs(meta_hunks) do
+        table.insert(hunks, hunk)
+      end
+    end
+  end
+
+  return hunks
 end
 
 return M

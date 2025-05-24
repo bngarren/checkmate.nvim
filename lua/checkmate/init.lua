@@ -230,11 +230,14 @@ function M.toggle(target_state)
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(is_visual)
-  local hunks = api.compute_diff_toggle(todo_items, target_state)
-  api.apply_diff(bufnr, hunks)
-  require("checkmate.highlights").apply_highlighting(bufnr)
 
-  profiler.stop("M.toggle")
+  api.with_bulk_context(bufnr, todo_items, function(items)
+    local hunks = api.compute_diff_toggle(items, target_state)
+    api.apply_diff(bufnr, hunks)
+  end, function()
+    require("checkmate.highlights").apply_highlighting(bufnr)
+    profiler.stop("M.toggle")
+  end)
   return true
 end
 
@@ -246,10 +249,22 @@ function M.set_todo_item(todo_item, target_state)
     return
   end
   local api = require("checkmate.api")
+
   local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = api.compute_diff_toggle({ todo_item }, target_state)
-  api.apply_diff(bufnr, hunks)
-  require("checkmate.highlights").apply_highlighting(bufnr)
+  api.with_bulk_context(bufnr, { todo_item }, function(items)
+    if api._bulk_context.active then
+      api._queue_bulk_change({
+        type = "toggle_state",
+        todo_item = todo_item,
+        target_state = target_state,
+      })
+    else
+      local hunks = api.compute_diff_toggle(items, target_state)
+      api.apply_diff(bufnr, hunks)
+    end
+  end, function()
+    require("checkmate.highlights").apply_highlighting(bufnr)
+  end)
   return true
 end
 
@@ -292,6 +307,13 @@ function M.add_metadata(metadata_name, value)
     return
   end
 
+  -- Start bulk operation if multiple items
+  local is_bulk = #todo_items > 1
+  if is_bulk then
+    api._start_bulk_operation()
+  end
+
+  -- Apply main operation
   local hunks = api.compute_diff_add_metadata(todo_items, metadata_name, value)
   api.apply_diff(bufnr, hunks)
 
@@ -305,6 +327,14 @@ function M.add_metadata(metadata_name, value)
     -- Handle cursor jump/selection if this is the only item
     if #todo_items == 1 and meta_props.jump_to_on_insert then
       api._handle_metadata_cursor_jump(bufnr, todo_item, metadata_name, meta_props)
+    end
+  end
+
+  -- End bulk operation and apply any queued changes
+  if is_bulk then
+    local bulk_hunks = api._end_bulk_operation(bufnr)
+    if #bulk_hunks > 0 then
+      api.apply_diff(bufnr, bulk_hunks)
     end
   end
 
@@ -334,6 +364,13 @@ function M.remove_metadata(metadata_name)
     end
   end
 
+  -- Start bulk operation if multiple items
+  local is_bulk = #todo_items > 1
+  if is_bulk then
+    api._start_bulk_operation()
+  end
+
+  -- Apply main operation
   local hunks = api.compute_diff_remove_metadata(todo_items, metadata_name)
   api.apply_diff(bufnr, hunks)
 
@@ -344,6 +381,14 @@ function M.remove_metadata(metadata_name)
     local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
     if meta_config.on_remove then
       meta_config.on_remove(item)
+    end
+  end
+
+  -- End bulk operation and apply any queued changes
+  if is_bulk then
+    local bulk_hunks = api._end_bulk_operation(bufnr)
+    if #bulk_hunks > 0 then
+      api.apply_diff(bufnr, bulk_hunks)
     end
   end
 
@@ -382,12 +427,27 @@ function M.remove_all_metadata()
     end
   end
 
+  -- Start bulk operation if multiple items
+  local is_bulk = #todo_items > 1
+  if is_bulk then
+    api._start_bulk_operation()
+  end
+
+  -- Apply main operation
   local hunks = api.compute_diff_remove_all_metadata(todo_items)
   api.apply_diff(bufnr, hunks)
 
   -- Run callbacks
   for _, callback_info in ipairs(callbacks_to_run) do
     callback_info.func(callback_info.item)
+  end
+
+  -- End bulk operation and apply any queued changes
+  if is_bulk then
+    local bulk_hunks = api._end_bulk_operation(bufnr)
+    if #bulk_hunks > 0 then
+      api.apply_diff(bufnr, bulk_hunks)
+    end
   end
 
   require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_all_metadata" })
@@ -423,6 +483,13 @@ function M.toggle_metadata(meta_name, custom_value)
     end
   end
 
+  -- Start bulk operation if multiple items
+  local is_bulk = #todo_items > 1
+  if is_bulk then
+    api._start_bulk_operation()
+  end
+
+  -- Apply main operation
   local hunks = api.compute_diff_toggle_metadata(todo_items, meta_name, custom_value)
   api.apply_diff(bufnr, hunks)
 
@@ -448,6 +515,14 @@ function M.toggle_metadata(meta_name, custom_value)
     -- Handle cursor jump for single item toggle
     if #todo_items == 1 and #items_adding == 1 and meta_config.jump_to_on_insert then
       api._handle_metadata_cursor_jump(bufnr, items_adding[1], meta_name, meta_config)
+    end
+  end
+
+  -- End bulk operation and apply any queued changes
+  if is_bulk then
+    local bulk_hunks = api._end_bulk_operation(bufnr)
+    if #bulk_hunks > 0 then
+      api.apply_diff(bufnr, bulk_hunks)
     end
   end
 

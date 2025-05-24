@@ -1122,6 +1122,10 @@ function M.collect_todo_items_from_selection(is_visual)
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("api.collect_todo_items_from_selection")
+
   local bufnr = vim.api.nvim_get_current_buf()
   local items = {}
   -- Pre-parse all todos once
@@ -1164,6 +1168,8 @@ function M.collect_todo_items_from_selection(is_visual)
       table.insert(items, todo)
     end
   end
+
+  profiler.stop("api.collect_todo_items_from_selection")
 
   return items
 end
@@ -1704,6 +1710,9 @@ end
 
 -- Process all pending changes into diff hunks
 function M._process_pending_changes(bufnr, pending_changes)
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("api._process_pending_changes")
   local hunks = {}
   local changes_by_type = {}
 
@@ -1773,6 +1782,8 @@ function M._process_pending_changes(bufnr, pending_changes)
       end
     end
   end
+
+  profiler.stop("api._process_pending_changes")
 
   return hunks
 end

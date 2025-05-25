@@ -7,7 +7,7 @@
 local M = {}
 
 -- Set to true during development to include debug commands
-local INCLUDE_DEBUG_COMMANDS = false
+local INCLUDE_DEBUG_COMMANDS = true
 
 -- Regular commands that are always available
 ---@type CheckmateCommand[]

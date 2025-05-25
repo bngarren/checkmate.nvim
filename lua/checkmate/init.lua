@@ -422,7 +422,7 @@ end
 
 --- Toggle a metadata tag on/off at the cursor or for each todo in the visual selection
 ---@param meta_name string Name of the metadata tag (defined in the config)
----@param custom_value string Value contained in tag
+---@param custom_value string? (Optional) Value contained in tag. If nil, will attempt to get default value from get_value()
 function M.toggle_metadata(meta_name, custom_value)
   local api = require("checkmate.api")
   local profiler = require("checkmate.profiler")
@@ -483,6 +483,7 @@ function M.toggle_metadata(meta_name, custom_value)
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
   profiler.stop("M.toggle_metadata")
+
   return true
 end
 

@@ -798,12 +798,11 @@ Normal content line (not a todo)]]
       if not todo_item then
         error("missing todo item!")
       end
+      ---@cast todo_item checkmate.TodoItem
 
       -- Apply the metadata
-      local success = require("checkmate.api").apply_metadata(todo_item, {
-        meta_name = "test",
-        custom_value = "test_value",
-      })
+      vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
+      local success = require("checkmate").add_metadata("test", "test_value")
 
       vim.wait(20)
       vim.cmd("redraw")
@@ -817,30 +816,6 @@ Normal content line (not a todo)]]
       -- Verify the metadata was added
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.matches("@test%(test_value%)", lines[3])
-
-      -- Reset the callback flag
-      on_add_called = false
-
-      -- Try to apply metadata to a non-existent todo
-      local fake_todo = {
-        range = { start = { row = 999, col = 0 } },
-        metadata = { entries = {}, by_tag = {} },
-      }
-
-      -- This should fail and the callback should not be called
-      success = require("checkmate.api").apply_metadata(fake_todo, {
-        meta_name = "test",
-        custom_value = "test_value",
-      })
-
-      vim.wait(20)
-      vim.cmd("redraw")
-
-      -- Check that the operation failed
-      assert.is_false(success)
-
-      -- Check that the callback was not called
-      assert.is_false(on_add_called)
 
       finally(function()
         -- Clean up
@@ -891,11 +866,11 @@ Normal content line (not a todo)]]
       if not todo_item then
         error("missing todo item!")
       end
+      ---@cast todo_item checkmate.TodoItem
 
       -- Remove the metadata
-      local success = require("checkmate.api").remove_metadata(todo_item, {
-        meta_name = "test",
-      })
+      vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 }) -- set the cursor on the todo item
+      local success = require("checkmate").remove_metadata("test")
 
       vim.wait(20)
       vim.cmd("redraw")
@@ -910,30 +885,87 @@ Normal content line (not a todo)]]
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.no.matches("@test", lines[3])
 
-      -- Reset the callback flag
-      on_remove_called = false
+      finally(function()
+        -- Clean up
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        os.remove(file_path)
+      end)
+    end)
 
-      -- Try to remove metadata from a non-existent todo
-      local fake_todo = {
-        range = { start = { row = 999, col = 0 } },
-        metadata = { entries = {}, by_tag = {} },
-      }
+    it("should apply metadata with on_add callback to all todos in bulk (normal and visual mode)", function()
+      local config = require("checkmate.config")
+      local api = require("checkmate.api")
 
-      -- This should fail and the callback should not be called
-      success = require("checkmate.api").remove_metadata(fake_todo, {
-        meta_name = "test",
+      local unchecked = config.options.todo_markers.unchecked
+
+      -- Create a test todo file with many todos
+      local total_todos = 30
+      local file_path = h.create_temp_file()
+
+      -- Generate content: N todos, each on its own line
+      local todo_lines = {}
+      for i = 1, total_todos do
+        table.insert(todo_lines, "- " .. unchecked .. " Bulk task " .. i)
+      end
+      local content = "# Bulk Metadata Test\n\n" .. table.concat(todo_lines, "\n")
+
+      local on_add_calls = {}
+
+      -- Register the metadata tag with a callback that tracks which todos are affected
+      local bufnr = nil
+      bufnr = setup_todo_buffer(file_path, content, {
+        metadata = {
+          ---@diagnostic disable-next-line: missing-fields
+          bulk = {
+            on_add = function(todo_item)
+              -- Record the todo's line (1-based)
+              table.insert(on_add_calls, todo_item.range.start.row + 1)
+            end,
+            select_on_insert = false,
+          },
+        },
       })
 
+      -- ========== NORMAL MODE BULK TOGGLE ==========
+      -- Cursor at first todo; normal mode; toggle_metadata should apply to all todos
+      vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- First todo line (after 2 header lines)
+      on_add_calls = {}
+      require("checkmate").toggle_metadata("bulk")
       vim.wait(20)
       vim.cmd("redraw")
 
-      -- Check that the operation failed
-      assert.is_false(success)
-      -- Check that the callback was not called
-      assert.is_false(on_remove_called)
+      -- Assert: callback fired once for todo with added metadata
+      assert.equal(1, #on_add_calls, "on_add should be called once")
+
+      -- Remove all metadata for next test (reset state)
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      require("checkmate").remove_metadata("bulk")
+      vim.wait(10)
+      vim.cmd("redraw")
+
+      -- ========== VISUAL MODE BULK TOGGLE ==========
+      -- Select all todos visually, then apply toggle_metadata again
+      -- Move to first todo
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      vim.cmd("normal! V")
+      -- Extend to last todo line
+      vim.api.nvim_win_set_cursor(0, { 2 + total_todos, 0 })
+      on_add_calls = {}
+      require("checkmate").toggle_metadata("bulk")
+      vim.cmd("normal! \27") -- Exit visual mode
+      vim.wait(20)
+      vim.cmd("redraw")
+
+      -- Assert: callback fired once per selected todo (should be all)
+      assert.equal(total_todos, #on_add_calls, "on_add should be called for every visually-selected todo")
+      -- Each line should have metadata
+      for i = 3, 2 + total_todos do
+        local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1]
+        assert.matches("@bulk", line)
+      end
 
       finally(function()
-        -- Clean up
+        vim.cmd("normal! \27") -- Ensure normal mode
         vim.api.nvim_buf_delete(bufnr, { force = true })
         os.remove(file_path)
       end)

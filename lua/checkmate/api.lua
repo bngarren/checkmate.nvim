@@ -130,36 +130,31 @@ function M.setup_keymaps(bufnr)
 
   for key, action_name in pairs(keys) do
     -- Skip if mapping is explicitly disabled with false
-    if action_name == false then
-      goto continue
-    end
+    if action_name ~= false then
+      -- Check if action exists
+      local action = actions[action_name]
+      if action then
+        -- Get description from commands module
+        local base_desc = command_descs[action.command] or "Checkmate action"
 
-    -- Check if action exists
-    local action = actions[action_name]
-    if not action then
-      log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
-      goto continue
-    end
+        -- Map for each supported mode
+        for _, mode in ipairs(action.modes) do
+          local mode_desc = base_desc
+          if mode == "v" then
+            mode_desc = mode_desc .. " (visual)"
+          end
 
-    -- Get description from commands module
-    local base_desc = command_descs[action.command] or "Checkmate action"
-
-    -- Map for each supported mode
-    for _, mode in ipairs(action.modes) do
-      local mode_desc = base_desc
-      if mode == "v" then
-        mode_desc = mode_desc .. " (visual)"
+          log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "api" })
+          vim.api.nvim_buf_set_keymap(bufnr, mode, key, string.format("<cmd>%s<CR>", action.command), {
+            noremap = true,
+            silent = true,
+            desc = mode_desc,
+          })
+        end
+      else
+        log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
       end
-
-      log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "api" })
-      vim.api.nvim_buf_set_keymap(bufnr, mode, key, string.format("<cmd>%s<CR>", action.command), {
-        noremap = true,
-        silent = true,
-        desc = mode_desc,
-      })
     end
-
-    ::continue::
   end
 
   -- Setup metadata keymaps
@@ -491,331 +486,6 @@ function M.rebuild_line_with_sorted_metadata(line, metadata)
 
   log.debug("Rebuilt line with sorted metadata: " .. result_line, { module = "parser" })
   return result_line
-end
-
--- Function to apply metadata to a single todo item
----@param todo_item checkmate.TodoItem The todo item to modify
----@param opts {meta_name: string, custom_value: string?}
----@return boolean success Whether the operation succeeded
-function M.apply_metadata(todo_item, opts)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  if not todo_item then
-    return false
-  end
-
-  -- Get the metadata config
-  local meta_name = opts.meta_name
-  local meta_config = config.options.metadata[meta_name]
-  if not meta_config then
-    log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
-    return false
-  end
-
-  -- Get the first line of the todo item (where metadata should be added)
-  local todo_row = todo_item.range.start.row
-  local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
-
-  -- This is an error if the todo_item passed in doesn't have a legit line in the buffer...
-  if not line or #line == 0 then
-    return false
-  end
-
-  -- Determine the value to insert
-  local value = opts.custom_value
-  if not value and meta_config.get_value then
-    value = meta_config.get_value()
-    -- trim whitespace
-    value = value:gsub("^%s+", ""):gsub("%s+$", "")
-  elseif not value then
-    value = ""
-  end
-
-  -- Check if this metadata already exists in the line
-  local existing_entry = todo_item.metadata.by_tag[meta_name]
-
-  -- Create an updated metadata structure
-  local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-  if existing_entry then
-    -- Update existing entry
-    for i, entry in ipairs(updated_metadata.entries) do
-      if entry.tag == existing_entry.tag then
-        updated_metadata.entries[i].value = value
-        break
-      end
-    end
-    updated_metadata.by_tag[meta_name].value = value
-    log.debug("Updated existing metadata: " .. meta_name, { module = "api" })
-  else
-    -- Add new entry
-    ---@type checkmate.MetadataEntry
-    local new_entry = {
-      tag = meta_name,
-      value = value,
-      range = {
-        start = { row = todo_row, col = #line }, -- Will be at end of line
-        ["end"] = { row = todo_row, col = #line + #meta_name + #value + 3 }, -- +3 for "@()"
-      },
-      position_in_line = #line + 1, -- Will be added at the end
-    }
-    table.insert(updated_metadata.entries, new_entry)
-    updated_metadata.by_tag[meta_name] = new_entry
-    log.debug("Added new metadata: " .. meta_name, { module = "api" })
-  end
-
-  -- Rebuild the line with sorted metadata
-  local new_line = M.rebuild_line_with_sorted_metadata(line, updated_metadata)
-
-  -- Update the line
-  vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
-
-  -- Jump the cursor, if enabled
-  ---@type "tag" | "value" | false
-  local jump_to = meta_config.jump_to_on_insert or false
-
-  if jump_to ~= false then
-    local updated_line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
-    local tag_position = updated_line:find("@" .. meta_name .. "%(")
-    local value_position = tag_position and updated_line:find("%(", tag_position) + 1 or nil
-
-    -- ensure cursor movement happens after buffer update is complete
-    vim.schedule(function()
-      -- Safety checks before trying to set cursor position
-      local win = vim.api.nvim_get_current_win()
-
-      if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
-        -- First set cursor position based on jump_to setting
-        if jump_to == "tag" and tag_position then
-          vim.api.nvim_win_set_cursor(0, { todo_row + 1, tag_position - 1 })
-
-          -- Select the tag if enabled
-          if meta_config.select_on_insert then
-            -- Force normal mode first
-            vim.cmd("stopinsert")
-            -- Select the tag text (without the @ symbol)
-            vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
-          end
-        elseif jump_to == "value" and value_position then
-          vim.api.nvim_win_set_cursor(0, { todo_row + 1, value_position - 1 })
-
-          if meta_config.select_on_insert then
-            -- Force normal mode first
-            vim.cmd("stopinsert")
-
-            local closing_paren = updated_line:find(")", value_position)
-            if closing_paren and closing_paren > value_position then
-              -- Select everything between value_position and closing_paren-1
-              local selection_length = closing_paren - value_position
-              if selection_length > 0 then
-                -- Start visual mode and select the content
-                vim.cmd("normal! v" .. string.rep("l", selection_length - 1))
-              end
-            end
-          end
-        end
-      end
-    end)
-  end
-
-  -- Call the on_add callback after successful operation
-  if meta_config.on_add then
-    meta_config.on_add(todo_item)
-  end
-
-  return true
-end
-
--- Function to remove metadata from a single todo item
----@param todo_item checkmate.TodoItem The todo item to modify
----@param opts {meta_name: string}
----@return boolean success Whether the operation succeeded
-function M.remove_metadata(todo_item, opts)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  if not todo_item then
-    return false
-  end
-
-  local meta_name = opts.meta_name
-  -- Check if metadata exists
-  local entry = todo_item.metadata.by_tag[meta_name]
-  if not entry then
-    -- Check for aliases
-    for canonical, props in pairs(config.options.metadata) do
-      for _, alias in ipairs(props.aliases or {}) do
-        if alias == meta_name then
-          entry = todo_item.metadata.by_tag[canonical]
-          break
-        end
-      end
-      if entry then
-        break
-      end
-    end
-  end
-
-  if entry then
-    local todo_row = todo_item.range.start.row
-    local line = vim.api.nvim_buf_get_lines(bufnr, todo_row, todo_row + 1, false)[1]
-
-    -- This is an error if the todo_item passed in doesn't have a legit line in the buffer...
-    if not line or #line == 0 then
-      return false
-    end
-
-    -- Create updated metadata structure
-    local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-    -- Remove from entries
-    for i = #updated_metadata.entries, 1, -1 do
-      if updated_metadata.entries[i].tag == entry.tag then
-        table.remove(updated_metadata.entries, i)
-        break
-      end
-    end
-
-    -- Remove from by_tag
-    updated_metadata.by_tag[entry.tag] = nil
-    if entry.alias_for then
-      updated_metadata.by_tag[entry.alias_for] = nil
-    end
-
-    -- Rebuild the line with sorted metadata
-    local new_line = M.rebuild_line_with_sorted_metadata(line, updated_metadata)
-
-    -- Update the line
-    vim.api.nvim_buf_set_lines(bufnr, todo_row, todo_row + 1, false, { new_line })
-
-    -- Call the on_remove callback if successful
-    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-    if meta_config.on_remove then
-      meta_config.on_remove(todo_item)
-    end
-
-    require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "remove_metadata" })
-
-    log.debug("Removed metadata: " .. entry.tag, { module = "api" })
-    return true
-  end
-
-  return false
-end
-
--- Function to toggle metadata on a single todo item
----@param todo_item checkmate.TodoItem The todo item to modify
----@param opts {meta_name: string, custom_value: string?}
----@return boolean success Whether the operation succeeded
-function M.toggle_metadata(todo_item, opts)
-  local log = require("checkmate.log")
-
-  if not todo_item then
-    return false
-  end
-
-  local meta_name = opts.meta_name
-  local custom_value = opts.custom_value
-
-  -- Check if metadata exists (directly or via alias)
-  local entry = todo_item.metadata.by_tag[meta_name]
-  local canonical_name = meta_name
-
-  -- Check for aliases
-  if not entry then
-    for c_name, props in pairs(require("checkmate.config").options.metadata) do
-      if c_name == meta_name then
-        break -- Already using canonical name
-      end
-
-      for _, alias in ipairs(props.aliases or {}) do
-        if alias == meta_name then
-          entry = todo_item.metadata.by_tag[c_name]
-          canonical_name = c_name
-          break
-        end
-      end
-      if entry then
-        break
-      end
-    end
-  end
-
-  -- Toggle action
-  if entry then
-    -- It exists, remove it
-    log.debug("Toggling OFF metadata: " .. canonical_name, { module = "api" })
-    return M.remove_metadata(todo_item, { meta_name = canonical_name })
-  else
-    -- It doesn't exist, add it
-    log.debug("Toggling ON metadata: " .. canonical_name, { module = "api" })
-    return M.apply_metadata(todo_item, {
-      meta_name = canonical_name,
-      custom_value = custom_value,
-    })
-  end
-end
-
----Removes all metadata from a todo item
----@param todo_item checkmate.TodoItem
----@return boolean: Success
-function M.remove_all_metadata(todo_item)
-  if not todo_item then
-    return false
-  end
-
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  -- Store the callbacks to run after successful operation
-  local callbacks = {}
-
-  -- Collect the callbacks, but don't run them yet
-  for _, entry in ipairs(todo_item.metadata.entries) do
-    local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-    if meta_config.on_remove then
-      table.insert(callbacks, {
-        tag = entry.tag,
-        func = meta_config.on_remove,
-      })
-    end
-  end
-
-  todo_item.metadata.entries = {}
-  todo_item.metadata.by_tag = {}
-
-  local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-  local row = todo_item.range.start.row
-
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
-
-  -- Rebuild the line with sorted metadata
-  local new_line = M.rebuild_line_with_sorted_metadata(line, updated_metadata)
-
-  -- Update the line
-  vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
-
-  -- Run all callbacks after successful update
-  for _, item in ipairs(callbacks) do
-    log.debug(
-      ("running on_remove callback for metadata %s on todo_item on row %d"):format(
-        item.tag,
-        todo_item.range.start.row + 1
-      )
-    )
-    item.func(todo_item)
-  end
-
-  log.debug("Removed all metadata from todo item on row " .. row + 1, { module = "api" })
-
-  return true
 end
 
 --- Count completed and total child todos for a todo item
@@ -1585,7 +1255,7 @@ end
 -- Bulk context API
 --[[
 -- What does this solve?
---  - In the prior version, if an api function operated on multiple todo items then any callbacks were individually run on 
+--  - In the prior version, if an api function operated on multiple todo items, callbacks were individually run on 
 --  each todo item. E.g. If add_metadata was called on 100 items, then on_add callback (which might call set_todo_item)
 --  was called 100 times, which was terrible for performance.
 --  - Now, these callbacks are queued and deduped, such that the primary api function runs first, all callbacks are queued,
@@ -1598,7 +1268,7 @@ M._bulk_context = {
   depth = 0,
   pending_changes = {},
   queued_operations = {},
-  post_process_fn = nil,
+  post_process_fn = nil, -- will run once after all queued_operations complete
 }
 
 -- Helper to start a bulk operation

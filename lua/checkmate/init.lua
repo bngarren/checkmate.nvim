@@ -224,44 +224,65 @@ end
 ---@param target_state? checkmate.TodoItemState Optional target state ("checked" or "unchecked")
 function M.toggle(target_state)
   local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+  local highlights = require("checkmate.highlights")
+
   local profiler = require("checkmate.profiler")
   profiler.start("M.toggle")
 
-  local is_visual = require("checkmate.util").is_visual_mode()
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    -- If toggle() is run within an existing transaction, we will use the cursor position
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    if todo_item then
+      ctx.add_op(api.toggle_state, todo_item.id, target_state)
+    end
+    profiler.stop("M.toggle")
+    return true
+  end
+
+  local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(is_visual)
 
-  api.with_bulk_context(bufnr, todo_items, function(items)
-    local hunks = api.compute_diff_toggle(items, target_state)
-    api.apply_diff(bufnr, hunks)
+  transaction.run(bufnr, function(_ctx)
+    for _, item in ipairs(todo_items) do
+      _ctx.add_op(api.toggle_state, item.id, target_state)
+    end
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    highlights.apply_highlighting(bufnr)
   end)
   profiler.stop("M.toggle")
   return true
 end
 
 ---Sets a given todo item to a specific state
----@param todo_item checkmate.TodoItem
+---@param todo_item checkmate.TodoItem Todo item to set state
 ---@param target_state checkmate.TodoItemState
 function M.set_todo_item(todo_item, target_state)
-  if not todo_item or todo_item.state == target_state then
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+
+  if not todo_item then
     return
   end
-  local api = require("checkmate.api")
+  local todo_id = todo_item.id
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    ctx.add_op(api.set_todo_item, todo_id, target_state)
+    return true
+  end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  api.with_bulk_context(bufnr, { todo_item }, function(items)
-    if api._bulk_context.active then
-      api._queue_bulk_change({
-        type = "toggle_state",
-        todo_item = todo_item,
-        target_state = target_state,
-      })
-    else
-      local hunks = api.compute_diff_toggle(items, target_state)
-      api.apply_diff(bufnr, hunks)
-    end
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.set_todo_item, todo_id, target_state)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -288,6 +309,7 @@ end
 ---@param value string? Value contained in the tag
 function M.add_metadata(metadata_name, value)
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
 
@@ -295,6 +317,20 @@ function M.add_metadata(metadata_name, value)
   if not meta_props then
     util.notify("Unknown metadata tag: " .. metadata_name, vim.log.levels.WARN)
     return
+  end
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    -- If add_metadata() is run within an existing transaction, we will use the cursor position
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    if todo_item then
+      ctx.add_op(api.add_metadata, todo_item.id, metadata_name, value)
+    end
+    return true
   end
 
   local is_visual = util.is_visual_mode()
@@ -307,25 +343,19 @@ function M.add_metadata(metadata_name, value)
     return
   end
 
-  api.with_bulk_context(bufnr, todo_items, function(items)
-    -- Apply main operation
-    local hunks = api.compute_diff_add_metadata(items, metadata_name, value)
-    api.apply_diff(bufnr, hunks)
-
-    -- Handle callbacks and cursor operations
-    for _, todo_item in ipairs(todo_items) do
-      -- Call on_add callback if defined
-      if meta_props.on_add then
-        meta_props.on_add(todo_item)
-      end
-
-      -- Handle cursor jump/selection if this is the only item
-      if #todo_items == 1 and meta_props.jump_to_on_insert then
-        api._handle_metadata_cursor_jump(bufnr, todo_item, metadata_name, meta_props)
-      end
+  -- Begin a transaction
+  transaction.run(bufnr, function(_ctx)
+    for _, item in ipairs(todo_items) do
+      _ctx.add_op(api.add_metadata, item.id, metadata_name, value)
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
+
+    -- Handle cursor jump if configured
+    if #todo_items == 1 and meta_props.jump_to_on_insert then
+      local item = todo_items[1]
+      api._handle_metadata_cursor_jump(bufnr, item, metadata_name, meta_props)
+    end
   end)
   return true
 end
@@ -334,6 +364,22 @@ end
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    -- If remove_metadata() is run within an existing transaction, we will use the cursor position
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    if todo_item then
+      ctx.add_op(api.remove_metadata, todo_item.id, metadata_name)
+    end
+    return true
+  end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
@@ -341,31 +387,13 @@ function M.remove_metadata(metadata_name)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
-    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
     return
   end
 
-  -- Store items that have the metadata for callbacks
-  local items_with_metadata = {}
-  for _, item in ipairs(todo_items) do
-    if item.metadata.by_tag[metadata_name] then
-      table.insert(items_with_metadata, item)
-    end
-  end
-
-  api.with_bulk_context(bufnr, todo_items, function(items)
-    -- Apply main operation
-    local hunks = api.compute_diff_remove_metadata(items, metadata_name)
-    api.apply_diff(bufnr, hunks)
-
-    -- Handle callbacks
-    local config = require("checkmate.config")
-    for _, item in ipairs(items_with_metadata) do
-      local entry = item.metadata.by_tag[metadata_name]
-      local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-      if meta_config.on_remove then
-        meta_config.on_remove(item)
-      end
+  transaction.run(bufnr, function(_ctx)
+    for _, item in ipairs(todo_items) do
+      _ctx.add_op(api.remove_metadata, item.id, metadata_name)
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
@@ -375,6 +403,22 @@ end
 
 function M.remove_all_metadata()
   local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    -- If remove_all_metadata() is run within an existing transaction, we will use the cursor position
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    if todo_item then
+      ctx.add_op(api.remove_all_metadata, todo_item.id)
+    end
+    return true
+  end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
@@ -382,37 +426,13 @@ function M.remove_all_metadata()
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
-    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
     return
   end
 
-  -- Collect callbacks before applying diff
-  local callbacks_to_run = {}
-  local config = require("checkmate.config")
-
-  for _, todo_item in ipairs(todo_items) do
-    if todo_item.metadata and todo_item.metadata.entries then
-      for _, entry in ipairs(todo_item.metadata.entries) do
-        local meta_config = config.options.metadata[entry.tag] or config.options.metadata[entry.alias_for] or {}
-        if meta_config.on_remove then
-          table.insert(callbacks_to_run, {
-            func = meta_config.on_remove,
-            item = todo_item,
-            tag = entry.tag,
-          })
-        end
-      end
-    end
-  end
-
-  api.with_bulk_context(bufnr, todo_items, function(items)
-    -- Apply main operation
-    local hunks = api.compute_diff_remove_all_metadata(items)
-    api.apply_diff(bufnr, hunks)
-
-    -- Run callbacks
-    for _, callback_info in ipairs(callbacks_to_run) do
-      callback_info.func(callback_info.item)
+  transaction.run(bufnr, function(_ctx)
+    for _, item in ipairs(todo_items) do
+      _ctx.add_op(api.remove_all_metadata, item.id)
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
@@ -425,8 +445,26 @@ end
 ---@param custom_value string? (Optional) Value contained in tag. If nil, will attempt to get default value from get_value()
 function M.toggle_metadata(meta_name, custom_value)
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local util = require("checkmate.util")
   local profiler = require("checkmate.profiler")
+
   profiler.start("M.toggle_metadata")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- Queue the operation in the current transaction
+    -- If toggle_metadata() is run within an existing transaction, we will use the cursor position
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    if todo_item then
+      ctx.add_op(api.toggle_metadata, todo_item.id, meta_name, custom_value)
+    end
+    profiler.stop("M.toggle_metadata")
+    return true
+  end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
@@ -434,56 +472,19 @@ function M.toggle_metadata(meta_name, custom_value)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
-    require("checkmate.util").notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
     return
   end
 
-  -- Track which items are getting metadata added vs removed for callbacks
-  local items_adding = {}
-  local items_removing = {}
-
-  for _, item in ipairs(todo_items) do
-    if item.metadata.by_tag[meta_name] then
-      table.insert(items_removing, item)
-    else
-      table.insert(items_adding, item)
-    end
-  end
-
-  api.with_bulk_context(bufnr, todo_items, function(items)
-    -- Apply main operation
-    local hunks = api.compute_diff_toggle_metadata(items, meta_name, custom_value)
-    api.apply_diff(bufnr, hunks)
-
-    -- Handle callbacks
-    local config = require("checkmate.config")
-    local meta_config = config.options.metadata[meta_name]
-
-    if meta_config then
-      -- Run on_remove callbacks
-      if meta_config.on_remove then
-        for _, item in ipairs(items_removing) do
-          meta_config.on_remove(item)
-        end
-      end
-
-      -- Run on_add callbacks
-      if meta_config.on_add then
-        for _, item in ipairs(items_adding) do
-          meta_config.on_add(item)
-        end
-      end
-
-      -- Handle cursor jump for single item toggle
-      if #todo_items == 1 and #items_adding == 1 and meta_config.jump_to_on_insert then
-        api._handle_metadata_cursor_jump(bufnr, items_adding[1], meta_name, meta_config)
-      end
+  transaction.run(bufnr, function(_ctx)
+    for _, item in ipairs(todo_items) do
+      _ctx.add_op(api.toggle_metadata, item.id, meta_name, custom_value)
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
-  profiler.stop("M.toggle_metadata")
 
+  profiler.stop("M.toggle_metadata")
   return true
 end
 
@@ -580,6 +581,7 @@ function M.debug_at_cursor()
   local msg = {
     ("Debug called at (0-index): %s:%s"):format(row, col),
     "Todo item at cursor:",
+    ("  ID: %s"):format(item.id),
     ("  State: %s"):format(item.state),
     ("  List marker: [%s]"):format(util.get_ts_node_range_string(item.list_marker.node)),
     ("  Todo marker: [%d,%d] → %s"):format(

@@ -290,9 +290,9 @@ function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
 end
 
 ---Returns a todo_map table sorted by start row
----@generic T: table<string, checkmate.TodoItem>
+---@generic T: table<integer, checkmate.TodoItem>
 ---@param todo_map T
----@return table<string, checkmate.TodoItem>
+---@return table<integer, checkmate.TodoItem>
 function M.get_sorted_todo_list(todo_map)
   -- Convert map to array of {id, item} pairs
   local todo_list = {}
@@ -417,6 +417,22 @@ function M.get_heading_string(title, level)
   level = tonumber(level) or 2
   level = math.min(math.max(level, 1), 6)
   return string.rep("#", level) .. " " .. title
+end
+
+---Returns the lines that encompass the given buffer rows
+---@param bufnr integer Buffer number
+---@param rows integer[] Rows that should be included
+---@return string[] lines String array of lines from the buffer that include the min and max row
+function M.get_buffer_lines(bufnr, rows)
+  local min_row = math.min(unpack(rows))
+  local max_row = math.max(unpack(rows))
+  local bulk_lines = vim.api.nvim_buf_get_lines(bufnr, min_row, max_row + 1, false)
+
+  local lines = {}
+  for _, row in ipairs(rows) do
+    lines[row] = bulk_lines[row - min_row + 1]
+  end
+  return lines
 end
 
 -- Cursor helper

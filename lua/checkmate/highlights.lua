@@ -174,7 +174,7 @@ function M.setup_highlights()
 end
 
 ---@class ApplyHighlightingOpts
----@field todo_map table<string, checkmate.TodoItem>? Will use this todo_map instead of running discover_todos
+---@field todo_map table<integer, checkmate.TodoItem>? Will use this todo_map instead of running discover_todos
 ---@field debug_reason string? Reason for call (to help debug why highlighting update was called)
 
 --- TODO: This redraws all highlights and can be expensive for large files.

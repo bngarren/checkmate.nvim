@@ -4,6 +4,7 @@ local M = {}
 
 -- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
+M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 ---Checkmate configuration

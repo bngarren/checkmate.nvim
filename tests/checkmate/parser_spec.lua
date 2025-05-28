@@ -295,7 +295,7 @@ describe("Parser", function()
       local level5_todo = find_todo_by_text(todo_map, "Level 5 todo")
       assert.is_not_nil(level5_todo)
       ---@cast level5_todo checkmate.TodoItem
-      assert.equal(level4_todo.node:id(), level5_todo.parent_id)
+      assert.equal(level4_todo.id, level5_todo.parent_id)
       -- verify expected TS nodes above it
       assert.equal("list_item", level5_todo.node:parent():parent():type())
       assert.equal("list", level5_todo.node:parent():type())
@@ -313,14 +313,14 @@ describe("Parser", function()
       assert.is_not_nil(another_level2)
       ---@cast another_level2 checkmate.TodoItem
 
-      assert.equal(level1_todo.node:id(), tab_indent.parent_id)
-      assert.equal(tab_indent.node:id(), double_tab.parent_id)
+      assert.equal(level1_todo.id, tab_indent.parent_id)
+      assert.equal(tab_indent.id, double_tab.parent_id)
 
       -- Verify unusual hierarchy jump (top level to level 3)
       local unusual = find_todo_by_text(todo_map, "Direct jump to Level 3")
       assert.is_not_nil(unusual)
       ---@cast unusual checkmate.TodoItem
-      assert.equal(another_top.node:id(), unusual.parent_id)
+      assert.equal(another_top.id, unusual.parent_id)
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
@@ -372,14 +372,10 @@ describe("Parser", function()
       assert.equal(2, #ordered_parent.children)
 
       -- Verify mixed list marker relationships
-      assert.equal(
-        parent_dash.node:id(),
-        child_asterisk.parent_id,
-        "Child with asterisk should be child of parent with dash"
-      )
-      assert.equal(parent_dash.node:id(), child_plus.parent_id)
-      assert.equal(ordered_parent.node:id(), ordered_child.parent_id, "Ordered child should be child of ordered parent")
-      assert.equal(ordered_parent.node:id(), mixed_child.parent_id, "Unordered child should be child of ordered parent")
+      assert.equal(parent_dash.id, child_asterisk.parent_id, "Child with asterisk should be child of parent with dash")
+      assert.equal(parent_dash.id, child_plus.parent_id)
+      assert.equal(ordered_parent.id, ordered_child.parent_id, "Ordered child should be child of ordered parent")
+      assert.equal(ordered_parent.id, mixed_child.parent_id, "Unordered child should be child of ordered parent")
 
       -- Verify list marker type is correctly detected
       assert.equal("unordered", parent_dash.list_marker.type)
@@ -435,8 +431,8 @@ Line that should not affect parent-child relationship
 
       -- Verify parent-child with content in between
       assert.equal(2, #parent_todo.children)
-      assert.equal(parent_todo.node:id(), checked_child.parent_id)
-      assert.equal(parent_todo.node:id(), unchecked_child.parent_id)
+      assert.equal(parent_todo.id, checked_child.parent_id)
+      assert.equal(parent_todo.id, unchecked_child.parent_id)
 
       -- Verify checked state is maintained in hierarchy
       assert.equal("unchecked", parent_todo.state)
@@ -999,7 +995,7 @@ Line that should not affect parent-child relationship
       local child = todo_map[child_id]
 
       assert.is_not_nil(child)
-      assert.equal(section3_todo2.node:id(), child.parent_id)
+      assert.equal(section3_todo2.id, child.parent_id)
 
       -- Spot check some selected todos to ensure they all have valid ranges
       local count = 0

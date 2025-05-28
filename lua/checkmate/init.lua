@@ -350,12 +350,6 @@ function M.add_metadata(metadata_name, value)
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
-
-    -- Handle cursor jump if configured
-    if #todo_items == 1 and meta_props.jump_to_on_insert then
-      local item = todo_items[1]
-      api._handle_metadata_cursor_jump(bufnr, item, metadata_name, meta_props)
-    end
   end)
   return true
 end

@@ -487,12 +487,13 @@ function M.discover_todos(bufnr)
       -- Find marker position
       local marker_row = start_row
       local marker_col = 0
-      local todo_marker_pos = first_line:find(todo_marker, 1, true)
-      if todo_marker_pos then
-        marker_col = todo_marker_pos - 1 -- Adjust for 0-indexing
+      local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
+      if todo_marker_byte_pos then
+        -- Convert byte position to 0 indexed
+        marker_col = todo_marker_byte_pos - 1
       end
 
-      local extmark_col = 0
+      local extmark_col = marker_col
 
       -- Try to reuse existing extmark or create new one
       local pos_key = marker_row .. ":" .. extmark_col
@@ -750,6 +751,7 @@ end
 function M.extract_metadata(line, row)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
+  local util = require("checkmate.util")
 
   ---@type checkmate.TodoMetadata
   local metadata = {
@@ -760,11 +762,11 @@ function M.extract_metadata(line, row)
   local tag_value_pattern = "@([%a][%w_%-]*)%(%s*(.-)%s*%)"
 
   -- Find all @tag(value) patterns and their positions
-  local pos = 1
+  local byte_pos = 1
   while true do
     -- Will capture tag names that include underscores and hypens
-    local tag_start, tag_end, tag, value = line:find(tag_value_pattern, pos)
-    if not tag_start or not tag_end then
+    local tag_start_byte, tag_end_byte, tag, value = line:find(tag_value_pattern, byte_pos)
+    if not tag_start_byte or not tag_end_byte then
       break
     end
 
@@ -774,13 +776,13 @@ function M.extract_metadata(line, row)
       tag = tag,
       value = value,
       range = {
-        start = { row = row, col = tag_start - 1 }, -- 0-indexed column
+        start = { row = row, col = tag_start_byte - 1 }, -- 0-indexed column
         -- For the end col, we need 0 indexed (subtract 1) and since it is end-exclusive we add 1, cancelling out
         -- end-exclusive means the end col points to the pos after the last char
-        ["end"] = { row = row, col = tag_end },
+        ["end"] = { row = row, col = tag_end_byte },
       },
       alias_for = nil, -- Will be set later if it's an alias
-      position_in_line = tag_start, -- track original position in the line
+      position_in_line = tag_start_byte, -- track original position in the line, use byte pos for sorting
     }
 
     -- Check if this is an alias and map to canonical name
@@ -815,10 +817,10 @@ function M.extract_metadata(line, row)
     end
 
     -- Move position for next search
-    pos = tag_end + 1
+    byte_pos = tag_end_byte + 1
 
     log.debug(
-      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, tag_start - 1, row, tag_end),
+      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, tag_start_byte - 1, row, tag_end_byte),
       { module = "parser" }
     )
   end

@@ -435,6 +435,59 @@ function M.get_buffer_lines(bufnr, rows)
   return lines
 end
 
+--- Convert character position to byte position in a line
+---
+--- IMPORTANT: This function expects 0-based character position and returns 0-based byte position.
+--- Neovim APIs typically use 0-based byte positions for buffer operations.
+---
+--- @param line string The line content (UTF-8 encoded)
+--- @param char_col integer Character column (0-indexed)
+--- @return integer byte_col Byte column (0-indexed)
+function M.char_to_byte_col(line, char_col)
+  if char_col == 0 then
+    return 0
+  end
+
+  -- vim.fn.byteidx expects 0-based character index and returns 0-based byte index
+  local byte_idx = vim.fn.byteidx(line, char_col)
+
+  -- byteidx returns -1 if char_col is out of range
+  if byte_idx == -1 then
+    return #line
+  end
+
+  return byte_idx
+end
+
+--- Convert byte position to character position in a line
+---
+--- This function handles UTF-8 encoded strings where a single character may
+--- occupy multiple bytes.
+---
+--- @param line string The line content (UTF-8 encoded)
+--- @param byte_col integer Byte column (0-indexed)
+--- @return integer char_col Character column (0-indexed)
+function M.byte_to_char_col(line, byte_col)
+  if byte_col == 0 then
+    return 0
+  end
+
+  -- Clamp byte_col to valid range
+  if byte_col > #line then
+    byte_col = #line
+  end
+
+  -- vim.fn.charidx expects 0-based byte index and returns 0-based character index
+  local char_idx = vim.fn.charidx(line, byte_col)
+
+  -- charidx returns -1 if byte_col is out of range (shouldn't happen with our clamp)
+  if char_idx == -1 then
+    return vim.fn.strchars(line)
+  end
+
+  return char_idx
+end
+
 -- Cursor helper
 M.Cursor = {}
 

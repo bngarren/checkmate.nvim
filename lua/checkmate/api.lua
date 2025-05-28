@@ -1,5 +1,17 @@
 ---Internal buffer operations API - not for public use
 ---For public API, see checkmate.init module
+
+--[[
+INDEXING CONVENTIONS:
+- All row/col positions stored in data structures are 0-based byte positions
+- string.find() returns 1-based positions - always subtract 1
+- nvim_buf_set_text uses 0-based byte positions
+- nvim_buf_set_extmark uses 0-based byte positions
+- nvim_win_set_cursor uses 1-based row, 0-based byte column
+- Ranges are end-exclusive (like Treesitter)
+- Always use byte positions internally, only convert to char positions when absolutely necessary
+--]]
+
 ---@class checkmate.Api
 local M = {}
 
@@ -494,7 +506,7 @@ end
 
 --- Count completed and total child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
----@param todo_map table<string, checkmate.TodoItem> Full todo map
+---@param todo_map table<integer, checkmate.TodoItem> Full todo map
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
@@ -756,27 +768,29 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
       return
     end
 
-    local tag_position = updated_line:find("@" .. meta_name .. "%(")
-    local value_position = tag_position and updated_line:find("%(", tag_position) + 1 or nil
+    -- Find positions in bytes first
+    local tag_byte_pos = updated_line:find("@" .. meta_name .. "%(", 1, true)
+    local value_byte_pos = tag_byte_pos and updated_line:find("%(", tag_byte_pos) + 1 or nil
 
     local win = vim.api.nvim_get_current_win()
     if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
-      if jump_to == "tag" and tag_position then
-        vim.api.nvim_win_set_cursor(0, { row + 1, tag_position - 1 })
+      if jump_to == "tag" and tag_byte_pos then
+        -- find() returns 1-based, nvim_win_set_cursor expects 0-based byte position
+        vim.api.nvim_win_set_cursor(0, { row + 1, tag_byte_pos - 1 })
 
         if meta_config.select_on_insert then
           vim.cmd("stopinsert")
           vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
         end
-      elseif jump_to == "value" and value_position then
-        vim.api.nvim_win_set_cursor(0, { row + 1, value_position - 1 })
+      elseif jump_to == "value" and value_byte_pos then
+        vim.api.nvim_win_set_cursor(0, { row + 1, value_byte_pos - 1 })
 
         if meta_config.select_on_insert then
           vim.cmd("stopinsert")
 
-          local closing_paren = updated_line:find(")", value_position)
-          if closing_paren and closing_paren > value_position then
-            local selection_length = closing_paren - value_position
+          local closing_paren = updated_line:find(")", value_byte_pos)
+          if closing_paren and closing_paren > value_byte_pos then
+            local selection_length = closing_paren - value_byte_pos
             if selection_length > 0 then
               vim.cmd("normal! v" .. string.rep("l", selection_length - 1))
             end
@@ -860,13 +874,14 @@ end
 ---@return checkmate.TextDiffHunk
 local function make_marker_replacement_hunk(row, todo_item, new_marker)
   local old_marker = todo_item.todo_marker.text
-  local byte_col = todo_item.todo_marker.position.col -- This is already 0-indexed bytes
+  local byte_col = todo_item.todo_marker.position.col -- Already in bytes (0-indexed)
+  local old_marker_byte_len = #old_marker
 
   return {
     start_row = row,
     start_col = byte_col,
     end_row = row,
-    end_col = byte_col + #old_marker, -- Add byte length of old marker
+    end_col = byte_col + old_marker_byte_len,
     insert = { new_marker },
   }
 end
@@ -878,21 +893,24 @@ end
 ---@param new_line string
 ---@return checkmate.TextDiffHunk|nil
 local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_line)
-  local marker_byte_col = todo_item.todo_marker.position.col -- 0-indexed bytes
-  local marker_byte_len = #todo_item.todo_marker.text
-  local start_byte_col = marker_byte_col + marker_byte_len
+  local marker_col = todo_item.todo_marker.position.col -- In bytes
+  local marker_text = todo_item.todo_marker.text
+
+  -- Convert character position to byte position
+  local marker_byte_len = #marker_text
+  local start_col = marker_col + marker_byte_len
 
   -- Skip if nothing changed after the marker
-  if old_line:sub(start_byte_col + 1) == new_line:sub(start_byte_col + 1) then
+  if old_line:sub(start_col + 1) == new_line:sub(start_col + 1) then
     return nil
   end
 
   return {
     start_row = row,
-    start_col = start_byte_col,
+    start_col = start_col,
     end_row = row,
-    end_col = #old_line, -- Total byte length
-    insert = { new_line:sub(start_byte_col + 1) }, -- Everything after marker
+    end_col = #old_line,
+    insert = { new_line:sub(start_col + 1) },
   }
 end
 
@@ -911,14 +929,13 @@ function M.compute_diff_toggle(items, target_state)
   for _, todo_item in ipairs(items) do
     local row = todo_item.todo_marker.position.row
 
-    -- Determine target state
     local item_target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked")
 
     if todo_item.state ~= item_target_state then
       local new_marker = item_target_state == "checked" and config.options.todo_markers.checked
         or config.options.todo_markers.unchecked
 
-      -- Create a surgical edit for just the marker
+      -- Create a surgical edit for just the marker, passing the line
       local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
       table.insert(hunks, hunk)
     end
@@ -963,7 +980,7 @@ end
 
 ---@param items checkmate.TodoItem[]
 ---@param meta_name string Metadata tag name
----@param meta_value string? Metadata default value
+---@param meta_value string Metadata default value
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
   local config = require("checkmate.config")
@@ -984,12 +1001,6 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
     if original_line and #original_line ~= 0 then
       -- Determine value
       local value = meta_value
-      if not value and meta_props.get_value then
-        value = meta_props.get_value()
-        value = value:gsub("^%s+", ""):gsub("%s+$", "")
-      elseif not value then
-        value = ""
-      end
 
       -- Check if metadata already exists
       local existing_entry = todo_item.metadata.by_tag[meta_name]
@@ -1038,17 +1049,32 @@ end
 ---@param ctx table -- transaction context (for queuing callbacks)
 ---@return checkmate.TextDiffHunk[] -- array of diff hunks to be applied
 function M.add_metadata(items, params, ctx)
+  local config = require("checkmate.config")
+
   -- Group items by [meta_name, meta_value] to maximize batching
   ---@type table<string, {items: table, meta_name:string, meta_value:string}>
   local batch_map = {}
   for i, item in ipairs(items) do
     local meta_name, meta_value = params[i][1], params[i][2]
+
+    -- Determine the value to insert
+    local get_value = config.options.metadata[meta_name].get_value
+    if not meta_value and get_value then
+      meta_value = get_value()
+      -- trim whitespace
+      meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
+    elseif not meta_value then
+      meta_value = ""
+    end
+
     local key = meta_name .. "\0" .. tostring(meta_value or "")
     if not batch_map[key] then
       batch_map[key] = { items = {}, meta_name = meta_name, meta_value = meta_value }
     end
     table.insert(batch_map[key].items, item)
   end
+
+  local to_jump = nil
 
   local all_hunks = {}
   -- Process each batch
@@ -1058,7 +1084,7 @@ function M.add_metadata(items, params, ctx)
     vim.list_extend(all_hunks, hunks)
 
     -- Optionally: queue on_add callbacks for new metadata added
-    local meta_config = require("checkmate.config").options.metadata[batch.meta_name]
+    local meta_config = config.options.metadata[batch.meta_name]
     if meta_config and meta_config.on_add then
       for _, item in ipairs(batch.items) do
         ctx.add_cb(function(tx_ctx)
@@ -1070,6 +1096,22 @@ function M.add_metadata(items, params, ctx)
         end)
       end
     end
+    if meta_config and meta_config.jump_to_on_insert then
+      if to_jump then
+        if meta_config.sort_order < to_jump.priority then
+          to_jump = { meta_name = batch.meta_name, priority = meta_config.sort_order }
+        end
+      else
+        to_jump = { meta_name = batch.meta_name, priority = meta_config.sort_order }
+      end
+    end
+  end
+
+  -- Handle cursor jump if configured
+  if #items == 1 and to_jump then
+    local item = items[1]
+    local meta_config = config.options.metadata[to_jump.meta_name]
+    M._handle_metadata_cursor_jump(vim.api.nvim_get_current_buf(), item, to_jump.meta_name, meta_config)
   end
 
   return all_hunks
@@ -1246,105 +1288,23 @@ function M.remove_all_metadata(items, params, ctx)
   return hunks
 end
 
---- Compute diff hunks for toggling metadata on todo items
----@param items checkmate.TodoItem[]
----@param meta_name string
----@param custom_value? string
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_toggle_metadata(items, meta_name, custom_value)
-  local profiler = require("checkmate.profiler")
-  profiler.start("api.compute_diff_toggle_metadata")
-
-  local hunks = {}
-
-  for _, todo_item in ipairs(items) do
-    -- Check if metadata exists
-    local entry = todo_item.metadata.by_tag[meta_name]
-    local canonical_name = meta_name
-
-    -- Check for aliases if not found
-    if not entry then
-      local config = require("checkmate.config")
-      for c_name, props in pairs(config.options.metadata) do
-        if c_name == meta_name then
-          break
-        end
-
-        for _, alias in ipairs(props.aliases or {}) do
-          if alias == meta_name then
-            entry = todo_item.metadata.by_tag[c_name]
-            canonical_name = c_name
-            break
-          end
-        end
-        if entry then
-          break
-        end
-      end
-    end
-
-    -- Compute appropriate diff based on whether metadata exists
-    local item_hunks
-    if entry then
-      -- Remove it
-      item_hunks = M.compute_diff_remove_metadata({ todo_item }, canonical_name)
-    else
-      -- Add it
-      item_hunks = M.compute_diff_add_metadata({ todo_item }, canonical_name, custom_value)
-    end
-
-    -- Merge hunks
-    for _, hunk in ipairs(item_hunks) do
-      table.insert(hunks, hunk)
-    end
-  end
-  profiler.stop("api.compute_diff_toggle_metadata")
-
-  return hunks
-end
-
 ---@param items checkmate.TodoItem[]
 ---@param params any[][] -- {meta_name, custom_value}
 ---@param ctx table
 ---@return checkmate.TextDiffHunk[]
 function M.toggle_metadata(items, params, ctx)
-  local config = require("checkmate.config")
   local hunks = {}
   for i, item in ipairs(items) do
     local meta_name, custom_value = params[i][1], params[i][2]
     local has_metadata = item.metadata.by_tag and item.metadata.by_tag[meta_name]
     if has_metadata then
       -- Remove metadata
-      local item_hunks = M.compute_diff_remove_metadata({ item }, meta_name)
+      local item_hunks = M.remove_metadata({ item }, { { meta_name } }, ctx)
       vim.list_extend(hunks, item_hunks)
-
-      -- Queue on_remove callback if configured
-      local meta_config = config.options.metadata[meta_name]
-      if meta_config and meta_config.on_remove then
-        ctx.add_cb(function(tx_ctx, item_id)
-          local updated_item = tx_ctx.get_item(item_id)
-          if updated_item then
-            meta_config.on_remove(updated_item)
-          end
-        end, item.id)
-      end
     else
       -- Add metadata
-      local item_hunks = M.compute_diff_add_metadata({ item }, meta_name, custom_value)
+      local item_hunks = M.add_metadata({ item }, { { meta_name, custom_value } }, ctx)
       vim.list_extend(hunks, item_hunks)
-
-      -- Queue on_add callback if configured
-      local meta_config = config.options.metadata[meta_name]
-      if meta_config and meta_config.on_add then
-        ctx.add_cb(function(tx_ctx, item_id)
-          local updated_item = tx_ctx.get_item(item_id)
-          if updated_item then
-            meta_config.on_add(updated_item)
-          else
-            vim.notify("missing item lookup!", vim.log.levels.ERROR)
-          end
-        end, item.id)
-      end
     end
   end
   return hunks

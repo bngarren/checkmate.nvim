@@ -205,7 +205,7 @@ function M.apply_highlighting(bufnr, opts)
   M.clear_line_cache(bufnr)
 
   -- Discover all todo items
-  ---@type table<string, checkmate.TodoItem>
+  ---@type table<integer, checkmate.TodoItem>
   local todo_map = opts.todo_map or parser.discover_todos(bufnr)
 
   -- Process todo items in hierarchical order (top-down)
@@ -230,7 +230,7 @@ end
 ---Process a todo item (and, if requested via `opts.recursive`, its descendants).
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem The todo item to highlight.
----@param todo_map table<string, checkmate.TodoItem> Todo map from `discover_todos`
+---@param todo_map table<integer, checkmate.TodoItem> Todo map from `discover_todos`
 ---@param opts HighlightTodoOpts? Optional settings.
 ---@return nil
 function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
@@ -436,14 +436,14 @@ function M.highlight_content(bufnr, todo_item, todo_map)
   -- First line (main content) of the todo item
   local first_row = todo_item.range.start.row
   local line = M.get_buffer_line(bufnr, first_row)
-  local marker_pos = todo_item.todo_marker.position.col
-  local marker_len = #todo_item.todo_marker.text
+  local marker_pos = todo_item.todo_marker.position.col -- byte pos
+  local marker_len = #todo_item.todo_marker.text -- byte length
 
   -- Main content highlight is everything on the first line after the marker
   -- Find content start position (after the marker)
   local main_content_start = line:find("[^%s]", marker_pos + marker_len + 1)
   if main_content_start then
-    main_content_start = main_content_start - 1
+    main_content_start = main_content_start - 1 -- convert to 0-based for extmark
     vim.api.nvim_buf_set_extmark(bufnr, config.ns, first_row, main_content_start, {
       end_row = first_row,
       end_col = #line,
@@ -483,7 +483,7 @@ end
 ---Show todo count indicator
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
----@param todo_map table<string, checkmate.TodoItem>
+---@param todo_map table<integer, checkmate.TodoItem>
 function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
   local config = require("checkmate.config")
 

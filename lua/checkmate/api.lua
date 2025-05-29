@@ -1119,7 +1119,6 @@ function M.add_metadata(items, params, ctx)
   if #items == 1 and to_jump then
     local item = items[1]
     local meta_config = config.options.metadata[to_jump.meta_name]
-    print("will jump")
     M._handle_metadata_cursor_jump(vim.api.nvim_get_current_buf(), item, to_jump.meta_name, meta_config)
   end
 

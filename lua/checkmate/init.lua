@@ -300,8 +300,10 @@ function M.uncheck()
 end
 
 --- Create a new todo item
+---@returns boolean success
 function M.create()
   require("checkmate.api").create_todo()
+  return true
 end
 
 --- Insert a metadata tag into a todo item at the cursor or per todo in the visual selection

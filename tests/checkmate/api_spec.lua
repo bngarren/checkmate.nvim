@@ -21,12 +21,28 @@ describe("API", function()
   local function setup_todo_buffer(file_path, content, config_override)
     h.write_file_content(file_path, content)
 
-    -- Open the file in a buffer
-    vim.cmd("edit " .. file_path)
-    local bufnr = vim.api.nvim_get_current_buf()
+    -- Create a fresh buffer instead of using edit
+    local bufnr = vim.api.nvim_create_buf(false, false)
+
+    -- Set buffer name and load content
+    vim.api.nvim_buf_set_name(bufnr, file_path)
+    vim.api.nvim_buf_call(bufnr, function()
+      vim.cmd("edit!") -- Force reload from disk
+    end)
+
+    -- Ensure we're in the correct window
+    local winid = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(winid, bufnr)
 
     -- Ensure filetype is set to markdown
     vim.bo[bufnr].filetype = "markdown"
+
+    -- Clear any existing buffer-local variables
+    for k, _ in pairs(vim.b[bufnr]) do
+      if type(k) == "string" and k:match("^checkmate_") then
+        vim.b[bufnr][k] = nil
+      end
+    end
 
     require("checkmate").start()
 
@@ -51,6 +67,11 @@ describe("API", function()
     if not success then
       error("Failed to set up Checkmate for test buffer")
     end
+
+    vim.wait(50, function()
+      -- Check if any pending operations
+      return vim.fn.jobwait({}, 0) == 0
+    end)
 
     -- Ensure any initial processing is complete
     vim.cmd("redraw")
@@ -127,9 +148,7 @@ describe("API", function()
       assert.no.matches(vim.pesc(checked), saved_content)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -164,9 +183,7 @@ describe("API", function()
       assert.is_true(found_items == 2)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -200,7 +217,8 @@ describe("API", function()
       end
 
       -- Toggle task 2 to checked
-      require("checkmate").set_todo_item(task_2, "checked")
+      local success = require("checkmate").set_todo_item(task_2, "checked")
+      assert.is_true(success)
 
       -- Save the file
       vim.cmd("write")
@@ -233,9 +251,72 @@ describe("API", function()
       assert.equal("checked", task_2_reloaded.state)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+  end)
+
+  describe("todo collection", function()
+    it("should collect a single todo under cursor in normal mode", function()
+      local unchecked = require("checkmate.config").options.todo_markers.unchecked
+
+      -- Create a buffer with two todos
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ Task A
+- ]] .. unchecked .. [[ Task B
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- Move cursor to the first todo line
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      -- Collect only the todo under the cursor
+      local items = require("checkmate.api").collect_todo_items_from_selection(false)
+      assert.equal(1, #items)
+      -- Verify it's Task A
+      assert.matches("Task A", items[1].todo_text)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should collect multiple todos within a visual selection", function()
+      local unchecked = require("checkmate.config").options.todo_markers.unchecked
+
+      -- Create a buffer with two todos
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ Task A
+- ]] .. unchecked .. [[ Task B
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- Linewise select both todo lines
+      vim.api.nvim_win_set_cursor(0, { 1, 0 }) -- move to Task A
+      vim.cmd("normal! V") -- start linewise visual
+      vim.api.nvim_win_set_cursor(0, { 2, 0 }) -- extend to Task B
+      -- Collect all selected todos
+      local items = require("checkmate.api").collect_todo_items_from_selection(true)
+      assert.equal(2, #items)
+
+      -- Verify we got exactly Task A and Task B (order doesn't matter)
+      local foundA, foundB = false, false
+      for _, todo in ipairs(items) do
+        local taskA = todo.todo_text:match("Task A")
+        local taskB = todo.todo_text:match("Task B")
+        if taskA then
+          foundA = true
+        end
+        if taskB then
+          foundB = true
+        end
+      end
+      assert.is_true(foundA)
+      assert.is_true(foundB)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
   end)
@@ -255,7 +336,8 @@ describe("API", function()
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
       -- Create a todo item
-      require("checkmate").create()
+      local success = require("checkmate").create()
+      assert.is_true(success)
 
       -- Get the buffer content
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -266,9 +348,7 @@ describe("API", function()
       assert.matches("- " .. vim.pesc(unchecked) .. " This is a regular line", lines[3])
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -293,7 +373,8 @@ describe("API", function()
       assert.is_not_nil(todo_item)
 
       -- Add priority metadata
-      require("checkmate").add_metadata("priority", "high")
+      local success = require("checkmate").add_metadata("priority", "high")
+      assert.is_true(success)
 
       -- Get the buffer content
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -315,9 +396,7 @@ describe("API", function()
       assert.matches("- %[ %] Task without metadata @priority%(high%)", saved_content)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -448,9 +527,7 @@ describe("API", function()
       assert.equal("- [ ] Another parent", saved_lines[8])
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -517,9 +594,7 @@ describe("API", function()
       assert.matches("- %[x%] Task 3", saved_content)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -624,11 +699,7 @@ describe("API", function()
       assert.matches("A todo without metadata", lines[5])
 
       finally(function()
-        vim.cmd("normal! \27") -- Escape to normal mode
-
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -751,9 +822,7 @@ Normal content line (not a todo)]]
         -- Ensure we're in normal mode before cleanup
         reset_mode()
 
-        -- Clean up
-        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-        pcall(os.remove, file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
   end)
@@ -818,9 +887,7 @@ Normal content line (not a todo)]]
       assert.matches("@test%(test_value%)", lines[3])
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -886,9 +953,7 @@ Normal content line (not a todo)]]
       assert.no.matches("@test", lines[3])
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -965,9 +1030,7 @@ Normal content line (not a todo)]]
       end
 
       finally(function()
-        vim.cmd("normal! \27") -- Ensure normal mode
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
   end)
@@ -1012,8 +1075,7 @@ Normal content line (not a todo)]]
       assert.equal(result, true, err)
 
       finally(function()
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -1091,9 +1153,7 @@ Some content here
       assert.matches("Some content here", buffer_content)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -1195,9 +1255,7 @@ Some content here
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", archive_section)
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -1263,9 +1321,7 @@ Some content here
       end
 
       finally(function()
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        os.remove(file_path)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
@@ -1353,11 +1409,52 @@ Some content here
         )
 
         finally(function()
-          -- teardown
-          vim.api.nvim_buf_delete(bufnr, { force = true })
-          os.remove(file_path)
+          h.cleanup_buffer(bufnr, file_path)
         end)
       end
+    end)
+  end)
+  describe("diffs", function()
+    it("should compute correct diff hunk for toggling a single todo item", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.options.todo_markers.checked
+
+      -- create a one-line todo
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ MyTask
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local parser = require("checkmate.parser")
+      local api = require("checkmate.api")
+
+      -- discover the todo and verify initial state
+      local todo_map = parser.discover_todos(bufnr)
+      local todo = h.find_todo_by_text(todo_map, "MyTask")
+      assert.is_not_nil(todo)
+      ---@cast todo checkmate.TodoItem
+
+      assert.equal("unchecked", todo.state)
+
+      -- compute the diff to check it
+      local hunks = api.compute_diff_toggle({ todo }, "checked")
+      assert.equal(1, #hunks)
+
+      local hunk = hunks[1]
+      -- start/end row should be the todo line
+      assert.equal(todo.todo_marker.position.row, hunk.start_row)
+      assert.equal(todo.todo_marker.position.row, hunk.end_row)
+      -- start col is marker col, end col is marker col + marker‐length
+      assert.equal(todo.todo_marker.position.col, hunk.start_col)
+      assert.equal(todo.todo_marker.position.col + #unchecked, hunk.end_col)
+      -- replacement should be the checked marker
+      assert.same({ checked }, hunk.insert)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
     end)
   end)
 end)

@@ -1,5 +1,35 @@
 local M = {}
 
+function M.cleanup_buffer(bufnr, file_path)
+  if not bufnr then
+    return
+  end
+
+  -- Ensure we're in normal mode
+  vim.cmd("stopinsert")
+  vim.cmd("normal! \27") -- ESC
+
+  -- Clear any pending operations
+  vim.cmd("redraw!")
+
+  -- Unregister buffer from checkmate
+  local config = require("checkmate.config")
+  if config.unregister_buffer then
+    config.unregister_buffer(bufnr)
+  end
+
+  -- Clear highlights
+  vim.api.nvim_buf_clear_namespace(bufnr, -1, 0, -1)
+
+  -- Delete buffer
+  pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+
+  -- Remove file
+  if file_path then
+    pcall(os.remove, file_path)
+  end
+end
+
 -- Create a temporary file for testing
 function M.create_temp_file()
   local temp_dir = vim.fn.tempname()
@@ -87,6 +117,19 @@ function M.verify_content_lines(content, expected_lines, start_line)
   end
 
   return true
+end
+
+--- Finds the first todo item in a todo_map whose `todo_text` matches the given Lua pattern.
+--- @param todo_map table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
+--- @param pattern string Lua pattern to match against each item's `todo_text`
+--- @return checkmate.TodoItem? todo The matching todo item, or `nil` if none found
+function M.find_todo_by_text(todo_map, pattern)
+  for _, todo in pairs(todo_map) do
+    if todo.todo_text:match(pattern) then
+      return todo
+    end
+  end
+  return nil
 end
 
 return M

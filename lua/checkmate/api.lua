@@ -609,7 +609,8 @@ function M.archive_todos(opts)
   local archived_root_cnt = 0
 
   for _, entry in ipairs(sorted_todos) do
-    local todo = entry ---@type checkmate.TodoItem
+    ---@cast entry {id: integer, item: checkmate.TodoItem}
+    local todo = entry.item
     local id = entry.id
     local in_arch = archive_start_row
       and todo.range.start.row > archive_start_row

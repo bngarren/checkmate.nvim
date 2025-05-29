@@ -208,9 +208,9 @@ function M.build_todo_patterns(opts)
     with_capture = false,
   })
 
-  --- Build multiple full-patterns from todo_marker
-  -- @param todo_marker string: The todo marker to look for
-  -- @return string[]: List of full Lua patterns to match
+  ---Build multiple full-patterns from todo_marker
+  ---@param todo_marker string: The todo marker to look for
+  ---@return string[] patterns List of full Lua patterns to match
   local function build_patterns_with_marker(todo_marker)
     local escaped_todo = escape_literal(todo_marker)
     local patterns = {}
@@ -468,22 +468,6 @@ function M.batch_get_lines(bufnr, rows)
   read_range()
 
   return result
-end
-
----Returns the lines that encompass the given buffer rows
----@param bufnr integer Buffer number
----@param rows integer[] Rows that should be included
----@return string[] lines String array of lines from the buffer that include the min and max row
-function M.get_buffer_lines(bufnr, rows)
-  local min_row = math.min(unpack(rows))
-  local max_row = math.max(unpack(rows))
-  local bulk_lines = vim.api.nvim_buf_get_lines(bufnr, min_row, max_row + 1, false)
-
-  local lines = {}
-  for _, row in ipairs(rows) do
-    lines[row] = bulk_lines[row - min_row + 1]
-  end
-  return lines
 end
 
 --- Simple line cache for operations that need repeated access to same lines

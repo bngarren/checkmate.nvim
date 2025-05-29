@@ -51,33 +51,44 @@ local M = {}
 
 M.list_item_markers = { "-", "+", "*" }
 
----@param todo_marker string The todo marker character to be used to build 'todo item' patterns
-M.withDefaultListItemMarkers = function(todo_marker)
-  local util = require("checkmate.util")
-  local log = require("checkmate.log")
+local PATTERN_CACHE = {
+  checked_todo = nil,
+  unchecked_todo = nil,
+}
 
-  -- Use the new build_todo_pattern to get a pattern-building function
-  local build_patterns = util.build_todo_patterns({
-    simple_markers = M.list_item_markers,
-    use_numbered_list_markers = true,
-  })
-
-  local patterns = build_patterns(todo_marker)
-
-  -- Optional debug logging of all patterns
-  -- log.debug("Generated todo patterns for marker '" .. todo_marker .. "': " .. vim.inspect(patterns), { module = "parser" })
-
-  return patterns
+local function clear_pattern_cache()
+  PATTERN_CACHE = {
+    checked_todo = nil,
+    unchecked_todo = nil,
+  }
 end
 
 function M.getCheckedTodoPatterns()
-  local checked_marker = require("checkmate.config").options.todo_markers.checked
-  return M.withDefaultListItemMarkers(checked_marker)
+  if not PATTERN_CACHE.checked_todo then
+    local checked_marker = require("checkmate.config").options.todo_markers.checked
+    local util = require("checkmate.util")
+    ---@type fun(marker: string): string[]
+    local build_patterns = util.build_todo_patterns({
+      simple_markers = M.list_item_markers,
+      use_numbered_list_markers = true,
+    })
+    PATTERN_CACHE.checked_todo = build_patterns(checked_marker)
+  end
+  return PATTERN_CACHE.checked_todo
 end
 
 function M.getUncheckedTodoPatterns()
-  local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
-  return M.withDefaultListItemMarkers(unchecked_marker)
+  if not PATTERN_CACHE.unchecked_todo then
+    local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+    local util = require("checkmate.util")
+    ---@type fun(marker: string): string[]
+    local build_patterns = util.build_todo_patterns({
+      simple_markers = M.list_item_markers,
+      use_numbered_list_markers = true,
+    })
+    PATTERN_CACHE.unchecked_todo = build_patterns(unchecked_marker)
+  end
+  return PATTERN_CACHE.unchecked_todo
 end
 
 --- Given a line (string), returns the todo item type either "checked" or "unchecked"
@@ -107,11 +118,14 @@ end
 
 -- Setup Treesitter queries for todo items
 function M.setup()
-  local config = require("checkmate.config")
   local highlights = require("checkmate.highlights")
   local log = require("checkmate.log")
-  log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns(), " , "))
-  log.debug("Unchecked pattern is: " .. table.concat(M.getUncheckedTodoPatterns(), " , "))
+
+  -- Clear pattern cache in case config changed
+  clear_pattern_cache()
+
+  log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns() or {}, " , "))
+  log.debug("Unchecked pattern is: " .. table.concat(M.getUncheckedTodoPatterns() or {}, " , "))
 
   local todo_query = [[
 ; Capture list items and their content for structure understanding

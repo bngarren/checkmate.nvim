@@ -1148,7 +1148,7 @@ function M.compute_diff_remove_metadata(items, meta_name)
   for _, item in ipairs(items) do
     table.insert(rows, item.todo_marker.position.row)
   end
-  local lines = util.get_buffer_lines(bufnr, rows)
+  local lines = util.batch_get_lines(bufnr, rows)
 
   for _, todo_item in ipairs(items) do
     local row = todo_item.range.start.row
@@ -1246,7 +1246,7 @@ function M.compute_diff_remove_all_metadata(items)
   for _, item in ipairs(items) do
     table.insert(rows, item.todo_marker.position.row)
   end
-  local lines = util.get_buffer_lines(bufnr, rows)
+  local lines = util.batch_get_lines(bufnr, rows)
 
   for _, todo_item in ipairs(items) do
     if todo_item.metadata and todo_item.metadata.entries and #todo_item.metadata.entries ~= 0 then

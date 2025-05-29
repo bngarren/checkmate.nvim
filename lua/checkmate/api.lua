@@ -769,8 +769,8 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
     end
 
     -- Find positions in bytes first
-    local tag_byte_pos = updated_line:find("@" .. meta_name .. "%(", 1, true)
-    local value_byte_pos = tag_byte_pos and updated_line:find("%(", tag_byte_pos) + 1 or nil
+    local tag_byte_pos = updated_line:find("@" .. meta_name .. "%(", 1)
+    local value_byte_pos = tag_byte_pos and (updated_line:find("%(", tag_byte_pos) + 1) or nil
 
     local win = vim.api.nvim_get_current_win()
     if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
@@ -783,6 +783,7 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
           vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
         end
       elseif jump_to == "value" and value_byte_pos then
+        -- vim.print("jumping to value @" .. row + 1 .. ":" .. value_byte_pos - 1)
         vim.api.nvim_win_set_cursor(0, { row + 1, value_byte_pos - 1 })
 
         if meta_config.select_on_insert then
@@ -895,22 +896,28 @@ end
 local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_line)
   local marker_col = todo_item.todo_marker.position.col -- In bytes
   local marker_text = todo_item.todo_marker.text
-
-  -- Convert character position to byte position
   local marker_byte_len = #marker_text
-  local start_col = marker_col + marker_byte_len
 
-  -- Skip if nothing changed after the marker
-  if old_line:sub(start_col + 1) == new_line:sub(start_col + 1) then
+  -- Position after the marker (0-based)
+  local content_start = marker_col + marker_byte_len
+
+  -- Extract the portion to replace (from marker end to line end)
+  -- For string operations, convert to 1-based
+  local old_suffix = old_line:sub(content_start + 1)
+  local new_suffix = new_line:sub(content_start + 1)
+
+  -- Skip if nothing changed
+  if old_suffix == new_suffix then
     return nil
   end
 
+  -- Create hunk that replaces from content_start to end of line
   return {
     start_row = row,
-    start_col = start_col,
+    start_col = content_start,
     end_row = row,
-    end_col = #old_line,
-    insert = { new_line:sub(start_col + 1) },
+    end_col = content_start + #old_suffix, -- Calculate based on actual content length
+    insert = { new_suffix },
   }
 end
 
@@ -1111,6 +1118,7 @@ function M.add_metadata(items, params, ctx)
   if #items == 1 and to_jump then
     local item = items[1]
     local meta_config = config.options.metadata[to_jump.meta_name]
+    print("will jump")
     M._handle_metadata_cursor_jump(vim.api.nvim_get_current_buf(), item, to_jump.meta_name, meta_config)
   end
 
@@ -1265,14 +1273,14 @@ end
 ---@return checkmate.TextDiffHunk[]
 function M.remove_all_metadata(items, params, ctx)
   local config = require("checkmate.config")
-  local hunks = {}
+
+  -- Create hunks that remove all metadata at once
+  local hunks = M.compute_diff_remove_all_metadata(items)
+
+  -- Queue callbacks for each removed metadata entry
   for _, item in ipairs(items) do
-    -- Remove all metadata entries
     if item.metadata and item.metadata.entries then
       for _, entry in ipairs(item.metadata.entries) do
-        local item_hunks = M.compute_diff_remove_metadata({ item }, entry.tag)
-        vim.list_extend(hunks, item_hunks)
-        -- Queue on_remove callback if configured
         local meta_config = config.options.metadata[entry.tag]
         if meta_config and meta_config.on_remove then
           ctx.add_cb(function(tx_ctx)
@@ -1285,6 +1293,7 @@ function M.remove_all_metadata(items, params, ctx)
       end
     end
   end
+
   return hunks
 end
 

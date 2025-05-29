@@ -17,7 +17,7 @@ local M = {}
 ---@class checkmate.MetadataEntry
 ---@field tag string The tag name
 ---@field value string The value
----@field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Position range (0-indexed)
+---@field range checkmate.Range Position range (0-indexed)
 ---@field alias_for? string The canonical tag name if this is an alias
 ---@field position_in_line integer (1-indexed)
 
@@ -25,13 +25,22 @@ local M = {}
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
 ---@field by_tag table<string, checkmate.MetadataEntry> Quick access by tag name
 
+---@class checkmate.Range
+---@field start {row: integer, col: integer}
+---@field ["end"] {row: integer, col: integer}
+
 --- @class checkmate.TodoItem
---- @field id integer Extmark id
+--- Stable key. Uses extmark id positioned just prior to the todo marker.
+--- This allows tracking the same todo item across buffer modifications.
+--- @field id integer
 --- @field state checkmate.TodoItemState The todo state
 --- @field node TSNode The Treesitter node
 --- Todo item's buffer range
---- The end col is expected to be adjusted (get_semantic_range) so that it accurately reflects the end of the content
---- @field range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}}
+--- This range is adjusted from the raw TS node range via *get_semantic_range*:
+---   - The start col is adjusted to the indentation level
+---   - The end col is adjusted so that it accurately reflects the end of the content
+--- @field range checkmate.Range
+--- @field ts_range checkmate.Range
 --- @field content_nodes ContentNodeInfo[] List of content nodes
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
 --- @field list_marker ListMarkerInfo Information about the list marker (0-indexed position)
@@ -493,6 +502,7 @@ function M.discover_todos(bufnr)
         marker_col = todo_marker_byte_pos - 1
       end
 
+      -- TODO: verify this is 1 char prior to the marker, i.e. the space before the marker
       local extmark_col = marker_col
 
       -- Try to reuse existing extmark or create new one
@@ -530,6 +540,7 @@ function M.discover_todos(bufnr)
         state = todo_state,
         node = node,
         range = semantic_range,
+        ts_range = raw_range,
         todo_text = first_line,
         content_nodes = {},
         todo_marker = {

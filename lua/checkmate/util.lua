@@ -419,6 +419,57 @@ function M.get_heading_string(title, level)
   return string.rep("#", level) .. " " .. title
 end
 
+--- Efficiently batch-read buffer lines for multiple row positions
+--- Optimizes by reading contiguous ranges in single API calls
+---@param bufnr integer Buffer number
+---@param rows integer[] Array of 0-based row numbers to read
+---@return table<integer, string> Map of row number to line content
+function M.batch_get_lines(bufnr, rows)
+  if #rows == 0 then
+    return {}
+  end
+
+  -- For small requests, just read directly
+  if #rows == 1 then
+    local lines = vim.api.nvim_buf_get_lines(bufnr, rows[1], rows[1] + 1, false)
+    return { [rows[1]] = lines[1] or "" }
+  end
+
+  -- Sort rows to find contiguous ranges
+  local sorted_rows = vim.tbl_extend("error", {}, rows)
+  table.sort(sorted_rows)
+
+  local result = {}
+  local range_start = sorted_rows[1]
+  local range_end = sorted_rows[1]
+
+  local function read_range()
+    if range_start <= range_end then
+      local lines = vim.api.nvim_buf_get_lines(bufnr, range_start, range_end + 1, false)
+      for i = 0, range_end - range_start do
+        result[range_start + i] = lines[i + 1] or ""
+      end
+    end
+  end
+
+  -- Find contiguous ranges and batch read them
+  for i = 2, #sorted_rows do
+    if sorted_rows[i] > range_end + 1 then
+      -- Gap found, read current range
+      read_range()
+      range_start = sorted_rows[i]
+      range_end = sorted_rows[i]
+    else
+      range_end = sorted_rows[i]
+    end
+  end
+
+  -- Read final range
+  read_range()
+
+  return result
+end
+
 ---Returns the lines that encompass the given buffer rows
 ---@param bufnr integer Buffer number
 ---@param rows integer[] Rows that should be included
@@ -433,6 +484,62 @@ function M.get_buffer_lines(bufnr, rows)
     lines[row] = bulk_lines[row - min_row + 1]
   end
   return lines
+end
+
+--- Simple line cache for operations that need repeated access to same lines
+---@class LineCache
+---@field private bufnr integer
+---@field private lines table<integer, string>
+---@field get fun(self: LineCache, row: integer): string
+---@field get_many fun(self: LineCache, rows: integer[]): table<integer, string>
+local LineCache = {}
+LineCache.__index = LineCache
+
+---@param bufnr integer
+---@return LineCache
+function M.create_line_cache(bufnr)
+  local self = setmetatable({
+    bufnr = bufnr,
+    lines = {},
+  }, LineCache)
+  return self
+end
+
+---@param row integer 0-based row number
+---@return string
+function LineCache:get(row)
+  if self.lines[row] == nil then
+    local lines = vim.api.nvim_buf_get_lines(self.bufnr, row, row + 1, false)
+    self.lines[row] = lines[1] or ""
+  end
+  return self.lines[row]
+end
+
+---@param rows integer[] Array of 0-based row numbers
+---@return table<integer, string>
+function LineCache:get_many(rows)
+  -- Find which rows we need to fetch
+  local missing = {}
+  for _, row in ipairs(rows) do
+    if self.lines[row] == nil then
+      table.insert(missing, row)
+    end
+  end
+
+  -- Batch fetch missing rows
+  if #missing > 0 then
+    local fetched = M.batch_get_lines(self.bufnr, missing)
+    for row, line in pairs(fetched) do
+      self.lines[row] = line
+    end
+  end
+
+  -- Return requested rows
+  local result = {}
+  for _, row in ipairs(rows) do
+    result[row] = self.lines[row]
+  end
+  return result
 end
 
 --- Convert character position to byte position in a line

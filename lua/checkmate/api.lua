@@ -806,6 +806,7 @@ end
 --- Collect todo items under cursor or visual selection
 ---@param is_visual boolean Whether to collect items in visual selection (true) or under cursor (false)
 ---@return checkmate.TodoItem[] items
+---@return table<integer, checkmate.TodoItem> todo_map
 function M.collect_todo_items_from_selection(is_visual)
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
@@ -823,8 +824,14 @@ function M.collect_todo_items_from_selection(is_visual)
   if is_visual then
     -- Exit visual mode first
     vim.cmd([[execute "normal! \<Esc>"]])
-    local start_line = vim.fn.line("'<") - 1
-    local end_line = vim.fn.line("'>") - 1
+    -- local start_line = vim.fn.line("'<") - 1
+    -- local end_line = vim.fn.line("'>") - 1
+    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
+    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
+
+    -- convert from 1-based mark to 0-based rows
+    local start_line = mark_start[1] - 1
+    local end_line = mark_end[1] - 1
 
     -- Pre-build lookup table for faster todo item location
     local row_to_todo = {}
@@ -866,7 +873,7 @@ function M.collect_todo_items_from_selection(is_visual)
 
   profiler.stop("api.collect_todo_items_from_selection")
 
-  return items
+  return items, full_map
 end
 
 --- Create a hunk that replaces only the todo marker character

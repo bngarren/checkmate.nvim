@@ -23,7 +23,7 @@ describe("Transaction", function()
     assert.is_false(transaction.is_active())
 
     -- Run a transaction that toggles TaskX to 'checked'
-    transaction.run(bufnr, function(ctx)
+    transaction.run(bufnr, nil, function(ctx)
       local todo_map = parser.discover_todos(bufnr)
       local todo = h.find_todo_by_text(todo_map, "TaskX")
       assert.is_not_nil(todo)
@@ -50,7 +50,7 @@ describe("Transaction", function()
     local received = nil
 
     -- Run a transaction that only queues a callback
-    require("checkmate.transaction").run(bufnr, function(ctx)
+    require("checkmate.transaction").run(bufnr, nil, function(ctx)
       ctx.add_cb(function(_, val)
         called = true
         received = val

@@ -23,27 +23,20 @@ end
 
 -- Caching
 -- To avoid redundant nvim_buf_get_lines calls during highlighting passes
-M._line_cache = {}
+---@type LineCache|nil
+M._current_line_cache = nil
 
 function M.get_buffer_line(bufnr, row)
-  -- Initialize cache if needed
-  M._line_cache[bufnr] = M._line_cache[bufnr] or {}
-
-  -- Return cached line if available
-  if M._line_cache[bufnr][row] then
-    return M._line_cache[bufnr][row]
+  -- Use current cache if available
+  if M._current_line_cache then
+    return M._current_line_cache:get(row)
   end
 
-  -- Get and cache the line
-  local lines = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)
-  local line = lines[1] or ""
-  M._line_cache[bufnr][row] = line
-
-  return line
-end
-
-function M.clear_line_cache(bufnr)
-  M._line_cache[bufnr] = {}
+  -- Fallback: create a temporary cache just for this call
+  -- This shouldn't happen in normal flow but provides safety
+  local util = require("checkmate.util")
+  local cache = util.create_line_cache(bufnr)
+  return cache:get(row)
 end
 
 ---Some highlights are created from factory functions via the config module. Instead of re-running these every time
@@ -187,6 +180,7 @@ function M.apply_highlighting(bufnr, opts)
   local parser = require("checkmate.parser")
   local log = require("checkmate.log")
   local profiler = require("checkmate.profiler")
+  local util = require("checkmate.util")
 
   profiler.start("highlights.apply_highlighting")
 
@@ -201,8 +195,8 @@ function M.apply_highlighting(bufnr, opts)
   -- Clear existing extmarks
   vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
-  -- Clear the line cache
-  M.clear_line_cache(bufnr)
+  -- Create a line cache for this highlighting pass
+  M._current_line_cache = util.create_line_cache(bufnr)
 
   -- Discover all todo items
   ---@type table<integer, checkmate.TodoItem>
@@ -218,8 +212,8 @@ function M.apply_highlighting(bufnr, opts)
 
   log.debug("Highlighting applied", { module = "highlights" })
 
-  -- Clear the line cache to free memory
-  M.clear_line_cache(bufnr)
+  -- This allows garbage collection of the cache and its stored lines
+  M._current_line_cache = nil
 
   profiler.stop("highlights.apply_highlighting")
 end

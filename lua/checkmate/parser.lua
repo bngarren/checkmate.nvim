@@ -477,13 +477,34 @@ function M.discover_todos(bufnr)
   ]]
   )
 
-  -- First pass: Discover all todo items
+  local list_items = {}
+  local rows_needed = {} -- the buffer rows we need to get
+
+  -- First pass: collect all list items and their rows
   for _, node, _ in list_item_query:iter_captures(root, bufnr, 0, -1) do
     -- Get node information (TS ranges are 0-indexed and end-exclusive)
     local start_row, start_col, end_row, end_col = node:range()
+    table.insert(list_items, {
+      node = node,
+      start_row = start_row,
+      start_col = start_col,
+      end_row = end_row,
+      end_col = end_col,
+    })
+    table.insert(rows_needed, start_row)
+  end
+
+  -- Batch read all first lines
+  local first_lines = util.batch_get_lines(bufnr, rows_needed)
+
+  for _, item in ipairs(list_items) do
     -- Get the first line to check if it's a todo item
-    local first_line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
+    local first_line = first_lines[item.start_row] or ""
     local todo_state = M.get_todo_item_state(first_line)
+    local start_row = item.start_row
+    local start_col = item.start_row
+    local end_row = item.end_row
+    local end_col = item.end_col
 
     if todo_state then
       -- This is a todo item, add it to the map
@@ -538,7 +559,7 @@ function M.discover_todos(bufnr)
       todo_map[extmark_id] = {
         id = extmark_id, -- integer id
         state = todo_state,
-        node = node,
+        node = item.node,
         range = semantic_range,
         ts_range = raw_range,
         todo_text = first_line,
@@ -558,10 +579,10 @@ function M.discover_todos(bufnr)
       }
 
       -- Find and store list marker information
-      M.update_list_marker_info(node, bufnr, todo_map[extmark_id])
+      M.update_list_marker_info(item.node, bufnr, todo_map[extmark_id])
 
       -- Find and store content nodes
-      M.update_content_nodes(node, bufnr, todo_map[extmark_id])
+      M.update_content_nodes(item.node, bufnr, todo_map[extmark_id])
     end
   end
 
@@ -574,18 +595,6 @@ function M.discover_todos(bufnr)
   M.build_todo_hierarchy(todo_map)
 
   profiler.stop("parser.discover_todos")
-
-  --[[ -- TODO: remove
-  for id, item in pairs(todo_map) do
-    print(
-      ("Extmark ID %d: row=%d col=%d text='%s'"):format(
-        id,
-        item.todo_marker.position.row,
-        item.todo_marker.position.col,
-        item.todo_text
-      )
-    )
-  end ]]
 
   return todo_map
 end

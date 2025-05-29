@@ -248,9 +248,11 @@ function M.toggle(target_state)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  -- we go ahead a keep the parsed todo_map so that we can initialize the transaction below without it
+  -- also having to discover_todos
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, todo_map, function(_ctx)
     for _, item in ipairs(todo_items) do
       _ctx.add_op(api.toggle_state, item.id, target_state)
     end
@@ -281,7 +283,7 @@ function M.set_todo_item(todo_item, target_state)
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, nil, function(_ctx)
     _ctx.add_op(api.set_todo_item, todo_id, target_state)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
@@ -337,7 +339,7 @@ function M.add_metadata(metadata_name, value)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -346,7 +348,7 @@ function M.add_metadata(metadata_name, value)
   end
 
   -- Begin a transaction
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, todo_map, function(_ctx)
     for _, item in ipairs(todo_items) do
       _ctx.add_op(api.add_metadata, item.id, metadata_name, value)
     end
@@ -379,7 +381,7 @@ function M.remove_metadata(metadata_name)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -387,7 +389,7 @@ function M.remove_metadata(metadata_name)
     return
   end
 
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, todo_map, function(_ctx)
     for _, item in ipairs(todo_items) do
       _ctx.add_op(api.remove_metadata, item.id, metadata_name)
     end
@@ -418,7 +420,7 @@ function M.remove_all_metadata()
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -426,7 +428,7 @@ function M.remove_all_metadata()
     return
   end
 
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, todo_map, function(_ctx)
     for _, item in ipairs(todo_items) do
       _ctx.add_op(api.remove_all_metadata, item.id)
     end
@@ -464,7 +466,7 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -472,7 +474,7 @@ function M.toggle_metadata(meta_name, custom_value)
     return
   end
 
-  transaction.run(bufnr, function(_ctx)
+  transaction.run(bufnr, todo_map, function(_ctx)
     for _, item in ipairs(todo_items) do
       _ctx.add_op(api.toggle_metadata, item.id, meta_name, custom_value)
     end

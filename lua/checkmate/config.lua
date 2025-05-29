@@ -637,10 +637,6 @@ function M.stop()
           local linter = require("checkmate.linter")
           linter.disable(bufnr)
         end
-        -- Clear highlights and caches
-        if package.loaded["checkmate.highlights"] then
-          require("checkmate.highlights").clear_line_cache(bufnr)
-        end
 
         -- Reset buffer state
         vim.b[bufnr].checkmate_setup_complete = nil

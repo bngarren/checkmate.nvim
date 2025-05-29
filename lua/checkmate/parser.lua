@@ -91,6 +91,25 @@ function M.getUncheckedTodoPatterns()
   return PATTERN_CACHE.unchecked_todo
 end
 
+-- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
+M.todo_map_cache = {}
+
+function M.get_todo_map(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return {}
+  end
+
+  local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+
+  if M.todo_map_cache[bufnr] and changedtick == M.todo_map_cache[bufnr].version then
+    return M.todo_map_cache[bufnr].current -- todo map
+  end
+
+  local fresh_todo_map = M.discover_todos(bufnr)
+  M.todo_map_cache[bufnr] = { version = changedtick, current = fresh_todo_map }
+  return fresh_todo_map
+end
+
 --- Given a line (string), returns the todo item type either "checked" or "unchecked"
 --- Returns nil if no todo item was found on the line
 ---@param line string Line to extract Todo item state
@@ -123,6 +142,9 @@ function M.setup()
 
   -- Clear pattern cache in case config changed
   clear_pattern_cache()
+
+  -- Clear todo map cache
+  M.todo_map_cache = {}
 
   log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns() or {}, " , "))
   log.debug("Unchecked pattern is: " .. table.concat(M.getUncheckedTodoPatterns() or {}, " , "))
@@ -346,7 +368,7 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   opts = opts or {}
   local max_depth = opts.max_depth or 0
 
-  local todo_map = opts.todo_map or M.discover_todos(bufnr)
+  local todo_map = opts.todo_map or M.get_todo_map(bufnr)
 
   -- First check: exact position match via extmarks
   local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns_todos, { row, 0 }, { row, -1 }, {})

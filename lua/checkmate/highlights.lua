@@ -200,7 +200,8 @@ function M.apply_highlighting(bufnr, opts)
 
   -- Discover all todo items
   ---@type table<integer, checkmate.TodoItem>
-  local todo_map = opts.todo_map or parser.discover_todos(bufnr)
+  -- local todo_map = opts.todo_map or parser.discover_todos(bufnr)
+  local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
 
   -- Process todo items in hierarchical order (top-down)
   for _, todo_item in pairs(todo_map) do

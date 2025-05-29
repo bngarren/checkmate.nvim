@@ -41,7 +41,7 @@ function M.run(bufnr, todo_map, entry_fn, post_fn)
   -- Initialize transaction state
   local state = {
     bufnr = bufnr,
-    todo_map = todo_map or parser.discover_todos(bufnr),
+    todo_map = todo_map or parser.get_todo_map(bufnr),
     op_queue = {},
     cb_queue = {},
     seen_ops = {},

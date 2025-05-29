@@ -342,7 +342,8 @@ function M.process_buffer(bufnr, reason)
 
       local start_time = vim.uv.hrtime() / 1000000
 
-      local todo_map = parser.discover_todos(bufnr)
+      -- local todo_map = parser.discover_todos(bufnr)
+      local todo_map = parser.get_todo_map(bufnr)
       parser.convert_markdown_to_unicode(bufnr)
 
       require("checkmate.highlights").apply_highlighting(

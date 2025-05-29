@@ -190,6 +190,8 @@ function M._setup_autocommands()
       require("checkmate.config").unregister_buffer(bufnr)
       -- Reset any API state for this buffer
       require("checkmate.api")._debounced_process_buffer_fns[bufnr] = nil
+      -- Clear the todo map cache for this buffer
+      require("checkmate.parser").todo_map_cache[bufnr] = nil
     end,
   })
 

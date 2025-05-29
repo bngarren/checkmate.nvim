@@ -33,7 +33,7 @@ end
 --- Starts a transaction for a buffer
 ---@param bufnr number Buffer number
 ---@param entry_fn function Function to start the transaction
----@param post_fn function Function to run after transaction completes
+---@param post_fn function? Function to run after transaction completes
 function M.run(bufnr, entry_fn, post_fn)
   assert(not M._state, "Nested transactions are not supported")
 

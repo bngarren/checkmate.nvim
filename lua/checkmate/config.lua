@@ -566,6 +566,11 @@ function M.notify_config_changed()
     require("checkmate.linter").setup(M.options.linter)
   end
 
+  -- Update parser's patterns
+  if package.loaded["checkmate.parser"] then
+    require("checkmate.parser").clear_pattern_cache() -- clears the pattern cache in case todo markers were changed in config
+  end
+
   -- Refresh highlights
   if package.loaded["checkmate.highlights"] then
     require("checkmate.highlights").setup_highlights()

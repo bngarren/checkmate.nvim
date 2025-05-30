@@ -71,7 +71,7 @@ local PATTERN_CACHE = {
   unchecked_todo = nil,
 }
 
-local function clear_pattern_cache()
+function M.clear_pattern_cache()
   PATTERN_CACHE = {
     checked_todo = nil,
     unchecked_todo = nil,
@@ -116,6 +116,7 @@ M.todo_map_cache = {}
 ---@return table<integer, checkmate.TodoItem>
 function M.get_todo_map(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
+    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
     return {}
   end
 
@@ -168,7 +169,7 @@ function M.setup()
   local log = require("checkmate.log")
 
   -- Clear pattern cache in case config changed
-  clear_pattern_cache()
+  M.clear_pattern_cache()
 
   -- Clear todo map cache
   M.todo_map_cache = {}
@@ -506,6 +507,7 @@ function M.discover_todos(bufnr)
   local tree = parser:parse()[1]
   if not tree then
     log.debug("Failed to parse buffer", { module = "parser" })
+    vim.notify("Checkmate: Failed to parse buffer", vim.log.levels.ERROR)
     return todo_map
   end
 
@@ -661,16 +663,7 @@ end
 ---Returns a TS query for finding markdown list_markers
 ---@return vim.treesitter.Query
 function M.get_list_marker_query()
-  return vim.treesitter.query.parse(
-    "markdown",
-    [[
-    (list_marker_minus) @list_marker_minus
-    (list_marker_plus) @list_marker_plus
-    (list_marker_star) @list_marker_star
-    (list_marker_dot) @list_marker_ordered
-    (list_marker_parenthesis) @list_marker_ordered
-    ]]
-  )
+  return FULL_TODO_QUERY
 end
 
 ---Returns the list_marker type as "unordered" or "ordered"

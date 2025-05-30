@@ -220,10 +220,11 @@ end
 
 -- PUBLIC API --
 
----Toggle todo item state at cursor or in visual selection
+---Toggle todo item(s) state under cursor or in visual selection
 ---
 ---To set a specific todo item to a target state, use `set_todo_item`
 ---@param target_state? checkmate.TodoItemState Optional target state ("checked" or "unchecked")
+---@return boolean success
 function M.toggle(target_state)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -268,12 +269,13 @@ end
 ---Sets a given todo item to a specific state
 ---@param todo_item checkmate.TodoItem Todo item to set state
 ---@param target_state checkmate.TodoItemState
+---@return boolean success
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
 
   if not todo_item then
-    return
+    return false
   end
   local todo_id = todo_item.id
 
@@ -294,13 +296,19 @@ function M.set_todo_item(todo_item, target_state)
 end
 
 --- Set todo item to checked state
+---
+--- See `toggle()`
+---@return boolean success
 function M.check()
-  M.toggle("checked")
+  return M.toggle("checked")
 end
 
 --- Set todo item to unchecked state
+---
+--- See `toggle()`
+---@return boolean success
 function M.uncheck()
-  M.toggle("unchecked")
+  return M.toggle("unchecked")
 end
 
 --- Create a new todo item
@@ -310,9 +318,10 @@ function M.create()
   return true
 end
 
---- Insert a metadata tag into a todo item at the cursor or per todo in the visual selection
+--- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 ---@param value string? Value contained in the tag
+---@return boolean success
 function M.add_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -322,7 +331,7 @@ function M.add_metadata(metadata_name, value)
   local meta_props = config.options.metadata[metadata_name]
   if not meta_props then
     util.notify("Unknown metadata tag: " .. metadata_name, vim.log.levels.WARN)
-    return
+    return false
   end
 
   local ctx = transaction.current_context()
@@ -346,7 +355,7 @@ function M.add_metadata(metadata_name, value)
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
-    return
+    return false
   end
 
   -- Begin a transaction
@@ -362,6 +371,7 @@ end
 
 --- Remove a metadata tag from a todo item at the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
+---@return boolean success
 function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -388,7 +398,7 @@ function M.remove_metadata(metadata_name)
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
-    return
+    return false
   end
 
   transaction.run(bufnr, todo_map, function(_ctx)
@@ -401,6 +411,8 @@ function M.remove_metadata(metadata_name)
   return true
 end
 
+---Removes all metadata from a todo item(s) under the cursor or include in visual selection
+---@return boolean success
 function M.remove_all_metadata()
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -427,7 +439,7 @@ function M.remove_all_metadata()
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
-    return
+    return false
   end
 
   transaction.run(bufnr, todo_map, function(_ctx)
@@ -440,9 +452,10 @@ function M.remove_all_metadata()
   return true
 end
 
---- Toggle a metadata tag on/off at the cursor or for each todo in the visual selection
+--- Toggle a metadata tag on/off for todo item under the cursor or for each todo in the visual selection
 ---@param meta_name string Name of the metadata tag (defined in the config)
 ---@param custom_value string? (Optional) Value contained in tag. If nil, will attempt to get default value from get_value()
+---@return boolean success
 function M.toggle_metadata(meta_name, custom_value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -473,7 +486,7 @@ function M.toggle_metadata(meta_name, custom_value)
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
-    return
+    return false
   end
 
   transaction.run(bufnr, todo_map, function(_ctx)

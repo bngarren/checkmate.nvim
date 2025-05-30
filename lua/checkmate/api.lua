@@ -572,7 +572,7 @@ function M.archive_todos(opts)
   -- discover todos and current archive block boundaries
   ---------------------------------------------------------------------------
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_map = parser.discover_todos(bufnr)
+  local todo_map = parser.get_todo_map(bufnr)
   local sorted_todos = util.get_sorted_todo_list(todo_map)
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -820,7 +820,7 @@ function M.collect_todo_items_from_selection(is_visual)
   local items = {}
 
   -- Pre-parse all todos once
-  local full_map = parser.discover_todos(bufnr)
+  local full_map = parser.get_todo_map(bufnr)
 
   if is_visual then
     -- Exit visual mode first

@@ -107,12 +107,18 @@ function M.get_todo_map(bufnr)
   local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
   local cache = M.todo_map_cache[bufnr]
 
+  -- Cache hit - no changes since last parse
   if cache and changedtick == cache.version then
-    return cache.current -- todo map
+    return cache.current or {}
   end
 
+  -- Buffer changed - need fresh parse
   local fresh_todo_map = M.discover_todos(bufnr)
-  M.todo_map_cache[bufnr] = { version = changedtick, current = fresh_todo_map }
+  M.todo_map_cache[bufnr] = {
+    version = changedtick,
+    current = fresh_todo_map,
+  }
+
   return fresh_todo_map
 end
 
@@ -522,6 +528,8 @@ function M.discover_todos(bufnr)
   local list_items = {}
   local rows_needed = {} -- the buffer rows we need to get
 
+  profiler.start("parser.discover_todos 1st pass")
+
   -- First pass: collect all list items and their rows
   for _, node, _ in list_item_query:iter_captures(root, bufnr, 0, -1) do
     -- Get node information (TS ranges are 0-indexed and end-exclusive)
@@ -627,6 +635,8 @@ function M.discover_todos(bufnr)
       M.update_content_nodes(item.node, bufnr, todo_map[extmark_id])
     end
   end
+
+  profiler.stop("parser.discover_todos 1st pass")
 
   -- Clean up orphaned extmarks
   for _, orphaned_id in pairs(extmark_by_pos) do

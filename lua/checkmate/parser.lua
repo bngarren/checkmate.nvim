@@ -49,6 +49,21 @@ local M = {}
 --- @field children integer[] IDs of child todo items
 --- @field parent_id integer? ID of parent todo item
 
+local FULL_TODO_QUERY = vim.treesitter.query.parse(
+  "markdown",
+  [[
+  (list_item) @list_item
+  (list_marker_minus) @list_marker
+  (list_marker_plus) @list_marker  
+  (list_marker_star) @list_marker
+  (list_marker_dot) @list_marker_ordered
+  (list_marker_parenthesis) @list_marker_ordered
+  (paragraph) @paragraph
+]]
+)
+
+local METADATA_PATTERN = "@([%a][%w_%-]*)%(%s*(.-)%s*%)"
+
 M.list_item_markers = { "-", "+", "*" }
 
 local PATTERN_CACHE = {
@@ -479,175 +494,167 @@ function M.discover_todos(bufnr)
   profiler.start("parser.discover_todos")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  -- Initialize the node map
-  ---@type table <integer, checkmate.TodoItem>
   local todo_map = {}
 
-  -- Get the Treesitter parser for markdown
+  -- Get parser
   local parser = vim.treesitter.get_parser(bufnr, "markdown")
   if not parser then
     log.debug("No parser available for markdown", { module = "parser" })
     return todo_map
   end
 
-  -- Parse the buffer
   local tree = parser:parse()[1]
   if not tree then
     log.debug("Failed to parse buffer", { module = "parser" })
     return todo_map
   end
 
-  -- Get existing extmarks for todos to preserve IDs where possible
+  -- Get existing extmarks
   local existing_extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns_todos, 0, -1, {})
-
-  -- Create lookup for existing extmarks by position
   local extmark_by_pos = {}
   for _, extmark in ipairs(existing_extmarks) do
     local id, row, col = extmark[1], extmark[2], extmark[3]
     extmark_by_pos[row .. ":" .. col] = id
   end
 
-  -- Also create a reverse lookup: ID -> current position
-  local current_positions = {}
-  for _, extmark in ipairs(existing_extmarks) do
-    local id, row, col = extmark[1], extmark[2], extmark[3]
-    current_positions[id] = { row = row, col = col }
-  end
-
   local root = tree:root()
 
-  -- Create a query to find all list_item nodes
-  local list_item_query = vim.treesitter.query.parse(
-    "markdown",
-    [[
-    (list_item) @list_item
-  ]]
-  )
+  -- Collect all nodes in a single pass
+  local node_info = {
+    list_items = {},
+    markers_by_parent = {}, -- parent node id -> marker nodes
+    paragraphs_by_parent = {}, -- parent node id -> paragraph nodes
+  }
 
-  local list_items = {}
-  local rows_needed = {} -- the buffer rows we need to get
+  -- Single traversal to collect all relevant nodes
+  for id, node, _ in FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
+    local capture_name = FULL_TODO_QUERY.captures[id]
 
-  profiler.start("parser.discover_todos 1st pass")
-
-  -- First pass: collect all list items and their rows
-  for _, node, _ in list_item_query:iter_captures(root, bufnr, 0, -1) do
-    -- Get node information (TS ranges are 0-indexed and end-exclusive)
-    local start_row, start_col, end_row, end_col = node:range()
-    table.insert(list_items, {
-      node = node,
-      start_row = start_row,
-      start_col = start_col,
-      end_row = end_row,
-      end_col = end_col,
-    })
-    table.insert(rows_needed, start_row)
+    if capture_name == "list_item" then
+      local start_row, start_col, end_row, end_col = node:range()
+      table.insert(node_info.list_items, {
+        node = node,
+        start_row = start_row,
+        start_col = start_col,
+        end_row = end_row,
+        end_col = end_col,
+      })
+    elseif capture_name == "list_marker" or capture_name == "list_marker_ordered" then
+      local parent = node:parent()
+      if parent then
+        local parent_id = parent:id()
+        node_info.markers_by_parent[parent_id] = node_info.markers_by_parent[parent_id] or {}
+        table.insert(node_info.markers_by_parent[parent_id], {
+          node = node,
+          type = capture_name == "list_marker_ordered" and "ordered" or "unordered",
+        })
+      end
+    elseif capture_name == "paragraph" then
+      local parent = node:parent()
+      if parent then
+        local parent_id = parent:id()
+        node_info.paragraphs_by_parent[parent_id] = node_info.paragraphs_by_parent[parent_id] or {}
+        table.insert(node_info.paragraphs_by_parent[parent_id], node)
+      end
+    end
   end
 
-  -- Batch read all first lines
+  -- Batch read all needed lines
+  local rows_needed = {}
+  for _, item in ipairs(node_info.list_items) do
+    table.insert(rows_needed, item.start_row)
+  end
   local first_lines = util.batch_get_lines(bufnr, rows_needed)
 
-  for _, item in ipairs(list_items) do
-    -- Get the first line to check if it's a todo item
+  -- Process list items
+  for _, item in ipairs(node_info.list_items) do
     local first_line = first_lines[item.start_row] or ""
     local todo_state = M.get_todo_item_state(first_line)
-    local start_row = item.start_row
-    local start_col = item.start_row
-    local end_row = item.end_row
-    local end_col = item.end_col
 
     if todo_state then
-      -- This is a todo item, add it to the map
-      log.trace("Found todo item at line " .. (start_row + 1) .. ", type: " .. todo_state, { module = "parser" })
-
-      -- Find the todo marker position
-      local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
-        or config.options.todo_markers.unchecked
+      local start_row = item.start_row
 
       -- Find marker position
-      local marker_row = start_row
+      local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
+        or config.options.todo_markers.unchecked
       local marker_col = 0
       local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
       if todo_marker_byte_pos then
-        -- Convert byte position to 0 indexed
         marker_col = todo_marker_byte_pos - 1
       end
 
-      -- TODO: verify this is 1 char prior to the marker, i.e. the space before the marker
+      -- Handle extmark
       local extmark_col = marker_col
-
-      -- Try to reuse existing extmark or create new one
-      local pos_key = marker_row .. ":" .. extmark_col
+      local pos_key = start_row .. ":" .. extmark_col
       local extmark_id = extmark_by_pos[pos_key]
 
       if not extmark_id then
-        -- Create new extmark at list marker position
-        extmark_id = vim.api.nvim_buf_set_extmark(bufnr, config.ns_todos, marker_row, extmark_col, {
-          right_gravity = false, -- Stay with the marker if text is inserted before
+        extmark_id = vim.api.nvim_buf_set_extmark(bufnr, config.ns_todos, start_row, extmark_col, {
+          right_gravity = false,
         })
       end
-
-      -- Remove from existing lookup so we can clean up orphaned extmarks later
       extmark_by_pos[pos_key] = nil
-      if current_positions[extmark_id] then
-        current_positions[extmark_id] = nil
-      end
 
-      -- Create the raw range first
+      -- Create ranges
       local raw_range = {
-        start = { row = start_row, col = start_col },
-        ["end"] = { row = end_row, col = end_col },
+        start = { row = start_row, col = item.start_col },
+        ["end"] = { row = item.end_row, col = item.end_col },
       }
-
-      -- Get the adjusted range with proper semantic boundaries
-      -- This more meaningful range encompasses the todo content better than the quirky Treesitter technical range for a node
       local semantic_range = util.get_semantic_range(raw_range, bufnr)
 
-      local metadata = M.extract_metadata(first_line, start_row)
+      -- Get list marker from pre-collected data
+      local list_marker = nil
+      local node_id = item.node:id()
+      local markers = node_info.markers_by_parent[node_id]
+      if markers and #markers > 0 then
+        list_marker = {
+          node = markers[1].node,
+          type = markers[1].type,
+        }
+      end
 
-      -- Initialize the todo item entry
+      -- Get content nodes from pre-collected data
+      local content_nodes = {}
+      local paragraphs = node_info.paragraphs_by_parent[node_id]
+      if paragraphs then
+        for _, p_node in ipairs(paragraphs) do
+          table.insert(content_nodes, {
+            node = p_node,
+            type = "paragraph",
+          })
+        end
+      end
+
+      -- Create todo item
       todo_map[extmark_id] = {
-        id = extmark_id, -- integer id
+        id = extmark_id,
         state = todo_state,
         node = item.node,
         range = semantic_range,
         ts_range = raw_range,
         todo_text = first_line,
-        content_nodes = {},
+        content_nodes = content_nodes,
         todo_marker = {
-          position = {
-            row = start_row,
-            col = marker_col,
-          },
+          position = { row = start_row, col = marker_col },
           text = todo_marker,
         },
-        ---@diagnostic disable-next-line: assign-type-mismatch
-        list_marker = nil,
-        metadata = metadata,
-        children = {}, -- Extmark ids. Will be set in second pass, if applicable
-        parent_id = nil, -- Extmark ids. Will be set in second pass, if applicable
+        list_marker = list_marker,
+        metadata = M.extract_metadata(first_line, start_row),
+        children = {},
+        parent_id = nil,
       }
-
-      -- Find and store list marker information
-      M.update_list_marker_info(item.node, bufnr, todo_map[extmark_id])
-
-      -- Find and store content nodes
-      M.update_content_nodes(item.node, bufnr, todo_map[extmark_id])
     end
   end
-
-  profiler.stop("parser.discover_todos 1st pass")
 
   -- Clean up orphaned extmarks
   for _, orphaned_id in pairs(extmark_by_pos) do
     vim.api.nvim_buf_del_extmark(bufnr, config.ns_todos, orphaned_id)
   end
 
-  -- Second pass: Build parent-child relationships
+  -- Build hierarchy
   M.build_todo_hierarchy(todo_map)
 
   profiler.stop("parser.discover_todos")
-
   return todo_map
 end
 
@@ -758,33 +765,26 @@ end
 ---@param todo_map table<integer, checkmate.TodoItem>
 ---@return table<integer, checkmate.TodoItem> result The updated todo map with hierarchy information
 function M.build_todo_hierarchy(todo_map)
-  -- Reset relationships
-  for _, item in pairs(todo_map) do
-    item.children = {}
-    item.parent_id = nil
+  -- Build node->todo lookup table once
+  local node_to_todo = {}
+  for id, todo in pairs(todo_map) do
+    node_to_todo[todo.node:id()] = id
+    todo.children = {}
+    todo.parent_id = nil
   end
 
-  -- Build parent-child relationships based on Treesitter structure
-  for extmark_id, todo_item in pairs(todo_map) do
-    local node = todo_item.node
-    local parent_node = M.find_parent_list_item(node)
-
+  -- Single pass to build relationships
+  for id, todo in pairs(todo_map) do
+    local parent_node = M.find_parent_list_item(todo.node)
     if parent_node then
-      -- Find the parent todo by matching the Treesitter node
-      local parent_extmark_id = nil
-      for pid, parent_todo in pairs(todo_map) do
-        if parent_todo.node == parent_node then
-          parent_extmark_id = pid
-          break
-        end
-      end
-
-      if parent_extmark_id then
-        todo_item.parent_id = parent_extmark_id
-        table.insert(todo_map[parent_extmark_id].children, extmark_id)
+      local parent_id = node_to_todo[parent_node:id()]
+      if parent_id then
+        todo.parent_id = parent_id
+        table.insert(todo_map[parent_id].children, id)
       end
     end
   end
+
   return todo_map
 end
 
@@ -830,14 +830,12 @@ function M.extract_metadata(line, row)
     entries = {},
     by_tag = {},
   }
-  ---Tags must begin with a letter, but can then contain letters, digits, underscores, or hyphens
-  local tag_value_pattern = "@([%a][%w_%-]*)%(%s*(.-)%s*%)"
 
   -- Find all @tag(value) patterns and their positions
   local byte_pos = 1
   while true do
     -- Will capture tag names that include underscores and hypens
-    local tag_start_byte, tag_end_byte, tag, value = line:find(tag_value_pattern, byte_pos)
+    local tag_start_byte, tag_end_byte, tag, value = line:find(METADATA_PATTERN, byte_pos)
     if not tag_start_byte or not tag_end_byte then
       break
     end

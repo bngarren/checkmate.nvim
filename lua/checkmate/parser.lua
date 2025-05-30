@@ -94,15 +94,21 @@ end
 -- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
 M.todo_map_cache = {}
 
+---Returns a todo map of the current buffer
+---Will hit cache if buffer has not changed since last full parse,
+---according to :changedtick
+---@param bufnr integer Buffer number
+---@return table<integer, checkmate.TodoItem>
 function M.get_todo_map(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return {}
   end
 
   local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+  local cache = M.todo_map_cache[bufnr]
 
-  if M.todo_map_cache[bufnr] and changedtick == M.todo_map_cache[bufnr].version then
-    return M.todo_map_cache[bufnr].current -- todo map
+  if cache and changedtick == cache.version then
+    return cache.current -- todo map
   end
 
   local fresh_todo_map = M.discover_todos(bufnr)

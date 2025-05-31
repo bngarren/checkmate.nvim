@@ -25,6 +25,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
+- :new: Smart toggling behavior
 - :new: Archive completed todos! (_experimental_)
 
 <br/>
@@ -87,7 +88,7 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
-> The Checkmate buffer is saved as regular Markdown ✔
+> The Checkmate buffer is saved as regular Markdown!
 
 # ☑️ Commands
 
@@ -120,6 +121,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ```lua
 ---Checkmate configuration
 ---@class checkmate.Config
+---
 ---Whether the plugin is enabled
 ---@field enabled boolean
 ---
@@ -153,7 +155,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
 ---
---- Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
+--- Depth within a todo item's hierarchy from which actions (e.g. toggle) will act on the parent todo item
 --- Examples:
 --- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
 --- 1 = toggle triggered when cursor/selection includes any direct child of todo item
@@ -162,6 +164,15 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---
 ---Enter insert mode after `:CheckmateCreate`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
+---
+---Options for smart toggle behavior
+---This allows an action on one todo item to recursively affect other todo items in the hierarchy in sensible manner
+---The behavior is configurable with the following defaults:
+--- - Toggling a todo item to checked will cause all direct children todos to become checked
+--- - When all direct child todo items are checked, the parent todo will become checked
+--- - Similarly, when a child todo is unchecked, it will ensure the parent todo also becomes unchecked if it was previously checked
+--- - Unchecking a parent does not uncheck children by default. This can be changed.
+---@field smart_toggle checkmate.SmartToggleSettings
 ---
 ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
 ---@field show_todo_count boolean
@@ -229,6 +240,39 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 -----------------------------------------------------
 
+---@class checkmate.SmartToggleSettings
+---Whether to enable smart toggle behavior
+---Default: true
+---@field enabled boolean?
+---
+---How checking a parent affects its children
+---  - "all_children": Check all descendants, including nested
+---  - "direct_children": Only check direct children (default)
+---  - "none": Don't propagate down
+---@field check_down "all_children"|"direct_children"|"none"?
+---
+---How unchecking a parent affects its children
+---  - "all_children": Uncheck all descendants, including nested
+---  - "direct_children": Only uncheck direct children
+---  - "none": Don't propagate down (default)
+---@field uncheck_down "all_children"|"direct_children"|"none"?
+---
+---When a parent should become checked
+---i.e, how a checked child affects its parent
+---  - "all_children": When ALL descendants are checked, including nested
+---  - "direct_children": When all direct children are checked (default)
+---  - "none": Never auto-check parents
+---@field check_up "all_children"|"direct_children"|"none"?
+---
+---When a parent should become unchecked
+---i.e, how a unchecked child affects its parent
+---  - "all_children": When ANY descendant is unchecked
+---  - "direct_children": When any direct child is unchecked (default)
+---  - "none": Never auto-uncheck parents
+---@field uncheck_up "all_children"|"direct_children"|"none"?
+
+-----------------------------------------------------
+
 ---@alias checkmate.StyleKey
 ---| "list_marker_unordered"
 ---| "list_marker_ordered"
@@ -242,6 +286,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 ---Customize the style of markers and content
 ---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
+---
 ---Highlight settings for unordered list markers (-,+,*)
 ---@field list_marker_unordered vim.api.keyset.highlight?
 ---
@@ -319,6 +364,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 -----------------------------------------------------
 
 ---@class checkmate.ArchiveSettings
+---
 ---Defines the header section for the archived todos
 ---@field heading checkmate.ArchiveHeading
 ---
@@ -326,6 +372,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---@field parent_spacing integer?
 
 ---@class checkmate.ArchiveHeading
+---
 ---Name for the archived todos section
 ---Default: "Archived"
 ---@field title string?
@@ -338,6 +385,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 -----------------------------------------------------
 
 ---@class checkmate.LinterConfig
+---
 ---Whether to enable the linter (vim.diagnostics)
 ---Default: true
 ---@field enabled boolean
@@ -349,6 +397,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---Whether to use verbose linter/diagnostic messages
 ---Default: false
 ---@field verbose boolean?
+
 ```
 
 </details>
@@ -382,6 +431,13 @@ local _DEFAULTS = {
   style = {},
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  smart_toggle = {
+    enabled = true,
+    check_down = "direct_children",
+    uncheck_down = "none",
+    check_up = "direct_children",
+    uncheck_up = "direct_children",
+  },
   show_todo_count = true,
   todo_count_position = "eol",
   todo_count_recursive = true,
@@ -438,7 +494,7 @@ local _DEFAULTS = {
   },
   archive = {
     heading = {
-      title = "Archived",
+      title = "Archive",
       level = 2, -- e.g. ##
     },
     parent_spacing = 0, -- no extra lines between archived todos
@@ -575,6 +631,32 @@ todo_count_recursive = true,
       /><br/>
 <sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
 
+# Smart Toggle
+
+Smart toggle provides intelligent parent-child todo state propagation. When you toggle a todo item, it can automatically update related todos based on your configuration.
+
+### How it works
+
+Smart toggle operates in two phases:
+1. **Downward propagation**: When toggling a parent, optionally propagate the state change to children
+2. **Upward propagation**: When toggling a child, optionally update the parent based on children states
+
+### Configuration
+
+Smart toggle is enabled by default with sensible defaults. You can customize the behavior:
+
+```lua
+opts = {
+  smart_toggle = {
+    enabled = true,
+    check_down = "direct",        -- How checking a parent affects children
+    uncheck_down = "none",        -- How unchecking a parent affects children
+    check_up = "direct_children", -- When to auto-check parents
+    uncheck_up = "direct_children", -- When to auto-uncheck parents
+  }
+}
+```
+
 # Archiving
 Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
 
@@ -664,9 +746,11 @@ Planned features:
 
 - [x] **Archiving** - manually or automatically move completed items to the bottom of the document. _Added v0.7.0_ (experimental)
 
-- [ ] Smart toggling - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. 
+- [x] Smart toggling - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
+
+- [ ] Distinguish todo siblings - highlighting feature that applies slightly different colors to siblings to better differentiate them
 
 # Contributing
 

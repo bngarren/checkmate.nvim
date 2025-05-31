@@ -228,6 +228,13 @@ function M.setup_autocmds(bufnr)
         local log = require("checkmate.log")
         local util = require("checkmate.util")
 
+        -- Guard against re-entrancy
+        -- Previously had bug due to setting modified flag causing BufWriteCmd to run multiple times
+        if vim.b[bufnr]._checkmate_writing then
+          return
+        end
+        vim.b[bufnr]._checkmate_writing = true
+
         local uv = vim.uv
         local was_modified = vim.bo[bufnr].modified
 
@@ -274,18 +281,23 @@ function M.setup_autocmds(bufnr)
             log.error("Failed to rename temp file: " .. (rename_err or "unknown error"), { module = "api" })
             util.notify("Failed to save file", vim.log.levels.ERROR)
             vim.bo[bufnr].modified = was_modified
+            vim.b[bufnr]._checkmate_writing = nil
             return false
           end
 
           -- Convert the main buffer content to Unicode for display
           parser.convert_markdown_to_unicode(bufnr)
 
-          -- Use schedule to set modified flag after command completes
-          vim.schedule(function()
+          -- For :wq to work, we need to set modified=false synchronously
+          vim.bo[bufnr].modified = false
+          vim.cmd("set nomodified")
+
+          -- Clean up the guard after a short delay
+          vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.bo[bufnr].modified = false
+              vim.b[bufnr]._checkmate_writing = nil
             end
-          end)
+          end, 0)
 
           util.notify("Saved", vim.log.levels.INFO)
         else
@@ -296,6 +308,8 @@ function M.setup_autocmds(bufnr)
           end)
           util.notify("Failed to write file", vim.log.levels.ERROR)
           vim.bo[bufnr].modified = was_modified
+          vim.b[bufnr]._checkmate_writing = nil
+
           return false
         end
       end,

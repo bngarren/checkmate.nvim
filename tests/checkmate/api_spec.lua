@@ -257,6 +257,114 @@ describe("API", function()
         h.cleanup_buffer(bufnr, file_path)
       end)
     end)
+
+    describe("BufWriteCmd compatibility", function()
+      it("should not require double :wq to exit", function()
+        local file_path = h.create_temp_file()
+        local content = "- [ ] Test"
+        local bufnr = setup_todo_buffer(file_path, content)
+
+        -- Modify buffer
+        vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "- [ ] Modified" })
+
+        -- Track if BufWriteCmd was called
+        local write_count = 0
+        local original_autocmd = vim.api.nvim_create_autocmd("BufWriteCmd", {
+          buffer = bufnr,
+          callback = function()
+            write_count = write_count + 1
+          end,
+        })
+
+        -- First write should clear modified flag
+        vim.cmd("write")
+        assert.equal(1, write_count)
+        assert.is_false(vim.bo[bufnr].modified)
+
+        -- Second write should work but not be necessary
+        vim.cmd("write")
+        assert.equal(2, write_count)
+        assert.is_false(vim.bo[bufnr].modified)
+
+        -- Clean up
+        vim.api.nvim_del_autocmd(original_autocmd)
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should handle :wa (write all modified buffers)", function()
+        local file1 = h.create_temp_file()
+        local file2 = h.create_temp_file()
+
+        local bufnr1 = setup_todo_buffer(file1, "- [ ] File 1 todo")
+        local bufnr2 = setup_todo_buffer(file2, "- [ ] File 2 todo")
+
+        -- Modify both buffers - REPLACE content instead of appending
+        vim.api.nvim_buf_set_lines(bufnr1, 0, -1, false, { "- [ ] File 1 new" })
+        vim.api.nvim_buf_set_lines(bufnr2, 0, -1, false, { "- [ ] File 2 new" })
+
+        -- Both should be modified
+        assert.is_true(vim.bo[bufnr1].modified)
+        assert.is_true(vim.bo[bufnr2].modified)
+
+        -- Write all
+        vim.cmd("wa")
+
+        -- Both should be unmodified now
+        assert.is_false(vim.bo[bufnr1].modified)
+        assert.is_false(vim.bo[bufnr2].modified)
+
+        -- Verify both files saved
+        local content1 = h.read_file_content(file1)
+        if not content1 then
+          error("failed read file1")
+        end
+
+        local content2 = h.read_file_content(file2)
+        if not content2 then
+          error("failed read file2")
+        end
+
+        assert.equal("- [ ] File 1 new", content1)
+        assert.equal("- [ ] File 2 new", content2)
+
+        finally(function()
+          h.cleanup_buffer(bufnr1, file1)
+          h.cleanup_buffer(bufnr2, file2)
+        end)
+      end)
+
+      it("should not trigger multiple writes on single save command", function()
+        local file_path = h.create_temp_file()
+        local bufnr = setup_todo_buffer(file_path, "- [ ] Test")
+
+        -- Track write attempts
+        local write_attempts = 0
+        local original_writefile = vim.fn.writefile
+        ---@diagnostic disable-next-line: duplicate-set-field
+        vim.fn.writefile = function(...)
+          write_attempts = write_attempts + 1
+          return original_writefile(...)
+        end
+
+        -- Modify and save
+        vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "- [ ] New line" })
+        vim.cmd("write")
+
+        -- Should only write once
+        assert.equal(1, write_attempts, "Write was called multiple times")
+
+        -- Restore original function
+        vim.fn.writefile = original_writefile
+
+        finally(function()
+          vim.fn.writefile = original_writefile -- ensure cleanup
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+    end)
   end)
 
   describe("todo collection", function()

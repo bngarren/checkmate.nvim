@@ -48,7 +48,7 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 ```lua
 {
     "bngarren/checkmate.nvim",
-    ft = "markdown" -- Lazy loads for Markdown files matching patterns in 'files'
+    ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
     opts = {
         -- your configuration here
         -- or leave empty to use defaults

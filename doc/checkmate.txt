@@ -40,7 +40,7 @@ FEATURES ~
 
 
 
-https://github.com/user-attachments/assets/942a4fa2-ce41-4882-8991-c7b7be127630
+https://raw.githubusercontent.com/bngarren/checkmate.nvim/assets/checkmate-0.7-video.mp4
 
 
 ==============================================================================

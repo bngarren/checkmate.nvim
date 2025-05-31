@@ -163,15 +163,13 @@ function M.get_todo_item_state(line)
   return todo_state
 end
 
--- Setup Treesitter queries for todo items
 function M.setup()
   local highlights = require("checkmate.highlights")
   local log = require("checkmate.log")
 
-  -- Clear pattern cache in case config changed
+  -- clear pattern cache in case config changed
   M.clear_pattern_cache()
 
-  -- Clear todo map cache
   M.todo_map_cache = {}
 
   log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns() or {}, " , "))
@@ -187,13 +185,12 @@ function M.setup()
 ((list_marker_plus) @list_marker_plus)
 ((list_marker_star) @list_marker_star)
 ]]
-  -- Register the query
+  -- register the query
   vim.treesitter.query.set("markdown", "todo_items", todo_query)
 
-  -- Define and set up highlight groups
   highlights.setup_highlights()
 
-  -- Set up an autocmd to re-apply highlighting when colorscheme changes
+  -- set up an autocmd to re-apply highlighting when colorscheme changes
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
     callback = function()
@@ -216,7 +213,6 @@ function M.convert_markdown_to_unicode(bufnr)
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Get all lines in the buffer
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
   local original_modified = vim.bo[bufnr].modified
@@ -227,10 +223,8 @@ function M.convert_markdown_to_unicode(bufnr)
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
 
-  -- Create new_lines table to avoid modifying while iterating
   local new_lines = {}
 
-  -- Replace markdown syntax with Unicode
   for _, line in ipairs(lines) do
     local new_line = line
 
@@ -244,7 +238,6 @@ function M.convert_markdown_to_unicode(bufnr)
       new_line = new_line:gsub(pat, "%1" .. checked)
     end
 
-    -- Check if line was modified
     if new_line ~= line then
       modified = true
     end
@@ -252,7 +245,6 @@ function M.convert_markdown_to_unicode(bufnr)
     table.insert(new_lines, new_line)
   end
 
-  -- Update buffer if changes were made
   if modified then
     -- Disable undo to avoid breaking undo sequence
     vim.api.nvim_buf_call(bufnr, function()
@@ -276,7 +268,6 @@ function M.convert_unicode_to_markdown(bufnr)
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Get all lines in the buffer
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
 
@@ -296,7 +287,6 @@ function M.convert_unicode_to_markdown(bufnr)
     return false
   end
 
-  -- Create new_lines table
   local new_lines = {}
 
   -- Replace Unicode with markdown syntax
@@ -345,7 +335,6 @@ function M.convert_unicode_to_markdown(bufnr)
     table.insert(new_lines, new_line)
   end
 
-  -- Update buffer if changes were made
   if modified then
     ok, err = pcall(function()
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
@@ -435,7 +424,6 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
     node = node:parent()
   end
 
-  -- If we found a list_item node
   if list_item_node then
     local function find_todo_by_node(target_node)
       for _, todo_item in pairs(todo_map) do
@@ -497,7 +485,6 @@ function M.discover_todos(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local todo_map = {}
 
-  -- Get parser
   local parser = vim.treesitter.get_parser(bufnr, "markdown")
   if not parser then
     log.debug("No parser available for markdown", { module = "parser" })
@@ -521,14 +508,13 @@ function M.discover_todos(bufnr)
 
   local root = tree:root()
 
-  -- Collect all nodes in a single pass
+  -- collect all nodes in a single pass
   local node_info = {
     list_items = {},
     markers_by_parent = {}, -- parent node id -> marker nodes
     paragraphs_by_parent = {}, -- parent node id -> paragraph nodes
   }
 
-  -- Single traversal to collect all relevant nodes
   for id, node, _ in FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
     local capture_name = FULL_TODO_QUERY.captures[id]
 
@@ -561,14 +547,13 @@ function M.discover_todos(bufnr)
     end
   end
 
-  -- Batch read all needed lines
+  -- batch read all needed lines
   local rows_needed = {}
   for _, item in ipairs(node_info.list_items) do
     table.insert(rows_needed, item.start_row)
   end
   local first_lines = util.batch_get_lines(bufnr, rows_needed)
 
-  -- Process list items
   for _, item in ipairs(node_info.list_items) do
     local first_line = first_lines[item.start_row] or ""
     local todo_state = M.get_todo_item_state(first_line)
@@ -576,7 +561,7 @@ function M.discover_todos(bufnr)
     if todo_state then
       local start_row = item.start_row
 
-      -- Find marker position
+      -- get marker position
       local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
         or config.options.todo_markers.unchecked
       local marker_col = 0
@@ -585,7 +570,6 @@ function M.discover_todos(bufnr)
         marker_col = todo_marker_byte_pos - 1
       end
 
-      -- Handle extmark
       local extmark_col = marker_col
       local pos_key = start_row .. ":" .. extmark_col
       local extmark_id = extmark_by_pos[pos_key]
@@ -597,14 +581,12 @@ function M.discover_todos(bufnr)
       end
       extmark_by_pos[pos_key] = nil
 
-      -- Create ranges
       local raw_range = {
         start = { row = start_row, col = item.start_col },
         ["end"] = { row = item.end_row, col = item.end_col },
       }
       local semantic_range = util.get_semantic_range(raw_range, bufnr)
 
-      -- Get list marker from pre-collected data
       local list_marker = nil
       local node_id = item.node:id()
       local markers = node_info.markers_by_parent[node_id]
@@ -615,7 +597,6 @@ function M.discover_todos(bufnr)
         }
       end
 
-      -- Get content nodes from pre-collected data
       local content_nodes = {}
       local paragraphs = node_info.paragraphs_by_parent[node_id]
       if paragraphs then
@@ -627,7 +608,6 @@ function M.discover_todos(bufnr)
         end
       end
 
-      -- Create todo item
       todo_map[extmark_id] = {
         id = extmark_id,
         state = todo_state,
@@ -653,7 +633,6 @@ function M.discover_todos(bufnr)
     vim.api.nvim_buf_del_extmark(bufnr, config.ns_todos, orphaned_id)
   end
 
-  -- Build hierarchy
   M.build_todo_hierarchy(todo_map)
 
   profiler.stop("parser.discover_todos")
@@ -680,14 +659,13 @@ end
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
 function M.update_list_marker_info(node, bufnr, todo_item)
-  -- Find all child nodes that could be list markers
   local list_marker_query = M.get_list_marker_query()
 
   for id, marker_node, _ in list_marker_query:iter_captures(node, bufnr, 0, -1) do
     local name = list_marker_query.captures[id]
     local marker_type = M.get_marker_type_from_capture_name(name)
 
-    -- Verify this marker is a direct child of this list_item
+    -- verify this marker is a direct child of this list_item
     local parent = marker_node:parent()
     while parent and parent ~= node do
       parent = parent:parent()
@@ -715,7 +693,7 @@ function M.find_list_marker_info(node, bufnr)
     local name = list_marker_query.captures[id]
     local marker_type = M.get_marker_type_from_capture_name(name)
 
-    -- Verify this marker is a direct child of this list_item
+    -- verify this marker is a direct child of this list_item
     local parent = marker_node:parent()
     while parent and parent ~= node do
       parent = parent:parent()
@@ -734,7 +712,6 @@ end
 
 -- Find content nodes (paragraphs, etc.)
 function M.update_content_nodes(node, bufnr, todo_item)
-  -- Find child nodes containing content
   local content_query = vim.treesitter.query.parse(
     "markdown",
     [[
@@ -743,7 +720,7 @@ function M.update_content_nodes(node, bufnr, todo_item)
   )
 
   for _, content_node, _ in content_query:iter_captures(node, bufnr, 0, -1) do
-    -- Verify this paragraph is a direct child of this list_item
+    -- verify this paragraph is a direct child of this list_item
     local parent = content_node:parent()
     if parent == node then
       table.insert(todo_item.content_nodes, {
@@ -766,7 +743,6 @@ function M.build_todo_hierarchy(todo_map)
     todo.parent_id = nil
   end
 
-  -- Single pass to build relationships
   for id, todo in pairs(todo_map) do
     local parent_node = M.find_parent_list_item(todo.node)
     if parent_node then
@@ -816,7 +792,6 @@ end
 function M.extract_metadata(line, row)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
-  local util = require("checkmate.util")
 
   ---@type checkmate.TodoMetadata
   local metadata = {
@@ -824,16 +799,15 @@ function M.extract_metadata(line, row)
     by_tag = {},
   }
 
-  -- Find all @tag(value) patterns and their positions
+  -- find all @tag(value) patterns and their positions
   local byte_pos = 1
   while true do
-    -- Will capture tag names that include underscores and hypens
+    -- will capture tag names that include underscores and hypens
     local tag_start_byte, tag_end_byte, tag, value = line:find(METADATA_PATTERN, byte_pos)
     if not tag_start_byte or not tag_end_byte then
       break
     end
 
-    -- Create metadata entry with position information
     ---@type checkmate.MetadataEntry
     local entry = {
       tag = tag,
@@ -848,14 +822,13 @@ function M.extract_metadata(line, row)
       position_in_line = tag_start_byte, -- track original position in the line, use byte pos for sorting
     }
 
-    -- Check if this is an alias and map to canonical name
+    -- check if this is an alias and map to canonical name
     for canonical_name, meta_props in pairs(config.options.metadata) do
       if tag == canonical_name then
         -- This is a canonical name, no need to set alias_for
         break
       end
 
-      -- Check if it's in the aliases
       for _, alias in ipairs(meta_props.aliases or {}) do
         if tag == alias then
           entry.alias_for = canonical_name
@@ -868,18 +841,17 @@ function M.extract_metadata(line, row)
       end
     end
 
-    -- Add to entries list
     table.insert(metadata.entries, entry)
 
-    -- Store in by_tag lookup (last one wins if multiple with same tag)
+    -- store in by_tag lookup (last one wins if multiple with same tag)
     metadata.by_tag[tag] = entry
 
-    -- If this is an alias, also store under canonical name
+    -- if this is an alias, also store under canonical name
     if entry.alias_for then
       metadata.by_tag[entry.alias_for] = entry
     end
 
-    -- Move position for next search
+    -- move position for next search
     byte_pos = tag_end_byte + 1
 
     log.debug(
@@ -900,12 +872,12 @@ function M.find_parent_list_item(node)
 
   local parent = node:parent()
 
-  -- No parent or parent is root
+  -- no parent or parent is root
   if not parent or parent:type() == "document" then
     return nil
   end
 
-  -- In CommonMark, list items are nested inside lists
+  -- in CommonMark, list items are nested inside lists
   if parent:type() == "list" then
     local grandparent = parent:parent()
     if grandparent and grandparent:type() == "list_item" then
@@ -931,11 +903,10 @@ function M.get_all_list_items(bufnr)
     ]]
   )
 
-  -- Collect all list items and their marker information
+  -- collect all list items and their marker information
   for _, node, _ in list_query:iter_captures(root, bufnr, 0, -1) do
     local start_row, start_col, end_row, end_col = node:range()
 
-    -- Find the list marker within this list item
     local marker_node = nil
     local marker_type = nil
 

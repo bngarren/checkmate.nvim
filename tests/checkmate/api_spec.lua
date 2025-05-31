@@ -57,6 +57,9 @@ describe("API", function()
         },
       },
       enter_insert_after_new = false,
+      smart_toggle = {
+        enabled = false,
+      },
     }, config_override))
 
     -- For testing, explicitly call setup instead of relying on autocmd
@@ -823,6 +826,375 @@ Normal content line (not a todo)]]
         reset_mode()
 
         h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+  end)
+
+  describe("smart toggle", function()
+    local config = require("checkmate.config")
+
+    local function setup_smart_toggle_buffer(content, smart_toggle_config)
+      local file_path = h.create_temp_file()
+
+      -- Merge smart_toggle config with base config
+      local config_override = {
+        smart_toggle = vim.tbl_extend("force", {
+          enabled = true,
+          check_down = "direct",
+          uncheck_down = "none",
+          check_up = "direct_children",
+          uncheck_up = "direct_children",
+        }, smart_toggle_config or {}),
+      }
+
+      return setup_todo_buffer(file_path, content, config_override), file_path
+    end
+
+    describe("downward propagation", function()
+      it("should check all direct children when parent is checked (check_down='direct')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. unchecked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+    - ]] .. unchecked .. [[ Grandchild 1
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct" })
+
+        -- Move cursor to parent task and toggle
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Verify the results
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        -- Grandchild should NOT be checked (only direct children)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should check all descendants when parent is checked (check_down='all')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. unchecked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+    - ]] .. unchecked .. [[ Grandchild 1
+      - ]] .. unchecked .. [[ Great-grandchild 1
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "all" })
+
+        -- Move cursor to parent task and toggle
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Verify ALL descendants are checked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. vim.pesc(checked) .. " Great%-grandchild 1", lines[5])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should not affect children when parent is checked (check_down='none')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. unchecked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "none" })
+
+        -- Move cursor to parent task and toggle
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Verify only parent is checked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should uncheck direct children when parent is unchecked (uncheck_down='direct')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. checked .. [[ Parent task
+  - ]] .. checked .. [[ Child 1
+  - ]] .. checked .. [[ Child 2
+    - ]] .. checked .. [[ Grandchild 1
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_down = "direct" })
+
+        -- Move cursor to parent task and toggle (uncheck it)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Verify results
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
+        -- Grandchild should remain checked (only direct children affected)
+        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+    end)
+
+    describe("upward propagation", function()
+      it("should check parent when all direct children are checked (check_up='direct_children')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. checked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+  - ]] .. checked .. [[ Child 3
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "direct_children" })
+
+        -- Check the remaining unchecked child
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Parent should now be checked since all children are checked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 3", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should check parent when all descendants are checked (check_up='all_children')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. checked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+    - ]] .. checked .. [[ Grandchild 1
+    - ]] .. unchecked .. [[ Grandchild 2
+]]
+
+        -- we use a check_down = "none" here to test only the check_up functionality,
+        -- otherwise, the first check with propagate the check to all children
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+
+        -- Check Child 2 first
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        require("checkmate").toggle()
+        vim.wait(20)
+
+        -- Parent should NOT be checked yet (grandchild 2 is still unchecked)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+
+        -- Now check Grandchild 2
+        vim.api.nvim_win_set_cursor(0, { 5, 0 })
+        require("checkmate").toggle()
+        vim.wait(20)
+
+        -- Now parent should be checked (all descendants are checked)
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 2", lines[5])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should uncheck parent when any direct child is unchecked (uncheck_up='direct_children')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. checked .. [[ Parent task
+  - ]] .. checked .. [[ Child 1
+  - ]] .. checked .. [[ Child 2
+    - ]] .. unchecked .. [[ Grandchild 1
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_up = "direct_children" })
+
+        -- Uncheck one child
+        vim.api.nvim_win_set_cursor(0, { 2, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Parent should be unchecked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should uncheck parent when any descendant is unchecked (uncheck_up='all_children')", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. checked .. [[ Parent task
+  - ]] .. checked .. [[ Child 1
+  - ]] .. checked .. [[ Child 2
+    - ]] .. checked .. [[ Grandchild 1
+]]
+
+        local bufnr, file_path =
+          setup_smart_toggle_buffer(content, { uncheck_up = "all_children", uncheck_down = "none" })
+
+        -- Uncheck the grandchild
+        vim.api.nvim_win_set_cursor(0, { 4, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Parent should be unchecked (because a descendant is unchecked)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        -- Child 2 is unchecked as it is a parent of Grandchild 1
+        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+    end)
+
+    describe("complex scenarios", function()
+      it("should handle multiple selection with smart toggle", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Task A
+  - ]] .. unchecked .. [[ Task A.1
+- ]] .. unchecked .. [[ Task B
+  - ]] .. unchecked .. [[ Task B.1
+    - ]] .. unchecked .. [[ Task B.1.1
+- ]] .. unchecked .. [[ Task C
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct" })
+
+        -- Select both parent tasks in visual mode
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        vim.cmd("normal! V")
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+        -- Toggle both
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- All tasks should be checked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Task A", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Task B", lines[3])
+        assert.matches("- " .. vim.pesc(checked) .. " Task B%.1", lines[4])
+        -- should not propagate check to grandchild if check_down = "direct"
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task B%.1%.1", lines[5])
+        -- should not check sibling parent Task C
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task C", lines[6])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should handle cascading propagation correctly", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Grandparent
+  - ]] .. unchecked .. [[ Parent 1
+    - ]] .. checked .. [[ Child 1.1
+    - ]] .. unchecked .. [[ Child 1.2
+  - ]] .. checked .. [[ Parent 2
+    - ]] .. checked .. [[ Child 2.1
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+          check_down = "none",
+          check_up = "direct_children",
+        })
+
+        -- Check Child 1.2 - this should cascade up
+        vim.api.nvim_win_set_cursor(0, { 4, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Should check Child 1.2, Parent 1, and Grandparent
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Grandparent", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Parent 1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1%.1", lines[3])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 1%.2", lines[4])
+        assert.matches("- " .. vim.pesc(checked) .. " Parent 2", lines[5])
+        assert.matches("- " .. vim.pesc(checked) .. " Child 2%.1", lines[6])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
       end)
     end)
   end)

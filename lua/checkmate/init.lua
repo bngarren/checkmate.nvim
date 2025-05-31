@@ -1,6 +1,3 @@
--- main module entry point
--- should handle configuration/setup, define the public API
-
 ---@class Checkmate
 local M = {}
 
@@ -9,18 +6,17 @@ local _state = {
   initialized = false, -- Has setup been called?
 }
 
--- Helper function to check if file matches patterns
+-- Checks if the file matches the given pattern(s)
 -- Note: All pattern matching is case-sensitive.
 -- Users should include multiple patterns for case-insensitive matching.
 function M.should_activate_for_buffer(bufnr, patterns)
   if not patterns or #patterns == 0 then
-    return false -- Don't activate Checkmate if no pattern specified
+    return false
   end
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local filename = vim.api.nvim_buf_get_name(bufnr)
 
-  -- No filename, can't check pattern
   if not filename or filename == "" then
     return false
   end
@@ -30,12 +26,11 @@ function M.should_activate_for_buffer(bufnr, patterns)
   local basename = vim.fn.fnamemodify(norm_path, ":t")
 
   for _, pattern in ipairs(patterns) do
-    -- 1: Exact basename match
     if pattern == basename then
       return true
     end
 
-    -- 2: If pattern has no extension and file has .md extension,
+    -- if pattern has no extension and file has .md extension,
     -- check if pattern matches filename without extension
     if not pattern:match("%.%w+$") and basename:match("%.md$") then
       local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
@@ -44,14 +39,13 @@ function M.should_activate_for_buffer(bufnr, patterns)
       end
     end
 
-    -- 3: For directory patterns - exact path ending match
+    -- for directory patterns
     if pattern:find("/") then
-      -- Check if the path ends with the pattern
       if norm_path:match("/" .. vim.pesc(pattern) .. "$") then
         return true
       end
 
-      -- Special case: If pattern doesn't end with .md and the file has .md extension,
+      -- if pattern doesn't end with .md and the file has .md extension,
       -- check if adding .md to the pattern would match
       if not pattern:match("%.md$") and norm_path:match("%.md$") then
         if norm_path:match("/" .. vim.pesc(pattern) .. "%.md$") then
@@ -60,29 +54,28 @@ function M.should_activate_for_buffer(bufnr, patterns)
       end
     end
 
-    -- 4: Wildcard matching
+    -- Wildcard matching
     if pattern:find("*") then
       local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
 
-      -- For path patterns with wildcards
       if pattern:find("/") then
         if norm_path:match(lua_pattern .. "$") then
           return true
         end
 
-        -- Try with .md appended if pattern doesn't have extension and file does
+        -- try with .md added if pattern doesn't have extension and file does
         if not pattern:match("%.%w+$") and norm_path:match("%.md$") then
           if norm_path:match(lua_pattern .. "%.md$") then
             return true
           end
         end
       else
-        -- For simple filename patterns with wildcards
+        -- simple filename patterns with wildcards
         if basename:match("^" .. lua_pattern .. "$") then
           return true
         end
 
-        -- If pattern doesn't have extension and file has .md extension,
+        -- if pattern doesn't have extension and file has .md extension,
         -- try to match pattern against filename without extension
         if not pattern:match("%.%w+$") and basename:match("%.md$") then
           local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
@@ -110,18 +103,14 @@ M.setup = function(opts)
 
   _state.initialized = true
 
-  -- Setup filetype autocommand
   vim.api.nvim_create_autocmd("FileType", {
     group = vim.api.nvim_create_augroup("checkmate_ft", { clear = true }),
     pattern = "markdown",
     callback = function(event)
       -- Check if this markdown file should activate Checkmate
       if M.should_activate_for_buffer(event.buf, config.options.files) then
-        -- Schedule the activation to avoid blocking
         vim.schedule(function()
-          -- Load the plugin
           M.start()
-          -- Setup this buffer
           require("checkmate.api").setup(event.buf)
         end)
       end
@@ -135,46 +124,34 @@ end
 function M.start()
   local config = require("checkmate.config")
 
-  -- Don't reload if already running
   if config._state.running then
     return
   end
 
-  -- If not enabled in config, don't proceed
   if not config.options.enabled then
     return
   end
 
-  -- Step 1: Initialize logger (independent of all other modules)
   local log = require("checkmate.log")
   log.setup()
   log.debug("Beginning plugin initialization", { module = "init" })
 
-  -- Step 2: Start the configuration module
   config.start()
 
-  -- Step 3: Initialize parser (core functionality, no UI dependencies)
-  -- This handles the TS queries that other modules need
   require("checkmate.parser").setup()
 
-  -- Step 4: Set up highlights module (depends on parser)
   require("checkmate.highlights").setup_highlights()
 
-  -- Step 5: Register commands (user-facing features)
   require("checkmate.commands").setup()
 
-  -- Step 6: Set up the linter if enabled (depends on parser)
   if config.options.linter and config.options.linter.enabled ~= false then
     require("checkmate.linter").setup(config.options.linter)
   end
 
-  -- Step 7: Setup module-specific autocommands
   M._setup_autocommands()
 
-  -- Mark as fully loaded
   config._state.running = true
 
-  -- Log successful initialization
   log.info("Checkmate plugin loaded successfully", { module = "init" })
 end
 
@@ -195,7 +172,6 @@ function M._setup_autocommands()
     end,
   })
 
-  -- Clean up on exit
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = augroup,
     callback = function()
@@ -204,7 +180,6 @@ function M._setup_autocommands()
   })
 end
 
--- Shutdown the plugin and clean up
 function M.stop()
   local config = require("checkmate.config")
   if not config.is_running() then
@@ -296,9 +271,7 @@ function M.set_todo_item(todo_item, target_state)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
     if smart_toggle_enabled then
-      -- Get the current todo_map from transaction state
       local todo_map = transaction._state.todo_map
       api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
     else
@@ -644,7 +617,6 @@ function M.debug_at_cursor()
   -- Use native vim.notify here as we want to show this regardless of config.options.notify
   vim.notify(table.concat(msg, "\n"), vim.log.levels.DEBUG)
 
-  -- Add debug highlight
   vim.api.nvim_set_hl(0, "CheckmateDebugHighlight", { bg = "#3b3b3b" })
 
   vim.api.nvim_buf_set_extmark(bufnr, config.ns, item.range.start.row, item.range.start.col, {

@@ -29,14 +29,12 @@ function M.is_valid_buffer(bufnr)
     return false
   end
 
-  -- pcall to safely check if the buffer is valid
   local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
   if not ok or not is_valid then
     vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
     return false
   end
 
-  -- Only check filetype if buffer actually exists
   if vim.bo[bufnr].filetype ~= "markdown" then
     vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
     return false
@@ -48,14 +46,12 @@ end
 function M.setup(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Check if buffer is valid
   if not M.is_valid_buffer(bufnr) then
     return false
   end
 
   local config = require("checkmate.config")
 
-  -- Check if already set up
   if vim.b[bufnr].checkmate_setup_complete then
     return true
   end
@@ -68,10 +64,8 @@ function M.setup(bufnr)
   vim.b[bufnr].checkmate_setup_complete = true
 
   local parser = require("checkmate.parser")
-  -- Convert markdown to Unicode
   parser.convert_markdown_to_unicode(bufnr)
 
-  -- Only initialize linter if enabled in config
   if config.options.linter and config.options.linter.enabled ~= false then
     local linter = require("checkmate.linter")
     linter.setup(config.options.linter)
@@ -79,7 +73,6 @@ function M.setup(bufnr)
     linter.lint_buffer(bufnr)
   end
 
-  -- Apply highlighting
   local highlights = require("checkmate.highlights")
   highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
 
@@ -90,10 +83,8 @@ function M.setup(bufnr)
     vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
   end
 
-  -- Apply keymappings
   M.setup_keymaps(bufnr)
 
-  -- Set up auto commands for this buffer
   M.setup_autocmds(bufnr)
 
   config.register_buffer(bufnr)
@@ -145,12 +136,9 @@ function M.setup_keymaps(bufnr)
   }
 
   for key, action_name in pairs(keys) do
-    -- Skip if mapping is explicitly disabled with false
     if action_name ~= false then
-      -- Check if action exists
       local action = actions[action_name]
       if action then
-        -- Get description from commands module
         local base_desc = command_descs[action.command] or "Checkmate action"
 
         -- Map for each supported mode
@@ -175,14 +163,12 @@ function M.setup_keymaps(bufnr)
 
   -- Setup metadata keymaps
   if config.options.use_metadata_keymaps then
-    -- For each metadata tag with a key defined
     for meta_name, meta_props in pairs(config.options.metadata) do
       if meta_props.key then
         local modes = { "n", "v" }
 
         -- Map metadata actions to both normal and visual modes
         for _, mode in ipairs(modes) do
-          -- Map the key to the quick_metadata function
           log.debug(
             "Mapping " .. mode .. " mode key " .. meta_props.key .. " to metadata." .. meta_name,
             { module = "api" }
@@ -238,7 +224,6 @@ function M.setup_autocmds(bufnr)
         local uv = vim.uv
         local was_modified = vim.bo[bufnr].modified
 
-        -- Get the current lines and filename
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local filename = vim.api.nvim_buf_get_name(bufnr)
 
@@ -255,16 +240,13 @@ function M.setup_autocmds(bufnr)
           return false
         end
 
-        -- Get converted lines and write to file
         local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-        -- Create temporary file path
         local temp_filename = filename .. ".tmp"
 
         -- Write to temporary file first
         local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
 
-        -- Clean up temp buffer
         vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
         if write_result == 0 then
@@ -285,14 +267,12 @@ function M.setup_autocmds(bufnr)
             return false
           end
 
-          -- Convert the main buffer content to Unicode for display
           parser.convert_markdown_to_unicode(bufnr)
 
           -- For :wq to work, we need to set modified=false synchronously
           vim.bo[bufnr].modified = false
           vim.cmd("set nomodified")
 
-          -- Clean up the guard after a short delay
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
               vim.b[bufnr]._checkmate_writing = nil
@@ -344,7 +324,6 @@ function M.process_buffer(bufnr, reason)
   -- Create a debounced function for this buffer if it doesn't exist
   if not M._debounced_process_buffer_fns[bufnr] then
     local function process_buffer_impl()
-      -- Skip if buffer is no longer valid
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_process_buffer_fns[bufnr] = nil
         return
@@ -356,7 +335,6 @@ function M.process_buffer(bufnr, reason)
 
       local start_time = vim.uv.hrtime() / 1000000
 
-      -- local todo_map = parser.discover_todos(bufnr)
       local todo_map = parser.get_todo_map(bufnr)
       parser.convert_markdown_to_unicode(bufnr)
 
@@ -384,7 +362,6 @@ function M.process_buffer(bufnr, reason)
   -- Call the debounced processor - this will reset the timer
   M._debounced_process_buffer_fns[bufnr]()
 
-  -- Log that the process was scheduled
   log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
 end
 
@@ -410,7 +387,7 @@ function M.create_todo()
   -- Extract indentation
   local indent = line:match("^(%s*)") or ""
 
-  -- Detect whether the line already starts with a list marker
+  -- does the line already start with a list marker
   local list_marker_match = util.match_first(
     util.create_list_prefix_patterns({
       simple_markers = parser.list_item_markers,
@@ -442,11 +419,9 @@ function M.create_todo()
 
   vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
 
-  -- Place cursor at end of line and enter insert mode
+  -- put cursor at end of line and enter insert mode
   vim.api.nvim_win_set_cursor(0, { cursor[1], #new_line })
 
-  -- Apply highlighting immediately
-  -- parser.apply_highlighting(bufnr)
   require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "create_todo" })
 
   if config.options.enter_insert_after_new then
@@ -460,7 +435,6 @@ end
 function M.sort_metadata_entries(entries)
   local config = require("checkmate.config")
 
-  -- Create a copy to avoid modifying the original array
   local sorted = vim.deepcopy(entries)
 
   table.sort(sorted, function(a, b)
@@ -468,14 +442,12 @@ function M.sort_metadata_entries(entries)
     local a_name = a.alias_for or a.tag
     local b_name = b.alias_for or b.tag
 
-    -- Get sort_order values, default to 100 if not specified
     local a_config = config.options.metadata[a_name] or {}
     local b_config = config.options.metadata[b_name] or {}
 
     local a_order = a_config.sort_order or 100
     local b_order = b_config.sort_order or 100
 
-    -- If sort_order is the same, maintain original order
     if a_order == b_order then
       return (a.position_in_line or 0) < (b.position_in_line or 0)
     end
@@ -493,24 +465,22 @@ end
 function M.rebuild_line_with_sorted_metadata(line, metadata)
   local log = require("checkmate.log")
 
-  -- Remove all metadata tags but preserve all other content including whitespace
+  -- remove all metadata tags but preserve all other content including whitespace
   local content_without_metadata = line:gsub("@%w+%([^)]*%)", "")
 
-  -- Remove trailing whitespace but keep all indentation
+  -- remove trailing whitespace but keep all indentation
   content_without_metadata = content_without_metadata:gsub("%s+$", "")
 
-  -- If no metadata entries, just return the cleaned content
   if not metadata or not metadata.entries or #metadata.entries == 0 then
     return content_without_metadata
   end
 
-  -- Sort the metadata entries
   local sorted_entries = M.sort_metadata_entries(metadata.entries)
 
   -- Rebuild the line with content and sorted metadata
   local result_line = content_without_metadata
 
-  -- Add back each metadata tag in sorted order
+  -- add back each metadata tag in sorted order
   for _, entry in ipairs(sorted_entries) do
     result_line = result_line .. " @" .. entry.tag .. "(" .. entry.value .. ")"
   end
@@ -535,7 +505,7 @@ function M.count_child_todos(todo_item, todo_map, opts)
         counts.completed = counts.completed + 1
       end
 
-      -- Recursively count grandchildren
+      -- recursively count grandchildren
       if opts and opts.recursive then
         local child_counts = M.count_child_todos(child, todo_map, opts)
         counts.total = counts.total + child_counts.total
@@ -559,7 +529,7 @@ function M.archive_todos(opts)
 
   opts = opts or {}
 
-  -- Create the Markdown heading that the user has defined, e.g. ## Archived
+  -- create the Markdown heading that the user has defined, e.g. ## Archived
   local archive_heading_string = util.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
@@ -568,7 +538,6 @@ function M.archive_todos(opts)
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
   -- helpers
-  ---------------------------------------------------------------------------
 
   -- adds blank lines to the end of string[]
   local function add_spacing(lines)
@@ -584,7 +553,7 @@ function M.archive_todos(opts)
   end
 
   -- discover todos and current archive block boundaries
-  ---------------------------------------------------------------------------
+
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_map = parser.get_todo_map(bufnr)
   local sorted_todos = util.get_sorted_todo_list(todo_map)
@@ -618,7 +587,7 @@ function M.archive_todos(opts)
   end
 
   -- determine which root todos (and descendants) to archive
-  ---------------------------------------------------------------------------
+
   local todos_to_archive = {}
   local archived_ranges = {} ---@type {start_row:integer, end_row:integer}[]
   local archived_root_cnt = 0
@@ -667,12 +636,12 @@ function M.archive_todos(opts)
 
   -- rebuild buffer content
   -- start with re-creating the buffer's 'active' section (non-archived)
-  ---------------------------------------------------------------------------
+
   local new_content = {} --- lines that will remain in the main document
   local archive_lines = {} --- lines that will live under the Archive heading
 
   -- Walk every line of the current buffer.
-  --    We copy it into `new_content` unless it is:
+  --    we copy it into `new_content` unless it is:
   --       a) part of the existing archive section, or
   --       b) part of a todo block we’re about to archive, or
   --       c) the single blank line that immediately follows such a block
@@ -706,7 +675,7 @@ function M.archive_todos(opts)
 
   -- preserve existing archive content
   -- If an archive section already exists, copy everything below its heading
-  ---------------------------------------------------------------------------
+
   if archive_start_row and archive_end_row and archive_end_row >= archive_start_row + 1 then
     local start = archive_start_row + 2
     while start <= archive_end_row + 1 and current_buf_lines[start] == "" do
@@ -719,19 +688,19 @@ function M.archive_todos(opts)
   end
 
   -- append newly-archived root todo items with spacing
-  ---------------------------------------------------------------------------
+
   if #archived_ranges > 0 then
     if #archive_lines > 0 and parent_spacing > 0 then
       add_spacing(archive_lines) -- gap between old and new archive content
     end
 
-    -- Copy each root todo (and its children) in original order.
+    -- copy each root todo (and its children) in original order.
     for idx, r in ipairs(archived_ranges) do
       for row = r.start_row, r.end_row do
         archive_lines[#archive_lines + 1] = current_buf_lines[row + 1]
       end
 
-      -- spacing after each root todo except the last (easier to trim once at end)
+      -- spacing after each root todo except the last
       if idx < #archived_ranges and parent_spacing > 0 then
         add_spacing(archive_lines)
       end
@@ -743,7 +712,7 @@ function M.archive_todos(opts)
   trim_trailing_blank(archive_lines)
 
   -- inject archive section into document
-  ---------------------------------------------------------------------------
+
   if #archive_lines > 0 then
     -- blank line before archive heading if needed
     if #new_content > 0 and new_content[#new_content] ~= "" then
@@ -756,8 +725,8 @@ function M.archive_todos(opts)
     end
   end
 
-  -- write buffer + housekeeping
-  ---------------------------------------------------------------------------
+  -- write buffer
+
   local cursor_state = util.Cursor.save()
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_content)
   util.Cursor.restore(cursor_state)
@@ -784,14 +753,12 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
       return
     end
 
-    -- Find positions in bytes first
     local tag_byte_pos = updated_line:find("@" .. meta_name .. "%(", 1)
     local value_byte_pos = tag_byte_pos and (updated_line:find("%(", tag_byte_pos) + 1) or nil
 
     local win = vim.api.nvim_get_current_win()
     if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(win) == bufnr then
       if jump_to == "tag" and tag_byte_pos then
-        -- find() returns 1-based, nvim_win_set_cursor expects 0-based byte position
         vim.api.nvim_win_set_cursor(0, { row + 1, tag_byte_pos - 1 })
 
         if meta_config.select_on_insert then
@@ -799,7 +766,6 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
           vim.cmd("normal! l" .. string.rep("l", #meta_name) .. "v" .. string.rep("h", #meta_name))
         end
       elseif jump_to == "value" and value_byte_pos then
-        -- vim.print("jumping to value @" .. row + 1 .. ":" .. value_byte_pos - 1)
         vim.api.nvim_win_set_cursor(0, { row + 1, value_byte_pos - 1 })
 
         if meta_config.select_on_insert then
@@ -839,8 +805,6 @@ function M.collect_todo_items_from_selection(is_visual)
   if is_visual then
     -- Exit visual mode first
     vim.cmd([[execute "normal! \<Esc>"]])
-    -- local start_line = vim.fn.line("'<") - 1
-    -- local end_line = vim.fn.line("'>") - 1
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
 
@@ -848,7 +812,7 @@ function M.collect_todo_items_from_selection(is_visual)
     local start_line = mark_start[1] - 1
     local end_line = mark_end[1] - 1
 
-    -- Pre-build lookup table for faster todo item location
+    -- pre-build lookup table for faster todo item location
     local row_to_todo = {}
     for _, todo_item in pairs(full_map) do
       for row = todo_item.range.start.row, todo_item.range["end"].row do
@@ -921,25 +885,24 @@ local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_l
   local marker_text = todo_item.todo_marker.text
   local marker_byte_len = #marker_text
 
-  -- Position after the marker (0-based)
+  -- position after the marker (0-based)
   local content_start = marker_col + marker_byte_len
 
-  -- Extract the portion to replace (from marker end to line end)
-  -- For string operations, convert to 1-based
+  -- extract the portion to replace (from marker end to line end)
+  -- for string operations, convert to 1-based
   local old_suffix = old_line:sub(content_start + 1)
   local new_suffix = new_line:sub(content_start + 1)
 
-  -- Skip if nothing changed
   if old_suffix == new_suffix then
     return nil
   end
 
-  -- Create hunk that replaces from content_start to end of line
+  -- make hunk
   return {
     start_row = row,
     start_col = content_start,
     end_row = row,
-    end_col = content_start + #old_suffix, -- Calculate based on actual content length
+    end_col = content_start + #old_suffix,
     insert = { new_suffix },
   }
 end
@@ -965,7 +928,6 @@ function M.compute_diff_toggle(items, target_state)
       local new_marker = item_target_state == "checked" and config.options.todo_markers.checked
         or config.options.todo_markers.unchecked
 
-      -- Create a surgical edit for just the marker, passing the line
       local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
       table.insert(hunks, hunk)
     end
@@ -998,11 +960,9 @@ function M.set_todo_item(items, params, ctx)
   local hunks = {}
   for i, item in ipairs(items) do
     local target_state = params[i][1]
-    -- Only create a hunk if the state is different
     if item.state ~= target_state then
       local item_hunks = M.compute_diff_toggle({ item }, target_state)
       vim.list_extend(hunks, item_hunks)
-      -- Optional: queue on_state_changed callback if you have one
     end
   end
   return hunks
@@ -1020,17 +980,15 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
   local want = {} -- id -> desired state
 
-  -- Phase 1: Downward propagation
+  -- downward propagation
   local function mark_down(id, state, depth)
-    -- Skip if already processed with same state
     if want[id] == state then
       return
     end
 
-    -- Mark this node
     want[id] = state
 
-    -- Determine if we should propagate to children
+    -- determine if we should propagate to children
     local item = todo_map[id]
     if not item or not item.children or #item.children == 0 then
       return
@@ -1041,30 +999,28 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     if propagate_config == "none" then
       return
     elseif propagate_config == "direct_children" and depth > 0 then
-      return -- Only propagate to direct children (depth 0 -> 1)
+      return -- only propagate to direct children (depth 0 -> 1)
     end
-    -- propagate_config == "all" or (propagate_config == "direct" and depth == 0)
 
     for _, child_id in ipairs(item.children) do
       mark_down(child_id, state, depth + 1)
     end
   end
 
-  -- Initialize the downward pass for each selected item
+  -- initialize the downward pass for each selected item
   for _, item in ipairs(items) do
-    -- Determine the target state for this item
     local item_target_state = target_state
     if not item_target_state then
-      -- If no explicit target, toggle based on current state
+      -- if no explicit target, toggle based on current state
       item_target_state = (item.state == "unchecked") and "checked" or "unchecked"
     end
 
     mark_down(item.id, item_target_state, 0)
   end
 
-  -- Phase 2: Upward propagation
+  -- upward propagation
 
-  -- Helper to check if all relevant children are checked
+  -- helper checks if all relevant children are checked
   local function should_check_parent(parent_id)
     if smart_config.check_up == "none" then
       return false
@@ -1072,11 +1028,11 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     local parent = todo_map[parent_id]
     if not parent or not parent.children or #parent.children == 0 then
-      return true -- No children means we can check it
+      return true -- no children means we can check it
     end
 
     if smart_config.check_up == "direct_children" then
-      -- Check only direct children
+      -- check only direct children
       for _, child_id in ipairs(parent.children) do
         local child = todo_map[child_id]
         if not child then
@@ -1089,20 +1045,19 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       end
       return true
     else -- "all_children"
-      -- Check all descendants recursively
+      -- check all descendants recursively
       local function all_descendants_checked(id)
         local item = todo_map[id]
         if not item then
           return false
         end
 
-        -- Check this item
         local will_be_checked = want[id] == "checked" or (want[id] == nil and item.state == "checked")
         if not will_be_checked then
           return false
         end
 
-        -- Check all children recursively
+        -- check all children recursively
         if item.children then
           for _, child_id in ipairs(item.children) do
             if not all_descendants_checked(child_id) then
@@ -1114,7 +1069,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
         return true
       end
 
-      -- Check all direct children and their descendants
+      -- check all direct children and their descendants
       for _, child_id in ipairs(parent.children) do
         if not all_descendants_checked(child_id) then
           return false
@@ -1124,7 +1079,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- Helper to check if parent should be unchecked
+  -- helper checks if parent should be unchecked
   local function should_uncheck_parent(parent_id)
     if smart_config.uncheck_up == "none" then
       return false
@@ -1132,11 +1087,11 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     local parent = todo_map[parent_id]
     if not parent or not parent.children or #parent.children == 0 then
-      return false -- No children means no reason to uncheck
+      return false -- no children means no reason to uncheck
     end
 
     if smart_config.uncheck_up == "direct_children" then
-      -- Check only direct children
+      -- check only direct children
       for _, child_id in ipairs(parent.children) do
         local child = todo_map[child_id]
         if child then
@@ -1149,20 +1104,19 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       end
       return false
     else -- "all_children"
-      -- Check all descendants recursively
+      -- check all descendants recursively
       local function any_descendant_unchecked(id)
         local item = todo_map[id]
         if not item then
           return false
         end
 
-        -- Check this item
         local will_be_unchecked = want[id] == "unchecked" or (want[id] == nil and item.state == "unchecked")
         if will_be_unchecked then
           return true
         end
 
-        -- Check all children recursively
+        -- check all children recursively
         if item.children then
           for _, child_id in ipairs(item.children) do
             if any_descendant_unchecked(child_id) then
@@ -1174,7 +1128,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
         return false
       end
 
-      -- Check all direct children and their descendants
+      -- check all direct children and their descendants
       for _, child_id in ipairs(parent.children) do
         if any_descendant_unchecked(child_id) then
           return true
@@ -1184,7 +1138,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- Process upward propagation for checked items
+  -- process upward propagation for checked items
   local function propagate_check_up(id)
     local item = todo_map[id]
     if not item or not item.parent_id then
@@ -1194,13 +1148,13 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     if should_check_parent(item.parent_id) then
       if want[item.parent_id] ~= "checked" then
         want[item.parent_id] = "checked"
-        -- Recursively propagate up
+        -- recursively propagate up
         propagate_check_up(item.parent_id)
       end
     end
   end
 
-  -- Process upward propagation for unchecked items
+  -- process upward propagation for unchecked items
   local function propagate_uncheck_up(id)
     local item = todo_map[id]
     if not item or not item.parent_id then
@@ -1210,13 +1164,13 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     if should_uncheck_parent(item.parent_id) then
       if want[item.parent_id] ~= "unchecked" then
         want[item.parent_id] = "unchecked"
-        -- Recursively propagate up
+        -- recursively propagate up
         propagate_uncheck_up(item.parent_id)
       end
     end
   end
 
-  -- Run upward propagation based on what we're setting items to
+  -- run upward propagation based on what we're setting items to
   for id, desired_state in pairs(want) do
     if desired_state == "checked" then
       propagate_check_up(id)
@@ -1225,7 +1179,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- Phase 3: Queue only the necessary operations
+  -- queue only the necessary operations
   for id, desired_state in pairs(want) do
     local item = todo_map[id]
     if item and item.state ~= desired_state then
@@ -1255,17 +1209,14 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
     local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
     if original_line and #original_line ~= 0 then
-      -- Determine value
       local value = meta_value
 
-      -- Check if metadata already exists
+      -- check if metadata already exists
       local existing_entry = todo_item.metadata.by_tag[meta_name]
 
-      -- Create updated metadata structure
       local updated_metadata = vim.deepcopy(todo_item.metadata)
 
       if existing_entry then
-        -- Update existing entry
         for i, entry in ipairs(updated_metadata.entries) do
           if entry.tag == existing_entry.tag then
             updated_metadata.entries[i].value = value
@@ -1274,7 +1225,6 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
         end
         updated_metadata.by_tag[meta_name].value = value
       else
-        -- Add new entry
         local new_entry = {
           tag = meta_name,
           value = value,
@@ -1288,7 +1238,7 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
         updated_metadata.by_tag[meta_name] = new_entry
       end
 
-      -- Rebuild line with sorted metadata
+      -- rebuild line with sorted metadata
       local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
 
       local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
@@ -1313,7 +1263,6 @@ function M.add_metadata(items, params, ctx)
   for i, item in ipairs(items) do
     local meta_name, meta_value = params[i][1], params[i][2]
 
-    -- Determine the value to insert
     local get_value = config.options.metadata[meta_name].get_value
     if not meta_value and get_value then
       meta_value = get_value()
@@ -1334,17 +1283,16 @@ function M.add_metadata(items, params, ctx)
 
   local all_hunks = {}
   -- Process each batch
-  -- A 'batch' is a group of todo items that are getting the same meta tag/value
+  -- a 'batch' is a group of todo items that are getting the same meta tag/value
   for _, batch in pairs(batch_map) do
     local hunks = M.compute_diff_add_metadata(batch.items, batch.meta_name, batch.meta_value)
     vim.list_extend(all_hunks, hunks)
 
-    -- Optionally: queue on_add callbacks for new metadata added
     local meta_config = config.options.metadata[batch.meta_name]
     if meta_config and meta_config.on_add then
       for _, item in ipairs(batch.items) do
         ctx.add_cb(function(tx_ctx)
-          -- Get the updated item from the fresh todo_map
+          -- get the updated item from the fresh todo_map
           local updated_item = tx_ctx.get_item(item.id)
           if updated_item then
             meta_config.on_add(updated_item)
@@ -1384,7 +1332,7 @@ function M.compute_diff_remove_metadata(items, meta_name)
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
 
-  -- Batch read all required lines
+  -- batch read all required lines
   local rows = {}
   for _, item in ipairs(items) do
     table.insert(rows, item.todo_marker.position.row)
@@ -1396,7 +1344,6 @@ function M.compute_diff_remove_metadata(items, meta_name)
     local original_line = lines[row]
 
     if original_line and #original_line ~= 0 then
-      -- Check if metadata exists (including aliases)
       local entry = todo_item.metadata.by_tag[meta_name]
       if not entry then
         -- Check for aliases
@@ -1414,10 +1361,9 @@ function M.compute_diff_remove_metadata(items, meta_name)
       end
 
       if entry then
-        -- Create updated metadata structure
         local updated_metadata = vim.deepcopy(todo_item.metadata)
 
-        -- Remove from entries
+        -- remove from entries
         for i = #updated_metadata.entries, 1, -1 do
           if updated_metadata.entries[i].tag == entry.tag then
             table.remove(updated_metadata.entries, i)
@@ -1425,13 +1371,13 @@ function M.compute_diff_remove_metadata(items, meta_name)
           end
         end
 
-        -- Remove from by_tag
+        -- remove from by_tag
         updated_metadata.by_tag[entry.tag] = nil
         if entry.alias_for then
           updated_metadata.by_tag[entry.alias_for] = nil
         end
 
-        -- Rebuild line
+        -- rebuild line
         local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
 
         local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
@@ -1454,11 +1400,9 @@ function M.remove_metadata(items, params, ctx)
   local hunks = {}
   for i, item in ipairs(items) do
     local meta_name = params[i][1]
-    -- Only remove if it exists
     if item.metadata.by_tag and item.metadata.by_tag[meta_name] then
       local item_hunks = M.compute_diff_remove_metadata({ item }, meta_name)
       vim.list_extend(hunks, item_hunks)
-      -- Queue on_remove callback if configured
       local meta_config = config.options.metadata[meta_name]
       if meta_config and meta_config.on_remove then
         ctx.add_cb(function(tx_ctx)
@@ -1482,7 +1426,7 @@ function M.compute_diff_remove_all_metadata(items)
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
 
-  -- Batch read all required lines
+  -- batch read all required lines
   local rows = {}
   for _, item in ipairs(items) do
     table.insert(rows, item.todo_marker.position.row)
@@ -1495,13 +1439,12 @@ function M.compute_diff_remove_all_metadata(items)
       local original_line = lines[row]
 
       if original_line and #original_line ~= 0 then
-        -- Create empty metadata structure
         local empty_metadata = {
           entries = {},
           by_tag = {},
         }
 
-        -- Rebuild line without metadata
+        -- rebuild line without metadata
         local new_line = M.rebuild_line_with_sorted_metadata(original_line, empty_metadata)
 
         local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
@@ -1522,10 +1465,10 @@ end
 function M.remove_all_metadata(items, params, ctx)
   local config = require("checkmate.config")
 
-  -- Create hunks that remove all metadata at once
+  -- create hunks that remove all metadata at once
   local hunks = M.compute_diff_remove_all_metadata(items)
 
-  -- Queue callbacks for each removed metadata entry
+  -- queue callbacks
   for _, item in ipairs(items) do
     if item.metadata and item.metadata.entries then
       for _, entry in ipairs(item.metadata.entries) do
@@ -1577,7 +1520,7 @@ function M.apply_diff(bufnr, hunks)
 
   local api = vim.api
 
-  -- Sort hunks by start position (descending - highest line first)
+  -- sort hunks by start position
   table.sort(hunks, function(a, b)
     if a.start_row ~= b.start_row then
       return a.start_row > b.start_row
@@ -1585,7 +1528,7 @@ function M.apply_diff(bufnr, hunks)
     return a.start_col > b.start_col
   end)
 
-  -- Apply all hunks (first one creates undo entry, rest join)
+  -- apply all hunks (first one creates undo entry, rest join)
   for i, hunk in ipairs(hunks) do
     if i > 1 then
       vim.cmd("silent! undojoin")

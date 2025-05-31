@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/bngarren/checkmate.nvim/compare/v0.6.0...v0.7.0) (2025-05-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* public api functions now return a boolean (success or failure) rather than a structured result type
+
+### Features
+
+* adds 'smart_toggle' feature, allowing for todo state propagation to children and parent ([#65](https://github.com/bngarren/checkmate.nvim/issues/65)) ([bdce5f5](https://github.com/bngarren/checkmate.nvim/commit/bdce5f54921d06faab9b04965e3fd43e9db65c4f))
+* adds a new 'archive' functionality that allows reorganizing checked/completed todos to the bottom in a customizable section ([#59](https://github.com/bngarren/checkmate.nvim/issues/59)) ([e5d80be](https://github.com/bngarren/checkmate.nvim/commit/e5d80bed458a65bb53a0c014958c188de65f2d42))
+* Major refactor to improve performance. Under the hood, now using extmarks for tracking todos, diff hunks and batch processing ([#62](https://github.com/bngarren/checkmate.nvim/issues/62)) ([7436333](https://github.com/bngarren/checkmate.nvim/commit/7436333cf577c0ea6c2720ffa9daea479b453236))
+
+
+### Bug Fixes
+
+* **api:** fixes bug with :wq command not exiting correctly ([#66](https://github.com/bngarren/checkmate.nvim/issues/66)) ([2c8b3a4](https://github.com/bngarren/checkmate.nvim/commit/2c8b3a41d3e86ae706bd97cc55d786425da6b69e))
+* **highlights:** fixed a bug in which the wrong hl group is applied when inserting text at EOL or new lines ([#63](https://github.com/bngarren/checkmate.nvim/issues/63)) ([aba5528](https://github.com/bngarren/checkmate.nvim/commit/aba552861de391d4709429b51ac2ce483ff57c16))
+
 ## [0.6.0](https://github.com/bngarren/checkmate.nvim/compare/v0.5.1...v0.6.0) (2025-05-18)
 
 

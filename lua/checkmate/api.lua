@@ -301,12 +301,12 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
-    vim.api.nvim_create_autocmd("InsertLeave", {
+    vim.api.nvim_create_autocmd({ "InsertLeave", "InsertEnter" }, {
       group = augroup,
       buffer = bufnr,
-      callback = function()
+      callback = function(args)
         if vim.bo[bufnr].modified then
-          M.process_buffer(bufnr, "InsertLeave")
+          M.process_buffer(bufnr, args.event)
         end
       end,
     })

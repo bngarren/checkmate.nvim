@@ -297,9 +297,12 @@ function M.highlight_list_marker(bufnr, todo_item)
 
   vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
     end_row = end_row,
-    end_col = end_col,
+    end_col = math.max(0, end_col - 1),
     hl_group = hl_group,
     priority = M.PRIORITY.LIST_MARKER, -- Medium priority for list markers
+    right_gravity = false,
+    end_right_gravity = false,
+    hl_eol = false,
   })
 end
 
@@ -334,9 +337,12 @@ function M.highlight_child_list_markers(bufnr, todo_item)
 
         vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
           end_row = marker_end_row,
-          end_col = marker_end_col,
+          end_col = math.max(0, marker_end_col - 1),
           hl_group = hl_group,
           priority = M.PRIORITY.LIST_MARKER,
+          right_gravity = false,
+          end_right_gravity = false,
+          hl_eol = false,
         })
       end
     end
@@ -444,6 +450,8 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       end_col = #line,
       hl_group = main_content_hl,
       priority = M.PRIORITY.CONTENT,
+      hl_eol = true,
+      end_right_gravity = true,
     })
   end
 
@@ -465,6 +473,8 @@ function M.highlight_content(bufnr, todo_item, todo_map)
             end_col = #row_line,
             hl_group = additional_content_hl,
             priority = M.PRIORITY.CONTENT,
+            hl_eol = true,
+            end_right_gravity = true,
           })
         end
       end

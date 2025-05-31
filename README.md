@@ -33,7 +33,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 <img width="700" alt="Checkmate example 2" src="./assets/todos-example-2.png">
 
 
-https://github.com/user-attachments/assets/942a4fa2-ce41-4882-8991-c7b7be127630
+https://raw.githubusercontent.com/bngarren/checkmate.nvim/assets/checkmate-0.7-video.mp4
 
 
 # ☑️ Installation

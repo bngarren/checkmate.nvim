@@ -994,6 +994,232 @@ function M.set_todo_item(items, params, ctx)
   return hunks
 end
 
+---Toggle a batch of todo items with proper parent/child propagation
+---i.e. 'smart toggle'
+---@param ctx table Transaction context
+---@param items checkmate.TodoItem[] List of initial todo items to toggle
+---@param todo_map table<integer, checkmate.TodoItem>
+---@param target_state? checkmate.TodoItemState Optional target state, otherwise toggle each item
+function M.propagate_toggle(ctx, items, todo_map, target_state)
+  local config = require("checkmate.config")
+  local smart_config = config.options.smart_toggle
+
+  local want = {} -- id -> desired state
+
+  -- Phase 1: Downward propagation
+  local function mark_down(id, state, depth)
+    -- Skip if already processed with same state
+    if want[id] == state then
+      return
+    end
+
+    -- Mark this node
+    want[id] = state
+
+    -- Determine if we should propagate to children
+    local item = todo_map[id]
+    if not item or not item.children or #item.children == 0 then
+      return
+    end
+
+    local propagate_config = state == "checked" and smart_config.check_down or smart_config.uncheck_down
+
+    if propagate_config == "none" then
+      return
+    elseif propagate_config == "direct" and depth > 0 then
+      return -- Only propagate to direct children (depth 0 -> 1)
+    end
+    -- propagate_config == "all" or (propagate_config == "direct" and depth == 0)
+
+    for _, child_id in ipairs(item.children) do
+      mark_down(child_id, state, depth + 1)
+    end
+  end
+
+  -- Initialize the downward pass for each selected item
+  for _, item in ipairs(items) do
+    -- Determine the target state for this item
+    local item_target_state = target_state
+    if not item_target_state then
+      -- If no explicit target, toggle based on current state
+      item_target_state = (item.state == "unchecked") and "checked" or "unchecked"
+    end
+
+    mark_down(item.id, item_target_state, 0)
+  end
+
+  -- Phase 2: Upward propagation
+
+  -- Helper to check if all relevant children are checked
+  local function should_check_parent(parent_id)
+    if smart_config.check_up == "none" then
+      return false
+    end
+
+    local parent = todo_map[parent_id]
+    if not parent or not parent.children or #parent.children == 0 then
+      return true -- No children means we can check it
+    end
+
+    if smart_config.check_up == "direct_children" then
+      -- Check only direct children
+      for _, child_id in ipairs(parent.children) do
+        local child = todo_map[child_id]
+        if not child then
+          return false
+        end
+        local will_be_checked = want[child_id] == "checked" or (want[child_id] == nil and child.state == "checked")
+        if not will_be_checked then
+          return false
+        end
+      end
+      return true
+    else -- "all_children"
+      -- Check all descendants recursively
+      local function all_descendants_checked(id)
+        local item = todo_map[id]
+        if not item then
+          return false
+        end
+
+        -- Check this item
+        local will_be_checked = want[id] == "checked" or (want[id] == nil and item.state == "checked")
+        if not will_be_checked then
+          return false
+        end
+
+        -- Check all children recursively
+        if item.children then
+          for _, child_id in ipairs(item.children) do
+            if not all_descendants_checked(child_id) then
+              return false
+            end
+          end
+        end
+
+        return true
+      end
+
+      -- Check all direct children and their descendants
+      for _, child_id in ipairs(parent.children) do
+        if not all_descendants_checked(child_id) then
+          return false
+        end
+      end
+      return true
+    end
+  end
+
+  -- Helper to check if parent should be unchecked
+  local function should_uncheck_parent(parent_id)
+    if smart_config.uncheck_up == "none" then
+      return false
+    end
+
+    local parent = todo_map[parent_id]
+    if not parent or not parent.children or #parent.children == 0 then
+      return false -- No children means no reason to uncheck
+    end
+
+    if smart_config.uncheck_up == "direct_children" then
+      -- Check only direct children
+      for _, child_id in ipairs(parent.children) do
+        local child = todo_map[child_id]
+        if child then
+          local will_be_unchecked = want[child_id] == "unchecked"
+            or (want[child_id] == nil and child.state == "unchecked")
+          if will_be_unchecked then
+            return true -- Any direct child unchecked
+          end
+        end
+      end
+      return false
+    else -- "all_children"
+      -- Check all descendants recursively
+      local function any_descendant_unchecked(id)
+        local item = todo_map[id]
+        if not item then
+          return false
+        end
+
+        -- Check this item
+        local will_be_unchecked = want[id] == "unchecked" or (want[id] == nil and item.state == "unchecked")
+        if will_be_unchecked then
+          return true
+        end
+
+        -- Check all children recursively
+        if item.children then
+          for _, child_id in ipairs(item.children) do
+            if any_descendant_unchecked(child_id) then
+              return true
+            end
+          end
+        end
+
+        return false
+      end
+
+      -- Check all direct children and their descendants
+      for _, child_id in ipairs(parent.children) do
+        if any_descendant_unchecked(child_id) then
+          return true
+        end
+      end
+      return false
+    end
+  end
+
+  -- Process upward propagation for checked items
+  local function propagate_check_up(id)
+    local item = todo_map[id]
+    if not item or not item.parent_id then
+      return
+    end
+
+    if should_check_parent(item.parent_id) then
+      if want[item.parent_id] ~= "checked" then
+        want[item.parent_id] = "checked"
+        -- Recursively propagate up
+        propagate_check_up(item.parent_id)
+      end
+    end
+  end
+
+  -- Process upward propagation for unchecked items
+  local function propagate_uncheck_up(id)
+    local item = todo_map[id]
+    if not item or not item.parent_id then
+      return
+    end
+
+    if should_uncheck_parent(item.parent_id) then
+      if want[item.parent_id] ~= "unchecked" then
+        want[item.parent_id] = "unchecked"
+        -- Recursively propagate up
+        propagate_uncheck_up(item.parent_id)
+      end
+    end
+  end
+
+  -- Run upward propagation based on what we're setting items to
+  for id, desired_state in pairs(want) do
+    if desired_state == "checked" then
+      propagate_check_up(id)
+    else -- unchecked
+      propagate_uncheck_up(id)
+    end
+  end
+
+  -- Phase 3: Queue only the necessary operations
+  for id, desired_state in pairs(want) do
+    local item = todo_map[id]
+    if item and item.state ~= desired_state then
+      ctx.add_op(M.toggle_state, id, desired_state)
+    end
+  end
+end
+
 ---@param items checkmate.TodoItem[]
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value

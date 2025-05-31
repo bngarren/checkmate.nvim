@@ -230,9 +230,12 @@ function M.toggle(target_state)
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local highlights = require("checkmate.highlights")
+  local config = require("checkmate.config")
 
   local profiler = require("checkmate.profiler")
   profiler.start("M.toggle")
+
+  local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
 
   local ctx = transaction.current_context()
   if ctx then
@@ -243,7 +246,11 @@ function M.toggle(target_state)
     local todo_item =
       parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
     if todo_item then
-      ctx.add_op(api.toggle_state, todo_item.id, target_state)
+      if smart_toggle_enabled then
+        api.propagate_toggle(ctx, { todo_item }, transaction._state.todo_map, target_state)
+      else
+        ctx.add_op(api.toggle_state, todo_item.id, target_state)
+      end
     end
     profiler.stop("M.toggle")
     return true
@@ -256,8 +263,12 @@ function M.toggle(target_state)
   local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.toggle_state, item.id, target_state)
+    if smart_toggle_enabled then
+      api.propagate_toggle(_ctx, todo_items, todo_map, target_state)
+    else
+      for _, item in ipairs(todo_items) do
+        _ctx.add_op(api.toggle_state, item.id, target_state)
+      end
     end
   end, function()
     highlights.apply_highlighting(bufnr)
@@ -273,25 +284,44 @@ end
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
 
   if not todo_item then
     return false
   end
+
   local todo_id = todo_item.id
+  local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
 
   local ctx = transaction.current_context()
   if ctx then
     -- Queue the operation in the current transaction
-    ctx.add_op(api.set_todo_item, todo_id, target_state)
+    if smart_toggle_enabled then
+      -- Get the current todo_map from transaction state
+      local todo_map = transaction._state.todo_map
+      api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
+    else
+      ctx.add_op(api.set_todo_item, todo_id, target_state)
+    end
     return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  transaction.run(bufnr, nil, function(_ctx)
-    _ctx.add_op(api.set_todo_item, todo_id, target_state)
+
+  -- If smart toggle is enabled, we need the todo_map
+  local todo_map = smart_toggle_enabled and parser.get_todo_map(bufnr) or nil
+
+  transaction.run(bufnr, todo_map, function(_ctx)
+    if smart_toggle_enabled and todo_map then
+      api.propagate_toggle(_ctx, { todo_item }, todo_map, target_state)
+    else
+      _ctx.add_op(api.set_todo_item, todo_id, target_state)
+    end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
+
   return true
 end
 

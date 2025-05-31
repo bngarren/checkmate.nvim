@@ -132,16 +132,16 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field enabled boolean?
 ---
 ---How checking a parent affects its children
----  - "all": Check all descendants
----  - "direct": Only check direct children (default)
+---  - "all_children": Check all descendants, including nested
+---  - "direct_children": Only check direct children (default)
 ---  - "none": Don't propagate down
----@field check_down "all"|"direct"|"none"?
+---@field check_down "all_children"|"direct_children"|"none"?
 ---
 ---How unchecking a parent affects its children
----  - "all": Uncheck all descendants
----  - "direct": Only uncheck direct children
+---  - "all_children": Uncheck all descendants, including nested
+---  - "direct_children": Only uncheck direct children
 ---  - "none": Don't propagate down (default)
----@field uncheck_down "all"|"direct"|"none"?
+---@field uncheck_down "all_children"|"direct_children"|"none"?
 ---
 ---When a parent should become checked
 ---  - "all_children": When ALL descendants are checked
@@ -313,7 +313,7 @@ local _DEFAULTS = {
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   smart_toggle = {
     enabled = true,
-    check_down = "direct",
+    check_down = "direct_children",
     uncheck_down = "none",
     check_up = "direct_children",
     uncheck_up = "direct_children",

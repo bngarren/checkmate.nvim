@@ -1026,7 +1026,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if propagate_config == "none" then
       return
-    elseif propagate_config == "direct" and depth > 0 then
+    elseif propagate_config == "direct_children" and depth > 0 then
       return -- Only propagate to direct children (depth 0 -> 1)
     end
     -- propagate_config == "all" or (propagate_config == "direct" and depth == 0)

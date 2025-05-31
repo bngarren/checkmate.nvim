@@ -851,7 +851,7 @@ Normal content line (not a todo)]]
     end
 
     describe("downward propagation", function()
-      it("should check all direct children when parent is checked (check_down='direct')", function()
+      it("should check all direct children when parent is checked (check_down='direct_children')", function()
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
@@ -862,7 +862,7 @@ Normal content line (not a todo)]]
     - ]] .. unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct" })
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- Move cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -945,7 +945,7 @@ Normal content line (not a todo)]]
         end)
       end)
 
-      it("should uncheck direct children when parent is unchecked (uncheck_down='direct')", function()
+      it("should uncheck direct children when parent is unchecked (uncheck_down='direct_children')", function()
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
@@ -956,7 +956,7 @@ Normal content line (not a todo)]]
     - ]] .. checked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_down = "direct" })
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_down = "direct_children" })
 
         -- Move cursor to parent task and toggle (uncheck it)
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -1131,7 +1131,7 @@ Normal content line (not a todo)]]
 - ]] .. unchecked .. [[ Task C
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct" })
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- Select both parent tasks in visual mode
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -1149,7 +1149,7 @@ Normal content line (not a todo)]]
         assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
         assert.matches("- " .. vim.pesc(checked) .. " Task B", lines[3])
         assert.matches("- " .. vim.pesc(checked) .. " Task B%.1", lines[4])
-        -- should not propagate check to grandchild if check_down = "direct"
+        -- should not propagate check to grandchild if check_down = "direct_children"
         assert.matches("- " .. vim.pesc(unchecked) .. " Task B%.1%.1", lines[5])
         -- should not check sibling parent Task C
         assert.matches("- " .. vim.pesc(unchecked) .. " Task C", lines[6])
@@ -1191,6 +1191,60 @@ Normal content line (not a todo)]]
         assert.matches("- " .. vim.pesc(checked) .. " Child 1%.2", lines[4])
         assert.matches("- " .. vim.pesc(checked) .. " Parent 2", lines[5])
         assert.matches("- " .. vim.pesc(checked) .. " Child 2%.1", lines[6])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+    end)
+    describe("edge cases", function()
+      it("should not propagate when smart_toggle is disabled", function()
+        local unchecked = config.options.todo_markers.unchecked
+        local checked = config.options.todo_markers.checked
+
+        local content = [[
+- ]] .. unchecked .. [[ Task A
+  - ]] .. unchecked .. [[ Task A.1
+  - ]] .. unchecked .. [[ Task A.2
+- ]] .. unchecked .. [[ Task B
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(
+          content,
+          { enabled = false, check_down = "direct_children", check_up = "direct_children" }
+        )
+
+        -- Toggle first task
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(20)
+
+        -- Only first task should be checked
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked) .. " Task A", lines[1])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task A%.1", lines[2])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task A%.2", lines[3])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task B", lines[4])
+
+        -- Reset first task
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").uncheck()
+
+        -- Select both child tasks in visual mode
+        vim.api.nvim_win_set_cursor(0, { 2, 0 })
+        vim.cmd("normal! V")
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+        require("checkmate").check()
+        vim.wait(20)
+
+        -- First task should not be checked (no propagation from children)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task A", lines[1])
+        assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
+        assert.matches("- " .. vim.pesc(checked) .. " Task A%.2", lines[3])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Task B", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)

@@ -43,7 +43,8 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
-function M.setup(bufnr)
+---Callers should check `should_activate_for_buffer` before calling setup_buffer
+function M.setup_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   if not M.is_valid_buffer(bufnr) then
@@ -55,13 +56,6 @@ function M.setup(bufnr)
   if vim.b[bufnr].checkmate_setup_complete then
     return true
   end
-
-  if not config.is_running() then
-    vim.notify("Failed to initialize plugin", vim.log.levels.ERROR)
-    return false
-  end
-
-  vim.b[bufnr].checkmate_setup_complete = true
 
   local parser = require("checkmate.parser")
   parser.convert_markdown_to_unicode(bufnr)
@@ -88,6 +82,8 @@ function M.setup(bufnr)
   M.setup_autocmds(bufnr)
 
   config.register_buffer(bufnr)
+
+  vim.b[bufnr].checkmate_setup_complete = true
 
   return true
 end
@@ -312,6 +308,21 @@ function M.setup_autocmds(bufnr)
         M.process_buffer(bufnr, "TextChanged")
       end,
     })
+    -- cleanup buffer when buffer is deleted
+    vim.api.nvim_create_autocmd("BufDelete", {
+      group = augroup,
+      buffer = bufnr,
+      callback = function()
+        require("checkmate.config").unregister_buffer(bufnr)
+        -- Reset any API state for this buffer
+        if M._debounced_process_buffer_fns[bufnr] then
+          M._debounced_process_buffer_fns[bufnr] = nil
+        end
+        -- Clear the todo map cache for this buffer
+        require("checkmate.parser").todo_map_cache[bufnr] = nil
+      end,
+    })
+    vim.b[bufnr].checkmate_autocmds_setup = true
   end
 end
 

@@ -13,25 +13,27 @@ describe("Config", function()
   before_each(function()
     _G.reset_state()
 
-    -- Back up any global state
+    -- Back up globals
     _G.loaded_checkmate_bak = vim.g.loaded_checkmate
     _G.checkmate_config_bak = vim.g.checkmate_config
+    _G.checkmate_user_opts_bak = vim.g.checkmate_user_opts
 
-    -- Reset global state
+    -- Reset globals
     vim.g.loaded_checkmate = nil
     vim.g.checkmate_config = nil
+    vim.g.checkmate_user_opts = nil
   end)
 
   after_each(function()
-    -- Restore global state
+    local ok, checkmate = pcall(require, "checkmate")
+    if ok and checkmate.is_running() then
+      checkmate.stop()
+    end
+
+    -- Restore globals
     vim.g.loaded_checkmate = _G.loaded_checkmate_bak
     vim.g.checkmate_config = _G.checkmate_config_bak
-
-    -- Clean up any state
-    local config = require("checkmate.config")
-    if config.is_running() then
-      config.stop()
-    end
+    vim.g.checkmate_user_opts = _G.checkmate_user_opts_bak
   end)
 
   describe("initializaiton", function()
@@ -157,7 +159,7 @@ describe("Config", function()
       ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
       require("checkmate").setup({ enabled = "cant be string" })
       vim.wait(20)
-      assert.is_not_true(require("checkmate.config").is_running())
+      assert.is_not_true(require("checkmate").is_running())
     end)
   end)
 

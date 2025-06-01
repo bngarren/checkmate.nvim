@@ -549,6 +549,9 @@ Line that should not affect parent-child relationship
         checked = "[x]",
       }
 
+      -- force clear the pre-compiled pattern cache
+      parser.clear_pattern_cache()
+
       local lines = {
         "- [ ] Custom unchecked",
         "- [x] Custom checked",

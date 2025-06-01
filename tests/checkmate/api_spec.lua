@@ -21,35 +21,27 @@ describe("API", function()
   local function setup_todo_buffer(file_path, content, config_override)
     h.write_file_content(file_path, content)
 
-    -- Create a fresh buffer instead of using edit
     local bufnr = vim.api.nvim_create_buf(false, false)
-
-    -- Set buffer name and load content
     vim.api.nvim_buf_set_name(bufnr, file_path)
-    vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd("edit!") -- Force reload from disk
-    end)
 
-    -- Ensure we're in the correct window
-    local winid = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(winid, bufnr)
+    -- load it into the current window so that BufRead/BufEnter events fire
+    vim.api.nvim_win_set_buf(0, bufnr)
+    vim.cmd("edit!")
 
-    -- Ensure filetype is set to markdown
     vim.bo[bufnr].filetype = "markdown"
 
-    -- Clear any existing buffer-local variables
     for k, _ in pairs(vim.b[bufnr]) do
       if type(k) == "string" and k:match("^checkmate_") then
         vim.b[bufnr][k] = nil
       end
     end
 
-    require("checkmate").start()
+    if require("checkmate").is_running() then
+      require("checkmate").stop()
+    end
 
     config_override = config_override or {}
-    -- We need some specific global overrides for the tests
-    -- - Disable callbacks that have mode changes as these can interfere with expected behaviors
-    local config_ok = require("checkmate.config").setup(vim.tbl_deep_extend("force", {
+    local ok = require("checkmate").setup(vim.tbl_deep_extend("force", {
       metadata = {
         ---@diagnostic disable-next-line: missing-fields
         priority = {
@@ -57,32 +49,20 @@ describe("API", function()
         },
       },
       enter_insert_after_new = false,
-      smart_toggle = {
-        enabled = false,
-      },
+      smart_toggle = { enabled = false },
     }, config_override))
 
-    if not config_ok then
-      error("Could not setup config in setup_todo_buffer")
+    if not ok then
+      error("Could not setup Checkmate in setup_todo_buffer")
     end
 
-    -- For testing, explicitly call setup instead of relying on autocmd
-    local api = require("checkmate.api")
-
-    local success = api.setup(bufnr)
-
-    if not success then
-      error("Failed to set up Checkmate for test buffer")
-    end
+    -- The FileType autocmd in plugin/checkmate will now call api.setup_buffer(bufnr)
 
     vim.wait(50, function()
-      -- Check if any pending operations
       return vim.fn.jobwait({}, 0) == 0
     end)
 
-    -- Ensure any initial processing is complete
     vim.cmd("redraw")
-
     return bufnr
   end
 
@@ -240,7 +220,7 @@ describe("API", function()
       vim.bo[bufnr].filetype = "markdown"
 
       -- Set up the API for this buffer - this should trigger conversion
-      api.setup(bufnr)
+      api.setup_buffer(bufnr)
 
       -- Check that Task 2 is still checked
       todo_map = require("checkmate.parser").discover_todos(bufnr)

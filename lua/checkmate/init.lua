@@ -2,9 +2,13 @@
 local M = {}
 
 -- Internal plugin state
-local _state = {
-  initialized = false, -- Has setup been called?
+M._state = {
+  running = false, -- components are loaded
 }
+
+function M.is_running()
+  return M._state.running
+end
 
 -- Checks if the file matches the given pattern(s)
 -- Note: All pattern matching is case-sensitive.
@@ -15,23 +19,27 @@ function M.should_activate_for_buffer(bufnr, patterns)
   end
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local filename = vim.api.nvim_buf_get_name(bufnr)
 
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  local filename = vim.api.nvim_buf_get_name(bufnr)
   if not filename or filename == "" then
     return false
   end
 
   -- Normalize path for consistent matching
-  local norm_path = filename:gsub("\\", "/")
-  local basename = vim.fn.fnamemodify(norm_path, ":t")
+  local norm_filepath = filename:gsub("\\", "/")
+  local basename = vim.fn.fnamemodify(norm_filepath, ":t")
 
   for _, pattern in ipairs(patterns) do
+    -- pattern matches exactly ,easy
     if pattern == basename then
       return true
     end
 
-    -- if pattern has no extension and file has .md extension,
-    -- check if pattern matches filename without extension
+    -- pattern has no extension, but matches .md files
     if not pattern:match("%.%w+$") and basename:match("%.md$") then
       local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
       if pattern == basename_no_ext then
@@ -41,14 +49,13 @@ function M.should_activate_for_buffer(bufnr, patterns)
 
     -- for directory patterns
     if pattern:find("/") then
-      if norm_path:match("/" .. vim.pesc(pattern) .. "$") then
+      if norm_filepath:match("/" .. vim.pesc(pattern) .. "$") then
         return true
       end
 
-      -- if pattern doesn't end with .md and the file has .md extension,
-      -- check if adding .md to the pattern would match
-      if not pattern:match("%.md$") and norm_path:match("%.md$") then
-        if norm_path:match("/" .. vim.pesc(pattern) .. "%.md$") then
+      -- directory pattern has no extension, but matches .md files
+      if not pattern:match("%.md$") and norm_filepath:match("%.md$") then
+        if norm_filepath:match("/" .. vim.pesc(pattern) .. "%.md$") then
           return true
         end
       end
@@ -59,13 +66,13 @@ function M.should_activate_for_buffer(bufnr, patterns)
       local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
 
       if pattern:find("/") then
-        if norm_path:match(lua_pattern .. "$") then
+        if norm_filepath:match(lua_pattern .. "$") then
           return true
         end
 
         -- try with .md added if pattern doesn't have extension and file does
-        if not pattern:match("%.%w+$") and norm_path:match("%.md$") then
-          if norm_path:match(lua_pattern .. "%.md$") then
+        if not pattern:match("%.%w+$") and norm_filepath:match("%.md$") then
+          if norm_filepath:match(lua_pattern .. "%.md$") then
             return true
           end
         end
@@ -91,89 +98,84 @@ function M.should_activate_for_buffer(bufnr, patterns)
 end
 
 ---@param opts checkmate.Config?
+---@return boolean success
 M.setup = function(opts)
-  local config = require("checkmate.config")
-  opts = opts or {}
+  local success, err = pcall(function()
+    if M.is_running() then
+      M.stop()
+    end
 
-  if _state.initialized then
-    M.stop()
+    local config = require("checkmate.config")
+
+    local cfg = config.setup(opts or {})
+    if vim.tbl_isempty(cfg) then
+      error("config setup failed")
+    end
+
+    if cfg.enabled then
+      M.start()
+
+      vim.schedule(function()
+        for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+          if
+            vim.api.nvim_buf_is_valid(bufnr)
+            and vim.bo[bufnr].filetype == "markdown"
+            and M.should_activate_for_buffer(bufnr, config.options.files)
+          then
+            -- Call API.setup; it’ll set up highlights, keymaps, autocmds, etc.
+            require("checkmate.api").setup_buffer(bufnr)
+          end
+        end
+      end)
+    end
+  end)
+
+  if not success then
+    vim.notify("Checkmate: Setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    return false
   end
 
-  local config_ok = config.setup(opts)
-  if not config_ok then
-    M.stop()
-  end
-
-  _state.initialized = true
-
-  vim.api.nvim_create_autocmd("FileType", {
-    group = vim.api.nvim_create_augroup("checkmate_ft", { clear = true }),
-    pattern = "markdown",
-    callback = function(event)
-      -- Check if this markdown file should activate Checkmate
-      if M.should_activate_for_buffer(event.buf, config.options.files) then
-        vim.schedule(function()
-          M.start()
-          require("checkmate.api").setup(event.buf)
-        end)
-      end
-    end,
-  })
-
-  return config.options
+  return true
 end
 
--- Main loading function - loads all plugin components
+-- spin up parser, highlights, commands, linter, autocmds
 function M.start()
-  local config = require("checkmate.config")
-
-  if config._state.running then
+  if M.is_running() then
     return
   end
+
+  local config = require("checkmate.config")
 
   if not config.options.enabled then
     return
   end
 
-  local log = require("checkmate.log")
-  log.setup()
-  log.debug("Beginning plugin initialization", { module = "init" })
+  local success, err = pcall(function()
+    local log = require("checkmate.log")
+    log.setup()
 
-  config.start()
+    require("checkmate.parser").setup()
+    require("checkmate.highlights").setup_highlights()
+    require("checkmate.commands").setup()
 
-  require("checkmate.parser").setup()
+    if config.options.linter and config.options.linter.enabled ~= false then
+      require("checkmate.linter").setup(config.options.linter)
+    end
 
-  require("checkmate.highlights").setup_highlights()
+    M._setup_autocommands()
 
-  require("checkmate.commands").setup()
+    M._state.running = true
 
-  if config.options.linter and config.options.linter.enabled ~= false then
-    require("checkmate.linter").setup(config.options.linter)
+    log.info("Checkmate plugin loaded successfully", { module = "init" })
+  end)
+  if not success then
+    vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
+    M.stop() -- cleanup partial initialization
   end
-
-  M._setup_autocommands()
-
-  config._state.running = true
-
-  log.info("Checkmate plugin loaded successfully", { module = "init" })
 end
 
--- Sets up all plugin autocommands (beyond the lazy detection ones)
 function M._setup_autocommands()
-  local augroup = vim.api.nvim_create_augroup("checkmate", { clear = true })
-
-  -- Track active buffers for cleanup
-  vim.api.nvim_create_autocmd("BufDelete", {
-    group = augroup,
-    callback = function(args)
-      local bufnr = args.buf
-      require("checkmate.config").unregister_buffer(bufnr)
-      -- Reset any API state for this buffer
-      require("checkmate.api")._debounced_process_buffer_fns[bufnr] = nil
-      -- Clear the todo map cache for this buffer
-      require("checkmate.parser").todo_map_cache[bufnr] = nil
-    end,
-  })
+  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = augroup,
@@ -184,16 +186,48 @@ function M._setup_autocommands()
 end
 
 function M.stop()
-  local config = require("checkmate.config")
-  if not config.is_running() then
+  if not M.is_running() then
     return
   end
 
-  config.stop()
+  local config = require("checkmate.config")
 
-  config._state.running = false
+  -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
+  for bufnr, _ in pairs(config.get_active_buffers()) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      -- clear extmarks in our namespaces
+      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 
-  require("checkmate.log").shutdown()
+      if package.loaded["checkmate.linter"] then
+        pcall(function()
+          require("checkmate.linter").disable(bufnr)
+        end)
+      end
+
+      local group_name = "CheckmateApiGroup_" .. bufnr
+      pcall(function()
+        vim.api.nvim_del_augroup_by_name(group_name)
+      end)
+
+      vim.b[bufnr].checkmate_setup_complete = nil
+      vim.b[bufnr].checkmate_autocmds_setup = nil
+    end
+  end
+
+  config._state.active_buffers = {}
+
+  pcall(function()
+    vim.api.nvim_del_augroup_by_name("checkmate_global")
+  end)
+
+  if package.loaded["checkmate.log"] then
+    pcall(function()
+      require("checkmate.log").shutdown()
+    end)
+  end
+
+  M._state.running = false
 end
 
 -- PUBLIC API --

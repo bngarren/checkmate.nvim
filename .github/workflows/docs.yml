@@ -7,13 +7,7 @@ on:
     paths:
       - README.md
       - .github/workflows/docs.yml
-  pull_request:
-    branches:
-      - main # Run on PRs targeting main
-      - develop
-    paths:
-      - README.md
-      - .github/workflows/docs.yml
+
   workflow_dispatch: # Allow manual triggering
 
 permissions:
@@ -34,20 +28,11 @@ jobs:
           version: "Neovim >= 0.10.0"
           demojify: true
           treesitter: true
-
-      - name: Set TARGET_BRANCH
-        id: set-vars
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "TARGET_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
-          else
-            echo "TARGET_BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
-          fi
-      - name: Push generated docs back into the base repo
+      - name: Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto-generate vimdoc"
           commit_user_name: "github-actions[bot]"
           commit_user_email: "github-actions[bot]@users.noreply.github.com"
           commit_author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-          branch: ${{ env.TARGET_BRANCH }}
+          branch: ${{ github.head_ref }}

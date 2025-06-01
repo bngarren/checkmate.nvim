@@ -53,7 +53,6 @@ describe("API", function()
       return vim.fn.jobwait({}, 0) == 0
     end)
     vim.cmd("redraw")
-
     return bufnr
   end
 

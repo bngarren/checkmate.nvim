@@ -235,6 +235,7 @@ function M.start()
     return
   end
 
+
   local config = require("checkmate.config")
   if not config.options.enabled then
     return

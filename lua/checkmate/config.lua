@@ -402,84 +402,164 @@ M.options = {}
 
 local function validate_type(value, expected_type, path, allow_nil)
   if value == nil then
-    return allow_nil
+    if allow_nil ~= true then
+      return false, string.format("%s is required", path)
+    else
+      return true
+    end
   end
 
   if type(value) ~= expected_type then
-    error(string.format("%s must be a %s", path, expected_type))
+    return false, string.format("%s must be a %s", path, expected_type)
   end
 
   return true
 end
 
 -- Validate user provided options
-local function validate_options(opts)
+---@return boolean success
+---@return string? err
+function M.validate_options(opts)
   if opts == nil then
-    return true
+    return true, nil
   end
 
   if type(opts) ~= "table" then
-    error("Options must be a table")
+    return false, "Options must be a table"
   end
 
   ---@cast opts checkmate.Config
 
-  -- Validate basic options
-  validate_type(opts.enabled, "boolean", "enabled", true)
-  validate_type(opts.notify, "boolean", "notify", true)
-  validate_type(opts.enter_insert_after_new, "boolean", "enter_insert_after_new", true)
+  -- Basic options
+  local validations = {
+    { opts.enabled, "boolean", "enabled", true },
+    { opts.notify, "boolean", "notify", true },
+    { opts.enter_insert_after_new, "boolean", "enter_insert_after_new", true },
+    { opts.files, "table", "files", true },
+    { opts.show_todo_count, "boolean", "show_todo_count", true },
+    { opts.todo_count_recursive, "boolean", "todo_count_recursive", true },
+    { opts.use_metadata_keymaps, "boolean", "use_metadata_keymaps", true },
+  }
 
-  -- Validate files
-  validate_type(opts.files, "table", "files", true)
+  for _, v in ipairs(validations) do
+    local ok, err = validate_type(v[1], v[2], v[3], v[4])
+    if not ok then
+      return false, err
+    end
+  end
+
+  -- Validate files array
   if opts.files and #opts.files > 0 then
     for i, pattern in ipairs(opts.files) do
       if type(pattern) ~= "string" then
-        error("files[" .. i .. "] must be a string")
+        return false, "files[" .. i .. "] must be a string"
       end
     end
   end
 
   -- Validate log settings
   if opts.log ~= nil then
-    validate_type(opts.log, "table", "log", false)
+    local ok, err = validate_type(opts.log, "table", "log", true)
+    if not ok then
+      return false, err
+    end
 
     if opts.log.level ~= nil then
       if type(opts.log.level) ~= "string" and type(opts.log.level) ~= "number" then
-        error("log.level must be a string or number")
+        return false, "log.level must be a string or number"
       end
     end
 
-    validate_type(opts.log.use_buffer, "boolean", "log.use_buffer", true)
-    validate_type(opts.log.use_file, "boolean", "log.use_file", true)
-    validate_type(opts.log.file_path, "string", "log.file_path", true)
+    local log_validations = {
+      { opts.log.use_buffer, "boolean", "log.use_buffer", true },
+      { opts.log.use_file, "boolean", "log.use_file", true },
+      { opts.log.file_path, "string", "log.file_path", true },
+    }
+
+    for _, v in ipairs(log_validations) do
+      ok, err = validate_type(v[1], v[2], v[3], v[4])
+      if not ok then
+        return false, err
+      end
+    end
   end
 
-  -- Validate keys
   if opts.keys ~= nil and opts.keys ~= false then
-    validate_type(opts.keys, "table", "keys", false)
+    local ok, err = validate_type(opts.keys, "table", "keys", true)
+    if not ok then
+      return false, err
+    end
   end
 
   -- Validate todo_markers
   if opts.todo_markers ~= nil then
-    validate_type(opts.todo_markers, "table", "todo_markers", false)
-    validate_type(opts.todo_markers.checked, "string", "todo_markers.checked", true)
-    validate_type(opts.todo_markers.unchecked, "string", "todo_markers.unchecked", true)
+    local ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
+    if not ok then
+      return false, err
+    end
+
+    local marker_validations = {
+      { opts.todo_markers.checked, "string", "todo_markers.checked", true },
+      { opts.todo_markers.unchecked, "string", "todo_markers.unchecked", true },
+    }
+
+    for _, v in ipairs(marker_validations) do
+      ok, err = validate_type(v[1], v[2], v[3], v[4])
+      if not ok then
+        return false, err
+      end
+    end
+
+    -- Ensure the todo_markers are only 1 character length
+    if opts.todo_markers.checked and vim.fn.strcharlen(opts.todo_markers.checked) ~= 1 then
+      return false, "The 'checked' todo marker must be a single character"
+    end
+    if opts.todo_markers.unchecked and vim.fn.strcharlen(opts.todo_markers.unchecked) ~= 1 then
+      return false, "The 'unchecked' todo marker must be a single character"
+    end
   end
 
   -- Validate default_list_marker
   if opts.default_list_marker ~= nil then
-    validate_type(opts.default_list_marker, "string", "default_list_marker", false)
+    local ok, err = validate_type(opts.default_list_marker, "string", "default_list_marker", true)
+    if not ok then
+      return false, err
+    end
 
-    if not (opts.default_list_marker == "-" or opts.default_list_marker == "*" or opts.default_list_marker == "+") then
-      error("default_list_marker must be one of: '-', '*', '+'")
+    local valid_markers = { ["-"] = true, ["*"] = true, ["+"] = true }
+    if not valid_markers[opts.default_list_marker] then
+      return false, "default_list_marker must be one of: '-', '*', '+'"
+    end
+  end
+
+  -- Validate todo_count_position
+  if opts.todo_count_position ~= nil then
+    local ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
+    if not ok then
+      return false, err
+    end
+
+    local valid_positions = { ["eol"] = true, ["inline"] = true }
+    if not valid_positions[opts.todo_count_position] then
+      return false, "todo_count_position must be one of: 'eol', 'inline'"
+    end
+  end
+
+  -- Validate todo_count_formatter
+  if opts.todo_count_formatter ~= nil then
+    local ok, err = validate_type(opts.todo_count_formatter, "function", "todo_count_formatter", true)
+    if not ok then
+      return false, err
     end
   end
 
   -- Validate style
   if opts.style ~= nil then
-    validate_type(opts.style, "table", "style", false)
+    local ok, err = validate_type(opts.style, "table", "style", true)
+    if not ok then
+      return false, err
+    end
 
-    ---@type table<checkmate.StyleKey>
     local style_fields = {
       "list_marker_unordered",
       "list_marker_ordered",
@@ -493,65 +573,186 @@ local function validate_options(opts)
     }
 
     for _, field in ipairs(style_fields) do
-      validate_type(opts.style[field], "table", "style." .. field, true)
+      ok, err = validate_type(opts.style[field], "table", "style." .. field, true)
+      if not ok then
+        return false, err
+      end
     end
   end
 
   -- Validate todo_action_depth
   if opts.todo_action_depth ~= nil then
-    validate_type(opts.todo_action_depth, "number", "todo_action_depth", false)
+    local ok, err = validate_type(opts.todo_action_depth, "number", "todo_action_depth", true)
+    if not ok then
+      return false, err
+    end
 
     if math.floor(opts.todo_action_depth) ~= opts.todo_action_depth or opts.todo_action_depth < 0 then
-      error("todo_action_depth must be a non-negative integer")
+      return false, "todo_action_depth must be a non-negative integer"
     end
   end
 
-  -- Validate use_metadata_keymaps
-  if opts.use_metadata_keymaps ~= nil then
-    validate_type(opts.use_metadata_keymaps, "boolean", "use_metadata_keymaps", false)
+  -- Validate smart_toggle
+  if opts.smart_toggle ~= nil then
+    local ok, err = validate_type(opts.smart_toggle, "table", "smart_toggle", true)
+    if not ok then
+      return false, err
+    end
+
+    ok, err = validate_type(opts.smart_toggle.enabled, "boolean", "smart_toggle.enabled", true)
+    if not ok then
+      return false, err
+    end
+
+    -- Validate smart_toggle enum fields
+    local toggle_options = { "all_children", "direct_children", "none" }
+    local toggle_fields = {
+      { opts.smart_toggle.check_down, "check_down" },
+      { opts.smart_toggle.uncheck_down, "uncheck_down" },
+      { opts.smart_toggle.check_up, "check_up" },
+      { opts.smart_toggle.uncheck_up, "uncheck_up" },
+    }
+
+    for _, field in ipairs(toggle_fields) do
+      if field[1] ~= nil then
+        ok, err = validate_type(field[1], "string", "smart_toggle." .. field[2], true)
+        if not ok then
+          return false, err
+        end
+
+        local valid = false
+        for _, opt in ipairs(toggle_options) do
+          if field[1] == opt then
+            valid = true
+            break
+          end
+        end
+        if not valid then
+          return false, "smart_toggle." .. field[2] .. " must be one of: 'all_children', 'direct_children', 'none'"
+        end
+      end
+    end
+  end
+
+  -- Validate archive
+  if opts.archive ~= nil then
+    local ok, err = validate_type(opts.archive, "table", "archive", true)
+    if not ok then
+      return false, err
+    end
+
+    ok, err = validate_type(opts.archive.parent_spacing, "number", "archive.parent_spacing", true)
+    if not ok then
+      return false, err
+    end
+
+    if opts.archive.heading ~= nil then
+      ok, err = validate_type(opts.archive.heading, "table", "archive.heading", true)
+      if not ok then
+        return false, err
+      end
+
+      ok, err = validate_type(opts.archive.heading.title, "string", "archive.heading.title", true)
+      if not ok then
+        return false, err
+      end
+
+      if opts.archive.heading.level ~= nil then
+        ok, err = validate_type(opts.archive.heading.level, "number", "archive.heading.level", true)
+        if not ok then
+          return false, err
+        end
+
+        if opts.archive.heading.level < 1 or opts.archive.heading.level > 6 then
+          return false, "archive.heading.level must be between 1 and 6"
+        end
+      end
+    end
+  end
+
+  -- Validate linter
+  if opts.linter ~= nil then
+    local ok, err = validate_type(opts.linter, "table", "linter", true)
+    if not ok then
+      return false, err
+    end
+
+    ok, err = validate_type(opts.linter.enabled, "boolean", "linter.enabled", true)
+    if not ok then
+      return false, err
+    end
+
+    ok, err = validate_type(opts.linter.severity, "table", "linter.severity", true)
+    if not ok then
+      return false, err
+    end
+
+    ok, err = validate_type(opts.linter.verbose, "boolean", "linter.verbose", true)
+    if not ok then
+      return false, err
+    end
   end
 
   -- Validate metadata
   if opts.metadata ~= nil then
     if type(opts.metadata) ~= "table" then
-      error("metadata must be a table")
+      return false, "metadata must be a table"
     end
 
     for meta_name, meta_props in pairs(opts.metadata) do
-      validate_type(meta_props, "table", "metadata." .. meta_name, false)
+      local ok, err = validate_type(meta_props, "table", "metadata." .. meta_name, true)
+      if not ok then
+        return false, err
+      end
 
       -- validate 'style' (can be table or function)
       if meta_props.style ~= nil then
         local style_type = type(meta_props.style)
         if style_type ~= "table" and style_type ~= "function" then
-          error("metadata." .. meta_name .. ".style must be a table or function")
+          return false, "metadata." .. meta_name .. ".style must be a table or function"
         end
       end
 
-      -- validate 'get_value'
-      validate_type(meta_props.get_value, "function", "metadata." .. meta_name .. ".get_value", true)
+      -- Validate metadata properties
+      local meta_validations = {
+        { meta_props.get_value, "function", "metadata." .. meta_name .. ".get_value", true },
+        { meta_props.key, "string", "metadata." .. meta_name .. ".key", true },
+        { meta_props.sort_order, "number", "metadata." .. meta_name .. ".sort_order", true },
+        { meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true },
+        { meta_props.on_remove, "function", "metadata." .. meta_name .. ".on_remove", true },
+        { meta_props.select_on_insert, "boolean", "metadata." .. meta_name .. ".select_on_insert", true },
+      }
 
-      -- validate 'key'
-      validate_type(meta_props.key, "string", "metadata." .. meta_name .. ".key", true)
+      for _, v in ipairs(meta_validations) do
+        ok, err = validate_type(v[1], v[2], v[3], v[4])
+        if not ok then
+          return false, err
+        end
+      end
 
-      -- validate 'sort_order'
-      validate_type(meta_props.sort_order, "integer", "metadata." .. meta_name .. ".sort_order", true)
+      -- Validate jump_to_on_insert
+      if meta_props.jump_to_on_insert ~= nil and meta_props.jump_to_on_insert ~= false then
+        ok, err =
+          validate_type(meta_props.jump_to_on_insert, "string", "metadata." .. meta_name .. ".jump_to_on_insert", true)
+        if not ok then
+          return false, err
+        end
 
-      -- validate 'on_add'
-      validate_type(meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true)
+        local valid_jumps = { ["tag"] = true, ["value"] = true }
+        if not valid_jumps[meta_props.jump_to_on_insert] then
+          return false, "metadata." .. meta_name .. ".jump_to_on_insert must be one of: 'tag', 'value', or false"
+        end
+      end
 
-      -- validate 'on_remove'
-      validate_type(meta_props.on_remove, "function", "metadata." .. meta_name .. ".on_remove", true)
-
-      -- Validate aliases must be a table of strings
+      -- Validate aliases
       if meta_props.aliases ~= nil then
         if type(meta_props.aliases) ~= "table" then
-          error("metadata." .. meta_name .. ".aliases must be a table")
+          return false, "metadata." .. meta_name .. ".aliases must be a table"
         end
 
         for i, alias in ipairs(meta_props.aliases) do
           if type(alias) ~= "string" then
-            error("metadata." .. meta_name .. ".aliases[" .. i .. "] must be a string")
+            return false, "metadata." .. meta_name .. ".aliases[" .. i .. "] must be a string"
           end
         end
       end
@@ -563,6 +764,7 @@ end
 
 --- Setup function
 ---@param opts? checkmate.Config
+---@return boolean success
 function M.setup(opts)
   -- Prevent double initialization but allow reconfiguration
   local is_reconfigure = M._state.initialized
@@ -577,7 +779,12 @@ function M.setup(opts)
 
   -- 3. Merge override user opts
   if type(opts) == "table" then
-    assert(validate_options(opts))
+    local valid, err = M.validate_options(opts)
+    if not valid then
+      vim.notify("Checkmate: Invalid opts: " .. vim.inspect(err), vim.log.levels.ERROR)
+      M.stop()
+      return false
+    end
     config = vim.tbl_deep_extend("force", config, opts)
   end
 
@@ -601,7 +808,7 @@ function M.setup(opts)
     vim.g.checkmate_user_opts = opts or {}
   end
 
-  return M.options
+  return true
 end
 
 -- Notify modules when config has changed

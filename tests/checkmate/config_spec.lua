@@ -145,6 +145,20 @@ describe("Config", function()
         assert.stub(theme.generate_style_defaults).was.called(1)
       end)
     end)
+
+    it("should pass validation with opts = {}", function()
+      local config = require("checkmate.config")
+      local opts = {} ---@cast opts checkmate.Config
+      local valid, err = config.validate_options(opts)
+      assert.equal(true, valid, err)
+    end)
+
+    it("should not start if validation fails", function()
+      ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
+      require("checkmate").setup({ enabled = "cant be string" })
+      vim.wait(20)
+      assert.is_not_true(require("checkmate.config").is_running())
+    end)
   end)
 
   describe("file pattern matching", function()

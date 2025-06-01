@@ -99,7 +99,10 @@ M.setup = function(opts)
     M.stop()
   end
 
-  config.setup(opts)
+  local config_ok = config.setup(opts)
+  if not config_ok then
+    M.stop()
+  end
 
   _state.initialized = true
 

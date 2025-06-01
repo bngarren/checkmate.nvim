@@ -49,7 +49,7 @@ describe("API", function()
     config_override = config_override or {}
     -- We need some specific global overrides for the tests
     -- - Disable callbacks that have mode changes as these can interfere with expected behaviors
-    require("checkmate.config").setup(vim.tbl_deep_extend("force", {
+    local config_ok = require("checkmate.config").setup(vim.tbl_deep_extend("force", {
       metadata = {
         ---@diagnostic disable-next-line: missing-fields
         priority = {
@@ -61,6 +61,10 @@ describe("API", function()
         enabled = false,
       },
     }, config_override))
+
+    if not config_ok then
+      error("Could not setup config in setup_todo_buffer")
+    end
 
     -- For testing, explicitly call setup instead of relying on autocmd
     local api = require("checkmate.api")
@@ -948,7 +952,7 @@ Normal content line (not a todo)]]
       local config_override = {
         smart_toggle = vim.tbl_extend("force", {
           enabled = true,
-          check_down = "direct",
+          check_down = "direct_children",
           uncheck_down = "none",
           check_up = "direct_children",
           uncheck_up = "direct_children",
@@ -1003,7 +1007,7 @@ Normal content line (not a todo)]]
       - ]] .. unchecked .. [[ Great-grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "all" })
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "all_children" })
 
         -- Move cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -1973,7 +1977,7 @@ Some content here
       assert.equal("unchecked", todo.state)
 
       -- compute the diff to check it
-      local hunks = api.compute_diff_toggle({ todo }, "checked")
+      local hunks = api.compute_diff_toggle({ { item = todo, target_state = "checked" } })
       assert.equal(1, #hunks)
 
       local hunk = hunks[1]

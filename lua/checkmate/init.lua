@@ -99,7 +99,10 @@ M.setup = function(opts)
     M.stop()
   end
 
-  config.setup(opts)
+  local config_ok = config.setup(opts)
+  if not config_ok then
+    M.stop()
+  end
 
   _state.initialized = true
 
@@ -214,7 +217,7 @@ function M.toggle(target_state)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
+    -- queue the operation in the current transaction
     -- If toggle() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
@@ -224,7 +227,12 @@ function M.toggle(target_state)
       if smart_toggle_enabled then
         api.propagate_toggle(ctx, { todo_item }, transaction._state.todo_map, target_state)
       else
-        ctx.add_op(api.toggle_state, todo_item.id, target_state)
+        ctx.add_op(api.toggle_state, {
+          {
+            id = todo_item.id,
+            target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked"),
+          },
+        })
       end
     end
     profiler.stop("M.toggle")
@@ -233,16 +241,23 @@ function M.toggle(target_state)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  -- we go ahead a keep the parsed todo_map so that we can initialize the transaction below without it
-  -- also having to discover_todos
   local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
-  transaction.run(bufnr, todo_map, function(_ctx)
+  transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled then
       api.propagate_toggle(_ctx, todo_items, todo_map, target_state)
     else
+      local operations = {}
+
       for _, item in ipairs(todo_items) do
-        _ctx.add_op(api.toggle_state, item.id, target_state)
+        table.insert(operations, {
+          id = item.id,
+          target_state = target_state or (item.state == "unchecked" and "checked" or "unchecked"),
+        })
+      end
+
+      if #operations > 0 then
+        _ctx.add_op(api.toggle_state, operations)
       end
     end
   end, function()
@@ -275,21 +290,27 @@ function M.set_todo_item(todo_item, target_state)
       local todo_map = transaction._state.todo_map
       api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
     else
-      ctx.add_op(api.set_todo_item, todo_id, target_state)
+      ctx.add_op(api.toggle_state, { {
+        id = todo_id,
+        target_state = target_state,
+      } })
     end
     return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  -- If smart toggle is enabled, we need the todo_map
+  -- if smart toggle is enabled, we need the todo_map
   local todo_map = smart_toggle_enabled and parser.get_todo_map(bufnr) or nil
 
-  transaction.run(bufnr, todo_map, function(_ctx)
+  transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled and todo_map then
       api.propagate_toggle(_ctx, { todo_item }, todo_map, target_state)
     else
-      _ctx.add_op(api.set_todo_item, todo_id, target_state)
+      _ctx.add_op(api.toggle_state, { {
+        id = todo_id,
+        target_state = target_state,
+      } })
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
@@ -339,21 +360,20 @@ function M.add_metadata(metadata_name, value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If add_metadata() is run within an existing transaction, we will use the cursor position
+    -- if add_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
       parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
     if todo_item then
-      ctx.add_op(api.add_metadata, todo_item.id, metadata_name, value)
+      ctx.add_op(api.add_metadata, { { id = todo_item.id, meta_name = metadata_name, meta_value = value } })
     end
     return true
   end
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -361,11 +381,17 @@ function M.add_metadata(metadata_name, value)
     return false
   end
 
-  -- Begin a transaction
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.add_metadata, item.id, metadata_name, value)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = metadata_name,
+      meta_value = value,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.add_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -382,21 +408,20 @@ function M.remove_metadata(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
       parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
     if todo_item then
-      ctx.add_op(api.remove_metadata, todo_item.id, metadata_name)
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
     end
     return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -404,10 +429,16 @@ function M.remove_metadata(metadata_name)
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.remove_metadata, item.id, metadata_name)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = metadata_name,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.remove_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -423,21 +454,20 @@ function M.remove_all_metadata()
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_all_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_all_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
       parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
     if todo_item then
-      ctx.add_op(api.remove_all_metadata, todo_item.id)
+      ctx.add_op(api.remove_all_metadata, { todo_item.id })
     end
     return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -445,10 +475,12 @@ function M.remove_all_metadata()
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.remove_all_metadata, item.id)
-    end
+  local ids = vim.tbl_map(function(item)
+    return item.id
+  end, todo_items)
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.remove_all_metadata, ids)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -469,14 +501,13 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If toggle_metadata() is run within an existing transaction, we will use the cursor position
+    -- if toggle_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
       parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
     if todo_item then
-      ctx.add_op(api.toggle_metadata, todo_item.id, meta_name, custom_value)
+      ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = meta_name, custom_value = custom_value } })
     end
     profiler.stop("M.toggle_metadata")
     return true
@@ -484,7 +515,7 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -492,10 +523,17 @@ function M.toggle_metadata(meta_name, custom_value)
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.toggle_metadata, item.id, meta_name, custom_value)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = meta_name,
+      custom_value = custom_value,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.toggle_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -571,7 +609,6 @@ end
 
 --- Inspect todo item at cursor
 function M.debug_at_cursor()
-  local log = require("checkmate.log")
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
   local util = require("checkmate.util")

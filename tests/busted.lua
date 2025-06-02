@@ -9,7 +9,6 @@ load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/ma
 -- Setup lazy.nvim with busted and all test dependencies
 require("lazy.minit").busted({
   spec = {
-    { dir = vim.uv.cwd() },
     -- Plugin dependencies for testing
   },
   headless = {

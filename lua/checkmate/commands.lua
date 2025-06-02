@@ -162,7 +162,11 @@ M.debug_commands = {
 M.commands = {}
 
 -- Register all commands
-function M.setup()
+function M.setup(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
   -- Always include regular commands
   for _, command in ipairs(M.regular_commands) do
     table.insert(M.commands, command)
@@ -177,7 +181,7 @@ function M.setup()
 
   -- Register all selected commands
   for _, command in ipairs(M.commands) do
-    vim.api.nvim_create_user_command(command.cmd, command.func, command.opts)
+    vim.api.nvim_buf_create_user_command(bufnr, command.cmd, command.func, command.opts)
   end
 end
 

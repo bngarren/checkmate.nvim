@@ -12,65 +12,59 @@ describe("API", function()
   end)
 
   before_each(function()
-    _G.reset_state()
+    _G.reset_state(false)
 
     h.ensure_normal_mode()
   end)
 
   -- Set up a todo file in a buffer with autocmds
   local function setup_todo_buffer(file_path, content, config_override)
+    -- 1) Write the file to disk first
     h.write_file_content(file_path, content)
 
-    local bufnr = vim.api.nvim_create_buf(false, false)
-    vim.api.nvim_buf_set_name(bufnr, file_path)
-
-    -- load it into the current window so that BufRead/BufEnter events fire
-    vim.api.nvim_win_set_buf(0, bufnr)
-    vim.cmd("edit!")
-
-    vim.bo[bufnr].filetype = "markdown"
-
-    for k, _ in pairs(vim.b[bufnr]) do
-      if type(k) == "string" and k:match("^checkmate_") then
-        vim.b[bufnr][k] = nil
-      end
-    end
-
-    if require("checkmate").is_running() then
-      require("checkmate").stop()
-    end
-
-    config_override = config_override or {}
-    local ok = require("checkmate").setup(vim.tbl_deep_extend("force", {
+    -- 2) Ensure checkmate is “up and running” (registers its FileType autocmd) before we ever
+    --    try to create a Markdown buffer
+    local merged_opts = vim.tbl_deep_extend("force", {
       metadata = {
         ---@diagnostic disable-next-line: missing-fields
-        priority = {
-          select_on_insert = false,
-        },
+        priority = { select_on_insert = false },
       },
       enter_insert_after_new = false,
       smart_toggle = { enabled = false },
-    }, config_override))
+    }, config_override or {})
 
+    local ok = require("checkmate").setup(merged_opts)
     if not ok then
       error("Could not setup Checkmate in setup_todo_buffer")
     end
 
-    -- The FileType autocmd in plugin/checkmate will now call api.setup_buffer(bufnr)
+    -- 3) NOW create a brand-new buffer and load the file into it
+    local bufnr = vim.api.nvim_create_buf(false, false)
+    vim.api.nvim_buf_set_name(bufnr, file_path)
 
+    -- Put it in the current window and do :edit to actually load the content
+    vim.api.nvim_win_set_buf(0, bufnr)
+    vim.cmd("edit!")
+
+    -- 4) Finally, mark it as Markdown so the plugin’s FileType autocmd *fires* on this buffer:
+    vim.bo[bufnr].filetype = "markdown"
+    -- At this point, `plugin/checkmate.lua`’s autocmd for FileType=markdown sees `bufnr`
+    -- and calls require("checkmate.api").setup_buffer(bufnr).
+
+    -- 5) Let any deferred setup finish (e.g., debounced highlights, linter, extmarks, etc.)
     vim.wait(50, function()
       return vim.fn.jobwait({}, 0) == 0
     end)
-
     vim.cmd("redraw")
+
     return bufnr
   end
 
   describe("file operations", function()
     it("should save todo file with correct Markdown syntax", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
 
       -- Create a test todo file
       local file_path = h.create_temp_file()
@@ -176,8 +170,7 @@ describe("API", function()
 
     it("should maintain todo state through edit-save-reload cycle", function()
       local config = require("checkmate.config")
-      local api = require("checkmate.api")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       -- Create a test todo file
       local file_path = h.create_temp_file()
@@ -218,9 +211,6 @@ describe("API", function()
 
       -- Ensure filetype is set to markdown
       vim.bo[bufnr].filetype = "markdown"
-
-      -- Set up the API for this buffer - this should trigger conversion
-      api.setup_buffer(bufnr)
 
       -- Check that Task 2 is still checked
       todo_map = require("checkmate.parser").discover_todos(bufnr)

@@ -131,6 +131,8 @@ end
 function M.setup_highlights()
   local config = require("checkmate.config")
 
+  M.clear_highlight_cache()
+
   -- Apply highlight groups with current settings
   M.apply_highlight_groups()
 
@@ -156,7 +158,7 @@ function M.setup_highlights()
         M.apply_highlight_groups()
 
         -- Re-apply to all active buffers
-        for bufnr, _ in pairs(config.get_active_buffers()) do
+        for bufnr, _ in pairs(require("checkmate").get_active_buffer_list()) do
           if vim.api.nvim_buf_is_valid(bufnr) then
             M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
           end

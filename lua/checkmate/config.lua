@@ -799,28 +799,8 @@ function M.setup(opts)
   return result
 end
 
--- Register a buffer as active - called during API setup
----@param bufnr integer The buffer number to register
-function M.register_buffer(bufnr)
-  if not M._state.active_buffers then
-    M._state.active_buffers = {}
-  end
-  M._state.active_buffers[bufnr] = true
-end
-
--- Unregister a buffer (called when buffer is deleted)
----@param bufnr integer The buffer number to unregister
-function M.unregister_buffer(bufnr)
-  if M._state.active_buffers then
-    M._state.active_buffers[bufnr] = nil
-  end
-  -- Buffer-local vars are automatically cleaned up when buffer is deleted
-end
-
--- Get all currently active buffers
----@return table<integer, boolean> The active buffers table
-function M.get_active_buffers()
-  return M._state.active_buffers or {}
+function M.get_defaults()
+  return vim.deepcopy(_DEFAULTS)
 end
 
 return M

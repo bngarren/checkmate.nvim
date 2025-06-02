@@ -52,10 +52,22 @@ function M.setup_buffer(bufnr)
   end
 
   local config = require("checkmate.config")
+  local checkmate = require("checkmate")
 
-  if vim.b[bufnr].checkmate_setup_complete then
-    return true
+  if not checkmate.is_initialized() then
+    checkmate.on_initialized(function()
+      M.setup_buffer(bufnr)
+    end)
+    return false
   end
+
+  if checkmate.is_buffer_active(bufnr) then
+    if vim.b[bufnr].checkmate_setup_complete then
+      return true
+    end
+  end
+
+  checkmate.register_buffer(bufnr)
 
   local parser = require("checkmate.parser")
   parser.convert_markdown_to_unicode(bufnr)
@@ -78,10 +90,7 @@ function M.setup_buffer(bufnr)
   end
 
   M.setup_keymaps(bufnr)
-
   M.setup_autocmds(bufnr)
-
-  config.register_buffer(bufnr)
 
   vim.b[bufnr].checkmate_setup_complete = true
 
@@ -313,7 +322,7 @@ function M.setup_autocmds(bufnr)
       group = augroup,
       buffer = bufnr,
       callback = function()
-        require("checkmate.config").unregister_buffer(bufnr)
+        require("checkmate").unregister_buffer(bufnr)
         -- Reset any API state for this buffer
         if M._debounced_process_buffer_fns[bufnr] then
           M._debounced_process_buffer_fns[bufnr] = nil

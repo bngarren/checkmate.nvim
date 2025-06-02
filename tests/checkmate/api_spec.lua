@@ -12,13 +12,14 @@ describe("API", function()
   end)
 
   before_each(function()
-    _G.reset_state()
+    _G.reset_state(false)
 
     h.ensure_normal_mode()
   end)
 
   -- Set up a todo file in a buffer with autocmds
   local function setup_todo_buffer(file_path, content, config_override)
+    -- 1) Write the file to disk first
     h.write_file_content(file_path, content)
 
     -- change some default options for this test suite as these tend to interfere unless specifically tested
@@ -53,6 +54,7 @@ describe("API", function()
       return vim.fn.jobwait({}, 0) == 0
     end)
     vim.cmd("redraw")
+
     return bufnr
   end
 

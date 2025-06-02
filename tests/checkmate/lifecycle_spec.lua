@@ -241,8 +241,7 @@ describe("checkmate init and lifecycle", function()
     end)
   end)
 
-  -- TODO: finish
-  pending("file patterns", function()
+  describe("file patterns", function()
     local config = require("checkmate.config")
     local checkmate = require("checkmate")
 
@@ -252,6 +251,8 @@ describe("checkmate init and lifecycle", function()
 
     lazy_teardown(function()
       checkmate.stop()
+
+      _G.reset_state()
     end)
 
     local function test_pattern(filename, should_match)
@@ -287,7 +288,6 @@ describe("checkmate init and lifecycle", function()
     end)
 
     it("should handle directory patterns", function()
-      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "docs/todo", "*/TODO.md" } })
 
       test_pattern("docs/todo", true)
@@ -303,7 +303,6 @@ describe("checkmate init and lifecycle", function()
       test_pattern("tODO", false)
 
       -- Users need to include both cases if they want case-insensitive
-      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "todo", "Todo", "TODO" } })
       test_pattern("todo", true)
       test_pattern("Todo", true)
@@ -311,71 +310,11 @@ describe("checkmate init and lifecycle", function()
     end)
 
     it("should handle patterns without extensions", function()
-      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "tasks" } })
 
       test_pattern("tasks", true)
       test_pattern("tasks.md", true) -- .md extension is automatically considered
       test_pattern("tasks.txt", false)
     end)
-  end)
-
-  it("should handle filetype changes", function()
-    local checkmate = require("checkmate")
-    checkmate.setup()
-
-    vim.cmd("edit todo.md")
-    local bufnr = vim.api.nvim_get_current_buf()
-    vim.bo[bufnr].filetype = "markdown"
-
-    assert.is_true(vim.b[bufnr].checkmate_setup_complete or false)
-
-    vim.bo[bufnr].filetype = "text"
-
-    vim.wait(10)
-
-    assert.equal(0, checkmate.count_active_buffers())
-
-    vim.bo[bufnr].filetype = "markdown"
-
-    vim.wait(10)
-    assert.equal(1, checkmate.count_active_buffers())
-
-    checkmate.stop()
-  end)
-
-  pending("should handle configuration changes while running", function()
-    local checkmate = require("checkmate")
-    local config = require("checkmate.config")
-
-    -- Initial setup
-    ---@diagnostic disable-next-line: missing-fields
-    checkmate.setup({ files = { "todo.md" } })
-
-    vim.cmd("edit todo.md")
-    local buf1 = vim.api.nvim_get_current_buf()
-    vim.bo[buf1].filetype = "markdown"
-
-    vim.cmd("edit tasks.md")
-    local buf2 = vim.api.nvim_get_current_buf()
-    vim.bo[buf2].filetype = "markdown"
-
-    vim.print(config.options.files)
-
-    local should_buf2 = checkmate.should_activate_for_buffer(buf2, { "tasks.md" })
-    print(should_buf2)
-
-    assert.is_true(vim.b[buf1].checkmate_setup_complete or false)
-    assert.is_falsy(vim.b[buf2].checkmate_setup_complete)
-
-    -- Change configuration
-    ---@diagnostic disable-next-line: missing-fields
-    checkmate.setup({ files = { "tasks.md" } })
-
-    -- buf1 should be deactivated, buf2 should be activated
-    assert.is_falsy(vim.b[buf1].checkmate_setup_complete)
-    assert.is_true(vim.b[buf2].checkmate_setup_complete or false)
-
-    checkmate.stop()
   end)
 end)

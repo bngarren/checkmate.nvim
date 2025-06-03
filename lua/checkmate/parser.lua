@@ -217,7 +217,7 @@ function M.convert_markdown_to_unicode(bufnr)
   local modified = false
   local original_modified = vim.bo[bufnr].modified
 
-  -- Build patterns only once
+  -- build patterns once
   local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[ %]")
   local checked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[[xX]%]")
   local unchecked = config.options.todo_markers.unchecked
@@ -230,12 +230,24 @@ function M.convert_markdown_to_unicode(bufnr)
 
     -- Apply all unchecked replacements
     for _, pat in ipairs(unchecked_patterns) do
-      new_line = new_line:gsub(pat, "%1" .. unchecked)
+      if pat:sub(-1) == " " then
+        -- Pattern ends with space, so add it back in replacement
+        new_line = new_line:gsub(pat, "%1" .. unchecked .. " ")
+      else
+        -- Pattern ends with $, no space needed
+        new_line = new_line:gsub(pat, "%1" .. unchecked)
+      end
     end
 
     -- Apply all checked replacements
     for _, pat in ipairs(checked_patterns) do
-      new_line = new_line:gsub(pat, "%1" .. checked)
+      if pat:sub(-1) == " " then
+        -- Pattern ends with space, so add it back in replacement
+        new_line = new_line:gsub(pat, "%1" .. checked .. " ")
+      else
+        -- Pattern ends with $, no space needed
+        new_line = new_line:gsub(pat, "%1" .. checked)
+      end
     end
 
     if new_line ~= line then
@@ -398,7 +410,8 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
     end
   end
 
-  -- Fallback to Treesitter-based logic
+  -- we are here because the row did not match a todo's first row (tracked by the extmark)...but we could still be within a todo's scope
+  -- now use Treesitter-based logic
 
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)

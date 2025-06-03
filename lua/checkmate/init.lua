@@ -617,9 +617,9 @@ function M.debug_at_cursor()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1 -- normalize
 
-  local extmark_id = 9001 -- Arbitrary unique ID for debug highlight
+  local extmark_id = 9001 -- arbitrary unique ID for debug highlight
 
-  -- Clear the previous debug highlight (just that one)
+  -- clear previous
   pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
 
   local item = parser.get_todo_item_at_position(bufnr, row, col, {

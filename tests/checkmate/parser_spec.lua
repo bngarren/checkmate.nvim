@@ -460,6 +460,7 @@ Line that should not affect parent-child relationship
         "- " .. unchecked_marker,
       }
       for _, case in ipairs(cases) do
+        print(string.format("testing case '%s'", case))
         local state = parser.get_todo_item_state(case)
         assert.equal("unchecked", state)
       end
@@ -539,17 +540,15 @@ Line that should not affect parent-child relationship
 
     it("should handle custom todo markers from config", function()
       local parser = require("checkmate.parser")
-      -- Temporarily modify config
+
       local config = require("checkmate.config")
       local original_markers = vim.deepcopy(config.options.todo_markers)
 
-      -- Set custom markers
       config.options.todo_markers = {
         unchecked = "[ ]",
         checked = "[x]",
       }
 
-      -- Test with custom markers
       local lines = {
         "- [ ] Custom unchecked",
         "- [x] Custom checked",
@@ -565,7 +564,6 @@ Line that should not affect parent-child relationship
         assert.equal(expected[i], state)
       end
 
-      -- Restore original markers
       config.options.todo_markers = original_markers
     end)
   end)
@@ -578,18 +576,15 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      -- Check structure
       assert.is_table(metadata)
       assert.is_table(metadata.entries)
       assert.is_table(metadata.by_tag)
 
-      -- Check content
       assert.equal(1, #metadata.entries)
       assert.equal("priority", metadata.entries[1].tag)
       assert.equal("high", metadata.entries[1].value)
       assert.same(metadata.entries[1], metadata.by_tag.priority)
 
-      -- Check range
       assert.equal(0, metadata.entries[1].range.start.row)
       assert.equal(16, metadata.entries[1].range.start.col)
       assert.equal(0, metadata.entries[1].range["end"].row)
@@ -603,22 +598,20 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      -- Check basic structure
       assert.equal(3, #metadata.entries)
 
-      -- Check first metadata tag
+      -- first metadata tag
       assert.equal("priority", metadata.entries[1].tag)
       assert.equal("high", metadata.entries[1].value)
 
-      -- Check second metadata tag
+      -- second metadata tag
       assert.equal("due", metadata.entries[2].tag)
       assert.equal("2023-04-01", metadata.entries[2].value)
 
-      -- Check third metadata tag
+      -- third metadata tag
       assert.equal("tags", metadata.entries[3].tag)
       assert.equal("important,urgent", metadata.entries[3].value)
 
-      -- Check by_tag lookup
       assert.same(metadata.entries[1], metadata.by_tag.priority)
       assert.same(metadata.entries[2], metadata.by_tag.due)
       assert.same(metadata.entries[3], metadata.by_tag.tags)
@@ -663,7 +656,7 @@ Line that should not affect parent-child relationship
       local parser = require("checkmate.parser")
       local config = require("checkmate.config")
 
-      -- Add an alias to the config
+      -- add an alias to the config
       config.options.metadata.priority = config.options.metadata.priority or {}
       config.options.metadata.priority.aliases = { "p", "pri" }
 
@@ -672,7 +665,6 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      -- Check that aliases are correctly marked
       assert.equal(2, #metadata.entries)
 
       assert.equal("pri", metadata.entries[1].tag)
@@ -681,7 +673,6 @@ Line that should not affect parent-child relationship
       assert.equal("p", metadata.entries[2].tag)
       assert.equal("priority", metadata.entries[2].alias_for)
 
-      -- Check by_tag has entries for both alias and canonical name
       assert.same(metadata.entries[1], metadata.by_tag.pri)
       assert.same(metadata.entries[2], metadata.by_tag.p)
       assert.same(metadata.entries[2], metadata.by_tag.priority) -- Last alias wins for canonical name
@@ -733,7 +724,6 @@ Line that should not affect parent-child relationship
         local parser = require("checkmate.parser")
         local config = require("checkmate.config")
 
-        -- Create a test buffer with markdown content
         local bufnr = vim.api.nvim_create_buf(false, true)
         local markdown_lines = {
           "# Todo List",
@@ -747,20 +737,20 @@ Line that should not affect parent-child relationship
           "2. [x] Numbered checked task",
           "",
           "- Not a task",
+          "- [ ]",
+          "- [x]",
+          "1. [ ]",
+          "1. [x]",
         }
 
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, markdown_lines)
 
-        -- Run the conversion
         local was_modified = parser.convert_markdown_to_unicode(bufnr)
 
-        -- Should report modification happened
         assert.is_true(was_modified)
 
-        -- Get the converted content
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        -- Check that appropriate conversions happened
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
@@ -775,8 +765,11 @@ Line that should not affect parent-child relationship
         assert.equal("2. " .. checked .. " Numbered checked task", converted_lines[9])
         assert.equal("", converted_lines[10]) -- Empty line unchanged
         assert.equal("- Not a task", converted_lines[11]) -- Regular list item unchanged
+        assert.equal("- " .. unchecked, converted_lines[12])
+        assert.equal("- " .. checked, converted_lines[13])
+        assert.equal("1. " .. unchecked, converted_lines[14])
+        assert.equal("1. " .. checked, converted_lines[15])
 
-        -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end)
 

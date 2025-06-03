@@ -277,16 +277,23 @@ function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
     error("checkbox_pattern cannot be nil or empty")
   end
 
-  -- CommonMark specifies that checkboxes have:
-  -- - exactly one space inside [ ]
-  -- - at least one whitespace char (or EOL) after the closing bracket
-  local cm_suffix = "%f[%s]" -- Lua frontier ⇒ next char is whitespace/EOL
-  local full_box_pattern = checkbox_pattern .. cm_suffix
+  local patterns = {}
 
-  return M.build_list_pattern({
+  -- Pattern 1: Checkbox at end of line
+  local eol_patterns = M.build_list_pattern({
     simple_markers = list_item_markers,
-    right_pattern = full_box_pattern,
+    right_pattern = checkbox_pattern .. "$",
   })
+  vim.list_extend(patterns, eol_patterns)
+
+  -- Pattern 2: Checkbox followed by space - include space in the pattern but not the replacement
+  local space_patterns = M.build_list_pattern({
+    simple_markers = list_item_markers,
+    right_pattern = checkbox_pattern .. " ", -- Note: space not captured, just matched
+  })
+  vim.list_extend(patterns, space_patterns)
+
+  return patterns
 end
 
 ---Returns a todo_map table sorted by start row

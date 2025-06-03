@@ -389,10 +389,8 @@ local _DEFAULTS = {
 }
 
 M._state = {
-  initialized = false, -- Has setup() been called? Prevent duplicate initializations of config.
-  running = false, -- Is the plugin currently active?
-  active_buffers = {}, -- Track which buffers have been set up (i.e., have Checkmate functionality loaded)
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
+  active_buffers = {}, -- Track which buffers have checkmate active
 }
 
 -- The active configuration
@@ -764,178 +762,45 @@ end
 
 --- Setup function
 ---@param opts? checkmate.Config
----@return boolean success
+---@return checkmate.Config config
 function M.setup(opts)
-  -- Prevent double initialization but allow reconfiguration
-  local is_reconfigure = M._state.initialized
+  local success, result = pcall(function()
+    -- start with static defaults
+    local config = vim.deepcopy(_DEFAULTS)
 
-  -- 1. Start with static defaults
-  local config = vim.deepcopy(_DEFAULTS)
-
-  -- 2. (optional) Merge in global checkmate config
-  if type(vim.g.checkmate_config) == "table" then
-    config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
-  end
-
-  -- 3. Merge override user opts
-  if type(opts) == "table" then
-    local valid, err = M.validate_options(opts)
-    if not valid then
-      vim.notify("Checkmate: Invalid opts: " .. vim.inspect(err), vim.log.levels.ERROR)
-      M.stop()
-      return false
+    -- then merge global config if present
+    if type(vim.g.checkmate_config) == "table" then
+      config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
     end
-    config = vim.tbl_deep_extend("force", config, opts)
-  end
 
-  -- capture the explicit user-provided style (for later colorscheme updates)
-  M._state.user_style = config.style and vim.deepcopy(config.style) or {}
-
-  -- 4. Finally, backfill any missing keys from theme defaults
-  local colorscheme_aware_style = require("checkmate.theme").generate_style_defaults()
-  config.style = vim.tbl_deep_extend("keep", config.style or {}, colorscheme_aware_style)
-
-  -- Store the resulting configuration
-  M.options = config
-
-  M._state.initialized = true
-
-  -- Handle reconfiguration: notify dependent modules
-  if is_reconfigure then
-    M.notify_config_changed()
-  else
-    -- Save the intial setup's user opts
-    vim.g.checkmate_user_opts = opts or {}
-  end
-
-  return true
-end
-
--- Notify modules when config has changed
-function M.notify_config_changed()
-  if not M._state.running then
-    return
-  end
-
-  -- Update linter config if loaded
-  if package.loaded["checkmate.linter"] and M.options.linter then
-    require("checkmate.linter").setup(M.options.linter)
-  end
-
-  -- Update parser's patterns
-  if package.loaded["checkmate.parser"] then
-    require("checkmate.parser").clear_pattern_cache() -- clears the pattern cache in case todo markers were changed in config
-  end
-
-  -- Refresh highlights
-  if package.loaded["checkmate.highlights"] then
-    require("checkmate.highlights").setup_highlights()
-
-    -- Re-apply to all buffers
-    for bufnr, _ in pairs(M._state.active_buffers) do
-      if vim.api.nvim_buf_is_valid(bufnr) then
-        require("checkmate.highlights").apply_highlighting(bufnr, {
-          debug_reason = "config update",
-        })
-      end
+    -- then merge user options after validating
+    if type(opts) == "table" then
+      assert(M.validate_options(opts))
+      config = vim.tbl_deep_extend("force", config, opts)
     end
+
+    -- save user style for colorscheme updates
+    M._state.user_style = config.style and vim.deepcopy(config.style) or {}
+
+    -- make theme-aware style defaults
+    local theme_style = require("checkmate.theme").generate_style_defaults()
+    config.style = vim.tbl_deep_extend("keep", config.style or {}, theme_style)
+
+    M.options = config
+
+    return config
+  end)
+
+  if not success then
+    vim.notify("Checkmate: Config setup failed: " .. tostring(result), vim.log.levels.ERROR)
+    return {}
   end
 
-  -- Handle enable/disable state changes
-  local checkmate = package.loaded["checkmate"]
-  if checkmate then
-    if M._state.running and not M.options.enabled then
-      -- Schedule to avoid doing it during another operation
-      vim.schedule(function()
-        require("checkmate").stop()
-      end)
-    elseif not M._state.running and M.options.enabled then
-      vim.schedule(function()
-        require("checkmate").start()
-      end)
-    end
-  end
+  return result
 end
 
-function M.is_initialized()
-  return M._state.initialized
-end
-
-function M.is_running()
-  return M._state.running
-end
-
--- Start the configuration system
-function M.start()
-  if M._state.running then
-    return
-  end
-
-  -- Update running state
-  M._state.running = true
-  M._state.active_buffers = {}
-
-  -- Log the startup if the logger is already initialized
-  if package.loaded["checkmate.log"] then
-    require("checkmate.log").debug("Config system started", { module = "config" })
-  end
-end
-
-function M.stop()
-  if not M.is_running() then
-    return
-  end
-
-  -- Cleanup buffer state
-  for bufnr, _ in pairs(M.get_active_buffers()) do
-    pcall(function()
-      if vim.api.nvim_buf_is_valid(bufnr) then
-        -- Clear buffer highlights
-        vim.api.nvim_buf_clear_namespace(bufnr, M.ns, 0, -1)
-
-        -- Clear buffer-specific diagnostics
-        if package.loaded["checkmate.linter"] then
-          local linter = require("checkmate.linter")
-          linter.disable(bufnr)
-        end
-
-        -- Reset buffer state
-        vim.b[bufnr].checkmate_setup_complete = nil
-      end
-    end)
-  end
-
-  -- Reset active buffers tracking
-  M._state.active_buffers = {}
-
-  -- Log the shutdown if the logger is still available
-  if package.loaded["checkmate.log"] then
-    require("checkmate.log").debug("Config system stopped", { module = "config" })
-  end
-end
-
--- Register a buffer as active - called during API setup
----@param bufnr integer The buffer number to register
-function M.register_buffer(bufnr)
-  if not M._state.active_buffers then
-    M._state.active_buffers = {}
-  end
-  M._state.active_buffers[bufnr] = true
-end
-
--- Unregister a buffer (called when buffer is deleted)
----@param bufnr integer The buffer number to unregister
-function M.unregister_buffer(bufnr)
-  if M._state.active_buffers then
-    M._state.active_buffers[bufnr] = nil
-  end
-  -- Buffer-local vars are automatically cleaned up when buffer is deleted
-end
-
--- Get all currently active buffers
----@return table<integer, boolean> The active buffers table
-function M.get_active_buffers()
-  return M._state.active_buffers or {}
+function M.get_defaults()
+  return vim.deepcopy(_DEFAULTS)
 end
 
 return M

@@ -79,8 +79,8 @@ function M.run(bufnr, entry_fn, post_fn)
     end,
 
     --- Queue any function and its arguments
-    --- @param fn function  the fn must return checkmate.TextHunkDiff[] or nil or {}
-    --- @param ... any      args to pass when we actually call `fn(...)`.
+    --- @param fn function fn must return checkmate.TextHunkDiff[] or nil or {}
+    --- @param ... any args to pass when we actually call `fn(...)`
     add_op = function(fn, ...)
       local fn_name = debug.getinfo(fn, "n").name or tostring(fn)
 
@@ -140,7 +140,9 @@ function M.run(bufnr, entry_fn, post_fn)
       M._state.cb_queue = {}
 
       for _, cb in ipairs(cbs) do
-        cb.cb_fn(state.context, unpack(cb.params))
+        pcall(function()
+          cb.cb_fn(state.context, unpack(cb.params))
+        end)
       end
     end
   end

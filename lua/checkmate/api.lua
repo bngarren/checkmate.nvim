@@ -365,6 +365,58 @@ function M.process_buffer(bufnr, reason)
   log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
 end
 
+--- Create a hunk that replaces only the todo marker character
+---@param row integer
+---@param todo_item checkmate.TodoItem
+---@param new_marker string
+---@return checkmate.TextDiffHunk
+local function make_marker_replacement_hunk(row, todo_item, new_marker)
+  local old_marker = todo_item.todo_marker.text
+  local byte_col = todo_item.todo_marker.position.col -- Already in bytes (0-indexed)
+  local old_marker_byte_len = #old_marker
+
+  return {
+    start_row = row,
+    start_col = byte_col,
+    end_row = row,
+    end_col = byte_col + old_marker_byte_len,
+    insert = { new_marker },
+  }
+end
+
+--- Create a hunk that replaces everything after the todo marker
+---@param row integer
+---@param todo_item checkmate.TodoItem
+---@param old_line string
+---@param new_line string
+---@return checkmate.TextDiffHunk|nil
+local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_line)
+  local marker_col = todo_item.todo_marker.position.col -- In bytes
+  local marker_text = todo_item.todo_marker.text
+  local marker_byte_len = #marker_text
+
+  -- position after the marker (0-based)
+  local content_start = marker_col + marker_byte_len
+
+  -- extract the portion to replace (from marker end to line end)
+  -- for string operations, convert to 1-based
+  local old_suffix = old_line:sub(content_start + 1)
+  local new_suffix = new_line:sub(content_start + 1)
+
+  if old_suffix == new_suffix then
+    return nil
+  end
+
+  -- make hunk
+  return {
+    start_row = row,
+    start_col = content_start,
+    end_row = row,
+    end_col = content_start + #old_suffix,
+    insert = { new_suffix },
+  }
+end
+
 -- Create a new todo item from the current line
 function M.create_todo()
   local config = require("checkmate.config")
@@ -428,19 +480,637 @@ function M.create_todo()
   end
 end
 
-function M.create_todo_new(start_row, end_row)
-  local util = require("checkmate.util")
+--- Compute diff hunks for toggling a batch of items with their target states
+---@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: checkmate.TodoItemState}
+---@return checkmate.TextDiffHunk[] hunks
+function M.compute_diff_toggle(items_with_states)
+  local config = require("checkmate.config")
+  local profiler = require("checkmate.profiler")
+
+  profiler.start("api.compute_diff_toggle")
+
+  local hunks = {}
+
+  for _, entry in ipairs(items_with_states) do
+    local todo_item = entry.item
+    local target_state = entry.target_state
+    local row = todo_item.todo_marker.position.row
+
+    local new_marker = target_state == "checked" and config.options.todo_markers.checked
+      or config.options.todo_markers.unchecked
+
+    local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
+    table.insert(hunks, hunk)
+  end
+
+  profiler.stop("api.compute_diff_toggle")
+  return hunks
+end
+
+--- Toggle state of todo item(s)
+---@param ctx table Transaction context
+---@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
+---@return checkmate.TextDiffHunk[] hunks
+function M.toggle_state(ctx, operations)
+  local items_with_states = {}
+
+  for _, op in ipairs(operations) do
+    local item = ctx.get_item(op.id)
+    if item and item.state ~= op.target_state then
+      table.insert(items_with_states, {
+        item = item,
+        target_state = op.target_state,
+      })
+    end
+  end
+
+  return M.compute_diff_toggle(items_with_states)
+end
+
+--- Set todo items to specific state
+---@param ctx table Transaction context
+---@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
+---@return checkmate.TextDiffHunk[] hunks
+function M.set_todo_item(ctx, operations)
+  return M.toggle_state(ctx, operations)
+end
+
+---Toggle a batch of todo items with proper parent/child propagation
+---i.e. 'smart toggle'
+---@param ctx table Transaction context
+---@param items checkmate.TodoItem[] List of initial todo items to toggle
+---@param todo_map table<integer, checkmate.TodoItem>
+---@param target_state? checkmate.TodoItemState Optional target state, otherwise toggle each item
+function M.propagate_toggle(ctx, items, todo_map, target_state)
+  local config = require("checkmate.config")
+  local smart_config = config.options.smart_toggle
+
+  local want = {} -- id -> desired state
+
+  -- downward propagation
+  local function mark_down(id, state, depth)
+    if want[id] == state then
+      return
+    end
+
+    want[id] = state
+
+    -- determine if we should propagate to children
+    local item = todo_map[id]
+    if not item or not item.children or #item.children == 0 then
+      return
+    end
+
+    local propagate_config = state == "checked" and smart_config.check_down or smart_config.uncheck_down
+
+    if propagate_config == "none" then
+      return
+    elseif propagate_config == "direct_children" and depth > 0 then
+      return -- only propagate to direct children (depth 0 -> 1)
+    end
+
+    for _, child_id in ipairs(item.children) do
+      mark_down(child_id, state, depth + 1)
+    end
+  end
+
+  -- initialize the downward pass for each selected item
+  for _, item in ipairs(items) do
+    local item_target_state = target_state
+    if not item_target_state then
+      -- if no explicit target, toggle based on current state
+      item_target_state = (item.state == "unchecked") and "checked" or "unchecked"
+    end
+
+    mark_down(item.id, item_target_state, 0)
+  end
+
+  -- upward propagation
+
+  -- helper checks if all relevant children are checked
+  local function should_check_parent(parent_id)
+    if smart_config.check_up == "none" then
+      return false
+    end
+
+    local parent = todo_map[parent_id]
+    if not parent or not parent.children or #parent.children == 0 then
+      return true -- no children means we can check it
+    end
+
+    if smart_config.check_up == "direct_children" then
+      -- check only direct children
+      for _, child_id in ipairs(parent.children) do
+        local child = todo_map[child_id]
+        if not child then
+          return false
+        end
+        local will_be_checked = want[child_id] == "checked" or (want[child_id] == nil and child.state == "checked")
+        if not will_be_checked then
+          return false
+        end
+      end
+      return true
+    else -- "all_children"
+      -- check all descendants recursively
+      local function all_descendants_checked(id)
+        local item = todo_map[id]
+        if not item then
+          return false
+        end
+
+        local will_be_checked = want[id] == "checked" or (want[id] == nil and item.state == "checked")
+        if not will_be_checked then
+          return false
+        end
+
+        -- check all children recursively
+        if item.children then
+          for _, child_id in ipairs(item.children) do
+            if not all_descendants_checked(child_id) then
+              return false
+            end
+          end
+        end
+
+        return true
+      end
+
+      -- check all direct children and their descendants
+      for _, child_id in ipairs(parent.children) do
+        if not all_descendants_checked(child_id) then
+          return false
+        end
+      end
+      return true
+    end
+  end
+
+  -- helper checks if parent should be unchecked
+  local function should_uncheck_parent(parent_id)
+    if smart_config.uncheck_up == "none" then
+      return false
+    end
+
+    local parent = todo_map[parent_id]
+    if not parent or not parent.children or #parent.children == 0 then
+      return false -- no children means no reason to uncheck
+    end
+
+    if smart_config.uncheck_up == "direct_children" then
+      -- check only direct children
+      for _, child_id in ipairs(parent.children) do
+        local child = todo_map[child_id]
+        if child then
+          local will_be_unchecked = want[child_id] == "unchecked"
+            or (want[child_id] == nil and child.state == "unchecked")
+          if will_be_unchecked then
+            return true -- Any direct child unchecked
+          end
+        end
+      end
+      return false
+    else -- "all_children"
+      -- check all descendants recursively
+      local function any_descendant_unchecked(id)
+        local item = todo_map[id]
+        if not item then
+          return false
+        end
+
+        local will_be_unchecked = want[id] == "unchecked" or (want[id] == nil and item.state == "unchecked")
+        if will_be_unchecked then
+          return true
+        end
+
+        -- check all children recursively
+        if item.children then
+          for _, child_id in ipairs(item.children) do
+            if any_descendant_unchecked(child_id) then
+              return true
+            end
+          end
+        end
+
+        return false
+      end
+
+      -- check all direct children and their descendants
+      for _, child_id in ipairs(parent.children) do
+        if any_descendant_unchecked(child_id) then
+          return true
+        end
+      end
+      return false
+    end
+  end
+
+  -- process upward propagation for checked items
+  local function propagate_check_up(id)
+    local item = todo_map[id]
+    if not item or not item.parent_id then
+      return
+    end
+
+    if should_check_parent(item.parent_id) then
+      if want[item.parent_id] ~= "checked" then
+        want[item.parent_id] = "checked"
+        -- recursively propagate up
+        propagate_check_up(item.parent_id)
+      end
+    end
+  end
+
+  -- process upward propagation for unchecked items
+  local function propagate_uncheck_up(id)
+    local item = todo_map[id]
+    if not item or not item.parent_id then
+      return
+    end
+
+    if should_uncheck_parent(item.parent_id) then
+      if want[item.parent_id] ~= "unchecked" then
+        want[item.parent_id] = "unchecked"
+        -- recursively propagate up
+        propagate_uncheck_up(item.parent_id)
+      end
+    end
+  end
+
+  -- run upward propagation based on what we're setting items to
+  for id, desired_state in pairs(want) do
+    if desired_state == "checked" then
+      propagate_check_up(id)
+    else -- unchecked
+      propagate_uncheck_up(id)
+    end
+  end
+
+  local operations = {}
+
+  for id, desired_state in pairs(want) do
+    local item = todo_map[id]
+    if item and item.state ~= desired_state then
+      table.insert(operations, {
+        id = id,
+        target_state = desired_state,
+      })
+    end
+  end
+
+  -- single batched operation with all state changes
+  if #operations > 0 then
+    ctx.add_op(M.toggle_state, operations)
+  end
+end
+
+---@param items checkmate.TodoItem[]
+---@param meta_name string Metadata tag name
+---@param meta_value string Metadata default value
+---@return checkmate.TextDiffHunk[]
+function M.compute_diff_add_metadata(items, meta_name, meta_value)
+  local config = require("checkmate.config")
+  local log = require("checkmate.log")
+  local meta_props = config.options.metadata[meta_name]
+  if not meta_props then
+    log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
+    return {}
+  end
+
   local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
 
-  local is_multi_row = end_row - start_row > 0
+  for _, todo_item in ipairs(items) do
+    local row = todo_item.range.start.row
+    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
-  -- If visual mode, we simply try to convert non-todo to todo item for
-  -- each row in the selection
-  -- If normal mode, we:
-  --   - first try to convert a non-todo under the cursor to todo item
-  --   - if a todo already exists, we insert a new todo in the row below
+    if original_line and #original_line ~= 0 then
+      local value = meta_value
 
-  local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row, false)
+      -- check if metadata already exists
+      local existing_entry = todo_item.metadata.by_tag[meta_name]
+
+      local updated_metadata = vim.deepcopy(todo_item.metadata)
+
+      if existing_entry then
+        for i, entry in ipairs(updated_metadata.entries) do
+          if entry.tag == existing_entry.tag then
+            updated_metadata.entries[i].value = value
+            break
+          end
+        end
+        updated_metadata.by_tag[meta_name].value = value
+      else
+        local new_entry = {
+          tag = meta_name,
+          value = value,
+          range = {
+            start = { row = row, col = #original_line },
+            ["end"] = { row = row, col = #original_line + #meta_name + #value + 3 },
+          },
+          position_in_line = #original_line + 1,
+        }
+        table.insert(updated_metadata.entries, new_entry)
+        updated_metadata.by_tag[meta_name] = new_entry
+      end
+
+      -- rebuild line with sorted metadata
+      local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
+
+      local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
+      if hunk then
+        table.insert(hunks, hunk)
+      end
+    end
+  end
+  return hunks
+end
+
+--- Add metadata to todo items
+---@param ctx table Transaction context
+---@param operations table[] Array of {id: integer, meta_name: string, meta_value?: string}
+---@return checkmate.TextDiffHunk[] hunks
+function M.add_metadata(ctx, operations)
+  local config = require("checkmate.config")
+  local bufnr = ctx.bufnr
+  local hunks = {}
+  local to_jump = nil
+
+  -- group by metadata type for callbacks
+  local callbacks_by_meta = {}
+
+  for _, op in ipairs(operations) do
+    local item = ctx.get_item(op.id)
+    if not item then
+      return {}
+    end
+
+    local meta_props = config.options.metadata[op.meta_name]
+    if not meta_props then
+      return {}
+    end
+
+    -- get value with fallback to get_value()
+    local meta_value = op.meta_value
+    if not meta_value and meta_props.get_value then
+      meta_value = meta_props.get_value()
+      meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+    meta_value = meta_value or ""
+
+    local item_hunks = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
+    vim.list_extend(hunks, item_hunks)
+
+    -- add callbacks
+    if meta_props.on_add then
+      callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
+      table.insert(callbacks_by_meta[op.meta_name], op.id)
+    end
+
+    -- track jump target (for single item operations)
+    if #operations == 1 and meta_props.jump_to_on_insert then
+      to_jump = { item = item, meta_name = op.meta_name, meta_config = meta_props }
+    end
+  end
+
+  -- queue callbacks
+  for meta_name, ids in pairs(callbacks_by_meta) do
+    local meta_config = config.options.metadata[meta_name]
+    for _, id in ipairs(ids) do
+      ctx.add_cb(function(tx_ctx)
+        local updated_item = tx_ctx.get_item(id)
+        if updated_item then
+          meta_config.on_add(updated_item)
+        end
+      end)
+    end
+  end
+
+  if to_jump then
+    M._handle_metadata_cursor_jump(bufnr, to_jump.item, to_jump.meta_name, to_jump.meta_config)
+  end
+
+  return hunks
+end
+
+--- Compute diff hunks for removing metadata from todo items
+---@param items checkmate.TodoItem[]
+---@param meta_name string Metadata tag name
+---@return checkmate.TextDiffHunk[]
+function M.compute_diff_remove_metadata(items, meta_name)
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  -- batch read all required lines
+  local rows = {}
+  for _, item in ipairs(items) do
+    table.insert(rows, item.todo_marker.position.row)
+  end
+  local lines = util.batch_get_lines(bufnr, rows)
+
+  for _, todo_item in ipairs(items) do
+    local row = todo_item.range.start.row
+    local original_line = lines[row]
+
+    if original_line and #original_line ~= 0 then
+      local entry = todo_item.metadata.by_tag[meta_name]
+      if not entry then
+        -- Check for aliases
+        for canonical, props in pairs(config.options.metadata) do
+          for _, alias in ipairs(props.aliases or {}) do
+            if alias == meta_name then
+              entry = todo_item.metadata.by_tag[canonical]
+              break
+            end
+          end
+          if entry then
+            break
+          end
+        end
+      end
+
+      if entry then
+        local updated_metadata = vim.deepcopy(todo_item.metadata)
+
+        -- remove from entries
+        for i = #updated_metadata.entries, 1, -1 do
+          if updated_metadata.entries[i].tag == entry.tag then
+            table.remove(updated_metadata.entries, i)
+            break
+          end
+        end
+
+        -- remove from by_tag
+        updated_metadata.by_tag[entry.tag] = nil
+        if entry.alias_for then
+          updated_metadata.by_tag[entry.alias_for] = nil
+        end
+
+        local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
+
+        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
+        if hunk then
+          table.insert(hunks, hunk)
+        end
+      end
+    end
+  end
+
+  return hunks
+end
+
+--- Remove metadata from todo items
+---@param ctx table Transaction context
+---@param operations table[] Array of {id: integer, meta_name: string}
+---@return checkmate.TextDiffHunk[] hunks
+function M.remove_metadata(ctx, operations)
+  local config = require("checkmate.config")
+  local hunks = {}
+  local callbacks_by_meta = {}
+
+  for _, op in ipairs(operations) do
+    local item = ctx.get_item(op.id)
+    if item and item.metadata.by_tag and item.metadata.by_tag[op.meta_name] then
+      local item_hunks = M.compute_diff_remove_metadata({ item }, op.meta_name)
+      vim.list_extend(hunks, item_hunks)
+
+      local meta_config = config.options.metadata[op.meta_name]
+      if meta_config and meta_config.on_remove then
+        callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
+        table.insert(callbacks_by_meta[op.meta_name], op.id)
+      end
+    end
+  end
+
+  for meta_name, ids in pairs(callbacks_by_meta) do
+    local meta_config = config.options.metadata[meta_name]
+    for _, id in ipairs(ids) do
+      ctx.add_cb(function(tx_ctx)
+        local updated_item = tx_ctx.get_item(id)
+        if updated_item then
+          meta_config.on_remove(updated_item)
+        end
+      end)
+    end
+  end
+
+  return hunks
+end
+
+--- Compute diff hunks for removing all metadata from todo items
+---@param items checkmate.TodoItem[]
+---@return checkmate.TextDiffHunk[]
+function M.compute_diff_remove_all_metadata(items)
+  local util = require("checkmate.util")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local hunks = {}
+
+  -- batch read all required lines
+  local rows = {}
+  for _, item in ipairs(items) do
+    table.insert(rows, item.todo_marker.position.row)
+  end
+  local lines = util.batch_get_lines(bufnr, rows)
+
+  for _, todo_item in ipairs(items) do
+    if todo_item.metadata and todo_item.metadata.entries and #todo_item.metadata.entries ~= 0 then
+      local row = todo_item.range.start.row
+      local original_line = lines[row]
+
+      if original_line and #original_line ~= 0 then
+        local empty_metadata = {
+          entries = {},
+          by_tag = {},
+        }
+
+        local new_line = M.rebuild_line_with_sorted_metadata(original_line, empty_metadata)
+
+        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
+        if hunk then
+          table.insert(hunks, hunk)
+        end
+      end
+    end
+  end
+
+  return hunks
+end
+
+--- Remove all metadata from todo items
+---@param ctx table Transaction context
+---@param todo_ids integer[] Array of extmark ids (or single id)
+---@return checkmate.TextDiffHunk[] hunks
+function M.remove_all_metadata(ctx, todo_ids)
+  local config = require("checkmate.config")
+  local items = {}
+  local callbacks_to_queue = {} -- array of {meta_name, id}
+
+  for _, id in ipairs(todo_ids) do
+    local item = ctx.get_item(id)
+    if item and item.metadata and item.metadata.entries and #item.metadata.entries > 0 then
+      table.insert(items, item)
+
+      for _, entry in ipairs(item.metadata.entries) do
+        local meta_config = config.options.metadata[entry.tag]
+        if meta_config and meta_config.on_remove then
+          table.insert(callbacks_to_queue, { meta_name = entry.tag, id = id })
+        end
+      end
+    end
+  end
+
+  local hunks = M.compute_diff_remove_all_metadata(items)
+
+  for _, cb_info in ipairs(callbacks_to_queue) do
+    local meta_config = config.options.metadata[cb_info.meta_name]
+    ctx.add_cb(function(tx_ctx)
+      local updated_item = tx_ctx.get_item(cb_info.id)
+      if updated_item then
+        meta_config.on_remove(updated_item)
+      end
+    end)
+  end
+
+  return hunks
+end
+
+--- Toggle metadata on todo items
+---@param ctx table Transaction context
+---@param operations table[] Array of {id: integer, meta_name: string, custom_value?: string}
+---@return checkmate.TextDiffHunk[] hunks
+function M.toggle_metadata(ctx, operations)
+  local hunks = {}
+
+  local to_add = {}
+  local to_remove = {}
+
+  for _, op in ipairs(operations) do
+    local item = ctx.get_item(op.id)
+    if item then
+      local has_metadata = item.metadata.by_tag and item.metadata.by_tag[op.meta_name]
+      if has_metadata then
+        table.insert(to_remove, { id = op.id, meta_name = op.meta_name })
+      else
+        table.insert(to_add, { id = op.id, meta_name = op.meta_name, meta_value = op.custom_value })
+      end
+    end
+  end
+
+  if #to_remove > 0 then
+    local remove_hunks = M.remove_metadata(ctx, to_remove)
+    vim.list_extend(hunks, remove_hunks)
+  end
+
+  if #to_add > 0 then
+    local add_hunks = M.add_metadata(ctx, to_add)
+    vim.list_extend(hunks, add_hunks)
+  end
+
+  return hunks
 end
 
 ---Sorts metadata entries based on their configured sort_order
@@ -867,697 +1537,6 @@ function M.collect_todo_items_from_selection(is_visual)
   profiler.stop("api.collect_todo_items_from_selection")
 
   return items, full_map
-end
-
---- Create a hunk that replaces only the todo marker character
----@param row integer
----@param todo_item checkmate.TodoItem
----@param new_marker string
----@return checkmate.TextDiffHunk
-local function make_marker_replacement_hunk(row, todo_item, new_marker)
-  local old_marker = todo_item.todo_marker.text
-  local byte_col = todo_item.todo_marker.position.col -- Already in bytes (0-indexed)
-  local old_marker_byte_len = #old_marker
-
-  return {
-    start_row = row,
-    start_col = byte_col,
-    end_row = row,
-    end_col = byte_col + old_marker_byte_len,
-    insert = { new_marker },
-  }
-end
-
---- Create a hunk that replaces everything after the todo marker
----@param row integer
----@param todo_item checkmate.TodoItem
----@param old_line string
----@param new_line string
----@return checkmate.TextDiffHunk|nil
-local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_line)
-  local marker_col = todo_item.todo_marker.position.col -- In bytes
-  local marker_text = todo_item.todo_marker.text
-  local marker_byte_len = #marker_text
-
-  -- position after the marker (0-based)
-  local content_start = marker_col + marker_byte_len
-
-  -- extract the portion to replace (from marker end to line end)
-  -- for string operations, convert to 1-based
-  local old_suffix = old_line:sub(content_start + 1)
-  local new_suffix = new_line:sub(content_start + 1)
-
-  if old_suffix == new_suffix then
-    return nil
-  end
-
-  -- make hunk
-  return {
-    start_row = row,
-    start_col = content_start,
-    end_row = row,
-    end_col = content_start + #old_suffix,
-    insert = { new_suffix },
-  }
-end
-
---- Compute diff hunks for toggling a batch of items with their target states
----@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: checkmate.TodoItemState}
----@return checkmate.TextDiffHunk[] hunks
-function M.compute_diff_toggle(items_with_states)
-  local config = require("checkmate.config")
-  local profiler = require("checkmate.profiler")
-
-  profiler.start("api.compute_diff_toggle_batch")
-
-  local hunks = {}
-
-  for _, entry in ipairs(items_with_states) do
-    local todo_item = entry.item
-    local target_state = entry.target_state
-    local row = todo_item.todo_marker.position.row
-
-    local new_marker = target_state == "checked" and config.options.todo_markers.checked
-      or config.options.todo_markers.unchecked
-
-    local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
-    table.insert(hunks, hunk)
-  end
-
-  profiler.stop("api.compute_diff_toggle_batch")
-  return hunks
-end
-
---- Toggle state of todo items (batch-aware)
----@param ctx table Transaction context
----@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
----@return checkmate.TextDiffHunk[] hunks
-function M.toggle_state(ctx, operations)
-  -- Collect items and their target states
-  local items_with_states = {}
-
-  for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
-    if item and item.state ~= op.target_state then
-      table.insert(items_with_states, {
-        item = item,
-        target_state = op.target_state,
-      })
-    end
-  end
-
-  -- Compute diffs for all items
-  return M.compute_diff_toggle(items_with_states)
-end
-
---- Set todo items to specific state
----@param ctx table Transaction context
----@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
----@return checkmate.TextDiffHunk[] hunks
-function M.set_todo_item(ctx, operations)
-  return M.toggle_state(ctx, operations)
-end
-
----Toggle a batch of todo items with proper parent/child propagation
----i.e. 'smart toggle'
----@param ctx table Transaction context
----@param items checkmate.TodoItem[] List of initial todo items to toggle
----@param todo_map table<integer, checkmate.TodoItem>
----@param target_state? checkmate.TodoItemState Optional target state, otherwise toggle each item
-function M.propagate_toggle(ctx, items, todo_map, target_state)
-  local config = require("checkmate.config")
-  local smart_config = config.options.smart_toggle
-
-  local want = {} -- id -> desired state
-
-  -- downward propagation
-  local function mark_down(id, state, depth)
-    if want[id] == state then
-      return
-    end
-
-    want[id] = state
-
-    -- determine if we should propagate to children
-    local item = todo_map[id]
-    if not item or not item.children or #item.children == 0 then
-      return
-    end
-
-    local propagate_config = state == "checked" and smart_config.check_down or smart_config.uncheck_down
-
-    if propagate_config == "none" then
-      return
-    elseif propagate_config == "direct_children" and depth > 0 then
-      return -- only propagate to direct children (depth 0 -> 1)
-    end
-
-    for _, child_id in ipairs(item.children) do
-      mark_down(child_id, state, depth + 1)
-    end
-  end
-
-  -- initialize the downward pass for each selected item
-  for _, item in ipairs(items) do
-    local item_target_state = target_state
-    if not item_target_state then
-      -- if no explicit target, toggle based on current state
-      item_target_state = (item.state == "unchecked") and "checked" or "unchecked"
-    end
-
-    mark_down(item.id, item_target_state, 0)
-  end
-
-  -- upward propagation
-
-  -- helper checks if all relevant children are checked
-  local function should_check_parent(parent_id)
-    if smart_config.check_up == "none" then
-      return false
-    end
-
-    local parent = todo_map[parent_id]
-    if not parent or not parent.children or #parent.children == 0 then
-      return true -- no children means we can check it
-    end
-
-    if smart_config.check_up == "direct_children" then
-      -- check only direct children
-      for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if not child then
-          return false
-        end
-        local will_be_checked = want[child_id] == "checked" or (want[child_id] == nil and child.state == "checked")
-        if not will_be_checked then
-          return false
-        end
-      end
-      return true
-    else -- "all_children"
-      -- check all descendants recursively
-      local function all_descendants_checked(id)
-        local item = todo_map[id]
-        if not item then
-          return false
-        end
-
-        local will_be_checked = want[id] == "checked" or (want[id] == nil and item.state == "checked")
-        if not will_be_checked then
-          return false
-        end
-
-        -- check all children recursively
-        if item.children then
-          for _, child_id in ipairs(item.children) do
-            if not all_descendants_checked(child_id) then
-              return false
-            end
-          end
-        end
-
-        return true
-      end
-
-      -- check all direct children and their descendants
-      for _, child_id in ipairs(parent.children) do
-        if not all_descendants_checked(child_id) then
-          return false
-        end
-      end
-      return true
-    end
-  end
-
-  -- helper checks if parent should be unchecked
-  local function should_uncheck_parent(parent_id)
-    if smart_config.uncheck_up == "none" then
-      return false
-    end
-
-    local parent = todo_map[parent_id]
-    if not parent or not parent.children or #parent.children == 0 then
-      return false -- no children means no reason to uncheck
-    end
-
-    if smart_config.uncheck_up == "direct_children" then
-      -- check only direct children
-      for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if child then
-          local will_be_unchecked = want[child_id] == "unchecked"
-            or (want[child_id] == nil and child.state == "unchecked")
-          if will_be_unchecked then
-            return true -- Any direct child unchecked
-          end
-        end
-      end
-      return false
-    else -- "all_children"
-      -- check all descendants recursively
-      local function any_descendant_unchecked(id)
-        local item = todo_map[id]
-        if not item then
-          return false
-        end
-
-        local will_be_unchecked = want[id] == "unchecked" or (want[id] == nil and item.state == "unchecked")
-        if will_be_unchecked then
-          return true
-        end
-
-        -- check all children recursively
-        if item.children then
-          for _, child_id in ipairs(item.children) do
-            if any_descendant_unchecked(child_id) then
-              return true
-            end
-          end
-        end
-
-        return false
-      end
-
-      -- check all direct children and their descendants
-      for _, child_id in ipairs(parent.children) do
-        if any_descendant_unchecked(child_id) then
-          return true
-        end
-      end
-      return false
-    end
-  end
-
-  -- process upward propagation for checked items
-  local function propagate_check_up(id)
-    local item = todo_map[id]
-    if not item or not item.parent_id then
-      return
-    end
-
-    if should_check_parent(item.parent_id) then
-      if want[item.parent_id] ~= "checked" then
-        want[item.parent_id] = "checked"
-        -- recursively propagate up
-        propagate_check_up(item.parent_id)
-      end
-    end
-  end
-
-  -- process upward propagation for unchecked items
-  local function propagate_uncheck_up(id)
-    local item = todo_map[id]
-    if not item or not item.parent_id then
-      return
-    end
-
-    if should_uncheck_parent(item.parent_id) then
-      if want[item.parent_id] ~= "unchecked" then
-        want[item.parent_id] = "unchecked"
-        -- recursively propagate up
-        propagate_uncheck_up(item.parent_id)
-      end
-    end
-  end
-
-  -- run upward propagation based on what we're setting items to
-  for id, desired_state in pairs(want) do
-    if desired_state == "checked" then
-      propagate_check_up(id)
-    else -- unchecked
-      propagate_uncheck_up(id)
-    end
-  end
-
-  local operations = {}
-
-  for id, desired_state in pairs(want) do
-    local item = todo_map[id]
-    if item and item.state ~= desired_state then
-      table.insert(operations, {
-        id = id,
-        target_state = desired_state,
-      })
-    end
-  end
-
-  -- single batched operation with all state changes
-  if #operations > 0 then
-    ctx.add_op(M.toggle_state, operations)
-  end
-end
-
----@param items checkmate.TodoItem[]
----@param meta_name string Metadata tag name
----@param meta_value string Metadata default value
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_add_metadata(items, meta_name, meta_value)
-  local config = require("checkmate.config")
-  local log = require("checkmate.log")
-  local meta_props = config.options.metadata[meta_name]
-  if not meta_props then
-    log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
-    return {}
-  end
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-
-  for _, todo_item in ipairs(items) do
-    local row = todo_item.range.start.row
-    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
-
-    if original_line and #original_line ~= 0 then
-      local value = meta_value
-
-      -- check if metadata already exists
-      local existing_entry = todo_item.metadata.by_tag[meta_name]
-
-      local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-      if existing_entry then
-        for i, entry in ipairs(updated_metadata.entries) do
-          if entry.tag == existing_entry.tag then
-            updated_metadata.entries[i].value = value
-            break
-          end
-        end
-        updated_metadata.by_tag[meta_name].value = value
-      else
-        local new_entry = {
-          tag = meta_name,
-          value = value,
-          range = {
-            start = { row = row, col = #original_line },
-            ["end"] = { row = row, col = #original_line + #meta_name + #value + 3 },
-          },
-          position_in_line = #original_line + 1,
-        }
-        table.insert(updated_metadata.entries, new_entry)
-        updated_metadata.by_tag[meta_name] = new_entry
-      end
-
-      -- rebuild line with sorted metadata
-      local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
-
-      local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-      if hunk then
-        table.insert(hunks, hunk)
-      end
-    end
-  end
-  return hunks
-end
-
---- Add metadata to todo items
----@param ctx table Transaction context
----@param operations table[] Array of {id: integer, meta_name: string, meta_value?: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.add_metadata(ctx, operations)
-  local config = require("checkmate.config")
-  local bufnr = ctx.bufnr
-  local hunks = {}
-  local to_jump = nil
-
-  -- Group by metadata type for callbacks
-  local callbacks_by_meta = {}
-
-  for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
-    if not item then
-      return {}
-    end
-
-    local meta_props = config.options.metadata[op.meta_name]
-    if not meta_props then
-      return {}
-    end
-
-    -- Get value with fallback to get_value()
-    local meta_value = op.meta_value
-    if not meta_value and meta_props.get_value then
-      meta_value = meta_props.get_value()
-      meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
-    end
-    meta_value = meta_value or ""
-
-    -- Compute the diff
-    local item_hunks = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
-    vim.list_extend(hunks, item_hunks)
-
-    -- Queue callbacks if needed
-    if meta_props.on_add then
-      callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
-      table.insert(callbacks_by_meta[op.meta_name], op.id)
-    end
-
-    -- Track jump target (for single item operations)
-    if #operations == 1 and meta_props.jump_to_on_insert then
-      to_jump = { item = item, meta_name = op.meta_name, meta_config = meta_props }
-    end
-  end
-
-  -- Queue callbacks
-  for meta_name, ids in pairs(callbacks_by_meta) do
-    local meta_config = config.options.metadata[meta_name]
-    for _, id in ipairs(ids) do
-      ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_item(id)
-        if updated_item then
-          meta_config.on_add(updated_item)
-        end
-      end)
-    end
-  end
-
-  -- Handle cursor jump for single operations
-  if to_jump then
-    M._handle_metadata_cursor_jump(bufnr, to_jump.item, to_jump.meta_name, to_jump.meta_config)
-  end
-
-  return hunks
-end
-
---- Compute diff hunks for removing metadata from todo items
----@param items checkmate.TodoItem[]
----@param meta_name string Metadata tag name
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_remove_metadata(items, meta_name)
-  local config = require("checkmate.config")
-  local util = require("checkmate.util")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-
-  -- batch read all required lines
-  local rows = {}
-  for _, item in ipairs(items) do
-    table.insert(rows, item.todo_marker.position.row)
-  end
-  local lines = util.batch_get_lines(bufnr, rows)
-
-  for _, todo_item in ipairs(items) do
-    local row = todo_item.range.start.row
-    local original_line = lines[row]
-
-    if original_line and #original_line ~= 0 then
-      local entry = todo_item.metadata.by_tag[meta_name]
-      if not entry then
-        -- Check for aliases
-        for canonical, props in pairs(config.options.metadata) do
-          for _, alias in ipairs(props.aliases or {}) do
-            if alias == meta_name then
-              entry = todo_item.metadata.by_tag[canonical]
-              break
-            end
-          end
-          if entry then
-            break
-          end
-        end
-      end
-
-      if entry then
-        local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-        -- remove from entries
-        for i = #updated_metadata.entries, 1, -1 do
-          if updated_metadata.entries[i].tag == entry.tag then
-            table.remove(updated_metadata.entries, i)
-            break
-          end
-        end
-
-        -- remove from by_tag
-        updated_metadata.by_tag[entry.tag] = nil
-        if entry.alias_for then
-          updated_metadata.by_tag[entry.alias_for] = nil
-        end
-
-        -- rebuild line
-        local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
-
-        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-        if hunk then
-          table.insert(hunks, hunk)
-        end
-      end
-    end
-  end
-
-  return hunks
-end
-
---- Remove metadata from todo items
----@param ctx table Transaction context
----@param operations table[] Array of {id: integer, meta_name: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.remove_metadata(ctx, operations)
-  local config = require("checkmate.config")
-  local hunks = {}
-  local callbacks_by_meta = {}
-
-  for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
-    if item and item.metadata.by_tag and item.metadata.by_tag[op.meta_name] then
-      local item_hunks = M.compute_diff_remove_metadata({ item }, op.meta_name)
-      vim.list_extend(hunks, item_hunks)
-
-      local meta_config = config.options.metadata[op.meta_name]
-      if meta_config and meta_config.on_remove then
-        callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
-        table.insert(callbacks_by_meta[op.meta_name], op.id)
-      end
-    end
-  end
-
-  for meta_name, ids in pairs(callbacks_by_meta) do
-    local meta_config = config.options.metadata[meta_name]
-    for _, id in ipairs(ids) do
-      ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_item(id)
-        if updated_item then
-          meta_config.on_remove(updated_item)
-        end
-      end)
-    end
-  end
-
-  return hunks
-end
-
---- Compute diff hunks for removing all metadata from todo items
----@param items checkmate.TodoItem[]
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_remove_all_metadata(items)
-  local util = require("checkmate.util")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-
-  -- batch read all required lines
-  local rows = {}
-  for _, item in ipairs(items) do
-    table.insert(rows, item.todo_marker.position.row)
-  end
-  local lines = util.batch_get_lines(bufnr, rows)
-
-  for _, todo_item in ipairs(items) do
-    if todo_item.metadata and todo_item.metadata.entries and #todo_item.metadata.entries ~= 0 then
-      local row = todo_item.range.start.row
-      local original_line = lines[row]
-
-      if original_line and #original_line ~= 0 then
-        local empty_metadata = {
-          entries = {},
-          by_tag = {},
-        }
-
-        -- rebuild line without metadata
-        local new_line = M.rebuild_line_with_sorted_metadata(original_line, empty_metadata)
-
-        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-        if hunk then
-          table.insert(hunks, hunk)
-        end
-      end
-    end
-  end
-
-  return hunks
-end
-
---- Remove all metadata from todo items (batch-aware)
----@param ctx table Transaction context
----@param todo_ids integer[] Array of extmark ids (or single id)
----@return checkmate.TextDiffHunk[] hunks
-function M.remove_all_metadata(ctx, todo_ids)
-  local config = require("checkmate.config")
-  local items = {}
-  local callbacks_to_queue = {} -- {meta_name, id} pairs
-
-  for _, id in ipairs(todo_ids) do
-    local item = ctx.get_item(id)
-    if item and item.metadata and item.metadata.entries and #item.metadata.entries > 0 then
-      table.insert(items, item)
-
-      for _, entry in ipairs(item.metadata.entries) do
-        local meta_config = config.options.metadata[entry.tag]
-        if meta_config and meta_config.on_remove then
-          table.insert(callbacks_to_queue, { meta_name = entry.tag, id = id })
-        end
-      end
-    end
-  end
-
-  local hunks = M.compute_diff_remove_all_metadata(items)
-
-  for _, cb_info in ipairs(callbacks_to_queue) do
-    local meta_config = config.options.metadata[cb_info.meta_name]
-    ctx.add_cb(function(tx_ctx)
-      local updated_item = tx_ctx.get_item(cb_info.id)
-      if updated_item then
-        meta_config.on_remove(updated_item)
-      end
-    end)
-  end
-
-  return hunks
-end
-
---- Toggle metadata on todo items (batch-aware)
----@param ctx table Transaction context
----@param operations table[] Array of {id: integer, meta_name: string, custom_value?: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.toggle_metadata(ctx, operations)
-  local hunks = {}
-
-  local to_add = {}
-  local to_remove = {}
-
-  for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
-    if item then
-      local has_metadata = item.metadata.by_tag and item.metadata.by_tag[op.meta_name]
-      if has_metadata then
-        table.insert(to_remove, { id = op.id, meta_name = op.meta_name })
-      else
-        table.insert(to_add, { id = op.id, meta_name = op.meta_name, meta_value = op.custom_value })
-      end
-    end
-  end
-
-  if #to_remove > 0 then
-    local remove_hunks = M.remove_metadata(ctx, to_remove)
-    vim.list_extend(hunks, remove_hunks)
-  end
-
-  if #to_add > 0 then
-    local add_hunks = M.add_metadata(ctx, to_add)
-    vim.list_extend(hunks, add_hunks)
-  end
-
-  return hunks
 end
 
 --- Apply diff hunks to buffer with per-hunk API (single undo entry)

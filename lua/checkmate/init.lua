@@ -217,7 +217,7 @@ function M.toggle(target_state)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
+    -- queue the operation in the current transaction
     -- If toggle() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
@@ -256,7 +256,6 @@ function M.toggle(target_state)
         })
       end
 
-      -- Single batched operation
       if #operations > 0 then
         _ctx.add_op(api.toggle_state, operations)
       end
@@ -301,7 +300,7 @@ function M.set_todo_item(todo_item, target_state)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  -- If smart toggle is enabled, we need the todo_map
+  -- if smart toggle is enabled, we need the todo_map
   local todo_map = smart_toggle_enabled and parser.get_todo_map(bufnr) or nil
 
   transaction.run(bufnr, function(_ctx)
@@ -361,8 +360,7 @@ function M.add_metadata(metadata_name, value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If add_metadata() is run within an existing transaction, we will use the cursor position
+    -- if add_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
@@ -383,7 +381,6 @@ function M.add_metadata(metadata_name, value)
     return false
   end
 
-  -- Build operations array
   local operations = {}
   for _, item in ipairs(todo_items) do
     table.insert(operations, {
@@ -393,7 +390,6 @@ function M.add_metadata(metadata_name, value)
     })
   end
 
-  -- Begin a transaction
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.add_metadata, operations)
   end, function()
@@ -412,8 +408,7 @@ function M.remove_metadata(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
@@ -459,8 +454,7 @@ function M.remove_all_metadata()
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_all_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_all_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =
@@ -507,8 +501,7 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If toggle_metadata() is run within an existing transaction, we will use the cursor position
+    -- if toggle_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
     local todo_item =

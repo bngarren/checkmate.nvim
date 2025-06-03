@@ -22,6 +22,7 @@ vim.g.loaded_rrhelper = 1
 vim.g.loaded_netrwPlugin = 1
 
 -- This function can be called by tests to reset the state between test runs
+---@param close_buffers boolean? Closes all buffers (default true)
 _G.reset_state = function(close_buffers)
   if package.loaded["checkmate"] then
     pcall(function()
@@ -36,7 +37,7 @@ _G.reset_state = function(close_buffers)
   if close_buffers ~= false then
     local buffers = vim.api.nvim_list_bufs()
     for _, bufnr in ipairs(buffers) do
-      if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+      if vim.api.nvim_buf_is_loaded(bufnr) then
         -- force delete all buffers except the current one
         if bufnr ~= vim.api.nvim_get_current_buf() then
           pcall(vim.api.nvim_buf_delete, bufnr, { force = true })

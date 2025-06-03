@@ -12,18 +12,16 @@ describe("API", function()
   end)
 
   before_each(function()
-    _G.reset_state(false)
+    _G.reset_state()
 
     h.ensure_normal_mode()
   end)
 
   -- Set up a todo file in a buffer with autocmds
   local function setup_todo_buffer(file_path, content, config_override)
-    -- 1) Write the file to disk first
     h.write_file_content(file_path, content)
 
-    -- 2) Ensure checkmate is “up and running” (registers its FileType autocmd) before we ever
-    --    try to create a Markdown buffer
+    -- change some default options for this test suite as these tend to interfere unless specifically tested
     local merged_opts = vim.tbl_deep_extend("force", {
       metadata = {
         ---@diagnostic disable-next-line: missing-fields
@@ -38,20 +36,19 @@ describe("API", function()
       error("Could not setup Checkmate in setup_todo_buffer")
     end
 
-    -- 3) NOW create a brand-new buffer and load the file into it
     local bufnr = vim.api.nvim_create_buf(false, false)
     vim.api.nvim_buf_set_name(bufnr, file_path)
 
-    -- Put it in the current window and do :edit to actually load the content
     vim.api.nvim_win_set_buf(0, bufnr)
     vim.cmd("edit!")
 
-    -- 4) Finally, mark it as Markdown so the plugin’s FileType autocmd *fires* on this buffer:
+    -- when we mark it as markdown, since checkmate (which was manually initialized above) has registered
+    -- a FileType "markdown" autocmd, it fires and runs setup_buffer
+    -- For reference, in a lazy.nvim setup, the markdown ft event will call setup
+    -- which then registers the FileType autocmd which is subsequently triggered
     vim.bo[bufnr].filetype = "markdown"
-    -- At this point, `plugin/checkmate.lua`’s autocmd for FileType=markdown sees `bufnr`
-    -- and calls require("checkmate.api").setup_buffer(bufnr).
 
-    -- 5) Let any deferred setup finish (e.g., debounced highlights, linter, extmarks, etc.)
+    -- let any deferred setup finish (e.g., debounced highlights, linter, extmarks, etc.)
     vim.wait(50, function()
       return vim.fn.jobwait({}, 0) == 0
     end)
@@ -91,19 +88,16 @@ describe("API", function()
 
       local bufnr = setup_todo_buffer(file_path, content)
 
-      -- Force a write operation - triggering our BufWriteCmd handler
       vim.cmd("write")
 
       vim.cmd("sleep 10m")
 
-      -- Read the saved file content directly (should be in Markdown format)
       local saved_content = h.read_file_content(file_path)
 
       if not saved_content then
         error("error reading file content")
       end
 
-      -- Split into lines and check each line individually
       local lines = vim.split(saved_content, "\n")
 
       assert.equal("# Complex Todo List", lines[1])
@@ -124,7 +118,7 @@ describe("API", function()
       assert.equal("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
       assert.equal("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
 
-      -- Verify Unicode symbols are NOT present in the saved file
+      -- verify unicode symbols are NOT present in the saved file
       assert.no.matches(vim.pesc(unchecked), saved_content)
       assert.no.matches(vim.pesc(checked), saved_content)
 
@@ -134,28 +128,26 @@ describe("API", function()
     end)
 
     it("should load todo file with Markdown checkboxes converted to Unicode", function()
-      -- Create a test todo file
       local file_path = h.create_temp_file()
 
-      -- Initial content with Markdown format
-      local content = "# Todo List\n\n- [ ] Unchecked task\n- [x] Checked task\n"
+      local content = [[
+# Todo List
 
-      -- Use the setup helper instead of manual setup
+- [ ] Unchecked task
+- [x] Checked task
+      ]]
+
       local bufnr = setup_todo_buffer(file_path, content)
 
-      -- Get the buffer content
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      local buffer_content = table.concat(lines, "\n")
 
-      -- Verify content was converted to Unicode
       local config = require("checkmate.config")
       local unchecked = config.options.todo_markers.unchecked
       local checked = config.options.todo_markers.checked
 
-      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", buffer_content)
-      assert.matches("- " .. vim.pesc(checked) .. " Checked task", buffer_content)
+      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", lines[3])
+      assert.matches("- " .. vim.pesc(checked) .. " Checked task", lines[4])
 
-      -- Verify the node structure is properly built
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
       local found_items = 0
       for _, _ in pairs(todo_map) do

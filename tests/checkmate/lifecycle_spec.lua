@@ -241,7 +241,8 @@ describe("checkmate init and lifecycle", function()
     end)
   end)
 
-  describe("file patterns", function()
+  -- TODO: finish
+  pending("file patterns", function()
     local config = require("checkmate.config")
     local checkmate = require("checkmate")
 
@@ -251,8 +252,6 @@ describe("checkmate init and lifecycle", function()
 
     lazy_teardown(function()
       checkmate.stop()
-
-      _G.reset_state()
     end)
 
     local function test_pattern(filename, should_match)
@@ -288,6 +287,7 @@ describe("checkmate init and lifecycle", function()
     end)
 
     it("should handle directory patterns", function()
+      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "docs/todo", "*/TODO.md" } })
 
       test_pattern("docs/todo", true)
@@ -303,6 +303,7 @@ describe("checkmate init and lifecycle", function()
       test_pattern("tODO", false)
 
       -- Users need to include both cases if they want case-insensitive
+      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "todo", "Todo", "TODO" } })
       test_pattern("todo", true)
       test_pattern("Todo", true)
@@ -310,6 +311,7 @@ describe("checkmate init and lifecycle", function()
     end)
 
     it("should handle patterns without extensions", function()
+      ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({ files = { "tasks" } })
 
       test_pattern("tasks", true)

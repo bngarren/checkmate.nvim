@@ -161,6 +161,8 @@ describe("Config", function()
       vim.wait(20)
       assert.is_not_true(require("checkmate").is_running())
     end)
+
+    pending("should successfully validate default options", function() end)
   end)
 
   describe("file pattern matching", function()

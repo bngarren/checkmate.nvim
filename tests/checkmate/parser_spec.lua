@@ -808,7 +808,6 @@ Line that should not affect parent-child relationship
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
-        -- Create a test buffer with unicode content
         local bufnr = vim.api.nvim_create_buf(false, true)
         local unicode_lines = {
           "# Todo List",
@@ -825,16 +824,12 @@ Line that should not affect parent-child relationship
 
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, unicode_lines)
 
-        -- Run the conversion
         local was_modified = parser.convert_unicode_to_markdown(bufnr)
 
-        -- Should report modification happened
         assert.is_true(was_modified)
 
-        -- Get the converted content
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        -- Check that appropriate conversions happened
         assert.equal("# Todo List", converted_lines[1]) -- Heading unchanged
         assert.equal("", converted_lines[2]) -- Empty line unchanged
         assert.equal("- [ ] Unchecked task", converted_lines[3])
@@ -856,7 +851,6 @@ Line that should not affect parent-child relationship
         local unchecked = config.options.todo_markers.unchecked
         local checked = config.options.todo_markers.checked
 
-        -- Create a test buffer with indented unicode content
         local bufnr = vim.api.nvim_create_buf(false, true)
         local unicode_lines = {
           "# Todo List",
@@ -867,22 +861,17 @@ Line that should not affect parent-child relationship
 
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, unicode_lines)
 
-        -- Run the conversion
         local was_modified = parser.convert_unicode_to_markdown(bufnr)
 
-        -- Should report modification happened
         assert.is_true(was_modified)
 
-        -- Get the converted content
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        -- Check that appropriate conversions happened
         assert.equal("# Todo List", converted_lines[1])
         assert.equal("- [ ] Parent task", converted_lines[2])
         assert.equal("  - [ ] Indented child task", converted_lines[3])
         assert.equal("    - [x] Deeply indented task", converted_lines[4])
 
-        -- Clean up
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end)
     end)
@@ -890,10 +879,8 @@ Line that should not affect parent-child relationship
     it("should perform round-trip conversion correctly", function()
       local parser = require("checkmate.parser")
 
-      -- Create a test buffer
       local bufnr = vim.api.nvim_create_buf(false, true)
 
-      -- Original markdown content
       local original_lines = {
         "# Todo List",
         "- [ ] Task 1",
@@ -906,27 +893,21 @@ Line that should not affect parent-child relationship
 
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, original_lines)
 
-      -- Convert markdown to unicode
       parser.convert_markdown_to_unicode(bufnr)
 
-      -- Then convert unicode back to markdown
       parser.convert_unicode_to_markdown(bufnr)
 
-      -- Get the final content
       local final_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      -- Verify round-trip produces original content
       for i, line in ipairs(original_lines) do
         assert.equal(line, final_lines[i])
       end
 
-      -- Clean up
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
 
   describe("performance", function()
-    -- Test very large and complex document
     it("should handle large documents with many todos at different levels", function()
       local config = require("checkmate.config")
       local parser = require("checkmate.parser")
@@ -935,7 +916,6 @@ Line that should not affect parent-child relationship
 
       local content_lines = { "# Large Document Test" }
 
-      -- Helper to generate todo content
       local function add_todo(level, state, text, metadata)
         local indent = string.rep("  ", level - 1)
         local marker = state == "checked" and checked or unchecked
@@ -947,7 +927,6 @@ Line that should not affect parent-child relationship
         table.insert(content_lines, indent .. "- " .. marker .. " " .. text .. meta_text)
       end
 
-      -- Add lots of todos with various properties
       for i = 1, 5 do -- 5 top level sections
         table.insert(content_lines, "")
         table.insert(content_lines, "## Section " .. i)
@@ -956,12 +935,12 @@ Line that should not affect parent-child relationship
           local top_state = (j % 3 == 0) and "checked" or "unchecked"
           add_todo(1, top_state, "Top level todo " .. i .. "." .. j)
 
-          -- Add some children to each top level todo
+          -- add some children to each top level todo
           for k = 1, 3 do
             local child_state = (k % 2 == 0) and "checked" or "unchecked"
             add_todo(2, child_state, "Child todo " .. i .. "." .. j .. "." .. k)
 
-            -- Add grandchildren to some children
+            -- add grandchildren to some children
             if k % 2 == 1 then
               add_todo(3, "unchecked", "Grandchild todo " .. i .. "." .. j .. "." .. k .. ".1", "@priority(high)")
               add_todo(3, "checked", "Grandchild todo " .. i .. "." .. j .. "." .. k .. ".2", "@due(2025-06-01)")
@@ -973,12 +952,12 @@ Line that should not affect parent-child relationship
       local content = table.concat(content_lines, "\n")
       local bufnr = h.create_test_buffer(content)
 
-      -- Measure performance
+      -- measure performance
       local start_time = vim.fn.reltime()
       local todo_map = parser.discover_todos(bufnr)
       local end_time = vim.fn.reltimefloat(vim.fn.reltime(start_time))
 
-      -- Check we found the expected number of todos
+      -- check we found the expected number of todos
       local total_todos = 0
       for _ in pairs(todo_map) do
         total_todos = total_todos + 1
@@ -1011,7 +990,7 @@ Line that should not affect parent-child relationship
       assert.is_not_nil(child)
       assert.equal(section3_todo2.id, child.parent_id)
 
-      -- Spot check some selected todos to ensure they all have valid ranges
+      -- spot check some selected todos to ensure they all have valid ranges
       local count = 0
       for _, todo in pairs(todo_map) do
         if count % 20 == 0 then -- Check every 20th todo
@@ -1020,13 +999,13 @@ Line that should not affect parent-child relationship
         count = count + 1
       end
 
-      -- Verify that todos with metadata have it properly extracted
+      -- verify that todos with metadata have it properly extracted
       local found_metadata = 0
       for _, todo in pairs(todo_map) do
         if #todo.metadata.entries > 0 then
           found_metadata = found_metadata + 1
 
-          -- Verify at least one priority and one due date metadata
+          -- verify at least one priority and one due date metadata
           if todo.metadata.by_tag.priority then
             assert.equal("high", todo.metadata.by_tag.priority.value)
           end
@@ -1037,8 +1016,6 @@ Line that should not affect parent-child relationship
       end
 
       assert.is_true(found_metadata > 0)
-
-      -- print("large doc time: " .. end_time * 1000 .. "ms")
 
       -- Performance should be reasonable even for large documents
       assert.is_true(end_time < 0.1) -- 100 ms

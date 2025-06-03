@@ -57,7 +57,6 @@ end
 function M.run(bufnr, entry_fn, post_fn)
   assert(not M._state, "Nested transactions are not supported")
 
-  -- Initialize transaction state
   local state = {
     bufnr = bufnr,
     todo_map = parser.get_todo_map(bufnr),
@@ -113,7 +112,7 @@ function M.run(bufnr, entry_fn, post_fn)
 
   entry_fn(state.context)
 
-  -- transaction loop: process operations and callbacks until both queues are empty
+  -- transaction loop --> process operations and callbacks until both queues are empty
   while #M._state.op_queue > 0 or #M._state.cb_queue > 0 do
     if #M._state.op_queue > 0 then
       local queued = M._state.op_queue
@@ -122,7 +121,6 @@ function M.run(bufnr, entry_fn, post_fn)
       -- collect every diff from each op into a single array
       local all_hunks = {}
       for _, op in ipairs(queued) do
-        -- call op.fn(context, unpack(op.args))
         local hunks = op.fn(state.context, unpack(op.args))
         if hunks and #hunks > 0 then
           vim.list_extend(all_hunks, hunks)
@@ -147,12 +145,10 @@ function M.run(bufnr, entry_fn, post_fn)
     end
   end
 
-  -- Execute post-transaction function
   if post_fn then
     post_fn()
   end
 
-  -- Clear transaction state
   M._state = nil
 end
 

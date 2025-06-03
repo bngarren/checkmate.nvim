@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/bngarren/checkmate.nvim/compare/v0.7.0...v0.7.1) (2025-06-03)
+
+
+### Bug Fixes
+
+* **config:** fixes bug when validating metadata sort_order option ([#78](https://github.com/bngarren/checkmate.nvim/issues/78)) ([56ea7f7](https://github.com/bngarren/checkmate.nvim/commit/56ea7f7d3fdf6e3e886cf33aeebd3f02d514c5ad))
+
 ## [0.7.0](https://github.com/bngarren/checkmate.nvim/compare/v0.6.0...v0.7.0) (2025-05-31)
 
 

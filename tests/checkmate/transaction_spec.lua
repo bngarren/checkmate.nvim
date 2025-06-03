@@ -218,4 +218,67 @@ describe("Transaction", function()
       h.cleanup_buffer(bufnr)
     end)
   end)
+
+  it("should not crash transaction when callback throws error", function()
+    local bufnr = h.create_test_buffer("")
+    local other_callbacks_executed = {}
+
+    assert.has_no_error(function()
+      transaction.run(bufnr, function(ctx)
+        ctx.add_cb(function()
+          table.insert(other_callbacks_executed, "before")
+        end)
+
+        ctx.add_cb(function()
+          error("Intentional callback error")
+        end)
+
+        ctx.add_cb(function()
+          table.insert(other_callbacks_executed, "after")
+        end)
+      end)
+    end)
+
+    assert.is_false(transaction.is_active())
+
+    assert.equal(2, #other_callbacks_executed)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should handle callback errors with operations present", function()
+    local config = require("checkmate.config")
+
+    local unchecked = config.options.todo_markers.unchecked
+    local content = "- " .. unchecked .. " Task1"
+    local bufnr = h.create_test_buffer(content)
+
+    assert.has_no_error(function()
+      transaction.run(bufnr, function(ctx)
+        local todo_map = parser.discover_todos(bufnr)
+        local todo = h.find_todo_by_text(todo_map, "Task1")
+        if not todo then
+          error("missing todo")
+        end
+
+        ctx.add_op(api.toggle_state, { { id = todo.id, target_state = "checked" } })
+
+        ctx.add_cb(function()
+          error("Callback error after operation")
+        end)
+      end)
+    end)
+
+    -- op should have still worked/applied diff to buffer
+    local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]
+    assert.matches(config.options.todo_markers.checked, line)
+
+    assert.is_false(transaction.is_active())
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
 end)

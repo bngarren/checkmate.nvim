@@ -106,7 +106,6 @@ describe("Transaction", function()
   it("should update todo map after operations for subsequent callbacks", function()
     local config = require("checkmate.config")
     local unchecked = config.options.todo_markers.unchecked
-    local checked = config.options.todo_markers.checked
     local content = "- " .. unchecked .. " Task1"
     local bufnr = h.create_test_buffer(content)
 
@@ -124,7 +123,7 @@ describe("Transaction", function()
 
       -- Queue callback that should see updated state
       ctx.add_cb(function(cb_ctx)
-        local updated_todo = cb_ctx.get_item(todo.id)
+        local updated_todo = cb_ctx.get_todo_by_id(todo.id)
         table.insert(states_in_callback, updated_todo.state)
       end)
     end)

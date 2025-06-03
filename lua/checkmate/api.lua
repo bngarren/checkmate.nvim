@@ -508,14 +508,14 @@ function M.compute_diff_toggle(items_with_states)
 end
 
 --- Toggle state of todo item(s)
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_state(ctx, operations)
   local items_with_states = {}
 
   for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
+    local item = ctx.get_todo_by_id(op.id)
     if item and item.state ~= op.target_state then
       table.insert(items_with_states, {
         item = item,
@@ -528,7 +528,7 @@ function M.toggle_state(ctx, operations)
 end
 
 --- Set todo items to specific state
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.set_todo_item(ctx, operations)
@@ -537,7 +537,7 @@ end
 
 ---Toggle a batch of todo items with proper parent/child propagation
 ---i.e. 'smart toggle'
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
 ---@param todo_map table<integer, checkmate.TodoItem>
 ---@param target_state? checkmate.TodoItemState Optional target state, otherwise toggle each item
@@ -827,12 +827,12 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
 end
 
 --- Add metadata to todo items
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, meta_name: string, meta_value?: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.add_metadata(ctx, operations)
   local config = require("checkmate.config")
-  local bufnr = ctx.bufnr
+  local bufnr = ctx.get_buf()
   local hunks = {}
   local to_jump = nil
 
@@ -840,7 +840,7 @@ function M.add_metadata(ctx, operations)
   local callbacks_by_meta = {}
 
   for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
+    local item = ctx.get_todo_by_id(op.id)
     if not item then
       return {}
     end
@@ -878,7 +878,7 @@ function M.add_metadata(ctx, operations)
     local meta_config = config.options.metadata[meta_name]
     for _, id in ipairs(ids) do
       ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_item(id)
+        local updated_item = tx_ctx.get_todo_by_id(id)
         if updated_item then
           meta_config.on_add(updated_item)
         end
@@ -963,7 +963,7 @@ function M.compute_diff_remove_metadata(items, meta_name)
 end
 
 --- Remove metadata from todo items
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, meta_name: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.remove_metadata(ctx, operations)
@@ -972,7 +972,7 @@ function M.remove_metadata(ctx, operations)
   local callbacks_by_meta = {}
 
   for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
+    local item = ctx.get_todo_by_id(op.id)
     if item and item.metadata.by_tag and item.metadata.by_tag[op.meta_name] then
       local item_hunks = M.compute_diff_remove_metadata({ item }, op.meta_name)
       vim.list_extend(hunks, item_hunks)
@@ -989,7 +989,7 @@ function M.remove_metadata(ctx, operations)
     local meta_config = config.options.metadata[meta_name]
     for _, id in ipairs(ids) do
       ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_item(id)
+        local updated_item = tx_ctx.get_todo_by_id(id)
         if updated_item then
           meta_config.on_remove(updated_item)
         end
@@ -1041,7 +1041,7 @@ function M.compute_diff_remove_all_metadata(items)
 end
 
 --- Remove all metadata from todo items
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param todo_ids integer[] Array of extmark ids (or single id)
 ---@return checkmate.TextDiffHunk[] hunks
 function M.remove_all_metadata(ctx, todo_ids)
@@ -1050,7 +1050,7 @@ function M.remove_all_metadata(ctx, todo_ids)
   local callbacks_to_queue = {} -- array of {meta_name, id}
 
   for _, id in ipairs(todo_ids) do
-    local item = ctx.get_item(id)
+    local item = ctx.get_todo_by_id(id)
     if item and item.metadata and item.metadata.entries and #item.metadata.entries > 0 then
       table.insert(items, item)
 
@@ -1068,7 +1068,7 @@ function M.remove_all_metadata(ctx, todo_ids)
   for _, cb_info in ipairs(callbacks_to_queue) do
     local meta_config = config.options.metadata[cb_info.meta_name]
     ctx.add_cb(function(tx_ctx)
-      local updated_item = tx_ctx.get_item(cb_info.id)
+      local updated_item = tx_ctx.get_todo_by_id(cb_info.id)
       if updated_item then
         meta_config.on_remove(updated_item)
       end
@@ -1079,7 +1079,7 @@ function M.remove_all_metadata(ctx, todo_ids)
 end
 
 --- Toggle metadata on todo items
----@param ctx table Transaction context
+---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, meta_name: string, custom_value?: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_metadata(ctx, operations)
@@ -1089,7 +1089,7 @@ function M.toggle_metadata(ctx, operations)
   local to_remove = {}
 
   for _, op in ipairs(operations) do
-    local item = ctx.get_item(op.id)
+    local item = ctx.get_todo_by_id(op.id)
     if item then
       local has_metadata = item.metadata.by_tag and item.metadata.by_tag[op.meta_name]
       if has_metadata then

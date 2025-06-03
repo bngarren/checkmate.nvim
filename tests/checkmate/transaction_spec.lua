@@ -23,12 +23,12 @@ describe("Transaction", function()
     assert.is_false(transaction.is_active())
 
     -- Run a transaction that toggles TaskX to 'checked'
-    transaction.run(bufnr, nil, function(ctx)
+    transaction.run(bufnr, function(ctx)
       local todo_map = parser.discover_todos(bufnr)
       local todo = h.find_todo_by_text(todo_map, "TaskX")
       assert.is_not_nil(todo)
       ---@cast todo checkmate.TodoItem
-      ctx.add_op(api.toggle_state, todo.id, "checked")
+      ctx.add_op(api.toggle_state, { { id = todo.id, target_state = "checked" } })
     end, function()
       -- Post-transaction: buffer line should now show checked marker
       local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]
@@ -50,7 +50,7 @@ describe("Transaction", function()
     local received = nil
 
     -- Run a transaction that only queues a callback
-    require("checkmate.transaction").run(bufnr, nil, function(ctx)
+    require("checkmate.transaction").run(bufnr, function(ctx)
       ctx.add_cb(function(_, val)
         called = true
         received = val

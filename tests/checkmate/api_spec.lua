@@ -1977,7 +1977,7 @@ Some content here
       assert.equal("unchecked", todo.state)
 
       -- compute the diff to check it
-      local hunks = api.compute_diff_toggle({ todo }, "checked")
+      local hunks = api.compute_diff_toggle({ { item = todo, target_state = "checked" } })
       assert.equal(1, #hunks)
 
       local hunk = hunks[1]

@@ -406,7 +406,7 @@ local function validate_type(value, expected_type, path, allow_nil)
   end
 
   if type(value) ~= expected_type then
-    error(string.format("%s must be a %s", path, expected_type))
+    error(string.format("%s must be a %s, found %s", path, expected_type, type(value)))
   end
 
   return true
@@ -535,7 +535,7 @@ local function validate_options(opts)
       validate_type(meta_props.key, "string", "metadata." .. meta_name .. ".key", true)
 
       -- validate 'sort_order'
-      validate_type(meta_props.sort_order, "integer", "metadata." .. meta_name .. ".sort_order", true)
+      validate_type(meta_props.sort_order, "number", "metadata." .. meta_name .. ".sort_order", true)
 
       -- validate 'on_add'
       validate_type(meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true)

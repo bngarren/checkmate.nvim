@@ -35,6 +35,15 @@ local M = {}
 local parser = require("checkmate.parser")
 local api = require("checkmate.api")
 
+---the exposed transaction state is referred to as "context"
+---the internal state is M._state
+---@class checkmate.TransactionContext
+---@field get_todo_by_id function(id: integer): checkmate.TodoItem
+---@field get_todo_by_row function(row: integer): checkmate.TodoItem
+---@field add_op function(fn: fn, ...)
+---@field add_cb function(fn: fn, ...)
+---@field get_buf function(): integer Returns the buffer
+
 M._state = nil
 
 function M.is_active()
@@ -66,15 +75,23 @@ function M.run(bufnr, entry_fn, post_fn)
   }
 
   -- Create the transaction context
+  ---@type checkmate.TransactionContext
   state.context = {
     -- Get the current (latest) todo item by ID
-    get_item = function(extmark_id)
+    get_todo_by_id = function(extmark_id)
       local item = M._state.todo_map[extmark_id]
       if not item then
-        vim.notify("Could not find extmark_id: " .. extmark_id)
-        vim.notify(vim.inspect(vim.api.nvim_buf_get_extmarks(0, require("checkmate.config").ns_todos, 0, -1, {})))
+        vim.notify("Could not find todo by id: " .. extmark_id)
       end
       return M._state.todo_map[extmark_id]
+    end,
+
+    get_todo_by_row = function(row)
+      local item =
+        require("checkmate.parser").get_todo_item_at_position(M._state.bufnr, row, 0, { todo_map = M._state.todo_map })
+      if not item then
+        vim.notify("Could not find todo by row: " .. row)
+      end
     end,
 
     --- Queue any function and its arguments
@@ -105,7 +122,9 @@ function M.run(bufnr, entry_fn, post_fn)
       })
     end,
 
-    bufnr = bufnr,
+    get_buf = function()
+      return M._state.bufnr
+    end,
   }
 
   M._state = state

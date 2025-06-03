@@ -11,28 +11,25 @@ describe("Parser", function()
     vim.api.nvim_echo:revert()
   end)
 
-  -- Reset state before each test
   before_each(function()
-    -- Reset the plugin state to ensure tests are isolated
     _G.reset_state()
   end)
 
   -- Helper to verify todo range is consistent with its content
   local function verify_todo_range_matches_content(bufnr, todo)
-    -- End row should not exceed buffer line count
     local line_count = vim.api.nvim_buf_line_count(bufnr)
     assert.is_true(todo.range["end"].row < line_count)
 
-    -- Start row should be less than or equal to end row
+    -- start row should be less than or equal to end row
     assert.is_true(todo.range.start.row <= todo.range["end"].row)
 
-    -- If multi-line, end column should be at end of line
+    -- if multi-line, end column should be at end of line
     if todo.range.start.row < todo.range["end"].row then
       local end_line = vim.api.nvim_buf_get_lines(bufnr, todo.range["end"].row, todo.range["end"].row + 1, false)[1]
       assert.equal(#end_line, todo.range["end"].col)
     end
 
-    -- Todo marker should be within text bounds
+    -- todo marker should be within text bounds
     assert.is_true(todo.todo_marker.position.row >= todo.range.start.row)
     assert.is_true(todo.todo_marker.position.row <= todo.range["end"].row)
     assert.is_true(todo.todo_marker.position.col >= 0)
@@ -159,7 +156,6 @@ describe("Parser", function()
       local bufnr = h.create_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      -- Find our test todos by text pattern
       local single_line = h.find_todo_by_text(todo_map, "Single line")
       local multi_line = h.find_todo_by_text(todo_map, "Multi%-line")
       local three_line = h.find_todo_by_text(todo_map, "Three line")
@@ -183,7 +179,6 @@ describe("Parser", function()
       assert.equal(4, three_line.range.start.row)
       assert.equal(6, three_line.range["end"].row)
 
-      -- Additional validation for each todo
       verify_todo_range_matches_content(bufnr, single_line)
       verify_todo_range_matches_content(bufnr, multi_line)
       verify_todo_range_matches_content(bufnr, three_line)
@@ -191,7 +186,6 @@ describe("Parser", function()
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
 
-    -- Test complex hierarchical todos with various indentation patterns
     it("should correctly handle complex hierarchical todos with various indentations", function()
       local config = require("checkmate.config")
       local parser = require("checkmate.parser")
@@ -217,14 +211,12 @@ describe("Parser", function()
       local bufnr = h.create_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      -- First verify total count (updated for new todos)
       local total_todos = 0
       for _ in pairs(todo_map) do
         total_todos = total_todos + 1
       end
       assert.equal(12, total_todos)
 
-      -- Find top-level todos
       local level1_todo = h.find_todo_by_text(todo_map, "Level 1 todo")
       local another_top = h.find_todo_by_text(todo_map, "Another top%-level todo")
       local empty_content = h.find_todo_by_text(todo_map, "Todo with empty content")
@@ -239,13 +231,12 @@ describe("Parser", function()
       assert.is_not_nil(empty_line)
       ---@cast empty_line checkmate.TodoItem
 
-      -- Verify parent-child relationships
+      -- verify parent-child relationships
       assert.equal(3, #level1_todo.children)
       assert.equal(1, #another_top.children)
       assert.equal(0, #empty_content.children)
       assert.equal(0, #empty_line.children)
 
-      -- Find level 2 todo
       local level2_todo = nil
       for _, child_id in ipairs(level1_todo.children) do
         local child = todo_map[child_id]
@@ -259,7 +250,6 @@ describe("Parser", function()
       ---@cast level2_todo checkmate.TodoItem
       assert.equal(1, #level2_todo.children)
 
-      -- Find level 3 via level 2
       local level3_todo = nil
       for _, child_id in ipairs(level2_todo.children) do
         level3_todo = todo_map[child_id]
@@ -270,7 +260,6 @@ describe("Parser", function()
       ---@cast level3_todo checkmate.TodoItem
       assert.equal(1, #level3_todo.children)
 
-      -- Find level 4 and verify it has level 5 child
       local level4_todo = nil
       for _, child_id in ipairs(level3_todo.children) do
         level4_todo = todo_map[child_id]
@@ -281,7 +270,6 @@ describe("Parser", function()
       ---@cast level4_todo checkmate.TodoItem
       assert.equal(1, #level4_todo.children)
 
-      -- Verify deep nesting to level 5
       local level5_todo = h.find_todo_by_text(todo_map, "Level 5 todo")
       assert.is_not_nil(level5_todo)
       ---@cast level5_todo checkmate.TodoItem
@@ -290,7 +278,7 @@ describe("Parser", function()
       assert.equal("list_item", level5_todo.node:parent():parent():type())
       assert.equal("list", level5_todo.node:parent():type())
 
-      -- Verify tab indentation is handled properly
+      -- verify tab indentation is handled properly
       local tab_indent = h.find_todo_by_text(todo_map, "Tab indentation")
       local double_tab = h.find_todo_by_text(todo_map, "Double tab indentation")
       assert.is_not_nil(tab_indent)
@@ -298,7 +286,7 @@ describe("Parser", function()
       assert.is_not_nil(double_tab)
       ---@cast double_tab checkmate.TodoItem
 
-      -- Tab indented item should be child of Another Level 2
+      -- tab indented item should be child of Another Level 2
       local another_level2 = h.find_todo_by_text(todo_map, "Another Level 2")
       assert.is_not_nil(another_level2)
       ---@cast another_level2 checkmate.TodoItem
@@ -306,7 +294,7 @@ describe("Parser", function()
       assert.equal(level1_todo.id, tab_indent.parent_id)
       assert.equal(tab_indent.id, double_tab.parent_id)
 
-      -- Verify unusual hierarchy jump (top level to level 3)
+      -- verify unusual hierarchy jump (top level to level 3)
       local unusual = h.find_todo_by_text(todo_map, "Direct jump to Level 3")
       assert.is_not_nil(unusual)
       ---@cast unusual checkmate.TodoItem
@@ -336,7 +324,6 @@ describe("Parser", function()
       local bufnr = h.create_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      -- Find todos with different list types
       local parent_dash = h.find_todo_by_text(todo_map, "Parent with dash")
       local child_asterisk = h.find_todo_by_text(todo_map, "Child with asterisk")
       local child_plus = h.find_todo_by_text(todo_map, "Child with plus")
@@ -357,17 +344,17 @@ describe("Parser", function()
       assert.is_not_nil(mixed_child)
       ---@cast mixed_child checkmate.TodoItem
 
-      -- Verify parent-child relationships
+      -- verify parent-child relationships
       assert.equal(2, #parent_dash.children)
       assert.equal(2, #ordered_parent.children)
 
-      -- Verify mixed list marker relationships
+      -- verify mixed list marker relationships
       assert.equal(parent_dash.id, child_asterisk.parent_id, "Child with asterisk should be child of parent with dash")
       assert.equal(parent_dash.id, child_plus.parent_id)
       assert.equal(ordered_parent.id, ordered_child.parent_id, "Ordered child should be child of ordered parent")
       assert.equal(ordered_parent.id, mixed_child.parent_id, "Unordered child should be child of ordered parent")
 
-      -- Verify list marker type is correctly detected
+      -- verify list marker type is correctly detected
       assert.equal("unordered", parent_dash.list_marker.type)
       assert.equal("unordered", child_asterisk.list_marker.type)
       assert.equal("unordered", child_plus.list_marker.type)
@@ -397,7 +384,6 @@ Line that should not affect parent-child relationship
       local bufnr = h.create_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      -- Find todos in edge positions
       local start_todo = h.find_todo_by_text(todo_map, "Todo at document start")
       local parent_todo = h.find_todo_by_text(todo_map, "Parent todo")
       local checked_child = h.find_todo_by_text(todo_map, "Checked child")
@@ -415,16 +401,16 @@ Line that should not affect parent-child relationship
       assert.is_not_nil(end_todo)
       ---@cast end_todo checkmate.TodoItem
 
-      -- Verify edge position todos
+      -- verify edge position todos
       assert.is_nil(start_todo.parent_id)
       assert.is_nil(end_todo.parent_id)
 
-      -- Verify parent-child with content in between
+      -- verify parent-child with content in between
       assert.equal(2, #parent_todo.children)
       assert.equal(parent_todo.id, checked_child.parent_id)
       assert.equal(parent_todo.id, unchecked_child.parent_id)
 
-      -- Verify checked state is maintained in hierarchy
+      -- verify checked state is maintained in hierarchy
       assert.equal("unchecked", parent_todo.state)
       assert.equal("checked", checked_child.state)
       assert.equal("unchecked", unchecked_child.state)
@@ -438,7 +424,7 @@ Line that should not affect parent-child relationship
       local unchecked = config.options.todo_markers.unchecked
       local checked = config.options.todo_markers.checked
 
-      -- Prepare a buffer with two todos, one unchecked and one checked
+      -- buffer with two todos, one unchecked and one checked
       local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ Alpha
@@ -446,11 +432,9 @@ Line that should not affect parent-child relationship
 ]]
       local bufnr = h.create_test_buffer(content)
 
-      -- Discover todos in the buffer
       local todo_map = parser.discover_todos(bufnr)
       assert.equal(2, vim.tbl_count(todo_map))
 
-      -- For each todo, get its recorded position and compare
       for _, todo in pairs(todo_map) do
         local pos = parser.get_todo_position(bufnr, todo.id)
         assert.is_not_nil(pos)
@@ -466,36 +450,50 @@ Line that should not affect parent-child relationship
     end)
   end)
 
-  -- Test todo item state detection
   describe("todo item detection", function()
     it("should detect unchecked todo items with default marker", function()
       local parser = require("checkmate.parser")
       local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
-      local line = "- " .. unchecked_marker .. " This is an unchecked todo"
-      local state = parser.get_todo_item_state(line)
 
-      assert.equal("unchecked", state)
+      local cases = {
+        "- " .. unchecked_marker .. " This is an unchecked todo",
+        "- " .. unchecked_marker,
+      }
+      for _, case in ipairs(cases) do
+        local state = parser.get_todo_item_state(case)
+        assert.equal("unchecked", state)
+      end
     end)
 
     it("should detect checked todo items with default marker", function()
       local parser = require("checkmate.parser")
       local checked_marker = require("checkmate.config").options.todo_markers.checked
-      local line = "- " .. checked_marker .. " This is a checked todo"
-      local state = parser.get_todo_item_state(line)
 
-      assert.equal("checked", state)
+      local cases = {
+        "- " .. checked_marker .. " This is an checked todo",
+        "- " .. checked_marker,
+      }
+      for _, case in ipairs(cases) do
+        local state = parser.get_todo_item_state(case)
+        assert.equal("checked", state)
+      end
     end)
 
     it("should detect unchecked todo items with various list markers", function()
       local parser = require("checkmate.parser")
       local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
 
-      -- Test with different list markers
+      -- test with different list markers
       local list_markers = { "-", "+", "*" }
       for _, marker in ipairs(list_markers) do
-        local line = marker .. " " .. unchecked_marker .. " Todo with " .. marker
-        local state = parser.get_todo_item_state(line)
-        assert.equal("unchecked", state)
+        local cases = {
+          marker .. " " .. unchecked_marker .. " This is an unchecked todo",
+          marker .. " " .. unchecked_marker,
+        }
+        for _, case in ipairs(cases) do
+          local state = parser.get_todo_item_state(case)
+          assert.equal("unchecked", state)
+        end
       end
     end)
 
@@ -512,7 +510,7 @@ Line that should not affect parent-child relationship
       local parser = require("checkmate.parser")
       local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
 
-      -- Test with different numbered list formats
+      -- test with different numbered list formats
       local formats = { "1. ", "1) ", "50. " }
       for _, format in ipairs(formats) do
         local line = format .. unchecked_marker .. " Numbered todo"

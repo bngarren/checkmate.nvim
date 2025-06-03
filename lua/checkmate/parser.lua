@@ -228,24 +228,36 @@ function M.convert_markdown_to_unicode(bufnr)
   for _, line in ipairs(lines) do
     local new_line = line
 
-    -- Apply all unchecked replacements
+    -- important! slighty hacky code that isn't immediately obvious incoming:
+    --
+    -- The markdown checkbox patterns built above include 2 variants:
+    -- 1. Patterns ending with "$" for checkboxes at end of line (e.g., "- [ ]")
+    -- 2. Patterns ending with " " for checkboxes followed by text (e.g., "- [ ] text")
+    --
+    -- For variant 2, the space is consumed by the pattern match but NOT captured,
+    -- so we must add it back explicitly in the replacement to preserve formatting.
+    --
+    -- Why do we need to do this?
+    -- this was the best way I could find to match `- [ ]` but not `- [ ]this`
+    -- i.e., if the [ ] is not at EOL, there must be a space, otherwise no space is needed
+
+    -- unchecked replacements
     for _, pat in ipairs(unchecked_patterns) do
       if pat:sub(-1) == " " then
-        -- Pattern ends with space, so add it back in replacement
+        -- pattern ends with space (variant 2), so add it back in replacement
         new_line = new_line:gsub(pat, "%1" .. unchecked .. " ")
       else
-        -- Pattern ends with $, no space needed
+        -- pattern ends with $, no space needed
         new_line = new_line:gsub(pat, "%1" .. unchecked)
       end
     end
 
-    -- Apply all checked replacements
+    -- checked replacements
     for _, pat in ipairs(checked_patterns) do
       if pat:sub(-1) == " " then
-        -- Pattern ends with space, so add it back in replacement
+        -- same as unchecked, above
         new_line = new_line:gsub(pat, "%1" .. checked .. " ")
       else
-        -- Pattern ends with $, no space needed
         new_line = new_line:gsub(pat, "%1" .. checked)
       end
     end

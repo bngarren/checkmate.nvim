@@ -161,7 +161,7 @@ function M.create_list_prefix_patterns(opts)
   local escaped_simple = escape_for_char_class(simple_markers)
 
   local function wrap(p)
-    return with_capture and "(" .. p .. ")" or p
+    return with_capture and "^(" .. p .. ")" or p
   end
 
   local patterns = {
@@ -267,11 +267,25 @@ function M.build_unicode_todo_patterns(list_item_markers, todo_marker)
   })
 end
 
---- Builds patterns to match a Markdown checkbox like `- [x]` or `1. [ ]`
---
+--- Builds patterns to match GitHub Flavored Markdown checkboxes like `- [x]` or `1. [ ]`
+---
+--- For each list marker type we create 2 pattern variants:
+--- 1. One for checkboxes at end of line
+--- 2. One for checkboxes followed by space
+---
+--- Below are the patterns for an unchecked markdown task marker:
+--- { "^(%s*[%-+*]%s+)%[ %]$", "^(%s*%d+[%.)]%s+)%[ %]$", "^(%s*[%-+*]%s+)%[ %] ", "^(%s*%d+[%.)]%s+)%[ %] " }
+--- 2 patterns are matching type bullet markers with the 2 variants
+--- 2 patterns are matching ordered list markers with the 2 variants
+---
+--- IMPORTANT: the patterns returned have different behaviors:
+--- - EOL patterns (variant 1): Match list prefix + checkbox, captured in group 1
+--- - Space patterns (varian 2): Match list prefix + checkbox + space, but only capture prefix in group 1
+---   The trailing space is matched but NOT captured, requiring special handling in gsub replacements
+---
 ---@param list_item_markers table List item markers to use, e.g. {"-", "*", "+"}
----@param checkbox_pattern string Must be a Lua pattern, e.g. "%[[xX]%]"
----@return string[] List of full Lua patterns with capture group for list prefix
+---@param checkbox_pattern string Must be a Lua pattern, e.g. "%[[xX]%]" or "%[ %]"
+---@return string[] patterns List of full Lua patterns with capture group for list prefix
 function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
   if not checkbox_pattern or checkbox_pattern == "" then
     error("checkbox_pattern cannot be nil or empty")
@@ -279,17 +293,17 @@ function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
 
   local patterns = {}
 
-  -- Pattern 1: Checkbox at end of line
+  -- Variant 1: Checkbox at end of line (e.g., "- [ ]" with no trailing content)
   local eol_patterns = M.build_list_pattern({
     simple_markers = list_item_markers,
     right_pattern = checkbox_pattern .. "$",
   })
   vim.list_extend(patterns, eol_patterns)
 
-  -- Pattern 2: Checkbox followed by space - include space in the pattern but not the replacement
+  -- Variant 2: Checkbox followed by space - include space in the pattern but not the replacement
   local space_patterns = M.build_list_pattern({
     simple_markers = list_item_markers,
-    right_pattern = checkbox_pattern .. " ", -- Note: space not captured, just matched
+    right_pattern = checkbox_pattern .. " ", -- space not captured, just matched!!!
   })
   vim.list_extend(patterns, space_patterns)
 

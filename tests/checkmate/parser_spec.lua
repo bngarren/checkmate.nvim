@@ -1,5 +1,6 @@
 describe("Parser", function()
   local h = require("tests.checkmate.helpers")
+  local checkmate = require("checkmate")
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -7,12 +8,21 @@ describe("Parser", function()
   end)
 
   lazy_teardown(function()
+    checkmate.stop()
+
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
   end)
 
   before_each(function()
     _G.reset_state()
+
+    checkmate.setup()
+    vim.wait(20)
+  end)
+
+  after_each(function()
+    checkmate.stop()
   end)
 
   -- Helper to verify todo range is consistent with its content
@@ -460,7 +470,6 @@ Line that should not affect parent-child relationship
         "- " .. unchecked_marker,
       }
       for _, case in ipairs(cases) do
-        print(string.format("testing case '%s'", case))
         local state = parser.get_todo_item_state(case)
         assert.equal("unchecked", state)
       end

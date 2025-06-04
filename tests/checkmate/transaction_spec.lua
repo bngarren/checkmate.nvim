@@ -1,6 +1,7 @@
 describe("Transaction", function()
   local h = require("tests.checkmate.helpers")
 
+  local checkmate = require("checkmate")
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
   local api = require("checkmate.api")
@@ -8,7 +9,14 @@ describe("Transaction", function()
   before_each(function()
     _G.reset_state()
 
+    checkmate.setup()
+    vim.wait(20)
+
     h.ensure_normal_mode()
+  end)
+
+  after_each(function()
+    checkmate.stop()
   end)
 
   it("should apply queued operations and clear state", function()

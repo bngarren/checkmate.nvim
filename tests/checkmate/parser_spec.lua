@@ -1,5 +1,6 @@
 describe("Parser", function()
   local h = require("tests.checkmate.helpers")
+  local checkmate = require("checkmate")
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -7,12 +8,21 @@ describe("Parser", function()
   end)
 
   lazy_teardown(function()
+    checkmate.stop()
+
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
   end)
 
   before_each(function()
     _G.reset_state()
+
+    checkmate.setup()
+    vim.wait(20)
+  end)
+
+  after_each(function()
+    checkmate.stop()
   end)
 
   -- Helper to verify todo range is consistent with its content
@@ -460,7 +470,6 @@ Line that should not affect parent-child relationship
         "- " .. unchecked_marker,
       }
       for _, case in ipairs(cases) do
-        print(string.format("testing case '%s'", case))
         local state = parser.get_todo_item_state(case)
         assert.equal("unchecked", state)
       end
@@ -548,6 +557,9 @@ Line that should not affect parent-child relationship
         unchecked = "[ ]",
         checked = "[x]",
       }
+
+      -- force clear the pre-compiled pattern cache
+      parser.clear_pattern_cache()
 
       local lines = {
         "- [ ] Custom unchecked",
@@ -904,6 +916,29 @@ Line that should not affect parent-child relationship
       end
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
+    end)
+
+    it("should not add extra lines", function()
+      require("checkmate").setup()
+      local parser = require("checkmate.parser")
+
+      local bufnr = vim.api.nvim_create_buf(false, true)
+
+      local original_lines = {
+        "- [ ] Task",
+      }
+
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, original_lines)
+
+      parser.convert_markdown_to_unicode(bufnr)
+
+      parser.convert_unicode_to_markdown(bufnr)
+
+      local final_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      assert.equal(1, #final_lines)
+      assert.equal("- [ ] Task", final_lines[1])
+      require("checkmate").stop()
     end)
   end)
 

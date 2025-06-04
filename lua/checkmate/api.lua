@@ -43,7 +43,8 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
-function M.setup(bufnr)
+---Callers should check `should_activate_for_buffer` before calling setup_buffer
+function M.setup_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   if not M.is_valid_buffer(bufnr) then
@@ -51,17 +52,22 @@ function M.setup(bufnr)
   end
 
   local config = require("checkmate.config")
+  local checkmate = require("checkmate")
 
-  if vim.b[bufnr].checkmate_setup_complete then
-    return true
-  end
-
-  if not config.is_running() then
-    vim.notify("Failed to initialize plugin", vim.log.levels.ERROR)
+  if not checkmate.is_initialized() then
+    checkmate.on_initialized(function()
+      M.setup_buffer(bufnr)
+    end)
     return false
   end
 
-  vim.b[bufnr].checkmate_setup_complete = true
+  if checkmate.is_buffer_active(bufnr) then
+    if vim.b[bufnr].checkmate_setup_complete then
+      return true
+    end
+  end
+
+  checkmate.register_buffer(bufnr)
 
   local parser = require("checkmate.parser")
   parser.convert_markdown_to_unicode(bufnr)
@@ -84,18 +90,34 @@ function M.setup(bufnr)
   end
 
   M.setup_keymaps(bufnr)
-
   M.setup_autocmds(bufnr)
 
-  config.register_buffer(bufnr)
+  vim.b[bufnr].checkmate_setup_complete = true
 
   return true
+end
+
+-- { bufnr = {mode, key}[] }
+local buffer_local_keys = {}
+
+function M.clear_keymaps(bufnr)
+  -- clear buffer local keymaps
+  local items = buffer_local_keys[bufnr]
+  if not items or #items == 0 then
+    return
+  end
+  for _, item in ipairs(items) do
+    vim.api.nvim_buf_del_keymap(bufnr, item[1], item[2])
+  end
+  buffer_local_keys[bufnr] = {}
 end
 
 function M.setup_keymaps(bufnr)
   local config = require("checkmate.config")
   local log = require("checkmate.log")
   local keys = config.options.keys or {}
+
+  buffer_local_keys[bufnr] = {}
 
   -- Get command descriptions from the commands module
   local commands_module = require("checkmate.commands")
@@ -154,6 +176,7 @@ function M.setup_keymaps(bufnr)
             silent = true,
             desc = mode_desc,
           })
+          table.insert(buffer_local_keys[bufnr], { mode, key })
         end
       else
         log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
@@ -185,6 +208,7 @@ function M.setup_keymaps(bufnr)
               desc = "Checkmate: Set toggle '" .. meta_name .. "' metadata",
             }
           )
+          table.insert(buffer_local_keys[bufnr], { mode, meta_props.key })
         end
       end
     end
@@ -192,7 +216,7 @@ function M.setup_keymaps(bufnr)
 end
 
 function M.setup_autocmds(bufnr)
-  local augroup_name = "CheckmateApiGroup_" .. bufnr
+  local augroup_name = "checkate_buffer_" .. bufnr
   local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
 
   if not vim.b[bufnr].checkmate_autocmds_setup then
@@ -312,6 +336,21 @@ function M.setup_autocmds(bufnr)
         M.process_buffer(bufnr, "TextChanged")
       end,
     })
+    -- cleanup buffer when buffer is deleted
+    vim.api.nvim_create_autocmd("BufDelete", {
+      group = augroup,
+      buffer = bufnr,
+      callback = function()
+        require("checkmate").unregister_buffer(bufnr)
+        -- Reset any API state for this buffer
+        if M._debounced_process_buffer_fns[bufnr] then
+          M._debounced_process_buffer_fns[bufnr] = nil
+        end
+        -- Clear the todo map cache for this buffer
+        require("checkmate.parser").todo_map_cache[bufnr] = nil
+      end,
+    })
+    vim.b[bufnr].checkmate_autocmds_setup = true
   end
 end
 
@@ -363,6 +402,37 @@ function M.process_buffer(bufnr, reason)
   M._debounced_process_buffer_fns[bufnr]()
 
   log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
+end
+
+function M.shutdown(bufnr)
+  if vim.api.nvim_buf_is_valid(bufnr) then
+    local config = require("checkmate.config")
+
+    M.clear_keymaps(bufnr)
+
+    -- clear extmarks
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
+
+    if package.loaded["checkmate.linter"] then
+      pcall(function()
+        require("checkmate.linter").disable(bufnr)
+      end)
+    end
+
+    local group_name = "checkate_buffer_" .. bufnr
+    pcall(function()
+      vim.api.nvim_del_augroup_by_name(group_name)
+    end)
+
+    vim.b[bufnr].checkmate_setup_complete = nil
+    vim.b[bufnr].checkmate_autocmds_setup = nil
+
+    local api = require("checkmate.api")
+    if api._debounced_process_buffer_fns and api._debounced_process_buffer_fns[bufnr] then
+      api._debounced_process_buffer_fns[bufnr] = nil
+    end
+  end
 end
 
 --- Create a hunk that replaces only the todo marker character

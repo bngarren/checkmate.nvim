@@ -12,14 +12,7 @@ function M.cleanup_buffer(bufnr, file_path)
   -- Clear any pending operations
   vim.cmd("redraw!")
 
-  -- Unregister buffer from checkmate
-  local config = require("checkmate.config")
-  if config.unregister_buffer then
-    config.unregister_buffer(bufnr)
-  end
-
-  -- Clear highlights
-  vim.api.nvim_buf_clear_namespace(bufnr, -1, 0, -1)
+  require("checkmate").stop()
 
   -- Delete buffer
   pcall(vim.api.nvim_buf_delete, bufnr, { force = true })

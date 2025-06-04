@@ -49,7 +49,7 @@ describe("API", function()
     vim.bo[bufnr].filetype = "markdown"
 
     -- let any deferred setup finish (e.g., debounced highlights, linter, extmarks, etc.)
-    vim.wait(50, function()
+    vim.wait(20, function()
       return vim.fn.jobwait({}, 0) == 0
     end)
     vim.cmd("redraw")

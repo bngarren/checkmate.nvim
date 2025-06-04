@@ -185,4 +185,16 @@ function M.setup(bufnr)
   end
 end
 
+function M.dispose(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  for _, command in ipairs(M.commands) do
+    pcall(function()
+      vim.api.nvim_buf_del_user_command(bufnr, command.cmd)
+    end)
+  end
+  M.commands = {}
+end
+
 return M

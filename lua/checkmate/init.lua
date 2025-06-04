@@ -290,6 +290,20 @@ function M._setup_autocommands()
       end
     end,
   })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    callback = function(event)
+      local bufs = M.get_active_buffer_list()
+      for _, buf in ipairs(bufs) do
+        if event.buf == buf and event.match ~= "markdown" then
+          require("checkmate.commands").dispose(buf)
+          require("checkmate.api").shutdown(buf)
+          M.unregister_buffer(buf)
+        end
+      end
+    end,
+  })
 end
 
 function M.stop()
@@ -303,30 +317,7 @@ function M.stop()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
   for bufnr, _ in pairs(active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      -- clear extmarks
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
-
-      if package.loaded["checkmate.linter"] then
-        pcall(function()
-          require("checkmate.linter").disable(bufnr)
-        end)
-      end
-
-      local group_name = "CheckmateApiGroup_" .. bufnr
-      pcall(function()
-        vim.api.nvim_del_augroup_by_name(group_name)
-      end)
-
-      vim.b[bufnr].checkmate_setup_complete = nil
-      vim.b[bufnr].checkmate_autocmds_setup = nil
-
-      local api = require("checkmate.api")
-      if api._debounced_process_buffer_fns and api._debounced_process_buffer_fns[bufnr] then
-        api._debounced_process_buffer_fns[bufnr] = nil
-      end
-    end
+    require("checkmate.api").shutdown(bufnr)
   end
 
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_ft")

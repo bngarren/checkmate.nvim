@@ -908,6 +908,29 @@ Line that should not affect parent-child relationship
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
+
+    it("should not add extra lines", function()
+      require("checkmate").setup()
+      local parser = require("checkmate.parser")
+
+      local bufnr = vim.api.nvim_create_buf(false, true)
+
+      local original_lines = {
+        "- [ ] Task",
+      }
+
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, original_lines)
+
+      parser.convert_markdown_to_unicode(bufnr)
+
+      parser.convert_unicode_to_markdown(bufnr)
+
+      local final_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      assert.equal(1, #final_lines)
+      assert.equal("- [ ] Task", final_lines[1])
+      require("checkmate").stop()
+    end)
   end)
 
   describe("performance", function()

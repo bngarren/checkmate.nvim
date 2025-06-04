@@ -71,7 +71,6 @@ _G.reset_state = function(close_buffers)
     "checkmate.transaction",
     "checkmate.profiler",
     "checkmate.init",
-    "checkmate.state",
   }
 
   for _, mod in ipairs(modules) do

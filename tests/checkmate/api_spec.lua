@@ -1558,6 +1558,10 @@ Some content here
 
       local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
       assert.equal(archive_success, true, err)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
     end)
 
     it("should work with custom archive heading", function()
@@ -1751,9 +1755,7 @@ Some content here
           )
         )
 
-        finally(function()
-          h.cleanup_buffer(bufnr, file_path)
-        end)
+        h.cleanup_buffer(bufnr, file_path)
       end
     end)
   end)

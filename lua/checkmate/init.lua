@@ -100,88 +100,6 @@ function M.reset()
   state.active_buffers = {}
 end
 
---- Return true if the buffer’s filename matches at least one glob in `patterns`
----
---- - Only activates on `filetype == "markdown"`.
---- - `patterns` is a list of shell-style globs (e.g. `"*.md"`, `"subdir/*.md"`).
---- - If a pattern contains no “/”, it is compared only to the basename.
---- - If a pattern contains “/”, it is compared to the full path, and (for
----   relative globs) also tried against each suffix of the path.
----
---- @param bufnr number?  Buffer to check; defaults to current buffer.
---- @param patterns string[]?  List of glob patterns.
---- @return boolean
-function M.should_activate_for_buffer(bufnr, patterns)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return false
-  end
-
-  -- only markdown buffers
-  if vim.bo[bufnr].filetype ~= "markdown" then
-    return false
-  end
-
-  if type(patterns) ~= "table" or vim.tbl_isempty(patterns) then
-    return false
-  end
-
-  local filename = vim.api.nvim_buf_get_name(bufnr)
-  if not filename or filename == "" then
-    return false
-  end
-
-  -- Normalize separators → always use forward slash
-  filename = filename:gsub("\\", "/")
-  local basename = vim.fn.fnamemodify(filename, ":t")
-
-  --- Return true if `str` matches the anchored Vim regex `vreg`.
-  --- `vreg` should come from `glob2regpat()`, which already wraps `^…$`.
-  local function matches_vim_regex(str, vreg)
-    return vim.fn.match(str, vreg) ~= -1
-  end
-
-  for _, raw_pat in ipairs(patterns) do
-    -- Skip non-string or empty patterns
-    if type(raw_pat) == "string" and raw_pat ~= "" then
-      -- Normalize separators in the pattern as well
-      local pat = raw_pat:gsub("\\", "/")
-      local is_path_pattern = pat:find("/", 1, true) ~= nil
-
-      -- Convert the glob into a Vim regex (anchored).  E.g. "*.md" → "^.*\.md$"
-      local vim_regex = vim.fn.glob2regpat(pat)
-
-      if is_path_pattern then
-        -- 1) Try full-path match
-        if matches_vim_regex(filename, vim_regex) then
-          return true
-        end
-
-        -- 2) If a “relative” path-glob (does NOT begin with "/" or "**/"),
-        --    also try matching any suffix of the path.
-        if not pat:match("^/") and not pat:match("^%*%*/") then
-          -- Split filename into components
-          local parts = vim.split(filename, "/", { plain = true })
-          for i = 1, #parts do
-            -- build suffix "parts[i]/parts[i+1]/…/parts[#parts]"
-            local suffix = table.concat(parts, "/", i, #parts)
-            if matches_vim_regex(suffix, vim_regex) then
-              return true
-            end
-          end
-        end
-      else
-        -- No slash in the pattern → only compare against the basename
-        if matches_vim_regex(basename, vim_regex) then
-          return true
-        end
-      end
-    end
-  end
-
-  return false
-end
-
 ---@param opts checkmate.Config?
 ---@return boolean success
 M.setup = function(opts)
@@ -229,7 +147,6 @@ function M.start()
   if M.is_running() then
     return
   end
-
 
   local config = require("checkmate.config")
   if not config.options.enabled then
@@ -280,7 +197,7 @@ function M._setup_autocommands()
         return
       end
 
-      if require("checkmate").should_activate_for_buffer(event.buf, cfg.files) then
+      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
         require("checkmate.commands").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
       end
@@ -333,13 +250,14 @@ end
 
 function M._setup_existing_markdown_buffers()
   local config = require("checkmate.config")
+  local file_matcher = require("checkmate.file_matcher")
 
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if
       vim.api.nvim_buf_is_valid(bufnr)
       and vim.api.nvim_buf_is_loaded(bufnr)
       and vim.bo[bufnr].filetype == "markdown"
-      and M.should_activate_for_buffer(bufnr, config.options.files)
+      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
     then
       require("checkmate.api").setup_buffer(bufnr)
     end

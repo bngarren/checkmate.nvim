@@ -244,6 +244,7 @@ describe("checkmate init and lifecycle", function()
   -- TODO: finish
   describe("file patterns", function()
     local checkmate = require("checkmate")
+    local file_matcher = require("checkmate.file_matcher")
 
     lazy_setup(function()
       checkmate.setup()
@@ -267,7 +268,7 @@ describe("checkmate init and lifecycle", function()
         end)
       end
 
-      local result = checkmate.should_activate_for_buffer(bufnr, patterns)
+      local result = file_matcher.should_activate_for_buffer(bufnr, patterns)
       assert.equal(
         should_match,
         result,
@@ -299,7 +300,7 @@ describe("checkmate init and lifecycle", function()
         vim.api.nvim_buf_call(bufnr, function()
           vim.cmd("setfiletype markdown")
         end)
-        local result = checkmate.should_activate_for_buffer(bufnr, { "*.md" })
+        local result = file_matcher.should_activate_for_buffer(bufnr, { "*.md" })
         assert.is_false(result)
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end)
@@ -309,7 +310,7 @@ describe("checkmate init and lifecycle", function()
         local bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_delete(bufnr, { force = true })
         -- Now bufnr is invalid
-        local result = checkmate.should_activate_for_buffer(bufnr, { "*.md" })
+        local result = file_matcher.should_activate_for_buffer(bufnr, { "*.md" })
         assert.is_false(result)
       end)
 
@@ -422,6 +423,7 @@ describe("checkmate init and lifecycle", function()
   pending("should handle configuration changes while running", function()
     local checkmate = require("checkmate")
     local config = require("checkmate.config")
+    local file_matcher = require("checkmate.file_matcher")
 
     -- Initial setup
     ---@diagnostic disable-next-line: missing-fields
@@ -437,7 +439,7 @@ describe("checkmate init and lifecycle", function()
 
     vim.print(config.options.files)
 
-    local should_buf2 = checkmate.should_activate_for_buffer(buf2, { "tasks.md" })
+    local should_buf2 = file_matcher.should_activate_for_buffer(buf2, { "tasks.md" })
     print(should_buf2)
 
     assert.is_true(vim.b[buf1].checkmate_setup_complete or false)

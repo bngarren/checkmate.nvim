@@ -98,11 +98,6 @@ jobs:
           path: |
             ~/.luarocks
             ~/.cache/luarocks
-        with:
-          key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
-          path: |
-            ~/.luarocks
-            ~/.cache/luarocks
 
       - name: Install rock dependencies
         run: make test-deps

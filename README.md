@@ -74,10 +74,14 @@ Checkmate automatically activates when you open a Markdown file that matches you
 - `todo.md` or `TODO.md`
 - Files with `.todo` extension (e.g., `project.todo`, `work.todo.md`)
 
-> [!TIP]
-> Checkmate only activates for files with the "markdown" filetype. Files without extensions need their filetype set to markdown (`:set filetype=markdown`)
+<br>
 
 > [!NOTE]
+> Checkmate only activates for files with the "markdown" filetype. Files without extensions need their filetype set to markdown (`:set filetype=markdown`)
+
+<br>
+
+> [!TIP]
 > You can customize which files activate Checkmate using the `files` configuration option:
 > ```lua
 > files = { "tasks", "*.plan", "project/**/todo.md" }

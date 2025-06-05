@@ -1388,7 +1388,7 @@ function M.archive_todos(opts)
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )
   local include_children = opts.include_children ~= false -- default: true
-  local newest_first = opts.newest_first or config.options.archive.newest_first or false
+  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false -- default: true
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
   -- helpers

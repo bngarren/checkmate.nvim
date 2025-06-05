@@ -1744,7 +1744,11 @@ Some content here
 - ]] .. checked .. [[ Previously archived task
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr = setup_todo_buffer(file_path, content, {
+        archive = {
+          newest_first = false, -- ensure newly added todos end up at top of archive section
+        },
+      })
 
       local success = require("checkmate").archive()
       assert.is_true(success)

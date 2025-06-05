@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        nvim-versions: [stable, nightly]
+        nvim_versions: [stable, nightly]
     name: test
 
     # Borrowed from https://github.com/folke/github/blob/main/neovim/action.yml
@@ -47,10 +47,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: ${{ matrix["nvim-versions"] == 'nightly' && env.DATE || matrix["nvim-versions"] }}
-          # if exact key misses, fall back to any key that begins with neovim-cache-${matrix.nvim-versions}
+          key: ${{ matrix["nvim_versions"] == 'nightly' && env.DATE || matrix["nvim_versions"] }}
+          # if exact key misses, fall back to any key that begins with neovim-cache-${matrix.nvim_versions}
           restore-keys: |
-            neovim-cache-${{ matrix.nvim-versions }}
+            neovim-cache-${{ matrix.nvim_versions }}
             neovim-cache-
 
       # Only redownload Neovim if the cache was a miss
@@ -60,7 +60,7 @@ jobs:
         run: |
           mkdir -p ${{ runner.temp }}/nvim
           wget -q \
-            https://github.com/neovim/neovim/releases/download/${{ matrix.nvim-versions }}/nvim-linux-x86_64.appimage \
+            https://github.com/neovim/neovim/releases/download/${{ matrix.nvim_versions }}/nvim-linux-x86_64.appimage \
             -O ${{ runner.temp }}/nvim/nvim.appimage
 
           cd ${{ runner.temp }}/nvim
@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: ${{ matrix["nvim-versions"] == 'nightly' && env.DATE || matrix["nvim-versions"] }}
+          key: ${{ matrix["nvim_versions"] == 'nightly' && env.DATE || matrix["nvim_versions"] }}
 
       # Add the bin directory that we extracted Neovim to the PATH
       - name: Add Neovim to PATH

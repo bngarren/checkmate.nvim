@@ -17,12 +17,30 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field notify boolean
 ---
 --- Filenames or patterns to activate Checkmate on when the filetype is 'markdown'
---- - Patterns are CASE-SENSITIVE (e.g., "TODO" won't match "todo.md")
---- - Include variations like {"TODO", "todo"} for case-insensitive matching
---- - Patterns can include wildcards (*) for more flexible matching
---- - Patterns without extensions (e.g., "TODO") will match files both with and without Markdown extension (e.g., "TODO" and "TODO.md")
---- - Patterns with extensions (e.g., "TODO.md") will only match files with that exact extension
---- - Examples: {"todo.md", "TODO", "*.todo", "todos/*"}
+---
+--- Uses Unix-style glob patterns with the following rules:
+--- - Patterns are CASE-SENSITIVE (e.g., "TODO" won't match "todo")
+--- - Basename patterns (no slash): Match against filename only
+---   - "TODO" matches any file named "TODO" regardless of path
+---   - "*.md" matches any markdown file in any directory
+---   - "*todo*" matches any file with "todo" in the name
+--- - Path patterns (has slash):
+---   - "docs/*.md" matches markdown files in any "docs" directory
+---   - "/home/user/*.md" matches only in that specific directory (absolute)
+---   - Both "docs/*.md" and "**/docs/*.md" behave the same (match at any depth)
+--- - Glob syntax (refer to `h: vim.glob`):
+---   - `*` matches any characters except /
+---   - `**` matches any characters including / (recursive)
+---   - `?` matches any single character
+---   - `[abc]` matches any character in the set
+---   - `{foo,bar}` matches either "foo" or "bar"
+---
+--- Examples:
+--- - {"TODO", "todo"} - files named TODO (case variations)
+--- - {"*.md"} - all markdown files
+--- - {"*todo*", "*TODO*"} - files with "todo" in the name
+--- - {"docs/*.md", "notes/*.md"} - markdown in specific directories
+--- - {"project/**/todo.md"} - todo.md under any project directory
 ---@field files string[]
 ---
 ---Logging settings
@@ -292,7 +310,18 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 local _DEFAULTS = {
   enabled = true,
   notify = true,
-  files = { "todo", "TODO", "*.todo*" }, -- matches TODO, TODO.md, .todo.md
+  -- Default file matching:
+  --  - Any `todo` or `TODO` file, including with `.md` extension
+  --  - Any `.todo` extension (can be ".todo" or ".todo.md")
+  -- To activate Checkmate, the filename must match AND the filetype must be "markdown"
+  files = {
+    "todo",
+    "TODO",
+    "todo.md",
+    "TODO.md",
+    "*.todo",
+    "*.todo.md",
+  },
   log = {
     level = "info",
     use_file = false,

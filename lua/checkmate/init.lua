@@ -100,93 +100,6 @@ function M.reset()
   state.active_buffers = {}
 end
 
--- Checks if the file matches the given pattern(s)
--- Note: All pattern matching is case-sensitive.
--- Users should include multiple patterns for case-insensitive matching.
-function M.should_activate_for_buffer(bufnr, patterns)
-  if not patterns or #patterns == 0 then
-    return false
-  end
-
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return false
-  end
-
-  local filename = vim.api.nvim_buf_get_name(bufnr)
-  if not filename or filename == "" then
-    return false
-  end
-
-  -- Normalize path for consistent matching
-  local norm_filepath = filename:gsub("\\", "/")
-  local basename = vim.fn.fnamemodify(norm_filepath, ":t")
-
-  for _, pattern in ipairs(patterns) do
-    -- pattern matches exactly ,easy
-    if pattern == basename then
-      return true
-    end
-
-    -- pattern has no extension, but matches .md files
-    if not pattern:match("%.%w+$") and basename:match("%.md$") then
-      local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-      if pattern == basename_no_ext then
-        return true
-      end
-    end
-
-    -- for directory patterns
-    if pattern:find("/") then
-      if norm_filepath:match("/" .. vim.pesc(pattern) .. "$") then
-        return true
-      end
-
-      -- directory pattern has no extension, but matches .md files
-      if not pattern:match("%.md$") and norm_filepath:match("%.md$") then
-        if norm_filepath:match("/" .. vim.pesc(pattern) .. "%.md$") then
-          return true
-        end
-      end
-    end
-
-    -- Wildcard matching
-    if pattern:find("*") then
-      local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
-
-      if pattern:find("/") then
-        if norm_filepath:match(lua_pattern .. "$") then
-          return true
-        end
-
-        -- try with .md added if pattern doesn't have extension and file does
-        if not pattern:match("%.%w+$") and norm_filepath:match("%.md$") then
-          if norm_filepath:match(lua_pattern .. "%.md$") then
-            return true
-          end
-        end
-      else
-        -- simple filename patterns with wildcards
-        if basename:match("^" .. lua_pattern .. "$") then
-          return true
-        end
-
-        -- if pattern doesn't have extension and file has .md extension,
-        -- try to match pattern against filename without extension
-        if not pattern:match("%.%w+$") and basename:match("%.md$") then
-          local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-          if basename_no_ext:match("^" .. lua_pattern .. "$") then
-            return true
-          end
-        end
-      end
-    end
-  end
-
-  return false
-end
-
 ---@param opts checkmate.Config?
 ---@return boolean success
 M.setup = function(opts)
@@ -284,7 +197,7 @@ function M._setup_autocommands()
         return
       end
 
-      if require("checkmate").should_activate_for_buffer(event.buf, cfg.files) then
+      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
         require("checkmate.commands").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
       end
@@ -311,8 +224,6 @@ function M.stop()
     return
   end
 
-  local config = require("checkmate.config")
-
   local active_buffers = M.get_active_buffer_list()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
@@ -337,13 +248,14 @@ end
 
 function M._setup_existing_markdown_buffers()
   local config = require("checkmate.config")
+  local file_matcher = require("checkmate.file_matcher")
 
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if
       vim.api.nvim_buf_is_valid(bufnr)
       and vim.api.nvim_buf_is_loaded(bufnr)
       and vim.bo[bufnr].filetype == "markdown"
-      and M.should_activate_for_buffer(bufnr, config.options.files)
+      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
     then
       require("checkmate.api").setup_buffer(bufnr)
     end

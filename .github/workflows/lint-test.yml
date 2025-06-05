@@ -89,7 +89,7 @@ jobs:
 
       - name: Install busted
         run: |
-          luarocks install busted
+          luarocks install busted --local
 
       - name: Save LuaRocks cache
         if: success()

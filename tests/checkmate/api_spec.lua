@@ -487,15 +487,20 @@ Some other content ]]
       local default_list_marker = config.options.default_list_marker
 
       local file_path = h.create_temp_file()
-      local content = "\n\n"
+      local content = [[
+- Todo1
+
+  - Child1]]
       local bufnr = setup_todo_buffer(file_path, content)
 
-      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
       local success = require("checkmate").create()
       assert.is_true(success)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[1])
+      assert.equal("- Todo1", lines[1])
+      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
+      assert.equal("  - Child1", lines[3])
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)

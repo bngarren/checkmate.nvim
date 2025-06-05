@@ -585,14 +585,12 @@ function M.compute_diff_convert_to_todo(bufnr, row)
     new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
   end
 
-  local old_len = #line
-
   return {
     {
       start_row = row,
       start_col = 0,
       end_row = row,
-      end_col = old_len,
+      end_col = -1, -- this will force apply_diff to use set_text rather than set_lines
       insert = { new_text },
     },
   }

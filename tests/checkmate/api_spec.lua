@@ -1676,64 +1676,6 @@ Some content here
       end)
     end)
 
-    it("should only leave max 1 line between remaining todo items after archive", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
-
-      local content = [[
-# Todo List
-
-- ]] .. unchecked .. [[ Unchecked task 1
-
-- ]] .. checked .. [[ Checked task 1
-  - ]] .. checked .. [[ Checked subtask 1.1
-
-- ]] .. checked .. [[ Checked task 2
-  - ]] .. checked .. [[ Checked subtask 2.1
-
-- ]] .. unchecked .. [[ Unchecked task 2
-
-]]
-
-      local bufnr = setup_todo_buffer(file_path, content)
-
-      local success = require("checkmate").archive()
-
-      vim.wait(20)
-      vim.cmd("redraw")
-
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      local buffer_content = table.concat(lines, "\n")
-
-      local archive_heading_string = require("checkmate.util").get_heading_string(
-        vim.pesc(config.get_defaults().archive.heading.title),
-        config.get_defaults().archive.heading.level
-      )
-
-      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
-
-      local expected_main_content = {
-        "# Todo List",
-        "",
-        "- " .. unchecked .. " Unchecked task 1",
-        "",
-        "- " .. unchecked .. " Unchecked task 2",
-        "",
-      }
-
-      local archive_success, err = h.verify_content_lines(main_section, expected_main_content)
-      assert.equal(archive_success, true, err)
-
-      finally(function()
-        h.cleanup_buffer(bufnr, file_path)
-      end)
-    end)
-
     it("should work with custom archive heading", function()
       local config = require("checkmate.config")
       local unchecked = config.get_defaults().todo_markers.unchecked
@@ -1927,6 +1869,211 @@ Some content here
 
         h.cleanup_buffer(bufnr, file_path)
       end
+    end)
+
+    it("should preserve single blank line when todo has spacing on both sides", function()
+      local config = require("checkmate.config")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+# Todo List
+
+- ]] .. unchecked .. [[ Task A
+
+- ]] .. checked .. [[ Task B (to archive)
+
+- ]] .. unchecked .. [[ Task C
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+      local arch_success = require("checkmate").archive()
+      assert.is_true(arch_success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.get_defaults().archive.heading.title),
+        config.get_defaults().archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      local expected_main_content = {
+        "# Todo List",
+        "",
+        "- " .. unchecked .. " Task A",
+        "",
+        "- " .. unchecked .. " Task C",
+        "",
+      }
+
+      local success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(success, true, err)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should not create double spacing when archiving adjacent todos", function()
+      local config = require("checkmate.config")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ Task A
+
+- ]] .. checked .. [[ Task B (to archive)
+- ]] .. checked .. [[ Task C (to archive)
+
+- ]] .. unchecked .. [[ Task D
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+      local arch_success = require("checkmate").archive()
+      assert.is_true(arch_success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.get_defaults().archive.heading.title),
+        config.get_defaults().archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      local expected_main_content = {
+        "- " .. unchecked .. " Task A",
+        "",
+        "- " .. unchecked .. " Task D",
+        "",
+      }
+
+      local success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(success, true, err)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should handle no spacing between todos correctly", function()
+      local config = require("checkmate.config")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ Task A
+- ]] .. checked .. [[ Task B (to archive)
+- ]] .. unchecked .. [[ Task C
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+      local arch_success = require("checkmate").archive()
+      assert.is_true(arch_success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.get_defaults().archive.heading.title),
+        config.get_defaults().archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      local expected_main_content = {
+        "- " .. unchecked .. " Task A",
+        "- " .. unchecked .. " Task C",
+        "",
+      }
+
+      local success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(success, true, err)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should handle spacing for complex mixed content correctly", function()
+      local config = require("checkmate.config")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+# Project
+
+Some intro text.
+
+- ]] .. unchecked .. [[ Task A
+
+- ]] .. checked .. [[ Task B (to archive)
+  - ]] .. checked .. [[ Subtask B.1
+
+## Section 1
+
+Content for section 1.
+
+- ]] .. checked .. [[ Task C (to archive)
+
+More content.
+
+- ]] .. unchecked .. [[ Task D
+
+## Section 2
+
+Final content.
+]]
+
+      local bufnr = setup_todo_buffer(file_path, content)
+      local arch_success = require("checkmate").archive()
+      assert.is_true(arch_success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local buffer_content = table.concat(lines, "\n")
+
+      local archive_heading_string = require("checkmate.util").get_heading_string(
+        vim.pesc(config.get_defaults().archive.heading.title),
+        config.get_defaults().archive.heading.level
+      )
+
+      local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
+
+      local expected_main_content = {
+        "# Project",
+        "",
+        "Some intro text.",
+        "",
+        "- " .. unchecked .. " Task A",
+        "",
+        "## Section 1",
+        "",
+        "Content for section 1.",
+        "",
+        "More content.",
+        "",
+        "- " .. unchecked .. " Task D",
+        "",
+        "## Section 2",
+        "",
+        "Final content.",
+        "",
+      }
+
+      local success, err = h.verify_content_lines(main_section, expected_main_content)
+      assert.equal(success, true, err)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
     end)
   end)
   describe("diffs", function()

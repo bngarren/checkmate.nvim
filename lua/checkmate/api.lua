@@ -507,6 +507,7 @@ function M.create_todo()
   end
 
   -- extract indentation
+  -- extract indentation
   local indent = line:match("^(%s*)") or ""
 
   -- does the line already start with a list marker

@@ -487,68 +487,59 @@ local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_l
   }
 end
 
--- Create a new todo item from the current line
-function M.create_todo()
-  local config = require("checkmate.config")
+---@param ctx      table            -- transaction context
+---@param start_row number           -- 0-based range start
+---@param end_row   number           -- 0-based range end (inclusive)
+---@param is_visual boolean          -- true if from Visual selection
+---@return checkmate.TextDiffHunk[]  -- array of diff hunks (possibly empty)
+function M.create_todos(ctx, start_row, end_row, is_visual)
   local parser = require("checkmate.parser")
-  local util = require("checkmate.util")
-  local log = require("checkmate.log")
+  local hunks = {}
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local row = cursor[1] - 1 -- 0-indexed
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+  local todo_map = ctx.todo_map
 
-  local todo_state = parser.get_todo_item_state(line)
-  if todo_state ~= nil then
-    log.debug("Line already has a todo marker, skipping", { module = "api" })
-    util.notify(("Todo item already exists on row %d!"):format(row + 1), log.levels.INFO)
-    return
+  -- Helper: ask parser if a given line is a todo; returns the TodoItem or nil
+  local function get_todo_item(bufnr, row)
+    return parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
   end
 
-  -- extract indentation
-  -- extract indentation
-  local indent = line:match("^(%s*)") or ""
+  local bufnr = ctx.bufnr
 
-  -- does the line already start with a list marker
-  local list_marker_match = util.match_first(
-    util.create_list_prefix_patterns({
-      simple_markers = parser.list_item_markers,
-      use_numbered_list_markers = true,
-      with_capture = true,
-    }),
-    line
-  )
-
-  local new_line
-  local unchecked = config.options.todo_markers.unchecked
-
-  if list_marker_match then
-    -- replace the list marker with itself then the unchecked todo marker
-    -- the list marker is captured as %1 in the pattern
-    new_line = line:gsub("^(" .. vim.pesc(list_marker_match) .. ")", "%1" .. unchecked .. " ")
+  if is_visual then
+    -- VISUAL MODE: for each line in the range, convert if not already a todo
+    for row = start_row, end_row do
+      local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+      local state = parser.get_todo_item_state(cur_line)
+      if state == nil then
+        -- Not a todo yet → convert it
+        -- This returns a diff hunk like { start_row=..., start_col=..., end_row=..., end_col=..., insert={...} }
+        local new_hunks = M.convert_line_to_todo(row)
+        if new_hunks and #new_hunks > 0 then
+          vim.list_extend(hunks, new_hunks)
+        end
+      end
+    end
   else
-    -- create a new line with the default list marker
-    local default_marker = config.options.default_list_marker or "-"
-    new_line = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
-    log.debug("Created new todo line with default marker: '" .. default_marker .. "'", { module = "api" })
+    --- NORMAL MODE: start_row == end_row (we ignore if they’re different)
+    local row = start_row
+    local todo_item = get_todo_item(bufnr, row)
+
+    if todo_item then
+      -- Cursor is on an existing todo: insert a new sibling below it
+      local new_hunks = M.insert_new_todo_below(row)
+      if new_hunks and #new_hunks > 0 then
+        vim.list_extend(hunks, new_hunks)
+      end
+    else
+      -- Cursor is on a non-todo line: convert this single line
+      local new_hunks = M.convert_line_to_todo(row)
+      if new_hunks and #new_hunks > 0 then
+        vim.list_extend(hunks, new_hunks)
+      end
+    end
   end
 
-  -- If no match or no list marker, fall back to new line creation
-  if not new_line then
-    new_line = indent .. "- " .. unchecked .. " " .. line:gsub("^%s*", "")
-  end
-
-  vim.api.nvim_buf_set_lines(bufnr, row, row + 1, false, { new_line })
-
-  require("checkmate.highlights").apply_highlighting(bufnr, { debug_reason = "create_todo" })
-
-  -- put cursor at end of line and enter insert mode
-  vim.api.nvim_win_set_cursor(0, { cursor[1], #new_line })
-
-  if config.options.enter_insert_after_new then
-    vim.cmd("startinsert!")
-  end
+  return hunks
 end
 
 --- Compute diff hunks for toggling a batch of items with their target states

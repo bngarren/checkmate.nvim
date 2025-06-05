@@ -405,7 +405,17 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
---- Create a new todo (or insert a sibling) at cursor or for each non-todo line in visual selection.
+--- Creates a new todo item
+---
+--- # Behavior
+--- - In normal mode:
+---   - Will convert a line under the cursor to a todo item if it is not one
+---   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
+--- - In visual mode:
+---   - Will convert each line in the selection to a new todo item with the default list marker
+---   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
+---   additional lines will be converted to individual todos
+---   - Will not append any new todo items even if all lines in the selection are already todo items
 ---@return boolean success
 function M.create()
   local api = require("checkmate.api")
@@ -413,74 +423,44 @@ function M.create()
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
 
-  -- if we’re already inside a transaction, queue a “convert or insert” for the current cursor row
+  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
   local ctx = transaction.current_context()
   if ctx then
-    local bufnr = ctx.bufnr or vim.api.nvim_get_current_buf()
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
-    local col = cursor[2]
 
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, row, col, { todo_map = transaction.get_state().todo_map })
-    if todo_item then
-      ctx.add_op(api.insert_new_todo_below, row)
-    else
-      ctx.add_op(api.convert_line_to_todo, row)
-    end
+    ctx.add_op(api.create_todos, row, row, false)
+
     return true
   end
 
-  -- start new transaction
   local bufnr = vim.api.nvim_get_current_buf()
   local is_visual = util.is_visual_mode()
 
-  local convert_rows = {}
-  local insert_rows = {}
-  local msg_mode = is_visual and "selection" or "cursor position"
-
+  local start_row, end_row
   if is_visual then
     vim.cmd([[normal! <Esc>]])
-    -- get the start/end row (1-based)
+    -- get the sel start/end row (1-based)
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
-    local start_row = mark_start[1] - 1
-    local end_row = mark_end[1] - 1
+    start_row = mark_start[1] - 1
+    end_row = mark_end[1] - 1
 
-    -- for each selected row, see if it is a todo already
-    for row = start_row, end_row do
-      local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local state = parser.get_todo_item_state(line)
-      if state == nil then
-        table.insert(convert_rows, row)
-      end
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
     end
   else
-    -- normal mode: single row under cursor
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local row = cursor[1] - 1
-    local col = cursor[2]
-    local todo_item = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = parser.get_todo_map(bufnr) })
-
-    if todo_item then
-      table.insert(insert_rows, row)
-    else
-      table.insert(convert_rows, row)
-    end
+    local cur = vim.api.nvim_win_get_cursor(0)
+    start_row = cur[1] - 1
+    end_row = start_row
   end
 
-  if #convert_rows == 0 and #insert_rows == 0 then
+  if not start_row or not end_row then
     return false
   end
 
-  local full_map = parser.get_todo_map(bufnr)
-  transaction.run(bufnr, full_map, function(tx_ctx)
-    for _, row in ipairs(convert_rows) do
-      tx_ctx.add_op(api.convert_line_to_todo, row)
-    end
-    for _, row in ipairs(insert_rows) do
-      tx_ctx.add_op(api.insert_new_todo_below, row)
-    end
+  transaction.run(bufnr, function(tx_ctx)
+    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)

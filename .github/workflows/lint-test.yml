@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: ${{ matrix["nvim-versions"] == 'nightly' && env.DATE || matrix["nvim-versions"] }}
+          key: ${{ matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }}
           # if exact key misses, fall back to any key that begins with neovim-cache-${matrix.nvim-versions}
           restore-keys: |
             neovim-cache-${{ matrix.nvim-versions }}
@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: ${{ matrix["nvim-versions"] == 'nightly' && env.DATE || matrix["nvim-versions"] }}
+          key: ${{ matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }}
 
       # Add the bin directory that we extracted Neovim to the PATH
       - name: Add Neovim to PATH

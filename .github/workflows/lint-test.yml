@@ -27,8 +27,11 @@ jobs:
     strategy:
       matrix:
         # PRs test only “stable,” while push to main tests both.
-        nvim-versions: ${{ github.event_name == 'pull_request' && ['stable'] || ['stable', 'nightly'] }}
+        nvim-version: [stable, nightly]
     name: test
+
+    # Skip the 'nightly' run if this is a PR (only do stable and nightly on push to main)
+    if: ${{ !(github.event_name == 'pull_request' && matrix.nvim-version == 'nightly') }}
 
     # Borrowed from https://github.com/folke/github/blob/main/neovim/action.yml
     steps:

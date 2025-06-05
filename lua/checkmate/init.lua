@@ -100,17 +100,29 @@ function M.reset()
   state.active_buffers = {}
 end
 
--- Checks if the file matches the given pattern(s)
--- Note: All pattern matching is case-sensitive.
--- Users should include multiple patterns for case-insensitive matching.
+--- Return true if the buffer’s filename matches at least one glob in `patterns`
+---
+--- - Only activates on `filetype == "markdown"`.
+--- - `patterns` is a list of shell-style globs (e.g. `"*.md"`, `"subdir/*.md"`).
+--- - If a pattern contains no “/”, it is compared only to the basename.
+--- - If a pattern contains “/”, it is compared to the full path, and (for
+---   relative globs) also tried against each suffix of the path.
+---
+--- @param bufnr number?  Buffer to check; defaults to current buffer.
+--- @param patterns string[]?  List of glob patterns.
+--- @return boolean
 function M.should_activate_for_buffer(bufnr, patterns)
-  if not patterns or #patterns == 0 then
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
     return false
   end
 
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  -- only markdown buffers
+  if vim.bo[bufnr].filetype ~= "markdown" then
+    return false
+  end
 
-  if not vim.api.nvim_buf_is_valid(bufnr) then
+  if type(patterns) ~= "table" or vim.tbl_isempty(patterns) then
     return false
   end
 
@@ -119,66 +131,49 @@ function M.should_activate_for_buffer(bufnr, patterns)
     return false
   end
 
-  -- Normalize path for consistent matching
-  local norm_filepath = filename:gsub("\\", "/")
-  local basename = vim.fn.fnamemodify(norm_filepath, ":t")
+  -- Normalize separators → always use forward slash
+  filename = filename:gsub("\\", "/")
+  local basename = vim.fn.fnamemodify(filename, ":t")
 
-  for _, pattern in ipairs(patterns) do
-    -- pattern matches exactly ,easy
-    if pattern == basename then
-      return true
-    end
+  --- Return true if `str` matches the anchored Vim regex `vreg`.
+  --- `vreg` should come from `glob2regpat()`, which already wraps `^…$`.
+  local function matches_vim_regex(str, vreg)
+    return vim.fn.match(str, vreg) ~= -1
+  end
 
-    -- pattern has no extension, but matches .md files
-    if not pattern:match("%.%w+$") and basename:match("%.md$") then
-      local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-      if pattern == basename_no_ext then
-        return true
-      end
-    end
+  for _, raw_pat in ipairs(patterns) do
+    -- Skip non-string or empty patterns
+    if type(raw_pat) == "string" and raw_pat ~= "" then
+      -- Normalize separators in the pattern as well
+      local pat = raw_pat:gsub("\\", "/")
+      local is_path_pattern = pat:find("/", 1, true) ~= nil
 
-    -- for directory patterns
-    if pattern:find("/") then
-      if norm_filepath:match("/" .. vim.pesc(pattern) .. "$") then
-        return true
-      end
+      -- Convert the glob into a Vim regex (anchored).  E.g. "*.md" → "^.*\.md$"
+      local vim_regex = vim.fn.glob2regpat(pat)
 
-      -- directory pattern has no extension, but matches .md files
-      if not pattern:match("%.md$") and norm_filepath:match("%.md$") then
-        if norm_filepath:match("/" .. vim.pesc(pattern) .. "%.md$") then
-          return true
-        end
-      end
-    end
-
-    -- Wildcard matching
-    if pattern:find("*") then
-      local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
-
-      if pattern:find("/") then
-        if norm_filepath:match(lua_pattern .. "$") then
+      if is_path_pattern then
+        -- 1) Try full-path match
+        if matches_vim_regex(filename, vim_regex) then
           return true
         end
 
-        -- try with .md added if pattern doesn't have extension and file does
-        if not pattern:match("%.%w+$") and norm_filepath:match("%.md$") then
-          if norm_filepath:match(lua_pattern .. "%.md$") then
-            return true
+        -- 2) If a “relative” path-glob (does NOT begin with "/" or "**/"),
+        --    also try matching any suffix of the path.
+        if not pat:match("^/") and not pat:match("^%*%*/") then
+          -- Split filename into components
+          local parts = vim.split(filename, "/", { plain = true })
+          for i = 1, #parts do
+            -- build suffix "parts[i]/parts[i+1]/…/parts[#parts]"
+            local suffix = table.concat(parts, "/", i, #parts)
+            if matches_vim_regex(suffix, vim_regex) then
+              return true
+            end
           end
         end
       else
-        -- simple filename patterns with wildcards
-        if basename:match("^" .. lua_pattern .. "$") then
+        -- No slash in the pattern → only compare against the basename
+        if matches_vim_regex(basename, vim_regex) then
           return true
-        end
-
-        -- if pattern doesn't have extension and file has .md extension,
-        -- try to match pattern against filename without extension
-        if not pattern:match("%.%w+$") and basename:match("%.md$") then
-          local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-          if basename_no_ext:match("^" .. lua_pattern .. "$") then
-            return true
-          end
         end
       end
     end

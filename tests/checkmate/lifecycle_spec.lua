@@ -242,8 +242,7 @@ describe("checkmate init and lifecycle", function()
   end)
 
   -- TODO: finish
-  pending("file patterns", function()
-    local config = require("checkmate.config")
+  describe("file patterns (edge-case coverage)", function()
     local checkmate = require("checkmate")
 
     lazy_setup(function()
@@ -254,69 +253,145 @@ describe("checkmate init and lifecycle", function()
       checkmate.stop()
     end)
 
-    local function test_pattern(filename, should_match)
+    local function test_pattern(filename, patterns, should_match, filetype)
       local bufnr = vim.api.nvim_create_buf(false, true)
       vim.api.nvim_buf_set_name(bufnr, filename)
-      local result = checkmate.should_activate_for_buffer(bufnr, config.options.files)
+
+      if filetype then
+        vim.api.nvim_buf_call(bufnr, function()
+          vim.cmd("setfiletype " .. filetype)
+        end)
+      else
+        vim.api.nvim_buf_call(bufnr, function()
+          vim.cmd("setfiletype markdown")
+        end)
+      end
+
+      local result = checkmate.should_activate_for_buffer(bufnr, patterns)
       assert.equal(
         should_match,
         result,
-        string.format("Pattern match failed for '%s' (expected %s)", filename, should_match)
+        string.format(
+          "Pattern match failed for '%s' with patterns %s and filetype '%s' (expected %s, got %s)",
+          filename,
+          vim.inspect(patterns),
+          vim.bo[bufnr].filetype,
+          tostring(should_match),
+          tostring(result)
+        )
       )
+
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end
 
-    it("should match exact filenames", function()
-      test_pattern("todo", true)
-      test_pattern("TODO", true)
-      test_pattern("todo.md", true)
-      test_pattern("TODO.md", true)
+    describe("empty or invalid inputs", function()
+      it("returns false when patterns = nil", function()
+        test_pattern("todo.md", nil, false)
+      end)
+
+      it("returns false when patterns = {} (empty list)", function()
+        test_pattern("todo.md", {}, false)
+      end)
+
+      it("returns false when buffer has no name", function()
+        local bufnr = vim.api.nvim_create_buf(false, true)
+        -- no name set
+        vim.api.nvim_buf_call(bufnr, function()
+          vim.cmd("setfiletype markdown")
+        end)
+        local result = checkmate.should_activate_for_buffer(bufnr, { "*.md" })
+        assert.is_false(result)
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+      end)
+
+      it("returns false when buffer is invalid", function()
+        -- Create and delete immediately to guarantee invalid bufnr
+        local bufnr = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        -- Now bufnr is invalid
+        local result = checkmate.should_activate_for_buffer(bufnr, { "*.md" })
+        assert.is_false(result)
+      end)
+
+      it("returns false if filetype is not markdown, even if pattern matches", function()
+        test_pattern("notes.md", { "*.md" }, false, "text")
+      end)
     end)
 
-    it("should match wildcard patterns", function()
-      test_pattern("my.todo", true)
-      test_pattern("project.todo.md", true)
-      test_pattern(".todo", true)
-      test_pattern("todo.txt", true) -- matches *.todo*
+    describe("backslash normalization on Windows-style paths", function()
+      it("matches even if filename uses backslashes", function()
+        -- plugin code normalizes "\\" → "/"
+        test_pattern([[C:\project\todo.md]], { "*.md" }, true)
+        test_pattern([[C:\project\todo.txt]], { "*.md" }, false)
+      end)
+
+      it("matches even if pattern uses backslashes", function()
+        test_pattern("/home/user/todo.md", { [[*\todo.md]] }, true)
+        test_pattern("/home/user/todo.md", { [[*\todo.txt]] }, false)
+      end)
     end)
 
-    it("should not match non-matching files", function()
-      test_pattern("notes.md", false)
-      test_pattern("readme.txt", false)
-      test_pattern("task.md", false)
+    describe("absolute-path vs relative-path logic", function()
+      it("only matches absolute globs (starting with /) against full path", function()
+        -- pattern="/foo/bar/*.md" must match only if filename begins with exactly "/foo/bar/"
+        test_pattern("/foo/bar/a.md", { "/foo/bar/*.md" }, true)
+        test_pattern("/x/y/foo/bar/a.md", { "/foo/bar/*.md" }, false)
+      end)
+
+      it("only matches '**/' globs anywhere in path", function()
+        -- pattern="**/*.md" should match any .md anywhere
+        test_pattern("/abc/def/ghi.md", { "**/*.md" }, true)
+        test_pattern("ghi.md", { "**/*.md" }, true)
+        test_pattern("/abc/def/ghi.txt", { "**/*.md" }, false)
+      end)
+
+      it("relative path glob matches any suffix of path", function()
+        -- pattern "subdir/*.md" should match if filename ends in "subdir/... .md"
+        test_pattern("/foo/bar/subdir/x.md", { "subdir/*.md" }, true)
+        test_pattern("/foo/bar/x/subdir/y.md", { "subdir/*.md" }, true)
+        test_pattern("/foo/bar/othersubdir/x.md", { "subdir/*.md" }, false)
+      end)
+
+      it("absolute path glob does NOT try suffix matching", function()
+        -- pattern starts with "/", so no suffix matching
+        test_pattern("/foo/bar/subdir/x.md", { "/bar/subdir/*.md" }, false)
+        test_pattern("/foo/bar/subdir/x.md", { "/foo/bar/subdir/*.md" }, true)
+      end)
     end)
 
-    it("should handle directory patterns", function()
-      ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({ files = { "docs/todo", "*/TODO.md" } })
+    describe("patterns mixing path and basename", function()
+      it("treats patterns without slash as basename only", function()
+        -- even if file lives at "/foo/todo", "todo" will match basename
+        test_pattern("/foo/todo", { "todo" }, true)
+        test_pattern("/foo/not_todo", { "todo" }, false)
+        test_pattern("/foo/todo.md", { "todo" }, false)
+      end)
 
-      test_pattern("docs/todo", true)
-      test_pattern("docs/todo.md", true)
-      test_pattern("any/TODO.md", true)
-      test_pattern("todo", false)
-      test_pattern("TODO.md", false) -- not in subdirectory
+      it("treats patterns with slash as requiring a slash in the path", function()
+        -- "a/todo" must match any suffix ending in "a/todo"
+        test_pattern("/foo/a/todo", { "a/todo" }, true)
+        test_pattern("/foo/b/a/todo", { "a/todo" }, true)
+        test_pattern("/foo/a/todo.md", { "a/todo" }, false)
+      end)
     end)
 
-    it("should handle case sensitivity correctly", function()
-      -- Default patterns are case-sensitive
-      test_pattern("Todo", false)
-      test_pattern("tODO", false)
+    describe("edge-case wildcards", function()
+      it("'*' at beginning or end still anchors correctly", function()
+        -- "*todo" must match names ending in "todo", but not "atetodow"
+        test_pattern("mytodo", { "*todo" }, true)
+        test_pattern("USETODO", { "*TODO" }, true)
+        test_pattern("endTodo", { "*Todo" }, true)
+        test_pattern("atetodow", { "*todo" }, false)
+      end)
 
-      -- Users need to include both cases if they want case-insensitive
-      ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({ files = { "todo", "Todo", "TODO" } })
-      test_pattern("todo", true)
-      test_pattern("Todo", true)
-      test_pattern("TODO", true)
-    end)
+      it("patterns containing only wildcards match correctly", function()
+        -- "*" alone (no slash) matches any basename (including empty basename? filename never empty)
+        test_pattern("/foo/bar.txt", { "*" }, true)
+        test_pattern("/foo/.hidden", { "*" }, true)
 
-    it("should handle patterns without extensions", function()
-      ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({ files = { "tasks" } })
-
-      test_pattern("tasks", true)
-      test_pattern("tasks.md", true) -- .md extension is automatically considered
-      test_pattern("tasks.txt", false)
+        -- "**" alone (no slash) is equivalent to "*" in our implementation
+        test_pattern("/foo/bar.txt", { "**" }, true)
+      end)
     end)
   end)
 

@@ -278,6 +278,11 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---Number of blank lines between archived todo items (root only)
 ---@field parent_spacing integer?
+---
+---How to arrange newly added archived todos
+---If true, newly added todos will be added to the top of the archive section
+---Default: true
+---@field newest_first boolean?
 
 ---@class checkmate.ArchiveHeading
 ---
@@ -413,6 +418,7 @@ local _DEFAULTS = {
       level = 2, -- e.g. ##
     },
     parent_spacing = 0, -- no extra lines between archived todos
+    newest_first = true,
   },
   linter = {
     enabled = true,

@@ -18,15 +18,14 @@
 A Markdown-based todo list plugin for Neovim with a nice UI and full customization options.
 
 ### Features
-- Stores todos in plain Markdown format (compatible with other apps)
-- Unicode symbol support for more beautiful todo items
+- Saves files in plain Markdown format (compatible with other apps)
 - Customizable markers and colors
 - Visual mode support for toggling multiple items at once
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
-- :new: Smart toggling behavior
-- :new: Archive completed todos! (_experimental_)
+- Smart toggling behavior
+- Archive completed todos
 
 <br/>
 
@@ -57,9 +56,16 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 }
 ```
 
+If you'd like _stable-ish_ version during pre-release, can add a minor version to the [lazy spec](https://lazy.folke.io/spec#spec-versioning):
+```
+{
+  version = "~0.8.0" -- pins to minor 0.8.x
+}
+```
+
 # ☑️ Usage
 
-#### 1. Open or Create a Todo File
+### 1. Open or Create a Todo File
 
 Checkmate automatically activates when you open a Markdown file that matches your configured patterns.
 
@@ -78,7 +84,7 @@ Checkmate automatically activates when you open a Markdown file that matches you
 > ```
 > Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
 
-#### 2. Create Todo Items
+### 2. Create Todo Items
 
 - Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command
 - Or manually using Markdown syntax:
@@ -90,7 +96,7 @@ Checkmate automatically activates when you open a Markdown file that matches you
 
 (These will automatically convert when you leave insert mode!)
 
-#### 3. Manage Your Tasks
+### 3. Manage Your Tasks
 
 - Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
 - Check items with `:CheckmateCheck` (default: `<leader>Tc`)
@@ -229,7 +235,8 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---
----@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---Settings for the archived todos section
+---@field archive checkmate.ArchiveSettings?
 ---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
@@ -403,6 +410,11 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---
 ---Number of blank lines between archived todo items (root only)
 ---@field parent_spacing integer?
+---
+---How to arrange newly added archived todos
+---If true, newly added todos will be added to the top of the archive section
+---Default: true
+---@field newest_first boolean?
 
 ---@class checkmate.ArchiveHeading
 ---
@@ -541,6 +553,7 @@ local _DEFAULTS = {
       level = 2, -- e.g. ##
     },
     parent_spacing = 0, -- no extra lines between archived todos
+    newest_first = true
   },
   linter = {
     enabled = true,

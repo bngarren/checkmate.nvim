@@ -27,15 +27,14 @@ customization options.
 
 FEATURES ~
 
-- Stores todos in plain Markdown format (compatible with other apps)
-- Unicode symbol support for more beautiful todo items
+- Saves files in plain Markdown format (compatible with other apps)
 - Customizable markers and colors
 - Visual mode support for toggling multiple items at once
 - Metadata e.g. `@tag(value)` annotations with extensive customization
     - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts
 - Smart toggling behavior
-- Archive completed todos! (_experimental_)
+- Archive completed todos
 
 
 
@@ -68,12 +67,21 @@ USING LAZY.NVIM ~
     }
 <
 
+If you’d like _stable-ish_ version during pre-release, can add a minor
+version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>
+
+>
+    {
+      version = "~0.8.0" -- pins to minor 0.8.x
+    }
+<
+
 
 ==============================================================================
 2. Usage                                                     *checkmate-usage*
 
 
-1. OPEN OR CREATE A TODO FILE
+1. OPEN OR CREATE A TODO FILE ~
 
 Checkmate automatically activates when you open a Markdown file that matches
 your configured patterns.
@@ -94,7 +102,7 @@ your configured patterns.
   Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and
   `{foo,bar}`
 
-2. CREATE TODO ITEMS
+2. CREATE TODO ITEMS ~
 
 - Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command
 - Or manually using Markdown syntax:
@@ -107,7 +115,7 @@ your configured patterns.
 (These will automatically convert when you leave insert mode!)
 
 
-3. MANAGE YOUR TASKS
+3. MANAGE YOUR TASKS ~
 
 - Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
 - Check items with `:CheckmateCheck` (default: `<leader>Tc`)
@@ -271,7 +279,8 @@ Config definitions/annotations ~
     ---will be merged with defaults.
     ---@field metadata checkmate.Metadata
     ---
-    ---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+    ---Settings for the archived todos section
+    ---@field archive checkmate.ArchiveSettings?
     ---
     ---Config for the linter
     ---@field linter checkmate.LinterConfig?
@@ -445,6 +454,11 @@ Config definitions/annotations ~
     ---
     ---Number of blank lines between archived todo items (root only)
     ---@field parent_spacing integer?
+    ---
+    ---How to arrange newly added archived todos
+    ---If true, newly added todos will be added to the top of the archive section
+    ---Default: true
+    ---@field newest_first boolean?
     
     ---@class checkmate.ArchiveHeading
     ---
@@ -583,6 +597,7 @@ DEFAULTS ~
           level = 2, -- e.g. ##
         },
         parent_spacing = 0, -- no extra lines between archived todos
+        newest_first = true
       },
       linter = {
         enabled = true,

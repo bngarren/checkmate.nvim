@@ -343,44 +343,205 @@ describe("API", function()
     end)
   end)
 
-  describe("todo creation and manipulation", function()
-    it("should create a new todo item", function()
+  describe("todo creation", function()
+    it("should convert a regular line to a todo item", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local default_list_marker = config.options.default_list_marker
+
       local file_path = h.create_temp_file()
-
       local content = "# Todo List\n\nThis is a regular line\n"
-
       local bufnr = setup_todo_buffer(file_path, content)
 
+      -- move cursor to the regular line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
       local success = require("checkmate").create()
       assert.is_true(success)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-      local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      assert.matches("- " .. vim.pesc(unchecked) .. " This is a regular line", lines[3])
+      assert.matches(default_list_marker .. " " .. vim.pesc(unchecked) .. " This is a regular line", lines[3])
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
       end)
     end)
 
+    it("should convert a line with existing list marker to todo", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+- Regular list item
+* Another list item
++ Yet another
+1. Ordered item]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      local expected = {
+        "- " .. unchecked .. " Regular list item",
+        "* " .. unchecked .. " Another list item",
+        "+ " .. unchecked .. " Yet another",
+        "1. " .. unchecked .. " Ordered item",
+      }
+
+      for i = 1, 4 do
+        vim.api.nvim_win_set_cursor(0, { i, 0 })
+        local success = require("checkmate").create()
+        assert.is_true(success)
+      end
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      for i, expected_line in ipairs(expected) do
+        assert.equal(expected_line, lines[i])
+      end
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should insert a new todo below when cursor is on existing todo", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local default_list_marker = config.options.default_list_marker
+
+      local file_path = h.create_temp_file()
+      local content = [[
+- ]] .. unchecked .. [[ First todo
+Some other content
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(3, #lines)
+      assert.equal(default_list_marker .. " " .. unchecked .. " First todo", lines[1])
+      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
+      assert.equal("Some other content", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should maintain indentation when inserting new todo", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local default_list_marker = config.options.default_list_marker
+
+      local file_path = h.create_temp_file()
+      local content = [[
+  - ]] .. unchecked .. [[ Indented todo
+Some other content ]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented todo", lines[1])
+      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should increment ordered list numbers when inserting", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+
+      local file_path = h.create_temp_file()
+      local content = [[
+1. ]] .. unchecked .. [[ First item
+2. ]] .. unchecked .. [[ Second item
+]]
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- insert after first item
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal("1. " .. unchecked .. " First item", lines[1])
+      assert.equal("2. " .. unchecked .. " ", lines[2])
+      assert.equal("2. " .. unchecked .. " Second item", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should handle empty lines correctly", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local default_list_marker = config.options.default_list_marker
+
+      local file_path = h.create_temp_file()
+      local content = "\n\n"
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[1])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should convert multiple selected lines to todos", function()
+      local config = require("checkmate.config")
+      local unchecked = config.options.todo_markers.unchecked
+      local default_list_marker = config.options.default_list_marker
+
+      local file_path = h.create_temp_file()
+      local content = "Line 1\nLine 2\nLine 3\n"
+      local bufnr = setup_todo_buffer(file_path, content)
+
+      -- select all lines
+      vim.cmd("normal! ggVG")
+
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(default_list_marker .. " " .. unchecked .. " Line 1", lines[1])
+      assert.equal(default_list_marker .. " " .. unchecked .. " Line 2", lines[2])
+      assert.equal(default_list_marker .. " " .. unchecked .. " Line 3", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+  end)
+
+  describe("todo manipulation", function()
     it("should add metadata to todo items", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = config.options.todo_markers.unchecked
 
       local file_path = h.create_temp_file()
 
-      local content = [[
-# Todo List
+      -- Initial content with a todo
+      local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
-- [ ] Task without metadata
-      ]]
-
+      -- Setup buffer with the content
       local bufnr = setup_todo_buffer(file_path, content)
 
+      -- Move cursor to the todo line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
       local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 2, 0)

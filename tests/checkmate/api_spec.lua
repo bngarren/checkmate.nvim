@@ -508,7 +508,10 @@ Some other content ]]
       local default_list_marker = config.options.default_list_marker
 
       local file_path = h.create_temp_file()
-      local content = "Line 1\nLine 2\nLine 3\n"
+      local content = [[
+Line 1
+Line 2
+  - Line 3]]
       local bufnr = setup_todo_buffer(file_path, content)
 
       -- select all lines
@@ -520,7 +523,8 @@ Some other content ]]
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.equal(default_list_marker .. " " .. unchecked .. " Line 1", lines[1])
       assert.equal(default_list_marker .. " " .. unchecked .. " Line 2", lines[2])
-      assert.equal(default_list_marker .. " " .. unchecked .. " Line 3", lines[3])
+      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Line 3", lines[3]) -- preserves indentation
+      assert.equal(3, #lines) -- ensure no new line created
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)

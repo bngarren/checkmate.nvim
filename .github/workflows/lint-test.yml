@@ -26,15 +26,19 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        nvim-versions: ["stable", "nightly"]
+        # PRs test only “stable,” while push to main tests both.
+        nvim-versions: ${{ github.event_name == 'pull_request' && ['stable'] || ['stable', 'nightly'] }}
     name: test
 
+    # Borrowed from https://github.com/folke/github/blob/main/neovim/action.yml
     steps:
       - name: checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # The cache key uses $DATE so that every calendar day produces a new key for 'nightly'
+      # For 'stable', we don't bust it until it has been changed (new version)
       - name: Set DATE
         shell: bash
         run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
@@ -44,8 +48,15 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: neovim-cache-${{ env.DATE }}-${{ matrix.nvim-versions }}
+          key: neovim-cache-${
+            { matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }
+            }
+          # if exact key misses, fall back to any key that begins with neovim-cache-${matrix.nvim-versions}
+          restore-keys: |
+            neovim-cache-${{ matrix.nvim-versions }}
+            neovim-cache-
 
+      # Only redownload Neovim if the cache was a miss
       - name: Install Neovim AppImage
         if: steps.cache-neovim-restore.outputs.cache-hit != 'true'
         shell: bash
@@ -59,29 +70,34 @@ jobs:
           chmod a+x ./nvim.appimage
           ./nvim.appimage --appimage-extract
 
+      # If this was a cache miss and we just downloaded and extracted AppImage, save
+      # the entire folder
       - name: Save Neovim cache
         if: steps.cache-neovim-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/nvim
-          key: ${{ steps.cache-neovim-restore.outputs.cache-primary-key }}
+          key: neovim-cache-${
+            { matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }
+            }
 
+      # Add the bin directory that we extracted Neovim to the PATH
       - name: Add Neovim to PATH
         shell: bash
-        run: echo "${{ runner.temp }}/nvim/squashfs-root/usr/bin/" >> $GITHUB_PATH
-
-      - name: Verify Neovim
-        shell: bash
-        run: nvim --version
+        run: |
+          echo "${{ runner.temp }}/nvim/squashfs-root/usr/bin/" >> $GITHUB_PATH
+          nvim --version
 
       - name: Install Lua 5.1 + Luarocks from apt
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y lua5.1 luarocks
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends lua5.1 luarocks
 
       - name: Restore LuaRocks cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
+          # want to invalidate (rebuild) the LuaRocks cache whenever the dependencies change
           key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
           path: |
             ~/.luarocks
@@ -93,12 +109,12 @@ jobs:
 
       - name: Save LuaRocks cache
         if: success()
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
           path: |
             ~/.luarocks
             ~/.cache/luarocks
 
-      - name: run tests
+      - name: Run Tests
         run: make test

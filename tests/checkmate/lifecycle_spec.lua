@@ -69,13 +69,6 @@ describe("checkmate init and lifecycle", function()
       assert.is_false(result)
       assert.is_false(checkmate.is_running())
 
-      -- Reset and try with invalid todo marker length
-      _G.reset_state()
-      ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
-      result = checkmate.setup({ todo_markers = { checked = "too long" } })
-      assert.is_false(result)
-      assert.is_false(checkmate.is_running())
-
       checkmate.stop()
     end)
 

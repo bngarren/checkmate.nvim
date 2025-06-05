@@ -241,7 +241,6 @@ describe("checkmate init and lifecycle", function()
     end)
   end)
 
-  -- TODO: finish
   describe("file patterns", function()
     local checkmate = require("checkmate")
     local file_matcher = require("checkmate.file_matcher")
@@ -306,10 +305,9 @@ describe("checkmate init and lifecycle", function()
       end)
 
       it("returns false when buffer is invalid", function()
-        -- Create and delete immediately to guarantee invalid bufnr
+        -- delete immediately to guarantee invalid bufnr
         local bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_delete(bufnr, { force = true })
-        -- Now bufnr is invalid
         local result = file_matcher.should_activate_for_buffer(bufnr, { "*.md" })
         assert.is_false(result)
       end)
@@ -319,9 +317,19 @@ describe("checkmate init and lifecycle", function()
       end)
     end)
 
+    describe("case sensitivity", function()
+      it("demonstrates case sensitivity", function()
+        test_pattern("/path/TODO", { "todo" }, false)
+        test_pattern("/path/todo", { "TODO" }, false)
+        test_pattern("/path/ToDo", { "todo" }, false)
+
+        test_pattern("/path/TODO", { "TODO" }, true)
+        test_pattern("/path/todo", { "todo" }, true)
+      end)
+    end)
+
     describe("backslash normalization on Windows-style paths", function()
       it("matches even if filename uses backslashes", function()
-        -- plugin code normalizes "\\" → "/"
         test_pattern([[C:\project\todo.md]], { "*.md" }, true)
         test_pattern([[C:\project\todo.txt]], { "*.md" }, false)
       end)
@@ -376,6 +384,46 @@ describe("checkmate init and lifecycle", function()
       end)
     end)
 
+    describe("documented glob syntax", function()
+      it("matches with * in the middle of pattern (*todo*)", function()
+        -- "*todo*" matches any file with "todo" in the name
+        test_pattern("/path/mytodolist.md", { "*todo*" }, true)
+        test_pattern("/path/todoapp.md", { "*todo*" }, true)
+        test_pattern("/path/bigtodo", { "*todo*" }, true)
+        test_pattern("/path/something.md", { "*todo*" }, false)
+        test_pattern("/path/to_do.md", { "*todo*" }, false)
+      end)
+
+      it("matches single character with ? wildcard", function()
+        -- "?" matches exactly one character
+        test_pattern("/path/todo1.md", { "todo?.md" }, true)
+        test_pattern("/path/todoA.md", { "todo?.md" }, true)
+        test_pattern("/path/todo.md", { "todo?.md" }, false) -- no char between 'todo' and '.md'
+        test_pattern("/path/todo22.md", { "todo?.md" }, false) -- two chars instead of one
+      end)
+
+      it("matches character sets with [abc]", function()
+        -- "[abc]" matches any single character in the set
+        test_pattern("/path/todo1.md", { "todo[123].md" }, true)
+        test_pattern("/path/todo2.md", { "todo[123].md" }, true)
+        test_pattern("/path/todo3.md", { "todo[123].md" }, true)
+        test_pattern("/path/todo4.md", { "todo[123].md" }, false)
+        test_pattern("/path/todoa.md", { "todo[123].md" }, false)
+      end)
+
+      it("matches alternation with {foo,bar}", function()
+        -- "{foo,bar}" matches either "foo" or "bar"
+        test_pattern("/path/TODO.md", { "{TODO,DONE}.md" }, true)
+        test_pattern("/path/DONE.md", { "{TODO,DONE}.md" }, true)
+        test_pattern("/path/PENDING.md", { "{TODO,DONE}.md" }, false)
+
+        -- works in paths too
+        test_pattern("/home/docs/todo.md", { "{docs,notes}/todo.md" }, true)
+        test_pattern("/home/notes/todo.md", { "{docs,notes}/todo.md" }, true)
+        test_pattern("/home/other/todo.md", { "{docs,notes}/todo.md" }, false)
+      end)
+    end)
+
     describe("edge-case wildcards", function()
       it("'*' at beginning or end still anchors correctly", function()
         -- "*todo" must match names ending in "todo", but not "atetodow"
@@ -392,6 +440,22 @@ describe("checkmate init and lifecycle", function()
 
         -- "**" alone (no slash) is equivalent to "*" in our implementation
         test_pattern("/foo/bar.txt", { "**" }, true)
+      end)
+
+      it("demonstrates equivalence of docs/*.md and **/docs/*.md", function()
+        -- both patterns match at any depth due to suffix matching
+        local patterns1 = { "docs/*.md" }
+        local patterns2 = { "**/docs/*.md" }
+
+        -- both should match identically
+        test_pattern("/home/docs/file.md", patterns1, true)
+        test_pattern("/home/docs/file.md", patterns2, true)
+
+        test_pattern("/project/src/docs/file.md", patterns1, true)
+        test_pattern("/project/src/docs/file.md", patterns2, true)
+
+        test_pattern("/a/b/c/d/docs/file.md", patterns1, true)
+        test_pattern("/a/b/c/d/docs/file.md", patterns2, true)
       end)
     end)
   end)

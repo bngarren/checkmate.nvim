@@ -8,7 +8,7 @@ local fn = vim.fn
 local split = vim.split
 local concat = table.concat
 
----Normalize path separators to forward slashes and expand home dir
+---normalize path separators to forward slashes and expand home dir
 ---@param path string
 ---@return string
 local function normalize_path(path)
@@ -20,17 +20,15 @@ local function matches_vim_regex(str, vim_regex)
 end
 
 ---pattern is a path pattern (contains forward slash)
----Remember to normalize it first
+---remember to normalize it first
 local function is_path_pattern(pattern)
   return pattern:find("/", 1, true) ~= nil
 end
 
----pattern is absolute (starts with /)
 local function is_absolute_pattern(pattern)
   return pattern:sub(1, 1) == "/"
 end
 
----pattern starts with **/
 local function is_recursive_pattern(pattern)
   return pattern:sub(1, 3) == "**/"
 end
@@ -60,12 +58,11 @@ local function match_path_suffixes(path, vim_regex)
   return false
 end
 
----Check if a single pattern matches the given filename
+---Check if a given pattern matches the given filename
 ---@param filename string The normalized full path of the file
----@param basename string The basename of the file
 ---@param pattern string The glob pattern to match
 ---@return boolean
-local function pattern_matches(filename, basename, pattern)
+local function pattern_matches(filename, pattern)
   if type(pattern) ~= "string" or pattern == "" then
     return false
   end
@@ -88,6 +85,7 @@ local function pattern_matches(filename, basename, pattern)
     end
   else
     -- no slash in pattern - match against basename only
+    local basename = fn.fnamemodify(filename, ":t")
     return matches_vim_regex(basename, vim_regex)
   end
 
@@ -120,10 +118,8 @@ function M.should_activate_for_buffer(bufnr, patterns)
 
   filename = normalize_path(filename)
 
-  local basename = fn.fnamemodify(filename, ":t")
-
   for _, pattern in ipairs(patterns) do
-    if pattern_matches(filename, basename, pattern) then
+    if pattern_matches(filename, pattern) then
       return true
     end
   end

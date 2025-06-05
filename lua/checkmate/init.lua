@@ -224,8 +224,6 @@ function M.stop()
     return
   end
 
-  local config = require("checkmate.config")
-
   local active_buffers = M.get_active_buffer_list()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.

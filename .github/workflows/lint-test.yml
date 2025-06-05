@@ -1,4 +1,3 @@
----
 name: lint-test
 on:
   push:
@@ -17,10 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: JohnnyMorganz/stylua-action@v3
+      - uses: JohnnyMorganz/stylua-action@v4
         with:
-          version: latest
           token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
           args: --color always --check lua
 
   test:
@@ -29,22 +28,93 @@ jobs:
       matrix:
         nvim-versions: ["stable", "nightly"]
     name: test
+
     steps:
-      - name: checkout
+      - name: checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: setup neovim
-        uses: rhysd/action-setup-vim@v1
+
+      - name: Set DATE
+        shell: bash
+        run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Restore Neovim cache
+        id: cache-neovim-restore
+        uses: actions/cache/restore@v4
         with:
-          neovim: true
-          version: ${{ matrix.nvim-versions }}
-      # Install Lua and LuaRocks - for busted and other dependencies
-      - name: Setup Lua
-        uses: leafo/gh-actions-lua@v11
+          path: ${{ runner.temp }}/nvim
+          key: neovim-cache-${{ env.DATE }}-${{ matrix.nvim-versions }}
+
+      - name: Install Neovim AppImage
+        if: steps.cache-neovim-restore.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ${{ runner.temp }}/nvim
+          wget -q \
+            https://github.com/neovim/neovim/releases/download/${{ matrix.nvim-versions }}/nvim-linux-x86_64.appimage \
+            -O ${{ runner.temp }}/nvim/nvim.appimage
+
+          cd ${{ runner.temp }}/nvim
+          chmod a+x ./nvim.appimage
+          ./nvim.appimage --appimage-extract
+
+      - name: Save Neovim cache
+        if: steps.cache-neovim-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          luaVersion: "5.1" # match Neovim's Lua version
-      - name: Setup LuaRocks
-        uses: leafo/gh-actions-luarocks@v5
+          path: ${{ runner.temp }}/nvim
+          key: ${{ steps.cache-neovim-restore.outputs.cache-primary-key }}
+
+      - name: Add Neovim to PATH
+        shell: bash
+        run: echo "${{ runner.temp }}/nvim/squashfs-root/usr/bin/" >> $GITHUB_PATH
+
+      - name: Verify Neovim
+        shell: bash
+        run: nvim --version
+
+      - name: Install Lua 5.1 + Luarocks from apt
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.1 luarocks
+
+      - name: Restore LuaRocks cache
+        uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
+          path: |
+            ~/.luarocks
+            ~/.cache/luarocks
+
+      - name: Install rock dependencies
+        run: make test-deps
+
+      - name: Save LuaRocks cache
+        if: success()
+        uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
+          path: |
+            ~/.luarocks
+            ~/.cache/luarocks
+        with:
+          key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
+          path: |
+            ~/.luarocks
+            ~/.cache/luarocks
+
+      - name: Install rock dependencies
+        run: make test-deps
+
+      - name: Save LuaRocks cache
+        if: success()
+        uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
+          path: |
+            ~/.luarocks
+            ~/.cache/luarocks
+
       - name: run tests
         run: make test

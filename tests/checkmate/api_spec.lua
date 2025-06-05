@@ -142,8 +142,8 @@ describe("API", function()
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
 
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", lines[3])
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", lines[4])
@@ -346,8 +346,8 @@ describe("API", function()
   describe("todo creation", function()
     it("should convert a regular line to a todo item", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local default_list_marker = config.options.default_list_marker
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local default_list_marker = config.get_defaults().default_list_marker
 
       local file_path = h.create_temp_file()
       local content = "# Todo List\n\nThis is a regular line\n"
@@ -369,7 +369,7 @@ describe("API", function()
 
     it("should convert a line with existing list marker to todo", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -404,8 +404,8 @@ describe("API", function()
 
     it("should insert a new todo below when cursor is on existing todo", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local default_list_marker = config.options.default_list_marker
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local default_list_marker = config.get_defaults().default_list_marker
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -432,8 +432,8 @@ Some other content
 
     it("should maintain indentation when inserting new todo", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local default_list_marker = config.options.default_list_marker
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local default_list_marker = config.get_defaults().default_list_marker
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -457,7 +457,7 @@ Some other content ]]
 
     it("should increment ordered list numbers when inserting", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -483,8 +483,8 @@ Some other content ]]
 
     it("should handle empty lines correctly", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local default_list_marker = config.options.default_list_marker
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local default_list_marker = config.get_defaults().default_list_marker
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -509,8 +509,8 @@ Some other content ]]
 
     it("should convert multiple selected lines to todos", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local default_list_marker = config.options.default_list_marker
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local default_list_marker = config.get_defaults().default_list_marker
 
       local file_path = h.create_temp_file()
       local content = [[
@@ -540,7 +540,7 @@ Line 2
   describe("todo manipulation", function()
     it("should add metadata to todo items", function()
       local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       local file_path = h.create_temp_file()
 
@@ -719,8 +719,8 @@ Line 2
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local checked = config.options.todo_markers.checked
-      local unchecked = config.options.todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       assert.matches("- " .. vim.pesc(checked) .. " Task 1", lines[3])
       assert.matches("- " .. vim.pesc(unchecked) .. " Task 2 @priority%(high%)", lines[4])
@@ -1578,8 +1578,8 @@ Normal content line (not a todo)]]
 
       -- no archive section should have been created
       local archive_heading_string = require("checkmate.util").get_heading_string(
-        config.options.archive.heading.title,
-        config.options.archive.heading.level
+        config.get_defaults().archive.heading.title,
+        config.get_defaults().archive.heading.level
       )
       assert.no.matches(vim.pesc(archive_heading_string), buffer_content)
 
@@ -1635,7 +1635,7 @@ Some content here
       local buffer_content = table.concat(lines, "\n")
 
       local archive_heading_string =
-        require("checkmate.util").get_heading_string(heading_title, config.options.archive.heading.level)
+        require("checkmate.util").get_heading_string(heading_title, config.get_defaults().archive.heading.level)
 
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
@@ -1711,8 +1711,8 @@ Some content here
       local buffer_content = table.concat(lines, "\n")
 
       local archive_heading_string = require("checkmate.util").get_heading_string(
-        vim.pesc(config.options.archive.heading.title),
-        config.options.archive.heading.level
+        vim.pesc(config.get_defaults().archive.heading.title),
+        config.get_defaults().archive.heading.level
       )
 
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)

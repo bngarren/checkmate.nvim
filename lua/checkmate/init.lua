@@ -405,10 +405,65 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
---- Create a new todo item
----@returns boolean success
+--- Creates a new todo item
+---
+--- # Behavior
+--- - In normal mode:
+---   - Will convert a line under the cursor to a todo item if it is not one
+---   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
+--- - In visual mode:
+---   - Will convert each line in the selection to a new todo item with the default list marker
+---   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
+---   additional lines will be converted to individual todos
+---   - Will not append any new todo items even if all lines in the selection are already todo items
+---@return boolean success
 function M.create()
-  require("checkmate.api").create_todo()
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local util = require("checkmate.util")
+
+  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
+  local ctx = transaction.current_context()
+  if ctx then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    ctx.add_op(api.create_todos, row, row, false)
+
+    return true
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local is_visual = util.is_visual_mode()
+
+  local start_row, end_row
+  if is_visual then
+    vim.cmd([[execute "normal! \<Esc>"]])
+    -- get the sel start/end row (1-based)
+    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
+    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
+    start_row = mark_start[1] - 1
+    end_row = mark_end[1] - 1
+
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
+    end
+  else
+    local cur = vim.api.nvim_win_get_cursor(0)
+    start_row = cur[1] - 1
+    end_row = start_row
+  end
+
+  if start_row == nil or end_row == nil then
+    return false
+  end
+
+  transaction.run(bufnr, function(tx_ctx)
+    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+  end, function()
+    require("checkmate.highlights").apply_highlighting(bufnr)
+  end)
+
   return true
 end
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.0](https://github.com/bngarren/checkmate.nvim/compare/v0.7.1...v0.8.0) (2025-06-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* improved 'create todo' functionality, allowing for new line insertion ([#80](https://github.com/bngarren/checkmate.nvim/issues/80))
+* Improve file pattern matching to follow expected unix style glob pattern behavior ([#86](https://github.com/bngarren/checkmate.nvim/issues/86))
+
+### Features
+
+* **api:** added `newest_first` option to config.archive ([addbe4d](https://github.com/bngarren/checkmate.nvim/commit/addbe4d1d18b5c10dd9863f9ff6a7aee6cc9f8b2))
+* Improve file pattern matching to follow expected unix style glob pattern behavior ([#86](https://github.com/bngarren/checkmate.nvim/issues/86)) ([062ae46](https://github.com/bngarren/checkmate.nvim/commit/062ae465e614dc89d095394bf1bb577af1cf2016))
+* improved 'create todo' functionality, allowing for new line insertion ([#80](https://github.com/bngarren/checkmate.nvim/issues/80)) ([f827108](https://github.com/bngarren/checkmate.nvim/commit/f827108d20d7832bb6466252b6b659bc1f7dfa86))
+
+
+### Bug Fixes
+
+* **api:** fixes bug with incorrect spacing of remaining todos after archive ([f8cf100](https://github.com/bngarren/checkmate.nvim/commit/f8cf100fcec87260aff36e3dcbea445850f8c704))
+* **config:** updates config validation to match current config options ([#71](https://github.com/bngarren/checkmate.nvim/issues/71)) ([0a6deab](https://github.com/bngarren/checkmate.nvim/commit/0a6deab40e0858dc0bd5d005e19c5769da179908))
+* fixes [#81](https://github.com/bngarren/checkmate.nvim/issues/81) error with parsing markdown boxes at EOL ([#82](https://github.com/bngarren/checkmate.nvim/issues/82)) ([9e0cf89](https://github.com/bngarren/checkmate.nvim/commit/9e0cf89a5988cf39e5bed607884f5c5fbf3e3399))
+* warn about multi-character todo markers rather than fail validation ([#87](https://github.com/bngarren/checkmate.nvim/issues/87)) ([6eb56d3](https://github.com/bngarren/checkmate.nvim/commit/6eb56d39c78c0202ad6043bdfc54f321b3b078fa))
+
 ## [0.7.1](https://github.com/bngarren/checkmate.nvim/compare/v0.7.0...v0.7.1) (2025-06-03)
 
 

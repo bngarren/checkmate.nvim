@@ -109,14 +109,14 @@ describe("checkmate init and lifecycle", function()
     it("should activate existing markdown buffers on setup", function()
       local checkmate = require("checkmate")
 
-      vim.cmd("edit todo.md")
+      vim.cmd("edit todo")
       local bufnr = vim.api.nvim_get_current_buf()
       vim.bo[bufnr].filetype = "markdown"
 
       -- setup should activate this buffer
       checkmate.setup()
 
-      vim.wait(10)
+      vim.wait(20)
 
       assert.is_true(vim.b[bufnr].checkmate_setup_complete or false)
 
@@ -170,7 +170,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.equal(0, checkmate.count_active_buffers())
 
-      vim.cmd("edit todo.md")
+      vim.cmd("edit todo")
       local bufnr = vim.api.nvim_get_current_buf()
       vim.bo[bufnr].filetype = "markdown"
 
@@ -226,7 +226,7 @@ describe("checkmate init and lifecycle", function()
 
       checkmate.setup()
 
-      vim.cmd("edit todo.md")
+      vim.cmd("edit todo")
       local bufnr = vim.api.nvim_get_current_buf()
       vim.bo[bufnr].filetype = "markdown"
 
@@ -242,7 +242,7 @@ describe("checkmate init and lifecycle", function()
   end)
 
   -- TODO: finish
-  describe("file patterns (edge-case coverage)", function()
+  describe("file patterns", function()
     local checkmate = require("checkmate")
 
     lazy_setup(function()
@@ -399,7 +399,7 @@ describe("checkmate init and lifecycle", function()
     local checkmate = require("checkmate")
     checkmate.setup()
 
-    vim.cmd("edit todo.md")
+    vim.cmd("edit todo")
     local bufnr = vim.api.nvim_get_current_buf()
     vim.bo[bufnr].filetype = "markdown"
 

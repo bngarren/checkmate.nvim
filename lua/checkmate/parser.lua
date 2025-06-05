@@ -217,7 +217,7 @@ function M.convert_markdown_to_unicode(bufnr)
   local modified = false
   local original_modified = vim.bo[bufnr].modified
 
-  -- Build patterns only once
+  -- build patterns once
   local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[ %]")
   local checked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[[xX]%]")
   local unchecked = config.options.todo_markers.unchecked
@@ -228,14 +228,38 @@ function M.convert_markdown_to_unicode(bufnr)
   for _, line in ipairs(lines) do
     local new_line = line
 
-    -- Apply all unchecked replacements
+    -- important! slighty hacky code that isn't immediately obvious incoming:
+    --
+    -- The markdown checkbox patterns built above include 2 variants:
+    -- 1. Patterns ending with "$" for checkboxes at end of line (e.g., "- [ ]")
+    -- 2. Patterns ending with " " for checkboxes followed by text (e.g., "- [ ] text")
+    --
+    -- For variant 2, the space is consumed by the pattern match but NOT captured,
+    -- so we must add it back explicitly in the replacement to preserve formatting.
+    --
+    -- Why do we need to do this?
+    -- this was the best way I could find to match `- [ ]` but not `- [ ]this`
+    -- i.e., if the [ ] is not at EOL, there must be a space, otherwise no space is needed
+
+    -- unchecked replacements
     for _, pat in ipairs(unchecked_patterns) do
-      new_line = new_line:gsub(pat, "%1" .. unchecked)
+      if pat:sub(-1) == " " then
+        -- pattern ends with space (variant 2), so add it back in replacement
+        new_line = new_line:gsub(pat, "%1" .. unchecked .. " ")
+      else
+        -- pattern ends with $, no space needed
+        new_line = new_line:gsub(pat, "%1" .. unchecked)
+      end
     end
 
-    -- Apply all checked replacements
+    -- checked replacements
     for _, pat in ipairs(checked_patterns) do
-      new_line = new_line:gsub(pat, "%1" .. checked)
+      if pat:sub(-1) == " " then
+        -- same as unchecked, above
+        new_line = new_line:gsub(pat, "%1" .. checked .. " ")
+      else
+        new_line = new_line:gsub(pat, "%1" .. checked)
+      end
     end
 
     if new_line ~= line then
@@ -398,7 +422,8 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
     end
   end
 
-  -- Fallback to Treesitter-based logic
+  -- we are here because the row did not match a todo's first row (tracked by the extmark)...but we could still be within a todo's scope
+  -- now use Treesitter-based logic
 
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)

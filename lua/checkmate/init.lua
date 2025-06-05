@@ -1,176 +1,185 @@
 ---@class Checkmate
 local M = {}
 
--- Internal plugin state
-local _state = {
-  initialized = false, -- Has setup been called?
+local state = {
+  initialized = false,
+  running = false,
+  setup_callbacks = {},
+  active_buffers = {}, -- bufnr -> true
 }
 
--- Checks if the file matches the given pattern(s)
--- Note: All pattern matching is case-sensitive.
--- Users should include multiple patterns for case-insensitive matching.
-function M.should_activate_for_buffer(bufnr, patterns)
-  if not patterns or #patterns == 0 then
-    return false
-  end
+function M.is_initialized()
+  return state.initialized
+end
 
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local filename = vim.api.nvim_buf_get_name(bufnr)
+function M.set_initialized(value)
+  state.initialized = value
 
-  if not filename or filename == "" then
-    return false
-  end
-
-  -- Normalize path for consistent matching
-  local norm_path = filename:gsub("\\", "/")
-  local basename = vim.fn.fnamemodify(norm_path, ":t")
-
-  for _, pattern in ipairs(patterns) do
-    if pattern == basename then
-      return true
-    end
-
-    -- if pattern has no extension and file has .md extension,
-    -- check if pattern matches filename without extension
-    if not pattern:match("%.%w+$") and basename:match("%.md$") then
-      local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-      if pattern == basename_no_ext then
-        return true
-      end
-    end
-
-    -- for directory patterns
-    if pattern:find("/") then
-      if norm_path:match("/" .. vim.pesc(pattern) .. "$") then
-        return true
-      end
-
-      -- if pattern doesn't end with .md and the file has .md extension,
-      -- check if adding .md to the pattern would match
-      if not pattern:match("%.md$") and norm_path:match("%.md$") then
-        if norm_path:match("/" .. vim.pesc(pattern) .. "%.md$") then
-          return true
-        end
-      end
-    end
-
-    -- Wildcard matching
-    if pattern:find("*") then
-      local lua_pattern = vim.pesc(pattern):gsub("%%%*", ".*")
-
-      if pattern:find("/") then
-        if norm_path:match(lua_pattern .. "$") then
-          return true
-        end
-
-        -- try with .md added if pattern doesn't have extension and file does
-        if not pattern:match("%.%w+$") and norm_path:match("%.md$") then
-          if norm_path:match(lua_pattern .. "%.md$") then
-            return true
-          end
-        end
-      else
-        -- simple filename patterns with wildcards
-        if basename:match("^" .. lua_pattern .. "$") then
-          return true
-        end
-
-        -- if pattern doesn't have extension and file has .md extension,
-        -- try to match pattern against filename without extension
-        if not pattern:match("%.%w+$") and basename:match("%.md$") then
-          local basename_no_ext = vim.fn.fnamemodify(basename, ":r")
-          if basename_no_ext:match("^" .. lua_pattern .. "$") then
-            return true
-          end
-        end
-      end
+  -- run cb's after setup done
+  if value and #state.setup_callbacks > 0 then
+    local callbacks = state.setup_callbacks
+    state.setup_callbacks = {}
+    for _, callback in ipairs(callbacks) do
+      vim.schedule(callback)
     end
   end
+end
 
-  return false
+function M.is_running()
+  return state.running
+end
+
+function M.set_running(value)
+  state.running = value
+end
+
+function M.on_initialized(callback)
+  if state.initialized then
+    callback()
+  else
+    -- queue it
+    table.insert(state.setup_callbacks, callback)
+  end
+end
+
+function M.register_buffer(bufnr)
+  state.active_buffers[bufnr] = true
+end
+
+function M.unregister_buffer(bufnr)
+  state.active_buffers[bufnr] = nil
+end
+
+function M.is_buffer_active(bufnr)
+  return state.active_buffers[bufnr] == true
+end
+
+-- Returns array of buffer numbers
+function M.get_active_buffer_list()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      table.insert(buffers, bufnr)
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Returns hash table of bufnr -> true
+function M.get_active_buffer_map()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      buffers[bufnr] = true
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Convenience function that returns count
+function M.count_active_buffers()
+  local count = 0
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      count = count + 1
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return count
+end
+
+function M.reset()
+  state.initialized = false
+  state.running = false
+  state.setup_callbacks = {}
+  state.active_buffers = {}
 end
 
 ---@param opts checkmate.Config?
+---@return boolean success
 M.setup = function(opts)
   local config = require("checkmate.config")
-  opts = opts or {}
 
-  if _state.initialized then
-    M.stop()
+  -- reload if config has changed
+  if M.is_initialized() then
+    local current_config = config.options
+
+    if opts and not vim.deep_equal(opts, current_config) then
+      M.stop()
+    else
+      return true
+    end
   end
 
-  config.setup(opts)
+  local success, err = pcall(function()
+    if M.is_running() then
+      M.stop()
+    end
 
-  _state.initialized = true
+    local cfg = config.setup(opts or {})
+    if vim.tbl_isempty(cfg) then
+      error("config setup failed")
+    end
 
-  vim.api.nvim_create_autocmd("FileType", {
-    group = vim.api.nvim_create_augroup("checkmate_ft", { clear = true }),
-    pattern = "markdown",
-    callback = function(event)
-      -- Check if this markdown file should activate Checkmate
-      if M.should_activate_for_buffer(event.buf, config.options.files) then
-        vim.schedule(function()
-          M.start()
-          require("checkmate.api").setup(event.buf)
-        end)
-      end
-    end,
-  })
+    M.set_initialized(true)
 
-  return config.options
+    if cfg.enabled then
+      M.start()
+    end
+  end)
+
+  if not success then
+    vim.notify("Checkmate: Setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    M.reset()
+    return false
+  end
+
+  return true
 end
 
--- Main loading function - loads all plugin components
+-- spin up parser, highlights, commands, linter, autocmds
 function M.start()
-  local config = require("checkmate.config")
-
-  if config._state.running then
+  if M.is_running() then
     return
   end
 
+  local config = require("checkmate.config")
   if not config.options.enabled then
     return
   end
 
-  local log = require("checkmate.log")
-  log.setup()
-  log.debug("Beginning plugin initialization", { module = "init" })
+  local success, err = pcall(function()
+    local log = require("checkmate.log")
+    log.setup()
 
-  config.start()
+    -- each of these should clear any caches they own
+    require("checkmate.parser").setup()
+    require("checkmate.highlights").setup_highlights()
+    if config.options.linter and config.options.linter.enabled ~= false then
+      require("checkmate.linter").setup(config.options.linter)
+    end
 
-  require("checkmate.parser").setup()
+    M._setup_autocommands()
 
-  require("checkmate.highlights").setup_highlights()
+    M.set_running(true)
 
-  require("checkmate.commands").setup()
+    M._setup_existing_markdown_buffers()
 
-  if config.options.linter and config.options.linter.enabled ~= false then
-    require("checkmate.linter").setup(config.options.linter)
+    log.info("Checkmate plugin started", { module = "init" })
+  end)
+  if not success then
+    vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
+    M.stop() -- cleanup partial initialization
   end
-
-  M._setup_autocommands()
-
-  config._state.running = true
-
-  log.info("Checkmate plugin loaded successfully", { module = "init" })
 end
 
--- Sets up all plugin autocommands (beyond the lazy detection ones)
 function M._setup_autocommands()
-  local augroup = vim.api.nvim_create_augroup("checkmate", { clear = true })
-
-  -- Track active buffers for cleanup
-  vim.api.nvim_create_autocmd("BufDelete", {
-    group = augroup,
-    callback = function(args)
-      local bufnr = args.buf
-      require("checkmate.config").unregister_buffer(bufnr)
-      -- Reset any API state for this buffer
-      require("checkmate.api")._debounced_process_buffer_fns[bufnr] = nil
-      -- Clear the todo map cache for this buffer
-      require("checkmate.parser").todo_map_cache[bufnr] = nil
-    end,
-  })
+  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = augroup,
@@ -178,19 +187,79 @@ function M._setup_autocommands()
       M.stop()
     end,
   })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    pattern = "markdown",
+    callback = function(event)
+      local cfg = require("checkmate.config").options
+      if not (cfg and cfg.enabled) then
+        return
+      end
+
+      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
+        require("checkmate.commands").setup(event.buf)
+        require("checkmate.api").setup_buffer(event.buf)
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    callback = function(event)
+      local bufs = M.get_active_buffer_list()
+      for _, buf in ipairs(bufs) do
+        if event.buf == buf and event.match ~= "markdown" then
+          require("checkmate.commands").dispose(buf)
+          require("checkmate.api").shutdown(buf)
+          M.unregister_buffer(buf)
+        end
+      end
+    end,
+  })
 end
 
 function M.stop()
-  local config = require("checkmate.config")
-  if not config.is_running() then
+  if not M.is_running() then
     return
   end
 
-  config.stop()
+  local active_buffers = M.get_active_buffer_list()
 
-  config._state.running = false
+  -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
+  for bufnr, _ in pairs(active_buffers) do
+    require("checkmate.api").shutdown(bufnr)
+  end
 
-  require("checkmate.log").shutdown()
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_ft")
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
+  pcall(vim.api.nvim_del_augroup_by_name, "CheckmateHighlighting")
+
+  require("checkmate.parser").todo_map_cache = {}
+
+  if package.loaded["checkmate.log"] then
+    pcall(function()
+      require("checkmate.log").shutdown()
+    end)
+  end
+
+  M.reset()
+end
+
+function M._setup_existing_markdown_buffers()
+  local config = require("checkmate.config")
+  local file_matcher = require("checkmate.file_matcher")
+
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if
+      vim.api.nvim_buf_is_valid(bufnr)
+      and vim.api.nvim_buf_is_loaded(bufnr)
+      and vim.bo[bufnr].filetype == "markdown"
+      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
+    then
+      require("checkmate.api").setup_buffer(bufnr)
+    end
+  end
 end
 
 -- PUBLIC API --
@@ -214,17 +283,26 @@ function M.toggle(target_state)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
+    -- queue the operation in the current transaction
     -- If toggle() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    local todo_item = parser.get_todo_item_at_position(
+      ctx.get_buf(),
+      cursor[1] - 1,
+      cursor[2],
+      { todo_map = transaction._state.todo_map }
+    )
     if todo_item then
       if smart_toggle_enabled then
         api.propagate_toggle(ctx, { todo_item }, transaction._state.todo_map, target_state)
       else
-        ctx.add_op(api.toggle_state, todo_item.id, target_state)
+        ctx.add_op(api.toggle_state, {
+          {
+            id = todo_item.id,
+            target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked"),
+          },
+        })
       end
     end
     profiler.stop("M.toggle")
@@ -233,16 +311,23 @@ function M.toggle(target_state)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  -- we go ahead a keep the parsed todo_map so that we can initialize the transaction below without it
-  -- also having to discover_todos
   local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
-  transaction.run(bufnr, todo_map, function(_ctx)
+  transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled then
       api.propagate_toggle(_ctx, todo_items, todo_map, target_state)
     else
+      local operations = {}
+
       for _, item in ipairs(todo_items) do
-        _ctx.add_op(api.toggle_state, item.id, target_state)
+        table.insert(operations, {
+          id = item.id,
+          target_state = target_state or (item.state == "unchecked" and "checked" or "unchecked"),
+        })
+      end
+
+      if #operations > 0 then
+        _ctx.add_op(api.toggle_state, operations)
       end
     end
   end, function()
@@ -275,21 +360,27 @@ function M.set_todo_item(todo_item, target_state)
       local todo_map = transaction._state.todo_map
       api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
     else
-      ctx.add_op(api.set_todo_item, todo_id, target_state)
+      ctx.add_op(api.toggle_state, { {
+        id = todo_id,
+        target_state = target_state,
+      } })
     end
     return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  -- If smart toggle is enabled, we need the todo_map
+  -- if smart toggle is enabled, we need the todo_map
   local todo_map = smart_toggle_enabled and parser.get_todo_map(bufnr) or nil
 
-  transaction.run(bufnr, todo_map, function(_ctx)
+  transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled and todo_map then
       api.propagate_toggle(_ctx, { todo_item }, todo_map, target_state)
     else
-      _ctx.add_op(api.set_todo_item, todo_id, target_state)
+      _ctx.add_op(api.toggle_state, { {
+        id = todo_id,
+        target_state = target_state,
+      } })
     end
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
@@ -314,10 +405,65 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
---- Create a new todo item
----@returns boolean success
+--- Creates a new todo item
+---
+--- # Behavior
+--- - In normal mode:
+---   - Will convert a line under the cursor to a todo item if it is not one
+---   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
+--- - In visual mode:
+---   - Will convert each line in the selection to a new todo item with the default list marker
+---   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
+---   additional lines will be converted to individual todos
+---   - Will not append any new todo items even if all lines in the selection are already todo items
+---@return boolean success
 function M.create()
-  require("checkmate.api").create_todo()
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local util = require("checkmate.util")
+
+  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
+  local ctx = transaction.current_context()
+  if ctx then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    ctx.add_op(api.create_todos, row, row, false)
+
+    return true
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local is_visual = util.is_visual_mode()
+
+  local start_row, end_row
+  if is_visual then
+    vim.cmd([[execute "normal! \<Esc>"]])
+    -- get the sel start/end row (1-based)
+    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
+    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
+    start_row = mark_start[1] - 1
+    end_row = mark_end[1] - 1
+
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
+    end
+  else
+    local cur = vim.api.nvim_win_get_cursor(0)
+    start_row = cur[1] - 1
+    end_row = start_row
+  end
+
+  if start_row == nil or end_row == nil then
+    return false
+  end
+
+  transaction.run(bufnr, function(tx_ctx)
+    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+  end, function()
+    require("checkmate.highlights").apply_highlighting(bufnr)
+  end)
+
   return true
 end
 
@@ -339,21 +485,24 @@ function M.add_metadata(metadata_name, value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If add_metadata() is run within an existing transaction, we will use the cursor position
+    -- if add_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    local todo_item = parser.get_todo_item_at_position(
+      ctx.get_buf(),
+      cursor[1] - 1,
+      cursor[2],
+      { todo_map = transaction._state.todo_map }
+    )
     if todo_item then
-      ctx.add_op(api.add_metadata, todo_item.id, metadata_name, value)
+      ctx.add_op(api.add_metadata, { { id = todo_item.id, meta_name = metadata_name, meta_value = value } })
     end
     return true
   end
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -361,11 +510,17 @@ function M.add_metadata(metadata_name, value)
     return false
   end
 
-  -- Begin a transaction
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.add_metadata, item.id, metadata_name, value)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = metadata_name,
+      meta_value = value,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.add_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -382,21 +537,24 @@ function M.remove_metadata(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    local todo_item = parser.get_todo_item_at_position(
+      ctx.get_buf(),
+      cursor[1] - 1,
+      cursor[2],
+      { todo_map = transaction._state.todo_map }
+    )
     if todo_item then
-      ctx.add_op(api.remove_metadata, todo_item.id, metadata_name)
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
     end
     return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -404,10 +562,16 @@ function M.remove_metadata(metadata_name)
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.remove_metadata, item.id, metadata_name)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = metadata_name,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.remove_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -423,21 +587,24 @@ function M.remove_all_metadata()
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If remove_all_metadata() is run within an existing transaction, we will use the cursor position
+    -- if remove_all_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    local todo_item = parser.get_todo_item_at_position(
+      ctx.get_buf(),
+      cursor[1] - 1,
+      cursor[2],
+      { todo_map = transaction._state.todo_map }
+    )
     if todo_item then
-      ctx.add_op(api.remove_all_metadata, todo_item.id)
+      ctx.add_op(api.remove_all_metadata, { todo_item.id })
     end
     return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -445,10 +612,12 @@ function M.remove_all_metadata()
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.remove_all_metadata, item.id)
-    end
+  local ids = vim.tbl_map(function(item)
+    return item.id
+  end, todo_items)
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.remove_all_metadata, ids)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -469,14 +638,17 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local ctx = transaction.current_context()
   if ctx then
-    -- Queue the operation in the current transaction
-    -- If toggle_metadata() is run within an existing transaction, we will use the cursor position
+    -- if toggle_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item =
-      parser.get_todo_item_at_position(ctx.bufnr, cursor[1] - 1, cursor[2], { todo_map = transaction._state.todo_map })
+    local todo_item = parser.get_todo_item_at_position(
+      ctx.get_buf(),
+      cursor[1] - 1,
+      cursor[2],
+      { todo_map = transaction._state.todo_map }
+    )
     if todo_item then
-      ctx.add_op(api.toggle_metadata, todo_item.id, meta_name, custom_value)
+      ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = meta_name, custom_value = custom_value } })
     end
     profiler.stop("M.toggle_metadata")
     return true
@@ -484,7 +656,7 @@ function M.toggle_metadata(meta_name, custom_value)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -492,10 +664,17 @@ function M.toggle_metadata(meta_name, custom_value)
     return false
   end
 
-  transaction.run(bufnr, todo_map, function(_ctx)
-    for _, item in ipairs(todo_items) do
-      _ctx.add_op(api.toggle_metadata, item.id, meta_name, custom_value)
-    end
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_name = meta_name,
+      custom_value = custom_value,
+    })
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.toggle_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -571,7 +750,6 @@ end
 
 --- Inspect todo item at cursor
 function M.debug_at_cursor()
-  local log = require("checkmate.log")
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
@@ -580,9 +758,9 @@ function M.debug_at_cursor()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1 -- normalize
 
-  local extmark_id = 9001 -- Arbitrary unique ID for debug highlight
+  local extmark_id = 9001 -- arbitrary unique ID for debug highlight
 
-  -- Clear the previous debug highlight (just that one)
+  -- clear previous
   pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
 
   local item = parser.get_todo_item_at_position(bufnr, row, col, {

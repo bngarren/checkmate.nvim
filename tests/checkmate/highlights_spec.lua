@@ -1,16 +1,22 @@
 describe("Highlights", function()
   local h = require("tests.checkmate.helpers")
-  -- Reset state before each test
+  local checkmate = require("checkmate")
+
   before_each(function()
-    -- Reset the plugin state to ensure tests are isolated
     _G.reset_state()
+
+    checkmate.setup()
+  end)
+
+  after_each(function()
+    checkmate.stop()
   end)
 
   describe("extmark highlighting", function()
     it("should apply metadata tag highlights", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = config.get_defaults().todo_markers.unchecked
 
       -- Create test content with metadata
       local content = [[
@@ -50,8 +56,8 @@ describe("Highlights", function()
     it("should display todo count when configured", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
 
       -- Ensure todo count is enabled
       config.options.show_todo_count = true

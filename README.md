@@ -262,6 +262,8 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 -----------------------------------------------------
 
+--- The text string used for todo markers is expected to be 1 character length.
+--- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@class checkmate.TodoMarkers
 ---Character used for unchecked items
 ---@field unchecked string
@@ -561,6 +563,9 @@ opts = {
     }
 }
 ```
+
+> [!WARN]
+> Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
 
 ## Metadata
 

@@ -137,6 +137,8 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+--- The text string used for todo markers is expected to be 1 character length.
+--- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@class checkmate.TodoMarkers
 ---Character used for unchecked items
 ---@field unchecked string
@@ -538,12 +540,14 @@ function M.validate_options(opts)
     end
 
     -- Ensure the todo_markers are only 1 character length
-    if opts.todo_markers.checked and vim.fn.strcharlen(opts.todo_markers.checked) ~= 1 then
+    -- NOTE: Decided not to implement yet. Have added WARNING to config documentation
+    --
+    --[[ if opts.todo_markers.checked and vim.fn.strcharlen(opts.todo_markers.checked) ~= 1 then
       return false, "The 'checked' todo marker must be a single character"
     end
     if opts.todo_markers.unchecked and vim.fn.strcharlen(opts.todo_markers.unchecked) ~= 1 then
       return false, "The 'unchecked' todo marker must be a single character"
-    end
+    end ]]
   end
 
   -- Validate default_list_marker

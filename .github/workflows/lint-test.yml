@@ -99,9 +99,6 @@ jobs:
             ~/.luarocks
             ~/.cache/luarocks
 
-      - name: Install rock dependencies
-        run: make test-deps
-
       - name: Save LuaRocks cache
         if: success()
         uses: actions/cache@v3

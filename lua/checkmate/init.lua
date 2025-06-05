@@ -419,7 +419,6 @@ end
 ---@return boolean success
 function M.create()
   local api = require("checkmate.api")
-  local parser = require("checkmate.parser")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
 
@@ -439,7 +438,7 @@ function M.create()
 
   local start_row, end_row
   if is_visual then
-    vim.cmd([[normal! <Esc>]])
+    vim.cmd([[execute "normal! \<Esc>"]])
     -- get the sel start/end row (1-based)
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
@@ -455,7 +454,7 @@ function M.create()
     end_row = start_row
   end
 
-  if not start_row or not end_row then
+  if start_row == nil or end_row == nil then
     return false
   end
 

@@ -145,7 +145,7 @@ function M.setup_keymaps(bufnr)
     },
     create = {
       command = "CheckmateCreate",
-      modes = { "n" },
+      modes = { "n", "v" },
     },
     remove_all_metadata = {
       command = "CheckmateRemoveAllMetadata",
@@ -487,59 +487,168 @@ local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_l
   }
 end
 
----@param ctx      table            -- transaction context
----@param start_row number           -- 0-based range start
----@param end_row   number           -- 0-based range end (inclusive)
----@param is_visual boolean          -- true if from Visual selection
----@return checkmate.TextDiffHunk[]  -- array of diff hunks (possibly empty)
+---@param ctx checkmate.TransactionContext Transaction context
+---@param start_row number 0-based range start
+---@param end_row number 0-based range end (inclusive)
+---@param is_visual boolean true if from visual selection
+---@return checkmate.TextDiffHunk[] hunks array of diff hunks or {}
 function M.create_todos(ctx, start_row, end_row, is_visual)
   local parser = require("checkmate.parser")
+  local config = require("checkmate.config")
+
   local hunks = {}
 
-  local todo_map = ctx.todo_map
-
-  -- Helper: ask parser if a given line is a todo; returns the TodoItem or nil
-  local function get_todo_item(bufnr, row)
-    return parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
-  end
-
-  local bufnr = ctx.bufnr
+  local bufnr = ctx.get_buf()
 
   if is_visual then
-    -- VISUAL MODE: for each line in the range, convert if not already a todo
+    -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
       local state = parser.get_todo_item_state(cur_line)
       if state == nil then
-        -- Not a todo yet → convert it
-        -- This returns a diff hunk like { start_row=..., start_col=..., end_row=..., end_col=..., insert={...} }
-        local new_hunks = M.convert_line_to_todo(row)
+        local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
         if new_hunks and #new_hunks > 0 then
           vim.list_extend(hunks, new_hunks)
         end
       end
     end
   else
-    --- NORMAL MODE: start_row == end_row (we ignore if they’re different)
+    -- normal mode, is current line a todo?
     local row = start_row
-    local todo_item = get_todo_item(bufnr, row)
+    local todo_item = ctx.get_todo_by_row(row)
 
     if todo_item then
-      -- Cursor is on an existing todo: insert a new sibling below it
-      local new_hunks = M.insert_new_todo_below(row)
+      local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)
       if new_hunks and #new_hunks > 0 then
         vim.list_extend(hunks, new_hunks)
+
+        if config.options.enter_insert_after_new then
+          ctx.add_cb(function()
+            local new_row = row + 1
+            local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
+            vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
+            vim.cmd("startinsert!")
+          end)
+        end
       end
     else
-      -- Cursor is on a non-todo line: convert this single line
-      local new_hunks = M.convert_line_to_todo(row)
+      local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
       if new_hunks and #new_hunks > 0 then
         vim.list_extend(hunks, new_hunks)
+
+        if config.options.enter_insert_after_new then
+          ctx.add_cb(function()
+            local new_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+            vim.api.nvim_win_set_cursor(0, { row + 1, #new_line })
+            vim.cmd("startinsert!")
+          end)
+        end
       end
     end
   end
 
   return hunks
+end
+
+--- Convert a single line into an “unchecked” todo
+---@param bufnr integer Buffer number
+---@param row integer 0-based row to convert
+---@return checkmate.TextDiffHunk[]
+function M.compute_diff_convert_to_todo(bufnr, row)
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+  -- existing indentation
+  local indent = line:match("^(%s*)") or ""
+
+  -- does the line already already have a list marker
+  local list_marker = util.match_first(
+    util.create_list_prefix_patterns({
+      simple_markers = parser.list_item_markers,
+      use_numbered_list_markers = true,
+      with_capture = true,
+    }),
+    line
+  )
+
+  local unchecked = config.options.todo_markers.unchecked
+  local new_text
+
+  if list_marker then
+    -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
+    new_text = line:gsub("^(" .. vim.pesc(list_marker) .. ")", "%1" .. unchecked .. " ")
+  else
+    local default_marker = config.options.default_list_marker or "-"
+    new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
+  end
+
+  local old_len = #line
+
+  return {
+    {
+      start_row = row,
+      start_col = 0,
+      end_row = row,
+      end_col = old_len,
+      insert = { new_text },
+    },
+  }
+end
+
+--- Insert a new, empty “unchecked” todo directly below the given row.
+---
+---@param bufnr integer Buffer number
+---@param row integer  -- 0-based row where we want to insert below
+---@return checkmate.TextDiffHunk[]
+function M.compute_diff_insert_todo_below(bufnr, row)
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+
+  local todo_map = parser.get_todo_map(bufnr)
+  local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
+
+  local indent, marker_text
+  if cur_todo then
+    local list_node = cur_todo.list_marker and cur_todo.list_marker.node
+    if list_node then
+      -- list_node:range() → { start_row, start_col, end_row, end_col }
+      local sr, sc, _, ec = list_node:range()
+      indent = string.rep(" ", sc)
+      -- marker_text = text of the marker, e.g. "-" or "1."
+      marker_text = vim.api.nvim_buf_get_text(bufnr, sr, sc, sr, ec - 1, {})[1]
+
+      -- handle ordered lists by incrementing the number
+      local num = marker_text:match("^(%d+)[.)]")
+      if num then
+        local delimiter = marker_text:match("[.)]")
+        marker_text = tostring(tonumber(num) + 1) .. delimiter
+      end
+    else
+      -- shouldn't get here..but oh well, a fallback
+      indent = string.rep(" ", cur_todo.range.start.col)
+      marker_text = config.options.default_list_marker or "-"
+    end
+  else
+    indent = ""
+    marker_text = config.options.default_list_marker or "-"
+  end
+
+  local new_row = row + 1
+  local unchecked = config.options.todo_markers.unchecked or "□"
+  local new_line = indent .. marker_text .. " " .. unchecked .. " "
+
+  return {
+    {
+      start_row = new_row,
+      start_col = 0,
+      end_row = new_row,
+      end_col = 0,
+      insert = { new_line },
+    },
+  }
 end
 
 --- Compute diff hunks for toggling a batch of items with their target states
@@ -1601,7 +1710,22 @@ function M.collect_todo_items_from_selection(is_visual)
   return items, full_map
 end
 
---- Apply diff hunks to buffer with per-hunk API (single undo entry)
+--[[
+Apply diff hunks to buffer 
+
+Line insertion vs text replacement
+- nvim_buf_set_text: used for replacements and insertions WITHIN a line
+  this is important because it preserves extmarks that are not directly in the replaced range
+  i.e. the extmarks that track todo location
+- nvim_buf_set_lines: used for inserting NEW LINES
+  when used with same start/end positions, it inserts new lines without affecting
+  existing lines or their extmarks.
+
+We use nvim_buf_set_lines for whole line insertions (when start_col = end_col = 0)
+because it's cleaner and doesn't risk affecting extmarks on adjacent lines.
+For all other operations (replacements, partial line edits), we use nvim_buf_set_text
+to preserve extmarks as much as possible.
+--]]
 ---@param bufnr integer Buffer number
 ---@param hunks checkmate.TextDiffHunk[]
 function M.apply_diff(bufnr, hunks)
@@ -1609,9 +1733,7 @@ function M.apply_diff(bufnr, hunks)
     return
   end
 
-  local api = vim.api
-
-  -- sort hunks by start position
+  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
   table.sort(hunks, function(a, b)
     if a.start_row ~= b.start_row then
       return a.start_row > b.start_row
@@ -1619,12 +1741,22 @@ function M.apply_diff(bufnr, hunks)
     return a.start_col > b.start_col
   end)
 
-  -- apply all hunks (first one creates undo entry, rest join)
+  -- apply hunks (first one creates undo entry, rest join)
   for i, hunk in ipairs(hunks) do
     if i > 1 then
       vim.cmd("silent! undojoin")
     end
-    api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
+
+    local is_line_insertion = hunk.start_row == hunk.end_row
+      and hunk.start_col == 0
+      and hunk.end_col == 0
+      and #hunk.insert > 0
+
+    if is_line_insertion then
+      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
+    else
+      vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
+    end
   end
 end
 

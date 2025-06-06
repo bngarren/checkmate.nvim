@@ -404,8 +404,12 @@ function M.process_buffer(bufnr, reason)
   log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
 end
 
+-- Cleans up all checkmate state associated with a buffer
 function M.shutdown(bufnr)
   if vim.api.nvim_buf_is_valid(bufnr) then
+    -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
+    pcall(require("checkmate.parser").convert_unicode_to_markdown, bufnr)
+
     local config = require("checkmate.config")
 
     M.clear_keymaps(bufnr)

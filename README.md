@@ -1,8 +1,8 @@
 <div align="center">
 
-# checkmate.nvim
+<img width="400" alt="Checkmate logo" src="./assets/logo.png">
 
-### A simple Todo plugin
+### Get stuff done
 
 [![Lua](https://img.shields.io/badge/Lua-blue.svg?style=for-the-badge&logo=lua)](http://www.lua.org)
 [![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim&color=%2343743f)](https://neovim.io)
@@ -10,9 +10,6 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/bngarren/checkmate.nvim/lint-test.yml?branch=main&style=for-the-badge&label=CI&labelColor=%23061914&color=%2343743f)
 
 
-
-
-<img alt="Checkmate Mate" height="220" src="./assets/checkmate-logo.png" />
 </div><br/>
 
 A Markdown-based todo list plugin for Neovim with a nice UI and full customization options.

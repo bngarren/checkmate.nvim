@@ -23,6 +23,14 @@ function M.check()
   else
     error("Treesitter markdown parser is not installed.")
   end
+
+  local has_render_markdown = pcall(require, "render-markdown")
+  if has_render_markdown then
+    warn("render-markdown.nvim detected. Should not conflict.", {
+      "If issues arise, consider disabling its 'checkbox' styling:",
+      "`require('render-markdown').setup({checkbox = { enabled = false }})`",
+    })
+  end
 end
 
 return M

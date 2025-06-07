@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/bngarren/checkmate.nvim/compare/v0.8.0...v0.8.1) (2025-06-07)
+
+
+### Bug Fixes
+
+* **api:** converts buffer back to markdown on checkmate disable/shutdown ([#93](https://github.com/bngarren/checkmate.nvim/issues/93)) ([21a6560](https://github.com/bngarren/checkmate.nvim/commit/21a656096f50cfe62b84f2f22e7b882a8018524e))
+
 ## [0.8.0](https://github.com/bngarren/checkmate.nvim/compare/v0.7.1...v0.8.0) (2025-06-05)
 
 

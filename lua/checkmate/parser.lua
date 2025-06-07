@@ -194,7 +194,6 @@ function M.setup()
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
     callback = function()
-      -- Re-apply highlight groups after a small delay
       vim.defer_fn(function()
         highlights.setup_highlights()
 
@@ -215,7 +214,6 @@ function M.convert_markdown_to_unicode(bufnr)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
-  local original_modified = vim.bo[bufnr].modified
 
   -- build patterns once
   local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[ %]")
@@ -270,12 +268,18 @@ function M.convert_markdown_to_unicode(bufnr)
   end
 
   if modified then
-    -- Disable undo to avoid breaking undo sequence
-    vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd("silent! undojoin")
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
-      vim.bo[bufnr].modified = original_modified
-    end)
+    -- save view, disable undo for this buffer modification
+
+    local view = vim.fn.winsaveview()
+
+    local undolevels = vim.bo[bufnr].undolevels
+    vim.bo[bufnr].undolevels = -1
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
+
+    vim.bo[bufnr].undolevels = undolevels
+
+    vim.fn.winrestview(view)
 
     log.debug("Converted Markdown todo symbols to Unicode", { module = "parser" })
     return true
@@ -295,7 +299,6 @@ function M.convert_unicode_to_markdown(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
 
-  -- Build patterns
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
 
@@ -360,10 +363,21 @@ function M.convert_unicode_to_markdown(bufnr)
   end
 
   if modified then
+    -- save view, disable undo for this buffer modification
+
+    local view = vim.fn.winsaveview()
+
+    local undolevels = vim.bo[bufnr].undolevels
+    vim.bo[bufnr].undolevels = -1
+
     ok, err = pcall(function()
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
       return true
     end)
+
+    vim.bo[bufnr].undolevels = undolevels
+
+    vim.fn.winrestview(view)
 
     if not ok then
       log.error("Error setting buffer lines: " .. tostring(err), { module = "parser" })

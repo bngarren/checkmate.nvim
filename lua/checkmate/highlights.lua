@@ -227,6 +227,7 @@ end
 
 ---@class HighlightTodoOpts
 ---@field recursive boolean? If `true`, also highlight all descendant todos.
+---@field _context? {visited: table, depth: number, max_depth: number}
 
 ---Process a todo item (and, if requested via `opts.recursive`, its descendants).
 ---@param bufnr integer Buffer number
@@ -241,29 +242,87 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
     return
   end
 
-  -- 1. Highlight the todo marker
-  M.highlight_todo_marker(bufnr, todo_item)
+  -- init context on first call
+  if not opts._context then
+    opts._context = {
+      visited = {},
+      depth = 0,
+      max_depth = 50,
+    }
+  end
 
-  -- 2. Highlight the list marker of the todo item
-  M.highlight_list_marker(bufnr, todo_item)
+  local ctx = opts._context
+  ---@cast ctx {visited: table, depth: number, max_depth: number}
 
-  -- 3. Highlight the child list markers within this todo item
-  M.highlight_child_list_markers(bufnr, todo_item)
+  if ctx.visited[todo_item.id] then
+    return
+  end
 
-  -- 4. Highlight content directly in this todo item
-  M.highlight_content(bufnr, todo_item, todo_map)
+  -- depth limit check
+  if ctx.depth >= ctx.max_depth then
+    local log = require("checkmate.log")
+    log.warn(string.format("Max depth %d reached at todo %s", ctx.max_depth, todo_item.id))
+    return
+  end
 
-  -- 5. Show child count indicator
-  M.show_todo_count_indicator(bufnr, todo_item, todo_map)
+  ctx.visited[todo_item.id] = true
+  ctx.depth = ctx.depth + 1
 
-  -- 5. If recursive option is enabled, also highlight all children
-  if opts.recursive then
-    for _, child_id in ipairs(todo_item.children or {}) do
-      local child = todo_map[child_id]
-      if child then
-        -- pass the same opts so grandchildren respect `recursive`
-        M.highlight_todo_item(bufnr, child, todo_map, opts)
+  local success, err = pcall(function()
+    -- 1. Highlight the todo marker
+    M.highlight_todo_marker(bufnr, todo_item)
+
+    -- 2. Highlight the list marker of the todo item
+    M.highlight_list_marker(bufnr, todo_item)
+
+    -- 3. Highlight the child list markers within this todo item
+    M.highlight_child_list_markers(bufnr, todo_item)
+
+    -- 4. Highlight content directly in this todo item
+    M.highlight_content(bufnr, todo_item, todo_map)
+
+    -- 5. Show child count indicator
+    M.show_todo_count_indicator(bufnr, todo_item, todo_map)
+  end)
+
+  if not success then
+    local log = require("checkmate.log")
+    log.error(string.format("Highlight error for todo %s: %s", todo_item.id, err))
+    return
+  end
+
+  -- process children
+  if opts.recursive and todo_item.children and #todo_item.children > 0 then
+    local batch_size = 50
+    for i = 1, #todo_item.children, batch_size do
+      -- allow event loop to run between batches
+      if i > 1 then
+        vim.schedule(function()
+          M.process_children_batch(
+            bufnr,
+            todo_item,
+            todo_map,
+            opts,
+            i,
+            math.min(i + batch_size - 1, #todo_item.children)
+          )
+        end)
+      else
+        M.process_children_batch(bufnr, todo_item, todo_map, opts, i, math.min(i + batch_size - 1, #todo_item.children))
       end
+    end
+  end
+
+  -- Restore depth
+  ctx.depth = ctx.depth - 1
+end
+
+function M.process_children_batch(bufnr, parent_item, todo_map, opts, start_idx, end_idx)
+  for i = start_idx, end_idx do
+    local child_id = parent_item.children[i]
+    local child = todo_map[child_id]
+    if child then
+      M.highlight_todo_item(bufnr, child, todo_map, opts)
     end
   end
 end

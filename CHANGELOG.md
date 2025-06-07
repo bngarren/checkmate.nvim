@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/bngarren/checkmate.nvim/compare/v0.8.1...v0.8.2) (2025-06-07)
+
+
+### Bug Fixes
+
+* **highlights:** various fixes and improvements to highlights system ([#102](https://github.com/bngarren/checkmate.nvim/issues/102)) ([63d14f3](https://github.com/bngarren/checkmate.nvim/commit/63d14f3cd6666085e1392f0d679b34e83aea26fa))
+
 ## [0.8.1](https://github.com/bngarren/checkmate.nvim/compare/v0.8.0...v0.8.1) (2025-06-07)
 
 

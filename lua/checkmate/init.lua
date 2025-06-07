@@ -819,4 +819,122 @@ function M.debug_print_todo_map()
   vim.notify(vim.inspect(sorted_list), vim.log.levels.DEBUG)
 end
 
+function M.debug_extmarks()
+  local config = require("checkmate.config")
+  local ns = config.ns
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  -- 1) Get cursor: {<1-based-row>, <0-based-col>}
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row1, col0 = cursor[1], cursor[2]
+
+  -- 2) Convert to 0-based row for all extmark APIs:
+  local r0, c0 = row1 - 1, col0
+
+  -- 3) Fetch *all* extmarks on this line by spanning from col=0 → col=-1.
+  --    Since we set overlap=true, we also catch any extmark whose “end_row,end_col”
+  --    is on this same line, even if its start was earlier.
+  local line_marks = vim.api.nvim_buf_get_extmarks(
+    bufnr,
+    ns,
+    { r0, 0 }, -- start at (0-based row, col=0)
+    { r0, -1 }, -- end   at (0-based row, “end of line”)
+    {
+      overlap = true,
+      hl_name = true, -- so info.hl_group is returned
+      details = true, -- so info.end_row, info.end_col, etc. are returned
+    }
+  )
+
+  if vim.tbl_isempty(line_marks) then
+    print(string.format("🚫 No extmarks found on line %d (0-based).", r0))
+    return
+  end
+
+  -- 4) Manually filter only those extmarks whose 0-based range
+  --    actually covers the cursor‐column c0.
+  local hits = {}
+  for _, mark in ipairs(line_marks) do
+    local id = mark[1] -- extmark_id
+    local sr0 = mark[2] -- start_row   (0-based)
+    local sc0 = mark[3] -- start_col   (0-based)
+    local info = mark[4] or {} -- details table
+
+    -- If details.end_row is nil, treat it as a “point” extmark:
+    local er0, ec0 = info.end_row, info.end_col
+    if er0 == nil then
+      er0, ec0 = sr0, sc0
+    end
+
+    -- Only consider extmarks that actually span this line (should be true)
+    -- and whose start_col ≤ c0 ≤ end_col.
+    if r0 >= sr0 and r0 <= er0 and c0 >= sc0 and c0 <= ec0 then
+      table.insert(hits, {
+        id = id,
+        sr0 = sr0,
+        sc0 = sc0,
+        er0 = er0,
+        ec0 = ec0,
+        info = info,
+      })
+    end
+  end
+
+  if vim.tbl_isempty(hits) then
+    print(string.format("🚫 No extmarks overlapping cursor (0-based: row=%d, col=%d).", r0, c0))
+    return
+  end
+
+  -- 5) Print all hits in 0-based form:
+  print(string.format("🔍 Extmarks overlapping cursor (0-based: row=%d, col=%d):", r0, c0))
+  for _, entry in ipairs(hits) do
+    local id = entry.id
+    local sr0 = entry.sr0
+    local sc0 = entry.sc0
+    local er0 = entry.er0
+    local ec0 = entry.ec0
+    local info = entry.info
+
+    -- Pull out every detail field (all are 0-based when they refer to rows/cols)
+    local namespace_id = info.ns_id or nil
+    local priority = info.priority or nil
+    local right_grav0 = info.right_gravity -- boolean or nil
+    local end_grav0 = info.end_right_gravity -- boolean or nil
+    local hl_eol0 = info.hl_eol -- boolean or nil
+    local group_name = info.hl_group -- string or nil
+    local sign_name = info.sign_name -- string or nil
+
+    -- Build a “key=value” list for whatever fields exist:
+    local parts = {}
+    if group_name then
+      table.insert(parts, "hl_group=" .. group_name)
+    end
+    if sign_name then
+      table.insert(parts, "sign_name=" .. sign_name)
+    end
+    if namespace_id then
+      table.insert(parts, "ns_id=" .. namespace_id)
+    end
+    if priority then
+      table.insert(parts, "priority=" .. priority)
+    end
+    if right_grav0 ~= nil then
+      table.insert(parts, "right_gravity=" .. tostring(right_grav0))
+    end
+    if end_grav0 ~= nil then
+      table.insert(parts, "end_right_gravity=" .. tostring(end_grav0))
+    end
+    if hl_eol0 ~= nil then
+      table.insert(parts, "hl_eol=" .. tostring(hl_eol0))
+    end
+
+    -- Finally, print the 0-based range {sr0,sc0}→{er0,ec0}:
+    table.insert(parts, string.format("range={%d,%d}→{%d,%d}", sr0, sc0, er0, ec0))
+
+    local detail_str = "[" .. table.concat(parts, ", ") .. "]"
+
+    print(string.format(" • extmark %d @ start=(row=%d, col=%d) (0-based) %s", id, sr0, sc0, detail_str))
+  end
+end
+
 return M

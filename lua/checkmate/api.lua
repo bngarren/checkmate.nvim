@@ -84,8 +84,8 @@ function M.setup_buffer(bufnr)
 
   local has_nvim_treesitter, _ = pcall(require, "nvim-treesitter")
   if has_nvim_treesitter then
-    vim.cmd("TSBufDisable highlight")
   else
+    vim.cmd("TSBufDisable highlight")
     vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
   end
 
@@ -324,16 +324,16 @@ function M.setup_autocmds(bufnr)
       buffer = bufnr,
       callback = function(args)
         if vim.bo[bufnr].modified then
-          M.process_buffer(bufnr, args.event)
+          M.process_buffer(bufnr, { reason = args.event })
         end
       end,
     })
 
-    vim.api.nvim_create_autocmd({ "TextChanged" }, {
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
       group = augroup,
       buffer = bufnr,
-      callback = function()
-        M.process_buffer(bufnr, "TextChanged")
+      callback = function(args)
+        M.process_buffer(bufnr, { reason = "TextChanged", debounce_time = args.event == "TextChangedI" and 100 or nil })
       end,
     })
     -- cleanup buffer when buffer is deleted
@@ -357,7 +357,7 @@ end
 M._debounced_process_buffer_fns = {}
 M.PROCESS_DEBOUNCE = 50 -- ms
 
-function M.process_buffer(bufnr, reason)
+function M.process_buffer(bufnr, opts)
   local log = require("checkmate.log")
 
   -- Create a debounced function for this buffer if it doesn't exist
@@ -389,19 +389,20 @@ function M.process_buffer(bufnr, reason)
       local end_time = vim.uv.hrtime() / 1000000
       local elapsed = end_time - start_time
 
-      log.debug(("Buffer processed in %d ms, reason: %s"):format(elapsed, reason or "unknown"), { module = "api" })
+      log.debug(("Buffer processed in %d ms, reason: %s"):format(elapsed, opts.reason or "unknown"), { module = "api" })
+      vim.notify(("Buffer processed in %d ms, reason: %s"):format(elapsed, opts.reason or "unknown"))
     end
 
     -- Create a debounced version of the process function
     M._debounced_process_buffer_fns[bufnr] = require("checkmate.util").debounce(process_buffer_impl, {
-      ms = M.PROCESS_DEBOUNCE,
+      ms = opts.debounce_time or M.PROCESS_DEBOUNCE,
     })
   end
 
   -- Call the debounced processor - this will reset the timer
   M._debounced_process_buffer_fns[bufnr]()
 
-  log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
+  log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, opts.reason or "unknown"), { module = "api" })
 end
 
 -- Cleans up all checkmate state associated with a buffer

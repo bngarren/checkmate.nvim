@@ -324,7 +324,7 @@ function M.setup_autocmds(bufnr)
       buffer = bufnr,
       callback = function(args)
         if vim.bo[bufnr].modified then
-          M.process_buffer(bufnr, args.event)
+          M.process_buffer(bufnr, "full", args.event)
         end
       end,
     })
@@ -333,20 +333,26 @@ function M.setup_autocmds(bufnr)
       group = augroup,
       buffer = bufnr,
       callback = function()
-        M.process_buffer(bufnr, "TextChanged")
+        M.process_buffer(bufnr, "full", "TextChanged")
       end,
     })
+
+    vim.api.nvim_create_autocmd({ "TextChangedI" }, {
+      group = augroup,
+      buffer = bufnr,
+      callback = function()
+        M.process_buffer(bufnr, "highlight_only", "TextChangedI")
+      end,
+    })
+
     -- cleanup buffer when buffer is deleted
     vim.api.nvim_create_autocmd("BufDelete", {
       group = augroup,
       buffer = bufnr,
       callback = function()
         require("checkmate").unregister_buffer(bufnr)
-        -- Reset any API state for this buffer
-        if M._debounced_process_buffer_fns[bufnr] then
-          M._debounced_process_buffer_fns[bufnr] = nil
-        end
-        -- Clear the todo map cache for this buffer
+        M._debounced_processors[bufnr] = nil
+        -- clear the todo map cache for this buffer
         require("checkmate.parser").todo_map_cache[bufnr] = nil
       end,
     })
@@ -354,54 +360,89 @@ function M.setup_autocmds(bufnr)
   end
 end
 
-M._debounced_process_buffer_fns = {}
-M.PROCESS_DEBOUNCE = 50 -- ms
+-- functions that process the buffer need to be debounced and stored
+M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
-function M.process_buffer(bufnr, reason)
+-- we can "process" the buffer different ways depending on the need, the frequency we expect it
+-- to occur, etc.
+-- e.g. we don't want to convert during TextChangedI
+M.PROCESS_CONFIGS = {
+  full = {
+    debounce_ms = 50,
+    include_conversion = true,
+    include_linting = true,
+    include_highlighting = true,
+  },
+  highlight_only = {
+    debounce_ms = 100,
+    include_conversion = false,
+    include_linting = false,
+    include_highlighting = true,
+  },
+}
+
+function M.process_buffer(bufnr, process_type, reason)
   local log = require("checkmate.log")
 
-  -- Create a debounced function for this buffer if it doesn't exist
-  if not M._debounced_process_buffer_fns[bufnr] then
-    local function process_buffer_impl()
+  process_type = process_type or "full"
+  local process_config = M.PROCESS_CONFIGS[process_type]
+  if not process_config then
+    log.error("Unknown process type: " .. process_type, { module = "api" })
+    return
+  end
+
+  if not M._debounced_processors[bufnr] then
+    M._debounced_processors[bufnr] = {}
+  end
+
+  if not M._debounced_processors[bufnr][process_type] then
+    local function process_impl()
       if not vim.api.nvim_buf_is_valid(bufnr) then
-        M._debounced_process_buffer_fns[bufnr] = nil
+        M._debounced_processors[bufnr] = nil
         return
       end
 
       local parser = require("checkmate.parser")
       local config = require("checkmate.config")
-      local linter = require("checkmate.linter")
-
       local start_time = vim.uv.hrtime() / 1000000
 
       local todo_map = parser.get_todo_map(bufnr)
-      parser.convert_markdown_to_unicode(bufnr)
 
-      require("checkmate.highlights").apply_highlighting(
-        bufnr,
-        { todo_map = todo_map, debug_reason = "api process_buffer" }
-      )
+      if process_config.include_conversion then
+        parser.convert_markdown_to_unicode(bufnr)
+      end
 
-      if config.options.linter and config.options.linter.enabled then
-        linter.lint_buffer(bufnr)
+      if process_config.include_highlighting then
+        require("checkmate.highlights").apply_highlighting(
+          bufnr,
+          { todo_map = todo_map, debug_reason = "api process_buffer (" .. process_type .. ")" }
+        )
+      end
+
+      if process_config.include_linting and config.options.linter and config.options.linter.enabled then
+        require("checkmate.linter").lint_buffer(bufnr)
       end
 
       local end_time = vim.uv.hrtime() / 1000000
       local elapsed = end_time - start_time
 
-      log.debug(("Buffer processed in %d ms, reason: %s"):format(elapsed, reason or "unknown"), { module = "api" })
+      log.debug(
+        ("Buffer processed (%s) in %d ms, reason: %s"):format(process_type, elapsed, reason or "unknown"),
+        { module = "api" }
+      )
     end
 
-    -- Create a debounced version of the process function
-    M._debounced_process_buffer_fns[bufnr] = require("checkmate.util").debounce(process_buffer_impl, {
-      ms = M.PROCESS_DEBOUNCE,
+    M._debounced_processors[bufnr][process_type] = require("checkmate.util").debounce(process_impl, {
+      ms = process_config.debounce_ms,
     })
   end
 
-  -- Call the debounced processor - this will reset the timer
-  M._debounced_process_buffer_fns[bufnr]()
+  M._debounced_processors[bufnr][process_type]()
 
-  log.debug(("Process scheduled for buffer %d, reason: %s"):format(bufnr, reason or "unknown"), { module = "api" })
+  log.debug(
+    ("Process (%s) scheduled for buffer %d, reason: %s"):format(process_type, bufnr, reason or "unknown"),
+    { module = "api" }
+  )
 end
 
 -- Cleans up all checkmate state associated with a buffer
@@ -414,7 +455,6 @@ function M.shutdown(bufnr)
 
     M.clear_keymaps(bufnr)
 
-    -- clear extmarks
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 
@@ -432,9 +472,8 @@ function M.shutdown(bufnr)
     vim.b[bufnr].checkmate_setup_complete = nil
     vim.b[bufnr].checkmate_autocmds_setup = nil
 
-    local api = require("checkmate.api")
-    if api._debounced_process_buffer_fns and api._debounced_process_buffer_fns[bufnr] then
-      api._debounced_process_buffer_fns[bufnr] = nil
+    if M._debounced_processors and M._debounced_processors[bufnr] then
+      M._debounced_processors[bufnr] = nil
     end
   end
 end

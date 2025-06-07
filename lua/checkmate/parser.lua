@@ -6,9 +6,10 @@ local M = {}
 --- @field position {row: integer, col: integer} Position of the marker (0-indexed)
 --- @field text string The marker text (e.g., "□" or "✓")
 
---- @class ListMarkerInfo
+--- @class checkmate.ListMarkerInfo
 --- @field node TSNode Treesitter node of the list marker (uses 0-indexed row/col coordinates)
 --- @field type "ordered"|"unordered" Type of list marker
+--- @field text string e.g. -, *, +, or 1. or 1)
 
 --- @class ContentNodeInfo
 --- @field node TSNode Treesitter node containing content (uses 0-indexed row/col coordinates)
@@ -17,7 +18,7 @@ local M = {}
 ---@class checkmate.MetadataEntry
 ---@field tag string The tag name
 ---@field value string The value
----@field range checkmate.Range Position range (0-indexed)
+---@field range checkmate.Range Position range (0-indexed), end_col is end_exclusive
 ---@field alias_for? string The canonical tag name if this is an alias
 ---@field position_in_line integer (1-indexed)
 
@@ -43,7 +44,7 @@ local M = {}
 --- @field ts_range checkmate.Range
 --- @field content_nodes ContentNodeInfo[] List of content nodes
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
---- @field list_marker ListMarkerInfo Information about the list marker (0-indexed position)
+--- @field list_marker checkmate.ListMarkerInfo Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
 --- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging or tests.
 --- @field children integer[] IDs of child todo items
@@ -559,7 +560,7 @@ function M.discover_todos(bufnr)
         node_info.markers_by_parent[parent_id] = node_info.markers_by_parent[parent_id] or {}
         table.insert(node_info.markers_by_parent[parent_id], {
           node = node,
-          type = capture_name == "list_marker_ordered" and "ordered" or "unordered",
+          type = M.get_marker_type_from_capture_name(capture_name),
         })
       end
     elseif capture_name == "paragraph" then
@@ -612,13 +613,19 @@ function M.discover_todos(bufnr)
       }
       local semantic_range = util.get_semantic_range(raw_range, bufnr)
 
+      ---@type checkmate.ListMarkerInfo
       local list_marker = nil
       local node_id = item.node:id()
+      -- TODO: verify this is the list mark for the todo item?
       local markers = node_info.markers_by_parent[node_id]
+
       if markers and #markers > 0 then
+        local line_from_marker = first_line:gsub("^%s+", "")
+        local marker_text = line_from_marker:match("^[%-%*%+]") or line_from_marker:match("^%d+[%.%)]")
         list_marker = {
           node = markers[1].node,
           type = markers[1].type,
+          text = marker_text,
         }
       end
 
@@ -676,63 +683,6 @@ end
 function M.get_marker_type_from_capture_name(capture_name)
   local is_ordered = capture_name:match("ordered") ~= nil
   return is_ordered and "ordered" or "unordered"
-end
-
----Finds the markdown list_marker associated with the given node and updates the todo_item's
----list_marker field
----@param node TSNode The list_item node of a todo item
----@param bufnr integer Buffer number
----@param todo_item checkmate.TodoItem
-function M.update_list_marker_info(node, bufnr, todo_item)
-  local list_marker_query = M.get_list_marker_query()
-
-  for id, marker_node, _ in list_marker_query:iter_captures(node, bufnr, 0, -1) do
-    local name = list_marker_query.captures[id]
-    local marker_type = M.get_marker_type_from_capture_name(name)
-
-    -- verify this marker is a direct child of this list_item
-    local parent = marker_node:parent()
-    while parent and parent ~= node do
-      parent = parent:parent()
-    end
-
-    if parent == node then
-      todo_item.list_marker = {
-        node = marker_node,
-        type = marker_type,
-      }
-      break
-    end
-  end
-end
-
----Finds the markdown list_marker associated with the given node
----@param node TSNode The list_item node of a todo item
----@param bufnr integer Buffer number
----@return ListMarkerInfo|nil
-function M.find_list_marker_info(node, bufnr)
-  -- Find all child nodes that could be list markers
-  local list_marker_query = M.get_list_marker_query()
-
-  for id, marker_node, _ in list_marker_query:iter_captures(node, bufnr, 0, -1) do
-    local name = list_marker_query.captures[id]
-    local marker_type = M.get_marker_type_from_capture_name(name)
-
-    -- verify this marker is a direct child of this list_item
-    local parent = marker_node:parent()
-    while parent and parent ~= node do
-      parent = parent:parent()
-    end
-
-    if parent == node then
-      return {
-        node = marker_node,
-        type = marker_type,
-      }
-    end
-  end
-
-  return nil
 end
 
 -- Find content nodes (paragraphs, etc.)

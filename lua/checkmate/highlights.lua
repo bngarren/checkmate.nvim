@@ -4,9 +4,9 @@ local M = {}
 --- Highlight priority levels
 ---@enum HighlightPriority
 M.PRIORITY = {
-  LIST_MARKER = 100,
-  CONTENT = 101,
-  TODO_MARKER = 102,
+  LIST_MARKER = 201,
+  CONTENT = 202,
+  TODO_MARKER = 203,
 }
 
 --- Get highlight group for todo content based on state and relation
@@ -55,12 +55,16 @@ function M.get_or_create_dynamic_highlight(category, key, base_name, style_fn)
   -- Initialize category if needed
   M._dynamic_highlight_cache[category] = M._dynamic_highlight_cache[category] or {}
 
-  -- Check if already cached
   if M._dynamic_highlight_cache[category][key] then
     return M._dynamic_highlight_cache[category][key]
   end
 
-  -- Create highlight group name
+  -- a simple size limit on the cache (shouldnt need this)
+  local cache = M._dynamic_highlight_cache[category] or {}
+  if vim.tbl_count(cache) > 200 then
+    M._dynamic_highlight_cache[category] = {}
+  end
+
   local highlight_group = base_name .. "_" .. key:gsub("[^%w]", "_")
 
   -- Apply style - handle both functions and direct style tables
@@ -86,12 +90,16 @@ function M.clear_highlight_cache(category)
   end
 end
 
-function M.apply_highlight_groups()
+function M.register_highlight_groups()
   local config = require("checkmate.config")
   local log = require("checkmate.log")
 
   -- Define highlight groups from config
   local highlights = {
+
+    ---@type vim.api.keyset.highlight
+    CheckmateNormal = { bold = false, force = true, nocombine = true },
+
     -- List markers
     CheckmateListMarkerUnordered = config.options.style.list_marker_unordered,
     CheckmateListMarkerOrdered = config.options.style.list_marker_ordered,
@@ -121,7 +129,6 @@ function M.apply_highlight_groups()
     end
   end
 
-  -- Apply highlight groups
   for group_name, group_settings in pairs(highlights) do
     vim.api.nvim_set_hl(0, group_name, group_settings)
     log.debug("Applied highlight group: " .. group_name, { module = "parser" })
@@ -133,14 +140,12 @@ function M.setup_highlights()
 
   M.clear_highlight_cache()
 
-  -- Apply highlight groups with current settings
-  M.apply_highlight_groups()
+  M.register_highlight_groups()
 
-  -- Set up an autocmd to re-apply highlighting when colorscheme changes
+  -- autocmd to re-apply highlighting when colorscheme changes
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
     callback = function()
-      -- Re-apply highlight groups after a small delay
       vim.defer_fn(function()
         M.clear_highlight_cache()
 
@@ -155,7 +160,7 @@ function M.setup_highlights()
         config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
 
         -- Re-apply highlights with updated styles
-        M.apply_highlight_groups()
+        M.register_highlight_groups()
 
         -- Re-apply to all active buffers
         for bufnr, _ in pairs(require("checkmate").get_active_buffer_list()) do
@@ -188,34 +193,33 @@ function M.apply_highlighting(bufnr, opts)
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
   opts = opts or {}
 
   if opts.debug_reason then
     log.debug(("apply_highlighting called for: %s"):format(opts.debug_reason), { module = "highlights" })
   end
 
-  -- Clear existing extmarks
   vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
-  -- Create a line cache for this highlighting pass
+  -- line cache for this highlighting pass
   M._current_line_cache = util.create_line_cache(bufnr)
 
-  -- Discover all todo items
   ---@type table<integer, checkmate.TodoItem>
-  -- local todo_map = opts.todo_map or parser.discover_todos(bufnr)
   local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
 
-  -- Process todo items in hierarchical order (top-down)
   for _, todo_item in pairs(todo_map) do
     if not todo_item.parent_id then
-      -- Only process top-level todo items (children handled recursively)
+      -- only process top-level todo items (children handled recursively)
       M.highlight_todo_item(bufnr, todo_item, todo_map, { recursive = true })
     end
   end
 
   log.debug("Highlighting applied", { module = "highlights" })
 
-  -- This allows garbage collection of the cache and its stored lines
   M._current_line_cache = nil
 
   profiler.stop("highlights.apply_highlighting")
@@ -223,6 +227,7 @@ end
 
 ---@class HighlightTodoOpts
 ---@field recursive boolean? If `true`, also highlight all descendant todos.
+---@field _context? {visited: table, depth: number, max_depth: number}
 
 ---Process a todo item (and, if requested via `opts.recursive`, its descendants).
 ---@param bufnr integer Buffer number
@@ -233,34 +238,96 @@ end
 function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   opts = opts or {}
 
-  -- 1. Highlight the todo marker
-  M.highlight_todo_marker(bufnr, todo_item)
+  if not todo_item or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
 
-  -- 2. Highlight the list marker of the todo item
-  M.highlight_list_marker(bufnr, todo_item)
+  -- init context on first call
+  if not opts._context then
+    opts._context = {
+      visited = {},
+      depth = 0,
+      max_depth = 50,
+    }
+  end
 
-  -- 3. Highlight the child list markers within this todo item
-  M.highlight_child_list_markers(bufnr, todo_item)
+  local ctx = opts._context
+  ---@cast ctx {visited: table, depth: number, max_depth: number}
 
-  -- 4. Highlight content directly in this todo item
-  M.highlight_content(bufnr, todo_item, todo_map)
+  if ctx.visited[todo_item.id] then
+    return
+  end
 
-  -- 5. Show child count indicator
-  M.show_todo_count_indicator(bufnr, todo_item, todo_map)
+  -- depth limit check
+  if ctx.depth >= ctx.max_depth then
+    local log = require("checkmate.log")
+    log.warn(string.format("Max depth %d reached at todo %s", ctx.max_depth, todo_item.id))
+    return
+  end
 
-  -- 5. If recursive option is enabled, also highlight all children
-  if opts.recursive then
-    for _, child_id in ipairs(todo_item.children or {}) do
-      local child = todo_map[child_id]
-      if child then
-        -- pass the same opts so grandchildren respect `recursive`
-        M.highlight_todo_item(bufnr, child, todo_map, opts)
+  ctx.visited[todo_item.id] = true
+  ctx.depth = ctx.depth + 1
+
+  local success, err = pcall(function()
+    -- 1. Highlight the todo marker
+    M.highlight_todo_marker(bufnr, todo_item)
+
+    -- 2. Highlight the list marker of the todo item
+    M.highlight_list_marker(bufnr, todo_item)
+
+    -- 3. Highlight the child list markers within this todo item
+    M.highlight_child_list_markers(bufnr, todo_item)
+
+    -- 4. Highlight content directly in this todo item
+    M.highlight_content(bufnr, todo_item, todo_map)
+
+    -- 5. Show child count indicator
+    M.show_todo_count_indicator(bufnr, todo_item, todo_map)
+  end)
+
+  if not success then
+    local log = require("checkmate.log")
+    log.error(string.format("Highlight error for todo %s: %s", todo_item.id, err))
+    return
+  end
+
+  -- process children
+  if opts.recursive and todo_item.children and #todo_item.children > 0 then
+    local batch_size = 50
+    for i = 1, #todo_item.children, batch_size do
+      -- allow event loop to run between batches
+      if i > 1 then
+        vim.schedule(function()
+          M.process_children_batch(
+            bufnr,
+            todo_item,
+            todo_map,
+            opts,
+            i,
+            math.min(i + batch_size - 1, #todo_item.children)
+          )
+        end)
+      else
+        M.process_children_batch(bufnr, todo_item, todo_map, opts, i, math.min(i + batch_size - 1, #todo_item.children))
       end
+    end
+  end
+
+  -- Restore depth
+  ctx.depth = ctx.depth - 1
+end
+
+function M.process_children_batch(bufnr, parent_item, todo_map, opts, start_idx, end_idx)
+  for i = start_idx, end_idx do
+    local child_id = parent_item.children[i]
+    local child = todo_map[child_id]
+    if child then
+      M.highlight_todo_item(bufnr, child, todo_map, opts)
     end
   end
 end
 
--- Highlight the todo marker (✓ or □)
+-- Highlight the todo marker (e.g. ✓ or □)
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
 function M.highlight_todo_marker(bufnr, todo_item)
@@ -268,15 +335,24 @@ function M.highlight_todo_marker(bufnr, todo_item)
   local marker_pos = todo_item.todo_marker.position
   local marker_text = todo_item.todo_marker.text
 
-  -- Only highlight if we have a valid position
   if marker_pos.col >= 0 then
     local hl_group = todo_item.state == "checked" and "CheckmateCheckedMarker" or "CheckmateUncheckedMarker"
 
+    local line = M.get_buffer_line(bufnr, marker_pos.row)
+    if not line then
+      return
+    end
+
+    -- marker_pos.col is already in bytes (0-indexed)
+    -- for extmarks, end_col is exclusive, so we add the byte length
     vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_pos.row, marker_pos.col, {
       end_row = marker_pos.row,
-      end_col = marker_pos.col + #marker_text,
+      end_col = marker_pos.col + #marker_text, -- end col is the last col of marker + 1 (end exclusive)
       hl_group = hl_group,
-      priority = M.PRIORITY.TODO_MARKER, -- Highest priority for todo markers
+      priority = M.PRIORITY.TODO_MARKER,
+      right_gravity = false,
+      end_right_gravity = false,
+      hl_eol = false,
     })
   end
 end
@@ -288,20 +364,28 @@ function M.highlight_list_marker(bufnr, todo_item)
   local config = require("checkmate.config")
   local list_marker = todo_item.list_marker
 
-  -- Skip if no list marker found
-  if not list_marker or not todo_item.list_marker.node then
+  if not list_marker or not list_marker.node then
     return
   end
 
-  local start_row, start_col, end_row, end_col = list_marker.node:range()
+  local start_row, start_col, _, _ = list_marker.node:range()
+
+  local line = M.get_buffer_line(bufnr, start_row)
+  if not line then
+    return
+  end
+
+  -- get actual marker text (-, *, +, or digits followed by . or ))
+  local marker_text = todo_item.list_marker.text
+  local marker_end_col = start_col + #marker_text
 
   local hl_group = list_marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
   vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
-    end_row = end_row,
-    end_col = math.max(0, end_col - 1),
+    end_row = start_row, -- don't let it ever span multiple lines
+    end_col = marker_end_col, -- end exclusive (end col doesn't actually include the list marker)
     hl_group = hl_group,
-    priority = M.PRIORITY.LIST_MARKER, -- Medium priority for list markers
+    priority = M.PRIORITY.LIST_MARKER,
     right_gravity = false,
     end_right_gravity = false,
     hl_eol = false,
@@ -316,36 +400,40 @@ function M.highlight_child_list_markers(bufnr, todo_item)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
 
-  -- Skip if no node
   if not todo_item.node then
     return
   end
 
-  -- Get all list markers using the parser's query helper
   local list_marker_query = parser.get_list_marker_query()
 
   for id, marker_node, _ in list_marker_query:iter_captures(todo_item.node, bufnr, 0, -1) do
     local name = list_marker_query.captures[id]
     local marker_type = parser.get_marker_type_from_capture_name(name)
 
-    -- Only process if it's not the todo item's own list marker
+    -- only process if it's not the todo item's own list marker
     if not (todo_item.list_marker and todo_item.list_marker.node == marker_node) then
-      -- Get the marker range directly from the TreeSitter node
-      local marker_start_row, marker_start_col, marker_end_row, marker_end_col = marker_node:range()
+      local marker_start_row, marker_start_col, marker_end_row, _ = marker_node:range()
 
-      -- Only highlight markers within the todo item's range
+      -- safety check: only highlight list markers within the parent todo's range
       if marker_start_row >= todo_item.range.start.row and marker_end_row <= todo_item.range["end"].row then
-        local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+        local line = M.get_buffer_line(bufnr, marker_start_row)
+        if line then
+          local marker_text = todo_item.list_marker.text
 
-        vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
-          end_row = marker_end_row,
-          end_col = math.max(0, marker_end_col - 1),
-          hl_group = hl_group,
-          priority = M.PRIORITY.LIST_MARKER,
-          right_gravity = false,
-          end_right_gravity = false,
-          hl_eol = false,
-        })
+          if marker_text then
+            local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+
+            vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+              end_row = marker_start_row, -- never span lines
+              end_col = marker_start_col + #marker_text, -- end exclusive
+              hl_group = hl_group,
+              priority = M.PRIORITY.LIST_MARKER,
+              right_gravity = false,
+              end_right_gravity = false,
+              hl_eol = false,
+            })
+          end
+        end
       end
     end
   end
@@ -358,40 +446,35 @@ end
 function M.highlight_metadata(bufnr, config, metadata)
   local log = require("checkmate.log")
 
-  -- Skip if no metadata
   if not metadata or not metadata.entries or #metadata.entries == 0 then
     return
   end
 
-  -- Process each metadata entry
   for _, entry in ipairs(metadata.entries) do
     local tag = entry.tag
     local value = entry.value
     local canonical_name = entry.alias_for or tag
 
-    -- Find the metadata configuration
     local meta_config = config.options.metadata[canonical_name]
     if meta_config then
       local highlight_group
 
-      -- Get or create the highlight group
       if type(meta_config.style) == "function" then
-        -- For dynamic styles
         local cache_key = canonical_name .. "_" .. value
         highlight_group = M.get_or_create_dynamic_highlight("metadata", cache_key, "CheckmateMeta", function()
           return meta_config.style(value)
         end)
       else
-        -- For static styles
         highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
-      -- Apply the highlight
       vim.api.nvim_buf_set_extmark(bufnr, config.ns, entry.range.start.row, entry.range.start.col, {
         end_row = entry.range["end"].row,
-        end_col = entry.range["end"].col,
+        end_col = entry.range["end"].col, -- end exclusive
         hl_group = highlight_group,
-        priority = M.PRIORITY.TODO_MARKER, -- High priority for metadata
+        priority = M.PRIORITY.TODO_MARKER,
+        right_gravity = false,
+        end_right_gravity = false,
       })
 
       log.trace(
@@ -416,15 +499,10 @@ end
 function M.highlight_content(bufnr, todo_item, todo_map)
   local config = require("checkmate.config")
 
-  -- Select highlight groups based on todo state
   local main_content_hl = M.get_todo_content_highlight(todo_item.state, true)
   local additional_content_hl = M.get_todo_content_highlight(todo_item.state, false)
 
-  if #todo_item.content_nodes == 0 then
-    return
-  end
-
-  -- Map of row ranges that belong to child todo items (only exclude todo items, not regular list items)
+  -- row ranges that belong to child todo items
   local child_todo_rows = {}
   for _, child_id in ipairs(todo_item.children or {}) do
     local child = todo_map[child_id]
@@ -435,55 +513,93 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     end
   end
 
-  -- Now highlight the content
-  -- First line (main content) of the todo item
+  -- clear setext style
+  -- addresses visual highlighting glitch in which the following:
+  -- ```md
+  -- - ☑︎ Todo
+  --   -
+  -- ````
+  -- causes the todo line to be bolded. This is because the "-" only line
+  -- is parsed as a setext_heading applied heading style to the line above it
+  for child in todo_item.node:iter_children() do
+    if child:type() == "setext_heading" then
+      local row = todo_item.todo_marker.position.row
+      local line = M.get_buffer_line(bufnr, row)
+
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, 0, {
+        end_row = row,
+        end_col = #line,
+        hl_group = "CheckmateNormal",
+        hl_eol = true,
+        priority = 10000,
+      })
+    end
+  end
+
+  -- highlight main content (first line)
   local first_row = todo_item.range.start.row
   local line = M.get_buffer_line(bufnr, first_row)
-  local marker_pos = todo_item.todo_marker.position.col -- byte pos
-  local marker_len = #todo_item.todo_marker.text -- byte length
 
-  -- Main content highlight is everything on the first line after the marker
-  -- Find content start position (after the marker)
-  local main_content_start = line:find("[^%s]", marker_pos + marker_len + 1)
-  if main_content_start then
-    main_content_start = main_content_start - 1 -- convert to 0-based for extmark
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, first_row, main_content_start, {
-      end_row = first_row,
-      end_col = #line,
-      hl_group = main_content_hl,
-      priority = M.PRIORITY.CONTENT,
-      hl_eol = true,
-      end_right_gravity = true,
-    })
+  if line and #line > 0 then
+    local marker_pos = todo_item.todo_marker.position.col -- byte pos (0-based)
+    local marker_len = #todo_item.todo_marker.text -- byte length
+
+    -- find the actual content start after the todo marker and any whitespace
+    local search_start = marker_pos + marker_len
+
+    local content_start = nil
+    for i = search_start, #line do
+      local char = line:sub(i + 1, i + 1) -- +1 for 1-based substring
+      if char ~= " " and char ~= "\t" then
+        content_start = i -- 0-based position
+        break
+      end
+    end
+
+    if content_start and content_start < #line then
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, first_row, content_start, {
+        end_row = first_row,
+        end_col = #line, -- byte length
+        hl_group = main_content_hl,
+        priority = M.PRIORITY.CONTENT,
+        hl_eol = false,
+        end_right_gravity = true,
+        right_gravity = false,
+      })
+    end
   end
 
   -- Process additional content (lines after the first)
-  -- Only exclude child todo items, non-todo list items should get additional content highlighting
   for row = first_row + 1, todo_item.range["end"].row do
-    -- Skip rows that belong to child todo items
     if not child_todo_rows[row] then
       local row_line = M.get_buffer_line(bufnr, row)
-      local is_empty = row_line:match("^%s*$")
 
-      -- Only highlight non-empty lines
-      if not is_empty then
-        local additional_content_start = row_line:find("[^%s]")
-        if additional_content_start then
-          additional_content_start = additional_content_start - 1 -- convert from 1-indexed to 0-indexed for extmark
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, additional_content_start, {
+      -- skip empty lines
+      if row_line and not row_line:match("^%s*$") then
+        local content_start = nil
+        for i = 0, #row_line - 1 do
+          local char = row_line:sub(i + 1, i + 1)
+          if char ~= " " and char ~= "\t" then
+            content_start = i
+            break
+          end
+        end
+
+        if content_start then
+          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
             end_row = row,
-            end_col = #row_line,
+            end_col = #row_line, -- byte length
             hl_group = additional_content_hl,
             priority = M.PRIORITY.CONTENT,
-            hl_eol = true,
+            hl_eol = false,
             end_right_gravity = true,
+            right_gravity = false,
           })
         end
       end
     end
   end
 
-  -- Highlight metadata (already using proper range information)
   M.highlight_metadata(bufnr, config, todo_item.metadata)
 end
 
@@ -498,7 +614,6 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
     return
   end
 
-  -- Skip if no children
   if not todo_item.children or #todo_item.children == 0 then
     return
   end
@@ -510,7 +625,6 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
     return
   end
 
-  -- Create the count indicator text
   local indicator_text
   -- use custom formatter if exists
   if config.options.todo_count_formatter and type(config.options.todo_count_formatter) == "function" then
@@ -520,7 +634,6 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
     indicator_text = string.format("%d/%d", counts.completed, counts.total)
   end
 
-  -- Add virtual text using extmark
   if config.options.todo_count_position == "inline" then
     local extmark_start_col = todo_item.todo_marker.position.col + #todo_item.todo_marker.text + 1
     vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, extmark_start_col, {
@@ -539,7 +652,6 @@ end
 
 -- Check if a node is a child of another node
 function M.is_child_of_node(child_node, parent_node)
-  -- Check that the parent is in the ancestor chain of the child
   local current = child_node:parent()
   while current do
     if current == parent_node then

@@ -887,6 +887,12 @@ function M.setup(opts)
       end
 
       config = vim.tbl_deep_extend("force", config, opts)
+
+      if opts.metadata then
+        for meta_name, meta_props in pairs(opts.metadata) do
+          config.metadata[meta_name] = vim.deepcopy(meta_props)
+        end
+      end
     end
 
     -- save user style for colorscheme updates

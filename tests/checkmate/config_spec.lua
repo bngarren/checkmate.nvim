@@ -104,7 +104,7 @@ describe("Config", function()
         theme.generate_style_defaults:revert()
       end)
 
-      it("fills in missing nested keys but keeps user-supplied values", function()
+      it("fills in missing style but keeps user-supplied values", function()
         local checkmate = require("checkmate")
         local config = require("checkmate.config")
 
@@ -132,7 +132,7 @@ describe("Config", function()
         checkmate.stop()
       end)
 
-      it("never overwrites an explicit user value on back-fill", function()
+      it("never overwrites an explicit user value on style back-fill", function()
         local checkmate = require("checkmate")
         local config = require("checkmate.config")
 
@@ -176,6 +176,28 @@ describe("Config", function()
     it("should successfully validate default options", function()
       local config = require("checkmate.config")
       assert.is_true(config.validate_options(config.get_defaults()))
+    end)
+
+    it("should allow user to redefine a default metadata entry while keeping other defaults", function()
+      local checkmate = require("checkmate")
+      ---@diagnostic disable-next-line: missing-fields
+      checkmate.setup({
+        metadata = {
+          ---@diagnostic disable-next-line: missing-fields
+          done = {
+            key = "test",
+          },
+        },
+      })
+
+      local config = require("checkmate.config")
+
+      assert.equal(vim.tbl_count(config.options.metadata.done), 1)
+      assert.equal(config.options.metadata.done.key, "test")
+
+      assert.same(config.options.metadata.started, config.get_defaults().metadata.started)
+
+      checkmate.stop()
     end)
   end)
 end)

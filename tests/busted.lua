@@ -1,7 +1,7 @@
 #!/usr/bin/env -S nvim -l
 
 -- Set up test environment in an isolated location
-vim.env.LAZY_STDPATH = ".testdata"
+vim.env.LAZY_STDPATH = ".testdata/busted"
 
 -- Bootstrap lazy.nvim
 load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()

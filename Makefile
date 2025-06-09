@@ -68,12 +68,10 @@ test-file:
 	     $(ARGS)
 
 # -------------------------------------------------
-# Enter busted’s interactive runner:
-#
 #   make test-interactive
 # -------------------------------------------------
 test-interactive:
-	@nvim -u tests/busted.lua
+	@nvim -u tests/interactive.lua
 
 # -------------------------------------------------
 # Clean up any test artifacts

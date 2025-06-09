@@ -82,11 +82,11 @@ function M.setup_buffer(bufnr)
   local highlights = require("checkmate.highlights")
   highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
 
-  local has_nvim_treesitter, _ = pcall(require, "nvim-treesitter")
-  if has_nvim_treesitter then
-    vim.cmd("TSBufDisable highlight")
-  else
-    vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
+  vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
+
+  -- User can opt out of TS highlighting if desired
+  if config.options.disable_ts_highlights == true then
+    vim.treesitter.stop(bufnr)
   end
 
   M.setup_keymaps(bufnr)

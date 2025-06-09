@@ -104,10 +104,16 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---
----@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---Settings for the archived todos section
+---@field archive checkmate.ArchiveSettings?
 ---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
+---
+---Turn off treesitter highlights (on by default)
+---Buffer local
+---See `:h treesitter-highlight`
+---@field disable_ts_highlights? boolean
 
 -----------------------------------------------------
 

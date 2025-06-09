@@ -17,11 +17,11 @@ function M.check()
   end
 
   -- Check markdown parser
-  local ts_parsers = require("nvim-treesitter.parsers")
-  if ts_parsers.has_parser("markdown") then
-    ok("Treesitter markdown parser is installed")
+  local has_md_parser, _ = vim.treesitter.language.add("markdown")
+  if has_md_parser then
+    ok("Markdown parser present")
   else
-    error("Treesitter markdown parser is not installed.")
+    error("Missing Markdown parser")
   end
 
   local has_render_markdown = pcall(require, "render-markdown")

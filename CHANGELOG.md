@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3](https://github.com/bngarren/checkmate.nvim/compare/v0.8.2...v0.8.3) (2025-06-09)
+
+
+### Bug Fixes
+
+* **api:** fixes bug with TSBufDisable call due to nvim-treesitter update [#106](https://github.com/bngarren/checkmate.nvim/issues/106) ([#107](https://github.com/bngarren/checkmate.nvim/issues/107)) ([2df3ab3](https://github.com/bngarren/checkmate.nvim/commit/2df3ab32ea5fd58af9f794fe4333722e538c63d4))
+* **health:** fixed checkhealth for markdown which was incorrectly using nvim-treesitter ([#104](https://github.com/bngarren/checkmate.nvim/issues/104)) ([6399fab](https://github.com/bngarren/checkmate.nvim/commit/6399fab7322d933f6061d96de4165a221807142d))
+
 ## [0.8.2](https://github.com/bngarren/checkmate.nvim/compare/v0.8.1...v0.8.2) (2025-06-07)
 
 

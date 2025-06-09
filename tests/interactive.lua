@@ -23,14 +23,14 @@ local environments = require("environments")
 local env = environments.get(env_name)
 
 local spec = {
-  { dir = vim.uv.cwd(), ft = "markdown" },
+  { dir = vim.uv.cwd(), opts = {}, ft = "markdown" },
 }
 
 -- Add environment-specific specs
 vim.list_extend(spec, env.spec or {})
 
 -- Setup for interactive mode
-require("lazy.minit").setup({
+require("lazy.minit").repro({
   spec = spec,
 })
 
@@ -41,3 +41,5 @@ if env.config then
     vim.notify("Loaded environment: " .. env_name, vim.log.levels.INFO)
   end)
 end
+
+vim.cmd("edit tests/test.todo.md")

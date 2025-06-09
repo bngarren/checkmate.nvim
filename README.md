@@ -236,11 +236,14 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 ---will be merged with defaults.
 ---@field metadata checkmate.Metadata
 ---
----Settings for the archived todos section
----@field archive checkmate.ArchiveSettings?
+---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
 ---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
+---
+---Turn off treesitter highlights (on by default)
+---See `:h treesitter-highlight`
+---@field disable_ts_highlights? boolean
 
 -----------------------------------------------------
 

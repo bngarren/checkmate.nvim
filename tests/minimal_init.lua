@@ -1,4 +1,7 @@
--- Disable random plugins that might affect testing
+-- This minimal init file is used for headless testing.
+-- For booting up an interactive Neovim use tests/interactive.lua
+
+-- Disable plugins that might affect testing
 vim.g.loaded_matchparen = 1
 vim.g.loaded_matchit = 1
 vim.g.loaded_logiPat = 1

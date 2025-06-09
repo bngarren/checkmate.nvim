@@ -71,7 +71,7 @@ test-file:
 #   make test-interactive
 # -------------------------------------------------
 test-interactive:
-	@nvim -u tests/interactive.lua
+	@nvim -u tests/interactive.lua 
 
 # -------------------------------------------------
 # Clean up any test artifacts

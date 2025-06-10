@@ -131,27 +131,27 @@ function M.setup_keymaps(bufnr)
   ---@type table<checkmate.Action, table>
   local actions = {
     toggle = {
-      command = "CheckmateToggle",
+      command = "Checkmate toggle",
       modes = { "n", "v" },
     },
     check = {
-      command = "CheckmateCheck",
+      command = "Checkmate check",
       modes = { "n", "v" },
     },
     uncheck = {
-      command = "CheckmateUncheck",
+      command = "Checkmate uncheck",
       modes = { "n", "v" },
     },
     create = {
-      command = "CheckmateCreate",
+      command = "Checkmate create",
       modes = { "n", "v" },
     },
     remove_all_metadata = {
-      command = "CheckmateRemoveAllMetadata",
+      command = "Checkmate remove_all_metadata",
       modes = { "n", "v" },
     },
     archive = {
-      command = "CheckmateArchive",
+      command = "Checkmate archive",
       modes = { "n" },
     },
   }

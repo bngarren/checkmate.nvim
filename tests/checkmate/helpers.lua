@@ -54,9 +54,12 @@ function M.write_file_content(file_path, content)
 end
 
 -- Helper function to create a test buffer with todo content
-function M.create_test_buffer(content)
+function M.create_test_buffer(content, name)
   local bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
+  if name then
+    vim.api.nvim_buf_set_name(bufnr, name)
+  end
   vim.bo[bufnr].filetype = "markdown"
   return bufnr
 end

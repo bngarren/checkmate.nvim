@@ -111,27 +111,52 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 > The Checkmate buffer is saved as regular Markdown!
 
 # ☑️ Commands
+> ![WARN]
+> The top-level commands such as `:CheckmateToggle`, `:CheckmateArchive`, etc. have been deprecated and will be removed in upcoming release. Use the subcommands or public API below.
 
-:CheckmateToggle
+#### User commands
+`:Checkmate [subcommand]`
+
+| subcommand | Description |
+|------------|-------------|
+| `archive` | Archive all checked todo items in the buffer. See api `archive()` |
+| `check` | Mark the todo item under the cursor as checked. See api `check()`|
+| `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
+| `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |
+| `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` |
+| `metadata remove` | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)` |
+| `metadata toggle` | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)` |
+| `remove_all_metadata` | Remove *all* metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()` |
+| `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()` |
+| `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
+
+<br>
+<details>
+<summary>Legacy commands (deprecated)</summary>
+
+CheckmateToggle
 : Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
-:CheckmateCreate
+CheckmateCreate
 : Convert the current line to a todo item
 
-:CheckmateCheck
+CheckmateCheck
 : Mark todo item as checked (done/completed) in normal or visual mode
 
-:CheckmateUncheck
+CheckmateUncheck
 : Mark todo item as unchecked in normal or visual mode
 
-:CheckmateRemoveAllMetadata
+CheckmateRemoveAllMetadata
 : Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
-:CheckmateArchive
+CheckmateArchive
 : Reorganize checked/completed todo items to the bottom section
 
-:CheckmateLint
+CheckmateLint
 : Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+
+</details>
+<br>
 
 # ☑️ Config
 

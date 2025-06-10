@@ -75,7 +75,6 @@ function M.setup_buffer(bufnr)
   if config.options.linter and config.options.linter.enabled ~= false then
     local linter = require("checkmate.linter")
     linter.setup(config.options.linter)
-    -- Initial lint buffer
     linter.lint_buffer(bufnr)
   end
 
@@ -1690,6 +1689,10 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
   end
 
   vim.schedule(function()
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
     local row = todo_item.range.start.row
     local updated_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
     if not updated_line then

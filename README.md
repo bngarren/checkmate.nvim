@@ -111,7 +111,7 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 > The Checkmate buffer is saved as regular Markdown!
 
 # ☑️ Commands
-> ![WARN]
+> [!WARNING]
 > The top-level commands such as `:CheckmateToggle`, `:CheckmateArchive`, etc. have been deprecated and will be removed in upcoming release. Use the subcommands or public API below.
 
 #### User commands
@@ -606,7 +606,7 @@ opts = {
 }
 ```
 
-> [!WARN]
+> [!WARNING]
 > Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
 
 ## Metadata

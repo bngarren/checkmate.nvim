@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/bngarren/checkmate.nvim/compare/v0.8.3...v0.8.4) (2025-06-11)
+
+
+### Bug Fixes
+
+* **parser:** fixes incorrect parsing of metadata tags and values ([#111](https://github.com/bngarren/checkmate.nvim/issues/111)) ([dd2b77d](https://github.com/bngarren/checkmate.nvim/commit/dd2b77d233c92d4c796da30e2d7d6346c7dc2201))
+
 ## [0.8.3](https://github.com/bngarren/checkmate.nvim/compare/v0.8.2...v0.8.3) (2025-06-09)
 
 

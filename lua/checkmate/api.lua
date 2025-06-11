@@ -1361,7 +1361,7 @@ function M.rebuild_line_with_sorted_metadata(line, metadata)
   local log = require("checkmate.log")
 
   -- remove all metadata tags but preserve all other content including whitespace
-  local content_without_metadata = line:gsub("@%w+%([^)]*%)", "")
+  local content_without_metadata = line:gsub("@[%a][%w_%-]*%b()", "")
 
   -- remove trailing whitespace but keep all indentation
   content_without_metadata = content_without_metadata:gsub("%s+$", "")
@@ -1372,7 +1372,6 @@ function M.rebuild_line_with_sorted_metadata(line, metadata)
 
   local sorted_entries = M.sort_metadata_entries(metadata.entries)
 
-  -- Rebuild the line with content and sorted metadata
   local result_line = content_without_metadata
 
   -- add back each metadata tag in sorted order

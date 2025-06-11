@@ -743,6 +743,37 @@ Line 2
       end)
     end)
 
+    it("should remove metadata with complex value", function()
+      local config = require("checkmate.config")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local file_path = h.create_temp_file()
+
+      local content = [[
+- [ ] Task @issue(issue #1 - fix(api): broken! @author)
+      ]]
+
+      local bufnr = setup_todo_buffer(file_path, content, {})
+
+      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
+
+      assert.is_not_nil(first_todo)
+      ---@cast first_todo checkmate.TodoItem
+
+      assert.is_not_nil(first_todo.metadata)
+      assert.is_true(#first_todo.metadata.entries > 0)
+
+      -- remove @issue
+      vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
+      require("checkmate").remove_metadata("issue")
+
+      vim.cmd("sleep 10m")
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      assert.no.matches("@issue", lines[1])
+      assert.matches("- " .. vim.pesc(unchecked) .. " Task", lines[1])
+    end)
+
     it("should remove all metadata from todo items", function()
       local config = require("checkmate.config")
       local unchecked = config.get_defaults().todo_markers.unchecked

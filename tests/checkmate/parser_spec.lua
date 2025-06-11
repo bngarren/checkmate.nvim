@@ -629,6 +629,18 @@ Line that should not affect parent-child relationship
       assert.same(metadata.entries[3], metadata.by_tag.tags)
     end)
 
+    it("should not malformed metadata", function()
+      local parser = require("checkmate.parser")
+
+      -- space between @tag and ()
+      local line = "- □ Task @tag (value)"
+      local row = 0
+
+      local metadata = parser.extract_metadata(line, row)
+
+      assert.equal(0, #metadata.entries)
+    end)
+
     it("should handle metadata with spaces in values", function()
       local parser = require("checkmate.parser")
       local line = "- □ Task @note(this is a note with spaces)"
@@ -650,7 +662,19 @@ Line that should not affect parent-child relationship
 
       assert.equal(1, #metadata.entries)
       assert.equal("note", metadata.entries[1].tag)
-      assert.equal("spaced value", metadata.entries[1].value) -- Spaces should be trimmed
+      assert.equal("spaced value", metadata.entries[1].value)
+    end)
+
+    it("should handle metadata with parentheses in value", function()
+      local parser = require("checkmate.parser")
+      local line = "- □ Task @issue(fix(api))"
+      local row = 0
+
+      local metadata = parser.extract_metadata(line, row)
+
+      assert.equal(1, #metadata.entries)
+      assert.equal("issue", metadata.entries[1].tag)
+      assert.equal("fix(api)", metadata.entries[1].value)
     end)
 
     it("should properly track position_in_line", function()

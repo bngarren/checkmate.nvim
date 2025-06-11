@@ -1,6 +1,7 @@
 local M = {}
 
 ---@alias checkmate.TodoItemState "checked" | "unchecked"
+--@alias checkmate.TodoItemState "checked" | "unchecked"
 
 --- @class TodoMarkerInfo
 --- @field position {row: integer, col: integer} Position of the marker (0-indexed)
@@ -63,7 +64,8 @@ local FULL_TODO_QUERY = vim.treesitter.query.parse(
 ]]
 )
 
-local METADATA_PATTERN = "@([%a][%w_%-]*)%(%s*(.-)%s*%)"
+-- match the @tag and then a balanced sequence %b(), which is everything in the outer parentheses
+local METADATA_PATTERN = "@([%a][%w_%-]*)(%b())"
 
 M.list_item_markers = { "-", "+", "*" }
 
@@ -774,27 +776,44 @@ function M.extract_metadata(line, row)
     by_tag = {},
   }
 
+  ---@param _line string String to search
+  ---@param from_byte_pos integer start looking at this byte position
+  ---@return string? tag, string? value, integer? start_byte, integer? end_byte
+  local function find_metadata(_line, from_byte_pos)
+    local s, e, tag, raw = _line:find(METADATA_PATTERN, from_byte_pos)
+    if not s or not e then
+      return nil
+    end
+
+    -- raw is "( ... )", so we gotta strip outer parens
+    local inner = raw:sub(2, -2)
+
+    -- trim whitespace
+    local value = inner:match("^%s*(.-)%s*$")
+
+    return tag, value, s, e
+  end
+
   -- find all @tag(value) patterns and their positions
   local byte_pos = 1
   while true do
-    -- will capture tag names that include underscores and hypens
-    local tag_start_byte, tag_end_byte, tag, value = line:find(METADATA_PATTERN, byte_pos)
-    if not tag_start_byte or not tag_end_byte then
+    local tag, value, start_byte, end_byte = find_metadata(line, byte_pos)
+    if not tag or not start_byte or not end_byte then
       break
     end
 
     ---@type checkmate.MetadataEntry
     local entry = {
       tag = tag,
-      value = value,
+      value = value or "",
       range = {
-        start = { row = row, col = tag_start_byte - 1 }, -- 0-indexed column
+        start = { row = row, col = start_byte - 1 }, -- 0-indexed column
         -- For the end col, we need 0 indexed (subtract 1) and since it is end-exclusive we add 1, cancelling out
         -- end-exclusive means the end col points to the pos after the last char
-        ["end"] = { row = row, col = tag_end_byte },
+        ["end"] = { row = row, col = end_byte },
       },
       alias_for = nil, -- Will be set later if it's an alias
-      position_in_line = tag_start_byte, -- track original position in the line, use byte pos for sorting
+      position_in_line = start_byte, -- track original position in the line, use byte pos for sorting
     }
 
     -- check if this is an alias and map to canonical name
@@ -827,10 +846,10 @@ function M.extract_metadata(line, row)
     end
 
     -- move position for next search
-    byte_pos = tag_end_byte + 1
+    byte_pos = end_byte + 1
 
     log.debug(
-      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, tag_start_byte - 1, row, tag_end_byte),
+      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, start_byte - 1, row, end_byte),
       { module = "parser" }
     )
   end

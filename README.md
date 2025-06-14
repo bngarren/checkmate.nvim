@@ -117,14 +117,15 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 #### User commands
 `:Checkmate [subcommand]`
 
-| subcommand | Description |
-|------------|-------------|
+| subcommand   | Description |
+|--------------|-------------|
 | `archive` | Archive all checked todo items in the buffer. See api `archive()` |
 | `check` | Mark the todo item under the cursor as checked. See api `check()`|
 | `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
 | `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |
 | `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` |
 | `metadata remove` | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)` |
+| `metadata select_value` | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()` |
 | `metadata toggle` | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)` |
 | `remove_all_metadata` | Remove *all* metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()` |
 | `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()` |
@@ -213,6 +214,8 @@ CheckmateLint
 ---Default list item marker to be used when creating new Todo items
 ---@field default_list_marker "-" | "*" | "+"
 ---
+---@field ui? checkmate.UISettings
+---
 ---Highlight settings (override merge with defaults)
 ---Default style will attempt to integrate with current colorscheme (experimental)
 ---May need to tweak some colors to your liking
@@ -225,7 +228,7 @@ CheckmateLint
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
 ---
----Enter insert mode after `:CheckmateCreate`, require("checkmate").create()
+---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
 ---Options for smart toggle behavior
@@ -253,27 +256,28 @@ CheckmateLint
 ---@field todo_count_recursive boolean
 ---
 ---Whether to register keymappings defined in each metadata definition. If set the false,
----metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
+---metadata actions need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
----To add custom metadata tag, simply add a field and props to this metadata table and it
----will be merged with defaults.
+---To add custom metadata tag, add a new field to this table with the metadata properties
 ---@field metadata checkmate.Metadata
 ---
----@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+---Settings for the archived todos section
+---@field archive checkmate.ArchiveSettings?
 ---
 ---Config for the linter
 ---@field linter checkmate.LinterConfig?
 ---
 ---Turn off treesitter highlights (on by default)
+---Buffer local
 ---See `:h treesitter-highlight`
 ---@field disable_ts_highlights? boolean
 
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -285,7 +289,6 @@ CheckmateLint
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 ---
 --- Should print log output to a file
---- Open with `:Checkmate debug_file`
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
@@ -293,7 +296,7 @@ CheckmateLint
 ---@field file_path string?
 ---
 --- Should print log output to a scratch buffer
---- Open with `require("checkmate").debug_log()`
+--- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
 ---@field use_buffer boolean
 
 -----------------------------------------------------
@@ -309,7 +312,16 @@ CheckmateLint
 
 -----------------------------------------------------
 
+---@class checkmate.UISettings
+---
+---Default behavior: attempt to use an installed plugin, if found
+---If false, will default to vim.ui.select
+---@field preferred_picker? "telescope" | "snacks" | "mini" | false
+
+-----------------------------------------------------
+
 ---@class checkmate.SmartToggleSettings
+---
 ---Whether to enable smart toggle behavior
 ---Default: true
 ---@field enabled boolean?
@@ -388,47 +400,63 @@ CheckmateLint
 ---@field todo_count_indicator vim.api.keyset.highlight?
 
 -----------------------------------------------------
+--- Metadata
 
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+---
+---A 'canonical' name is the main lookup name for a metadata tag; additional 'aliases' can be used that point to this name
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
 ---@class checkmate.MetadataProps
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
 ---also be used and have the same styling/functionality
----@field aliases string[]?
+---@field aliases? string[]
 ---
----Highlight settings or function that returns highlight settings based on the metadata's current value
----@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+---@alias checkmate.StyleFn
+---| fun(value: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
+---| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+---
+---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
+---@field style? vim.api.keyset.highlight|checkmate.StyleFn
 ---
 ---Function that returns the default value for this metadata tag
----@field get_value fun():string
+---i.e. what is used after insertion
+---@field get_value? fun():string?|fun(context?: checkmate.MetadataContext):string
+---
+---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+---
+---Values that are populated during completion or select pickers
+---Can be either:
+--- - An array of items (string[])
+--- - A function that returns items
+---@field choices? string[]|checkmate.ChoicesFn
 ---
 ---Keymapping for toggling this metadata tag
----@field key string?
+---@field key? string
 ---
 ---Used for displaying metadata in a consistent order
----@field sort_order integer?
+---@field sort_order? integer
 ---
 ---Moves the cursor to the metadata after it is inserted
 ---  - "tag" - moves to the beginning of the tag
 ---  - "value" - moves to the beginning of the value
 ---  - false - disables jump (default)
----@field jump_to_on_insert "tag" | "value" | false?
+---@field jump_to_on_insert? "tag" | "value" | false
 ---
 ---Selects metadata text in visual mode after metadata is inserted
 ---The `jump_to_on_insert` field must be set (not false)
 ---The selected text will be the tag or value, based on jump_to_on_insert setting
 ---Default (false) - off
----@field select_on_insert boolean?
+---@field select_on_insert? boolean
 ---
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
----@field on_add fun(todo_item: checkmate.TodoItem)?
+---@field on_add? fun(todo_item: checkmate.TodoItem)
 ---
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
----@field on_remove fun(todo_item: checkmate.TodoItem)?
+---@field on_remove? fun(todo_item: checkmate.TodoItem)
 
 -----------------------------------------------------
 
@@ -478,7 +506,7 @@ CheckmateLint
 ### Defaults
 ```lua
 ---@type checkmate.Config
-local _DEFAULTS = {
+local defaults = {
   enabled = true,
   notify = true,
   -- Default file matching:
@@ -506,13 +534,14 @@ local _DEFAULTS = {
     ["<leader>Tn"] = "create", -- Create todo item
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
     ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
+    ["<leader>Tv"] = "select_metadata_value", -- Update the value of a metadata tag under the cursor
   },
   default_list_marker = "-",
   todo_markers = {
     unchecked = "□",
     checked = "✔",
   },
-  style = {},
+  style = {}, -- override defaults
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   smart_toggle = {
@@ -529,8 +558,8 @@ local _DEFAULTS = {
   metadata = {
     -- Example: A @priority tag that has dynamic color based on the priority value
     priority = {
-      style = function(_value)
-        local value = _value:lower()
+      style = function(context)
+        local value = context.value:lower()
         if value == "high" then
           return { fg = "#ff5555", bold = true }
         elseif value == "medium" then
@@ -543,6 +572,9 @@ local _DEFAULTS = {
       end,
       get_value = function()
         return "medium" -- Default priority
+      end,
+      choices = function()
+        return { "low", "medium", "high" }
       end,
       key = "<leader>Tp",
       sort_order = 10,
@@ -582,7 +614,7 @@ local _DEFAULTS = {
       level = 2, -- e.g. ##
     },
     parent_spacing = 0, -- no extra lines between archived todos
-    newest_first = true
+    newest_first = true,
   },
   linter = {
     enabled = true,
@@ -620,52 +652,8 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
   - `@done` - default value is the current date/time
   - `@priority` - "low" | "medium" (default) | "high"
 
-#### @priority example
 
-```lua
-priority = {
-  -- Dynamic styling based on the tag's current value
-  style = function(value)
-    local value = value:lower()
-    if value == "high" then
-      return { fg = "#ff5555", bold = true }
-    elseif value == "medium" then
-      return { fg = "#ffb86c" }
-    elseif value == "low" then
-      return { fg = "#8be9fd" }
-    else -- fallback
-      return { fg = "#8be9fd" }
-    end
-  end,
-  get_value = function() return "medium" end,  -- Default value
-  key = "<leader>Tp",                          -- Keymap to toggle
-  sort_order = 10,                             -- Order when multiple tags exist (lower comes first)
-  jump_to_on_insert = "value",                 -- Move the cursor after insertion
-  select_on_insert = true                      -- Select the 'value' (visual mode) on insert
-},
-```
-
-#### @done example
-
-```lua
-done = {
-  aliases = { "completed", "finished" },
-  style = { fg = "#96de7a" },
-  get_value = function()
-    return tostring(os.date("%m/%d/%y %H:%M"))
-  end,
-  key = "<leader>Td",
-  -- Changes todo state when tag is added
-  on_add = function(todo_item)
-    require("checkmate").set_todo_item(todo_item, "checked")
-  end,
-  -- Changes todo state when tag is removed
-  on_remove = function(todo_item)
-    require("checkmate").set_todo_item(todo_item, "unchecked")
-  end,
-  sort_order = 30,
-},
-```
+For how-tos and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
 
 ## Todo count indicator
 

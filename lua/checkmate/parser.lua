@@ -763,6 +763,7 @@ end
 function M.extract_metadata(line, row)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
+  local meta_module = require("checkmate.metadata")
 
   ---@type checkmate.TodoMetadata
   local metadata = {
@@ -811,22 +812,9 @@ function M.extract_metadata(line, row)
     }
 
     -- check if this is an alias and map to canonical name
-    for canonical_name, meta_props in pairs(config.options.metadata) do
-      if tag == canonical_name then
-        -- This is a canonical name, no need to set alias_for
-        break
-      end
-
-      for _, alias in ipairs(meta_props.aliases or {}) do
-        if tag == alias then
-          entry.alias_for = canonical_name
-          break
-        end
-      end
-
-      if entry.alias_for then
-        break
-      end
+    local canonical_name = meta_module.get_canonical_name(tag)
+    if canonical_name and canonical_name ~= tag then
+      entry.alias_for = canonical_name
     end
 
     table.insert(metadata.entries, entry)

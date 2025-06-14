@@ -1,6 +1,21 @@
 ---@class Checkmate
 local M = {}
 
+-- Public Types
+
+---@class checkmate.Todo
+---@field _todo_item checkmate.TodoItem internal representation
+---@field state checkmate.TodoItemState
+---@field text string First line of the todo
+---@field metadata string[][] Table of {tag, value} tuples
+---@field get_metadata fun(name: string): string[]?
+
+---@class checkmate.MetadataContext
+---@field name string Metadata tag name
+---@field value string Current metadata value
+---@field todo checkmate.Todo Access to todo item data
+---@field buffer integer Buffer number
+
 local state = {
   initialized = false,
   running = false,
@@ -198,6 +213,7 @@ function M._setup_autocommands()
       end
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
+        --  TODO: remove legacy in v0.10+
         require("checkmate.commands").setup(event.buf) -- legacy commands
         require("checkmate.commands_new").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
@@ -211,6 +227,7 @@ function M._setup_autocommands()
       local bufs = M.get_active_buffer_list()
       for _, buf in ipairs(bufs) do
         if event.buf == buf and event.match ~= "markdown" then
+          --  TODO: remove legacy in v0.10+
           require("checkmate.commands").dispose(buf) -- legacy
           require("checkmate.commands_new").dispose(buf)
           require("checkmate.api").shutdown(buf)
@@ -683,6 +700,27 @@ function M.toggle_metadata(meta_name, custom_value)
 
   profiler.stop("M.toggle_metadata")
   return true
+end
+
+function M.select_metadata_value()
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local picker = require("checkmate.metadata.picker")
+
+  picker.open_picker(function(choice, metadata)
+    local ctx = transaction.current_context()
+    if ctx then
+      ctx.add_op(api.set_metadata_value, metadata, choice)
+      return
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    transaction.run(bufnr, function(_ctx)
+      _ctx.add_op(api.set_metadata_value, metadata, choice)
+    end, function()
+      require("checkmate.highlights").apply_highlighting(bufnr)
+    end)
+  end)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

@@ -104,6 +104,13 @@ local top_commands = {
           return vim.tbl_keys(require("checkmate.config").options.metadata)
         end,
       },
+      select_value = {
+        desc = "Select a value from completion options for the metadata tag under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").select_metadata_value()
+        end,
+      },
     },
   },
 

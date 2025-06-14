@@ -155,6 +155,10 @@ function M.setup_keymaps(bufnr)
       command = "Checkmate archive",
       modes = { "n" },
     },
+    select_metadata_value = {
+      command = "Checkmate metadata select_value",
+      modes = { "n" },
+    },
   }
 
   for key, action_name in pairs(keys) do
@@ -354,6 +358,8 @@ function M.setup_autocmds(bufnr)
         M._debounced_processors[bufnr] = nil
         -- clear the todo map cache for this buffer
         require("checkmate.parser").todo_map_cache[bufnr] = nil
+
+        require("checkmate.metadata.picker").cleanup_ui(bufnr)
       end,
     })
     vim.b[bufnr].checkmate_autocmds_setup = true
@@ -981,9 +987,10 @@ end
 ---@param meta_value string Metadata default value
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
-  local config = require("checkmate.config")
   local log = require("checkmate.log")
-  local meta_props = config.options.metadata[meta_name]
+  local meta_module = require("checkmate.metadata")
+
+  local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
     log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
     return {}
@@ -1044,6 +1051,8 @@ end
 ---@return checkmate.TextDiffHunk[] hunks
 function M.add_metadata(ctx, operations)
   local config = require("checkmate.config")
+  local meta_module = require("checkmate.metadata")
+
   local bufnr = ctx.get_buf()
   local hunks = {}
   local to_jump = nil
@@ -1057,7 +1066,7 @@ function M.add_metadata(ctx, operations)
       return {}
     end
 
-    local meta_props = config.options.metadata[op.meta_name]
+    local meta_props = meta_module.get_meta_props(op.meta_name)
     if not meta_props then
       return {}
     end
@@ -1065,7 +1074,8 @@ function M.add_metadata(ctx, operations)
     -- get value with fallback to get_value()
     local meta_value = op.meta_value
     if not meta_value and meta_props.get_value then
-      meta_value = meta_props.get_value()
+      local context = meta_module.create_context(item, op.meta_name, "", bufnr)
+      meta_value = meta_props.get_value(context)
       meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
     end
     meta_value = meta_value or ""
@@ -1110,8 +1120,8 @@ end
 ---@param meta_name string Metadata tag name
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_remove_metadata(items, meta_name)
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
+  local meta_module = require("checkmate.metadata")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
@@ -1131,16 +1141,9 @@ function M.compute_diff_remove_metadata(items, meta_name)
       local entry = todo_item.metadata.by_tag[meta_name]
       if not entry then
         -- Check for aliases
-        for canonical, props in pairs(config.options.metadata) do
-          for _, alias in ipairs(props.aliases or {}) do
-            if alias == meta_name then
-              entry = todo_item.metadata.by_tag[canonical]
-              break
-            end
-          end
-          if entry then
-            break
-          end
+        local canonical = meta_module.get_canonical_name(meta_name)
+        if canonical then
+          entry = todo_item.metadata.by_tag[canonical]
         end
       end
 
@@ -1323,6 +1326,51 @@ function M.toggle_metadata(ctx, operations)
   end
 
   return hunks
+end
+
+---@param ctx checkmate.TransactionContext
+---@param metadata checkmate.MetadataEntry
+---@param new_value string
+---@return checkmate.TextDiffHunk[]
+function M.set_metadata_value(ctx, metadata, new_value)
+  local bufnr = ctx.get_buf()
+  local row = metadata.range.start.row
+
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+  if not line then
+    return {}
+  end
+
+  return M.compute_diff_update_metadata(line, metadata, new_value)
+end
+
+function M.compute_diff_update_metadata(line, metadata, value)
+  local row = metadata.range.start.row
+  -- 1-indexed for string operations
+  local tag_start_1indexed = metadata.range.start.col + 1
+  local tag_end_1indexed = metadata.range["end"].col -- end is exclusive, so no +1
+
+  local metadata_str = line:sub(tag_start_1indexed, tag_end_1indexed)
+
+  -- find the outer parentheses
+  local paren_open, paren_close = metadata_str:find("%b()")
+  if not paren_open then
+    return {}
+  end
+
+  -- need 0-indexed for the hunk
+  local value_start_0indexed = metadata.range.start.col + paren_open -- position after '('
+  local value_end_0indexed = metadata.range.start.col + paren_close - 1 -- position before ')'
+
+  local hunk = {
+    start_row = row,
+    start_col = value_start_0indexed,
+    end_row = row,
+    end_col = value_end_0indexed,
+    insert = { value },
+  }
+
+  return { hunk }
 end
 
 ---Sorts metadata entries based on their configured sort_order

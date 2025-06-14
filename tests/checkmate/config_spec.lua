@@ -58,10 +58,9 @@ describe("Config", function()
       local config = require("checkmate.config")
 
       -- Default checks
-      assert.equal("□", config.get_defaults().todo_markers.unchecked)
-      assert.equal("✔", config.get_defaults().todo_markers.checked)
+      assert.equal("□", h.get_unchecked_marker())
+      assert.equal("✔", h.get_checked_marker())
 
-      -- Call setup with new options
       ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({
         ---@diagnostic disable-next-line: missing-fields
@@ -73,13 +72,12 @@ describe("Config", function()
         enter_insert_after_new = false,
       })
 
-      -- Check that options were updated
       assert.equal("✅", config.options.todo_markers.checked)
       assert.equal("+", config.options.default_list_marker)
       assert.is_false(config.options.enter_insert_after_new)
 
       -- untouched keys inside the same table must survive
-      assert.equal("□", config.options.todo_markers.unchecked)
+      assert.equal("□", h.get_unchecked_marker())
 
       -- shouldn't touch unrelated options
       assert.is_true(config.options.enabled)

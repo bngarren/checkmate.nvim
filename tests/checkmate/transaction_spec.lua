@@ -20,9 +20,8 @@ describe("Transaction", function()
   end)
 
   it("should apply queued operations and clear state", function()
-    local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
-    local checked = config.options.todo_markers.checked
+    local unchecked = h.get_unchecked_marker()
+    local checked = h.get_checked_marker()
 
     -- Create temp buf with one unchecked todo
     local content = "- " .. unchecked .. " TaskX"
@@ -75,7 +74,7 @@ describe("Transaction", function()
 
   it("should batch multiple operations into single apply_diff call", function()
     local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = [[
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
@@ -112,8 +111,7 @@ describe("Transaction", function()
   end)
 
   it("should update todo map after operations for subsequent callbacks", function()
-    local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
     local bufnr = h.create_test_buffer(content)
 
@@ -146,9 +144,7 @@ describe("Transaction", function()
   end)
 
   it("should execute callbacks after all operations in a batch", function()
-    local config = require("checkmate.config")
-
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = [[
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
@@ -256,9 +252,7 @@ describe("Transaction", function()
   end)
 
   it("should handle callback errors with operations present", function()
-    local config = require("checkmate.config")
-
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
     local bufnr = h.create_test_buffer(content)
 
@@ -280,7 +274,7 @@ describe("Transaction", function()
 
     -- op should have still worked/applied diff to buffer
     local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]
-    assert.matches(config.options.todo_markers.checked, line)
+    assert.matches(h.get_checked_marker(), line)
 
     assert.is_false(transaction.is_active())
 

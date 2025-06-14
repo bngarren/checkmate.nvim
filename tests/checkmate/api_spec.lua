@@ -17,54 +17,10 @@ describe("API", function()
     h.ensure_normal_mode()
   end)
 
-  -- Set up a todo file in a buffer with autocmds
-  local function setup_todo_buffer(file_path, content, config_override)
-    h.write_file_content(file_path, content)
-
-    -- change some default options for this test suite as these tend to interfere unless specifically tested
-    local merged_opts = vim.tbl_deep_extend("force", {
-      metadata = {
-        ---@diagnostic disable-next-line: missing-fields
-        priority = { select_on_insert = false, jump_to_on_insert = false },
-      },
-      enter_insert_after_new = false,
-      smart_toggle = { enabled = false },
-    }, config_override or {})
-
-    local ok = require("checkmate").setup(merged_opts)
-    if not ok then
-      error("Could not setup Checkmate in setup_todo_buffer")
-    end
-
-    local bufnr = vim.api.nvim_create_buf(false, false)
-    vim.api.nvim_buf_set_name(bufnr, file_path)
-
-    vim.api.nvim_win_set_buf(0, bufnr)
-    vim.cmd("edit!")
-
-    -- when we mark it as markdown, since checkmate (which was manually initialized above) has registered
-    -- a FileType "markdown" autocmd, it fires and runs setup_buffer
-    -- For reference, in a lazy.nvim setup, the markdown ft event will call setup
-    -- which then registers the FileType autocmd which is subsequently triggered
-    vim.bo[bufnr].filetype = "markdown"
-
-    -- let any deferred setup finish (e.g., debounced highlights, linter, extmarks, etc.)
-    vim.wait(20, function()
-      return vim.fn.jobwait({}, 0) == 0
-    end)
-    vim.cmd("redraw")
-
-    return bufnr
-  end
-
   describe("file operations", function()
     it("should save todo file with correct Markdown syntax", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      -- Create a test todo file
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       -- Initial content with Unicode symbols, hierarchical structure, and different list markers
       local content = [[
@@ -86,7 +42,7 @@ describe("API", function()
    - ]] .. unchecked .. [[ Research destinations
    - ]] .. checked .. [[ Check budget]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       vim.cmd("write")
 
@@ -128,8 +84,6 @@ describe("API", function()
     end)
 
     it("should load todo file with Markdown checkboxes converted to Unicode", function()
-      local file_path = h.create_temp_file()
-
       local content = [[
 # Todo List
 
@@ -137,23 +91,18 @@ describe("API", function()
 - [x] Checked task
       ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", lines[3])
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", lines[4])
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
-      local found_items = 0
-      for _, _ in pairs(todo_map) do
-        found_items = found_items + 1
-      end
-      assert.is_true(found_items == 2)
+      assert.equal(vim.tbl_count(todo_map), 2)
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -161,11 +110,8 @@ describe("API", function()
     end)
 
     it("should maintain todo state through edit-save-reload cycle", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Todo List
@@ -175,7 +121,7 @@ describe("API", function()
 - [ ] Task 3
       ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
       local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
@@ -211,11 +157,8 @@ describe("API", function()
 
     describe("BufWriteCmd compatibility", function()
       it("should handle :wa (write all modified buffers)", function()
-        local file1 = h.create_temp_file()
-        local file2 = h.create_temp_file()
-
-        local bufnr1 = setup_todo_buffer(file1, "- [ ] File 1 todo")
-        local bufnr2 = setup_todo_buffer(file2, "- [ ] File 2 todo")
+        local bufnr1, file1 = h.setup_todo_buffer("- [ ] File 1 todo")
+        local bufnr2, file2 = h.setup_todo_buffer("- [ ] File 2 todo")
 
         vim.bo[bufnr1].eol = false
         vim.bo[bufnr1].fixeol = false
@@ -256,8 +199,7 @@ describe("API", function()
       end)
 
       it("should not trigger multiple writes on single save command", function()
-        local file_path = h.create_temp_file()
-        local bufnr = setup_todo_buffer(file_path, "- [ ] Test")
+        local bufnr, file_path = h.setup_todo_buffer("- [ ] Test")
 
         local write_attempts = 0
         local original_writefile = vim.fn.writefile
@@ -284,14 +226,13 @@ describe("API", function()
 
   describe("todo collection", function()
     it("should collect a single todo under cursor in normal mode", function()
-      local unchecked = require("checkmate.config").get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ Task A
 - ]] .. unchecked .. [[ Task B
 ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -306,19 +247,16 @@ describe("API", function()
     end)
 
     it("should collect multiple todos within a visual selection", function()
-      local unchecked = require("checkmate.config").get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ Task A
 - ]] .. unchecked .. [[ Task B
 ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- linewise select both todo lines
-      vim.api.nvim_win_set_cursor(0, { 1, 0 }) -- move to Task A
-      vim.cmd("normal! V")
-      vim.api.nvim_win_set_cursor(0, { 2, 0 }) -- extend to Task B
+      h.make_selection(1, 0, 2, 0, "V")
 
       local items = require("checkmate.api").collect_todo_items_from_selection(true)
       assert.equal(2, #items)
@@ -346,12 +284,12 @@ describe("API", function()
   describe("todo creation", function()
     it("should convert a regular line to a todo item", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local file_path = h.create_temp_file()
       local content = "# Todo List\n\nThis is a regular line\n"
-      local bufnr = setup_todo_buffer(file_path, content)
+
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- move cursor to the regular line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
@@ -368,16 +306,15 @@ describe("API", function()
     end)
 
     it("should convert a line with existing list marker to todo", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 - Regular list item
 * Another list item
 + Yet another
 1. Ordered item]]
-      local bufnr = setup_todo_buffer(file_path, content)
+
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local expected = {
         "- " .. unchecked .. " Regular list item",
@@ -404,15 +341,14 @@ describe("API", function()
 
     it("should insert a new todo below when cursor is on existing todo", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ First todo
 Some other content
 ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -432,14 +368,13 @@ Some other content
 
     it("should maintain indentation when inserting new todo", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local file_path = h.create_temp_file()
       local content = [[
   - ]] .. unchecked .. [[ Indented todo
 Some other content ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -456,15 +391,13 @@ Some other content ]]
     end)
 
     it("should increment ordered list numbers when inserting", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 1. ]] .. unchecked .. [[ First item
 2. ]] .. unchecked .. [[ Second item
 ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- insert after first item
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -483,15 +416,14 @@ Some other content ]]
 
     it("should handle empty lines correctly", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local file_path = h.create_temp_file()
       local content = [[
 - Todo1
 
   - Child1]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
       local success = require("checkmate").create()
@@ -509,15 +441,14 @@ Some other content ]]
 
     it("should convert multiple selected lines to todos", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local file_path = h.create_temp_file()
       local content = [[
 Line 1
 Line 2
   - Line 3]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- select all lines
       vim.cmd("normal! ggVG")
@@ -539,18 +470,12 @@ Line 2
 
   describe("todo manipulation", function()
     it("should add metadata to todo items", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
-
-      -- Initial content with a todo
       local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
-      -- Setup buffer with the content
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
-      -- Move cursor to the todo line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
       local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 2, 0)
@@ -579,17 +504,14 @@ Line 2
     end)
 
     it("should add metadata to a nested todo item", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 - [ ] Parent todo
   - [ ] Child todo A
   - [ ] Child todo B
 ]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- move cursor to the Child todo A on line 2 (1-indexed)
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -615,18 +537,15 @@ Line 2
       -- Add @priority metadata
       require("checkmate").add_metadata("priority", "medium")
 
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
       assert.matches("- " .. vim.pesc(unchecked) .. " Parent todo @priority%(medium%)", lines[1])
       assert.matches("- " .. vim.pesc(unchecked) .. " Child todo", lines[2])
     end)
 
     it("should work with todo hierarchies", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Todo Hierarchy
@@ -639,7 +558,7 @@ Line 2
 - [ ] Another parent
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
 
@@ -687,8 +606,6 @@ Line 2
     it("should handle multiple todo operations in sequence", function()
       local config = require("checkmate.config")
 
-      local file_path = h.create_temp_file()
-
       local content = [[
 # Todo Sequence
 
@@ -697,30 +614,30 @@ Line 2
 - [ ] Task 3
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
-      -- Operations: toggle task 1, add metadata to task 2, check task 3
+      -- operations: toggle task 1, add metadata to task 2, check task 3
 
-      -- 1. Toggle task 1
+      -- toggle task 1
       vim.api.nvim_win_set_cursor(0, { 3, 3 }) -- on Task 1
       require("checkmate").toggle()
       vim.wait(20)
 
-      -- 2. Add metadata to task 2
+      -- add metadata to task 2
       vim.api.nvim_win_set_cursor(0, { 4, 3 }) -- on Task 2
       require("checkmate").add_metadata("priority", "high")
       vim.cmd(" ")
       vim.wait(20)
 
-      -- 3. Check task 3
+      -- check task 3
       vim.api.nvim_win_set_cursor(0, { 5, 3 }) -- on Task 3
       require("checkmate").check()
       vim.wait(20)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local checked = config.get_defaults().todo_markers.checked
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = h.get_checked_marker()
+      local unchecked = h.get_unchecked_marker()
 
       assert.matches("- " .. vim.pesc(checked) .. " Task 1", lines[3])
       assert.matches("- " .. vim.pesc(unchecked) .. " Task 2 @priority%(high%)", lines[4])
@@ -744,15 +661,13 @@ Line 2
     end)
 
     it("should remove metadata with complex value", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 - [ ] Task @issue(issue #1 - fix(api): broken! @author)
       ]]
 
-      local bufnr = setup_todo_buffer(file_path, content, {})
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
       local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
@@ -775,10 +690,7 @@ Line 2
     end)
 
     it("should remove all metadata from todo items", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
 
       local tags_on_removed_called = false
 
@@ -791,13 +703,15 @@ Line 2
 - ]] .. unchecked .. [[ A todo without metadata
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content, {
-        metadata = {
-          ---@diagnostic disable-next-line: missing-fields
-          tags = {
-            on_remove = function()
-              tags_on_removed_called = true
-            end,
+      local bufnr, file_path = h.setup_todo_buffer(content, {
+        config = {
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            tags = {
+              on_remove = function()
+                tags_on_removed_called = true
+              end,
+            },
           },
         },
       })
@@ -855,137 +769,12 @@ Line 2
         h.cleanup_buffer(bufnr, file_path)
       end)
     end)
-
-    pending("should preserve cursor position in all operations", function()
-      local file_path = h.create_temp_file()
-      local config = require("checkmate.config")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
-
-      -- Content with multiple todos for testing
-      local content = [[
-# Cursor Position Test
-
-- ]] .. unchecked .. [[ First todo item
-- ]] .. unchecked .. [[ Second todo item
-  - ]] .. unchecked .. [[ Child of second todo
-- ]] .. unchecked .. [[ Third todo item
-- ]] .. checked .. [[ Fourth todo item (already checked)
-
-Normal content line (not a todo)]]
-
-      local bufnr = setup_todo_buffer(file_path, content)
-
-      -- Helper function to ensure we're in normal mode between tests
-      local function reset_mode()
-        local mode = vim.fn.mode()
-        if mode ~= "n" then
-          vim.cmd("normal! \27") -- Escape to normal mode
-          vim.cmd("redraw!") -- Process any pending events
-        end
-      end
-
-      -- Test 1: Normal mode with cursor on todo item
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 4, 10 }) -- Line 4, column 10
-      local cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").toggle()
-      local cursor_after = vim.api.nvim_win_get_cursor(0)
-      assert.are.same(cursor_before, cursor_after, "Normal mode: cursor should be preserved on todo toggle")
-
-      -- Test 2: Normal mode with cursor on non-todo line
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 9, 5 }) -- Non-todo line
-      cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").toggle() -- This should fail (no todo)
-      cursor_after = vim.api.nvim_win_get_cursor(0)
-      assert.are.same(cursor_before, cursor_after, "Normal mode: cursor should be preserved when no todo found")
-
-      -- Test 3: Visual mode with multiple todo items
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- Start at line 3
-      vim.cmd("normal! V2j") -- Visual line mode selecting 3 lines
-      cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").toggle()
-      vim.cmd("normal! \27") -- Exit visual mode
-      cursor_after = vim.api.nvim_win_get_cursor(0)
-      assert.are.same(cursor_before, cursor_after, "Visual mode: cursor should be preserved after multi-line operation")
-
-      -- Test 4: Adding metadata in normal mode
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 5, 15 }) -- On a todo line
-      cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").add_metadata("priority", "high")
-      vim.wait(20, function()
-        return false
-      end) -- Wait for any scheduled operations
-      reset_mode() -- Ensure normal mode after operation
-      cursor_after = vim.api.nvim_win_get_cursor(0)
-      -- Only verify the line hasn't changed, column will change when adding metadata
-      assert.equal(cursor_before[1], cursor_after[1], "Cursor line should be preserved when adding metadata")
-
-      -- Test 5: Adding metadata in visual mode
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- Start at line 3
-      vim.cmd("normal! V") -- Start visual line mode
-      vim.api.nvim_win_set_cursor(0, { 4, 0 }) -- End at line 4
-      cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").add_metadata("priority", "medium")
-      vim.cmd("normal! \27") -- Exit visual mode
-      vim.wait(20, function()
-        return false
-      end) -- Wait for any scheduled operations
-      reset_mode() -- Ensure normal mode after operation
-      cursor_after = vim.api.nvim_win_get_cursor(0)
-      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when adding metadata in visual mode")
-
-      -- Test 6: Removing metadata in normal mode
-      reset_mode()
-      vim.api.nvim_win_set_cursor(0, { 6, 15 }) -- Child todo item
-      require("checkmate").add_metadata("due", "tomorrow")
-      vim.wait(20, function()
-        return false
-      end) -- Wait for any scheduled operations
-      reset_mode() -- Ensure normal mode
-
-      -- Now test removing it
-      cursor_before = vim.api.nvim_win_get_cursor(0)
-      require("checkmate").remove_metadata("due")
-      vim.wait(20, function()
-        return false
-      end) -- Wait for any scheduled operations
-      reset_mode() -- Ensure normal mode
-      cursor_after = vim.api.nvim_win_get_cursor(0)
-      assert.are.same(cursor_before, cursor_after, "Cursor should be preserved when removing metadata in normal mode")
-
-      -- Ensure we end in normal mode
-      reset_mode()
-
-      -- Final test with one buffer operation
-      vim.api.nvim_win_set_cursor(0, { 3, 0 })
-      require("checkmate").check()
-
-      -- Process any remaining operations
-      vim.cmd("redraw!")
-      vim.wait(20, function()
-        return false
-      end)
-
-      finally(function()
-        -- Ensure we're in normal mode before cleanup
-        reset_mode()
-
-        h.cleanup_buffer(bufnr, file_path)
-      end)
-    end)
   end)
 
   describe("smart toggle", function()
     local config = require("checkmate.config")
 
     local function setup_smart_toggle_buffer(content, smart_toggle_config)
-      local file_path = h.create_temp_file()
-
       -- merge our 'testing' smart_toggle config with base config
       local config_override = {
         smart_toggle = vim.tbl_extend("force", {
@@ -997,13 +786,13 @@ Normal content line (not a todo)]]
         }, smart_toggle_config or {}),
       }
 
-      return setup_todo_buffer(file_path, content, config_override), file_path
+      return h.setup_todo_buffer(content, { config = config_override })
     end
 
     describe("downward propagation", function()
       it("should check all direct children when parent is checked (check_down='direct_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Parent task
@@ -1033,8 +822,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should check all descendants when parent is checked (check_down='all_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Parent task
@@ -1066,8 +855,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should not affect children when parent is checked (check_down='none')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Parent task
@@ -1095,8 +884,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should uncheck direct children when parent is unchecked (uncheck_down='direct_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. checked .. [[ Parent task
@@ -1128,8 +917,8 @@ Normal content line (not a todo)]]
 
     describe("upward propagation", function()
       it("should check parent when all direct children are checked (check_up='direct_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Parent task
@@ -1159,8 +948,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should check parent when all descendants are checked (check_up='all_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Parent task
@@ -1202,8 +991,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should uncheck parent when any direct child is unchecked (uncheck_up='direct_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. checked .. [[ Parent task
@@ -1232,8 +1021,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should uncheck parent when any descendant is unchecked (uncheck_up='all_children')", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. checked .. [[ Parent task
@@ -1267,8 +1056,8 @@ Normal content line (not a todo)]]
 
     describe("complex scenarios", function()
       it("should handle multiple selection with smart toggle", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Task A
@@ -1282,9 +1071,7 @@ Normal content line (not a todo)]]
         local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- select both parent tasks in visual mode
-        vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        vim.cmd("normal! V")
-        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        h.make_selection(1, 0, 3, 0, "V")
 
         require("checkmate").toggle()
 
@@ -1307,8 +1094,8 @@ Normal content line (not a todo)]]
       end)
 
       it("should handle cascading propagation correctly", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Grandparent
@@ -1346,8 +1133,8 @@ Normal content line (not a todo)]]
     end)
     describe("edge cases", function()
       it("should not propagate when smart_toggle is disabled", function()
-        local unchecked = config.get_defaults().todo_markers.unchecked
-        local checked = config.get_defaults().todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local content = [[
 - ]] .. unchecked .. [[ Task A
@@ -1379,9 +1166,7 @@ Normal content line (not a todo)]]
         require("checkmate").uncheck()
 
         -- select both child tasks in visual mode
-        vim.api.nvim_win_set_cursor(0, { 2, 0 })
-        vim.cmd("normal! V")
-        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        h.make_selection(2, 0, 3, 0, "V")
 
         require("checkmate").check()
         vim.wait(20)
@@ -1402,8 +1187,7 @@ Normal content line (not a todo)]]
 
   describe("metadata callbacks", function()
     it("should call on_add only when metadata is successfully added", function()
-      local file_path = h.create_temp_file()
-      local unchecked = require("checkmate.config").get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 # Metadata Callbacks Test
@@ -1414,15 +1198,17 @@ Normal content line (not a todo)]]
       local on_add_called = false
       local test_todo_item = nil
 
-      local bufnr = setup_todo_buffer(file_path, content, {
-        metadata = {
-          ---@diagnostic disable-next-line: missing-fields
-          test = {
-            on_add = function(todo_item)
-              on_add_called = true
-              test_todo_item = todo_item
-            end,
-            select_on_insert = false,
+      local bufnr, file_path = h.setup_todo_buffer(content, {
+        config = {
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            test = {
+              on_add = function(todo_item)
+                on_add_called = true
+                test_todo_item = todo_item
+              end,
+              select_on_insert = false,
+            },
           },
         },
       })
@@ -1453,31 +1239,27 @@ Normal content line (not a todo)]]
     end)
 
     it("should call on_remove only when metadata is successfully removed", function()
-      local file_path = h.create_temp_file()
-      local unchecked = require("checkmate.config").get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 # Metadata Callbacks Test
 
 - ]] .. unchecked .. [[ A test todo @test(test_value)]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
-
       -- spy to track callback execution
       local on_remove_called = false
       local test_todo_item = nil
 
-      -- a 'test' metadata tag with on_remove callback
-      local config = require("checkmate.config")
-      ---@diagnostic disable-next-line: missing-fields
-      config.setup({
-        metadata = {
-          ---@diagnostic disable-next-line: missing-fields
-          test = {
-            on_remove = function(todo_item)
-              on_remove_called = true
-              test_todo_item = todo_item
-            end,
+      local bufnr, file_path = h.setup_todo_buffer(content, {
+        config = {
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            test = {
+              on_remove = function(todo_item)
+                on_remove_called = true
+                test_todo_item = todo_item
+              end,
+            },
           },
         },
       })
@@ -1507,13 +1289,10 @@ Normal content line (not a todo)]]
     end)
 
     it("should apply metadata with on_add callback to all todos in bulk (normal and visual mode)", function()
-      local config = require("checkmate.config")
-
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       -- todo file with many todos
       local total_todos = 30
-      local file_path = h.create_temp_file()
 
       -- Generate N todos, each on its own line
       local todo_lines = {}
@@ -1525,21 +1304,22 @@ Normal content line (not a todo)]]
       local on_add_calls = {}
 
       -- register the metadata tag with a callback that tracks which todos are affected
-      local bufnr = nil
-      bufnr = setup_todo_buffer(file_path, content, {
-        metadata = {
-          ---@diagnostic disable-next-line: missing-fields
-          bulk = {
-            on_add = function(todo_item)
-              -- record the todo's line (1-based)
-              table.insert(on_add_calls, todo_item.range.start.row + 1)
-            end,
-            select_on_insert = false,
+      local bufnr, file_path = h.setup_todo_buffer(content, {
+        config = {
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            bulk = {
+              on_add = function(todo_item)
+                -- record the todo's line (1-based)
+                table.insert(on_add_calls, todo_item.range.start.row + 1)
+              end,
+              select_on_insert = false,
+            },
           },
         },
       })
 
-      -- Test Normal mode first
+      -- test normal mode first
       vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- first todo line (after 2 header lines)
       on_add_calls = {}
       require("checkmate").toggle_metadata("bulk")
@@ -1559,11 +1339,8 @@ Normal content line (not a todo)]]
 
       -- Test Visual mode
 
-      -- move to first todo
-      vim.api.nvim_win_set_cursor(0, { 3, 0 })
-      vim.cmd("normal! V")
-      -- extend to last todo line
-      vim.api.nvim_win_set_cursor(0, { 2 + total_todos, 0 })
+      -- move to first todo and extend to last todo
+      h.make_selection(3, 0, 2 + total_todos, 0, "V")
 
       on_add_calls = {}
       require("checkmate").toggle_metadata("bulk")
@@ -1589,9 +1366,8 @@ Normal content line (not a todo)]]
   describe("archive system", function()
     it("should not create archive section when no checked todos exist", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 # Todo List
 - ]] .. unchecked .. [[ Task 1
@@ -1599,7 +1375,7 @@ Normal content line (not a todo)]]
   - ]] .. unchecked .. [[ Subtask 2.1
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local success = require("checkmate").archive()
       assert.is_false(success) -- should return false when nothing to archive
@@ -1632,10 +1408,8 @@ Normal content line (not a todo)]]
 
     it("should archive completed todo items to specified section", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Todo List
@@ -1652,7 +1426,7 @@ Normal content line (not a todo)]]
 Some content here
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local heading_title = "Completed Todos"
       local success = require("checkmate").archive({ heading = { title = heading_title } })
@@ -1708,11 +1482,8 @@ Some content here
     end)
 
     it("should work with custom archive heading", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Custom Archive Heading Test
@@ -1724,9 +1495,12 @@ Some content here
       -- setup with custom archive heading
       local heading_title = "Completed Items"
       local heading_level = 4 -- ####
-      local bufnr = setup_todo_buffer(file_path, content, {
-        archive = { heading = { title = heading_title, level = heading_level } },
-      })
+      local bufnr, file_path = h.setup_todo_buffer(
+        content,
+        { config = {
+          archive = { heading = { title = heading_title, level = heading_level } },
+        } }
+      )
 
       local success = require("checkmate").archive()
       vim.wait(20)
@@ -1754,10 +1528,8 @@ Some content here
 
     it("should merge with existing archive section", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
-
-      local file_path = h.create_temp_file()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local archive_heading_string = require("checkmate.util").get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
@@ -1775,9 +1547,11 @@ Some content here
 - ]] .. checked .. [[ Previously archived task
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content, {
-        archive = {
-          newest_first = false, -- ensure newly added todos end up at top of archive section
+      local bufnr, file_path = h.setup_todo_buffer(content, {
+        config = {
+          archive = {
+            newest_first = false, -- ensure newly added todos end up at top of archive section
+          },
         },
       })
 
@@ -1824,11 +1598,10 @@ Some content here
 
     it("should insert the configured parent_spacing between archived parent blocks", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       for _, spacing in ipairs({ 0, 1, 2 }) do
-        local file_path = h.create_temp_file()
         local content = [[
 # Tasks
 - ]] .. unchecked .. [[ Active task
@@ -1837,7 +1610,7 @@ Some content here
 - ]] .. checked .. [[ Done task B
 ]]
 
-        local bufnr = setup_todo_buffer(file_path, content, { archive = { parent_spacing = spacing } })
+        local bufnr, file_path = h.setup_todo_buffer(content, { config = { archive = { parent_spacing = spacing } } })
 
         local success = require("checkmate").archive()
         vim.wait(20)
@@ -1908,10 +1681,9 @@ Some content here
 
     it("should preserve single blank line when todo has spacing on both sides", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 # Todo List
 
@@ -1922,7 +1694,7 @@ Some content here
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -1955,10 +1727,9 @@ Some content here
 
     it("should not create double spacing when archiving adjacent todos", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ Task A
 
@@ -1968,7 +1739,7 @@ Some content here
 - ]] .. unchecked .. [[ Task D
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -1999,17 +1770,16 @@ Some content here
 
     it("should handle no spacing between todos correctly", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ Task A
 - ]] .. checked .. [[ Task B (to archive)
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2039,10 +1809,9 @@ Some content here
 
     it("should handle spacing for complex mixed content correctly", function()
       local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
-      local file_path = h.create_temp_file()
       local content = [[
 # Project
 
@@ -2068,7 +1837,7 @@ More content.
 Final content.
 ]]
 
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2111,17 +1880,16 @@ Final content.
       end)
     end)
   end)
+
   describe("diffs", function()
     it("should compute correct diff hunk for toggling a single todo item", function()
-      local config = require("checkmate.config")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       -- create a one-line todo
-      local file_path = h.create_temp_file()
       local content = [[
 - ]] .. unchecked .. [[ MyTask]]
-      local bufnr = setup_todo_buffer(file_path, content)
+      local bufnr, file_path = h.setup_todo_buffer(content)
 
       local parser = require("checkmate.parser")
       local api = require("checkmate.api")

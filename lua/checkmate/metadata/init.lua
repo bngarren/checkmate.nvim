@@ -9,31 +9,12 @@ M._deprecation_msg_shown = false
 ---@param bufnr integer Buffer number
 ---@return checkmate.MetadataContext
 function M.create_context(todo_item, meta_name, value, bufnr)
-  local metadata_array = {}
-  for _, entry in ipairs(todo_item.metadata.entries) do
-    table.insert(metadata_array, { entry.tag, entry.value })
-  end
-
-  local function get_metadata(name)
-    local result = vim
-      .iter(metadata_array)
-      :filter(function(m)
-        return m[1] == name
-      end)()
-    return result[1], result[2]
-  end
-
+  local todo = require("checkmate.util").build_todo(todo_item)
   return {
     value = value,
     name = meta_name,
     ---@type checkmate.Todo
-    todo = {
-      _todo_item = todo_item,
-      state = todo_item.state,
-      text = todo_item.todo_text,
-      metadata = metadata_array,
-      get_metadata = get_metadata,
-    },
+    todo = todo,
     buffer = bufnr,
   }
 end
@@ -104,12 +85,12 @@ function M.evaluate_value(meta_props, context)
   end
 end
 
+---@param meta_props checkmate.MetadataProps
 ---@param context checkmate.MetadataContext
 ---@param cb fun(items: string[])
 ---@return table?
-function M.evaluate_choices(context, cb)
-  local metadata_props = M.get_meta_props(context.name) or {}
-  local choices = metadata_props.choices or {}
+function M.evaluate_choices(meta_props, context, cb)
+  local choices = meta_props.choices or {}
 
   if not choices then
     return cb({})
@@ -124,12 +105,40 @@ function M.evaluate_choices(context, cb)
     }
 
     local wrapped_callback = function(items)
+      if state.callback_invoked then
+        vim.notify(
+          string.format(
+            "Checkmate: 'choices' function for @%s invoked callback multiple times -- check your implementation",
+            context.name
+          ),
+          vim.log.levels.WARN
+        )
+        return
+      end
+
       state.callback_invoked = true
+
       if state.timeout_id then
         vim.fn.timer_stop(state.timeout_id)
         state.timeout_id = nil
       end
-      return cb(items)
+
+      if type(items) ~= "table" then
+        vim.notify(
+          string.format("Checkmate: 'choices' for @%s must return a table, got %s", context.name, type(items)),
+          vim.log.levels.WARN
+        )
+        return cb({})
+      end
+
+      local sanitized = {}
+      for _, item in ipairs(items) do
+        if type(item) == "string" and item ~= "" then
+          table.insert(sanitized, item)
+        end
+      end
+
+      return cb(sanitized)
     end
 
     local success, result = pcall(choices, context, wrapped_callback)
@@ -196,13 +205,18 @@ function M.get_choices(meta_name, callback, todo_item, bufnr)
     return callback({})
   end
 
+  local meta_props = M.get_meta_props(canonical_name)
+  if not meta_props then
+    return callback({})
+  end
+
   ---@type checkmate.MetadataEntry
   local entry = todo_item.metadata and todo_item.metadata.by_tag and todo_item.metadata.by_tag[canonical_name]
   local value = entry and entry.value or ""
 
   local context = M.create_context(todo_item, canonical_name, value, bufnr)
 
-  M.evaluate_choices(context, callback)
+  M.evaluate_choices(meta_props, context, callback)
 end
 
 ---Gets the canonical name for a metadata tag (resolving aliases)

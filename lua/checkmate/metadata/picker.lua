@@ -97,12 +97,13 @@ function M.open_picker(on_select)
       return
     end
 
+    if not items or vim.tbl_count(items) == 0 then
+      vim.notify(string.format("Checkmate: No choices available for @%s", selected_metadata.tag), vim.log.levels.INFO)
+      M.cleanup_ui(bufnr)
+      return
+    end
+
     vim.schedule(function()
-      if not items or #items == 0 then
-        vim.notify(string.format("Checkmate: No choices available for @%s", selected_metadata.tag), vim.log.levels.INFO)
-        M.cleanup_ui(bufnr)
-        return
-      end
       picker.select(items, {
         prompt = "Select value for @" .. selected_metadata.tag,
         format_item = function(item)

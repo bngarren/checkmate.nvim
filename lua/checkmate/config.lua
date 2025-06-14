@@ -262,9 +262,11 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
 ---@field style? vim.api.keyset.highlight|checkmate.StyleFn
 ---
+---@alias checkmate.GetValueFn fun(context?: checkmate.MetadataContext):string
+---
 ---Function that returns the default value for this metadata tag
 ---i.e. what is used after insertion
----@field get_value? fun():string?|fun(context?: checkmate.MetadataContext):string
+---@field get_value? checkmate.GetValueFn
 ---
 ---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
 ---

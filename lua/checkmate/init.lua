@@ -8,13 +8,16 @@ local M = {}
 ---@field state checkmate.TodoItemState
 ---@field text string First line of the todo
 ---@field metadata string[][] Table of {tag, value} tuples
----@field get_metadata fun(name: string): string[]?
+---@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 
 ---@class checkmate.MetadataContext
 ---@field name string Metadata tag name
 ---@field value string Current metadata value
 ---@field todo checkmate.Todo Access to todo item data
 ---@field buffer integer Buffer number
+
+--- internal
 
 local state = {
   initialized = false,
@@ -702,6 +705,10 @@ function M.toggle_metadata(meta_name, custom_value)
   return true
 end
 
+---Opens a picker to select a new value for the metadata under the cursor
+---
+---Set `config.ui.preferred_picker` to designate a specific picker implementation
+---Otherwise, will attempt to use an installed picker UI plugin, or fallback to native vim.ui.select
 function M.select_metadata_value()
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")

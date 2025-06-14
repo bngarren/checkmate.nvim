@@ -47,7 +47,7 @@ local M = {}
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
 --- @field list_marker checkmate.ListMarkerInfo Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
---- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging or tests.
+--- @field todo_text string Text content of the todo item line (first line)
 --- @field children integer[] IDs of child todo items
 --- @field parent_id integer? ID of parent todo item
 

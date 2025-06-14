@@ -1072,13 +1072,8 @@ function M.add_metadata(ctx, operations)
     end
 
     -- get value with fallback to get_value()
-    local meta_value = op.meta_value
-    if not meta_value and meta_props.get_value then
-      local context = meta_module.create_context(item, op.meta_name, "", bufnr)
-      meta_value = meta_props.get_value(context)
-      meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
-    end
-    meta_value = meta_value or ""
+    local context = meta_module.create_context(item, op.meta_name, "", bufnr)
+    local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context) or ""
 
     local item_hunks = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
     vim.list_extend(hunks, item_hunks)

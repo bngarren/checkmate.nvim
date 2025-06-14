@@ -26,6 +26,73 @@ local checkmate_spec = {
       end,
     },
 
+    branch = {
+      key = "<leader>Tb",
+      choices = function(context, callback)
+        local branches = {}
+        vim.fn.jobstart({ "git", "branch", "-r" }, {
+          on_stdout = function(_, data)
+            for _, line in ipairs(data) do
+              if line ~= "" then
+                local branch = line:match("origin/(.+)")
+                if branch then
+                  table.insert(branches, branch)
+                end
+              end
+            end
+          end,
+          on_exit = function()
+            callback(branches)
+          end,
+        })
+      end,
+    },
+
+    type = {
+      key = "<leader>T5",
+      get_value = function(context)
+        local text = context.todo.text:lower()
+
+        -- Auto-detect type based on keywords
+        if text:match("bug") or text:match("fix") then
+          return "bug"
+        elseif text:match("feature") or text:match("implement") then
+          return "feature"
+        elseif text:match("refactor") then
+          return "refactor"
+        elseif text:match("doc") then
+          return "documentation"
+        else
+          return "task"
+        end
+      end,
+      choices = { "bug", "feature", "refactor", "documentation", "task", "chore" },
+      style = function(context)
+        local colors = {
+          bug = { fg = "#ff5555", bold = true },
+          feature = { fg = "#50fa7b" },
+          refactor = { fg = "#ff79c6" },
+          documentation = { fg = "#f1fa8c" },
+          task = { fg = "#8be9fd" },
+          chore = { fg = "#6272a4" },
+        }
+        return colors[context.value] or { fg = "#f8f8f2" }
+      end,
+    },
+
+    pr = {
+      key = "<leader>TP",
+      get_value = function()
+        -- Get current branch's PR number if it exists
+        local branch = vim.fn.system("git branch --show-current"):gsub("\n", "")
+        local pr_number = branch:match("(%d+)")
+        return pr_number or ""
+      end,
+      style = { fg = "#8be9fd", underline = true },
+      jump_to_on_insert = "value",
+      select_on_insert = true,
+    },
+
     priority = {
       choices = function()
         return { "low", "medium", "high" }

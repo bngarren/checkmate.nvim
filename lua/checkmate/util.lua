@@ -600,6 +600,41 @@ function M.byte_to_char_col(line, byte_col)
   return char_idx
 end
 
+---Creates a public facing checkmate.Todo from the internal checkmate.TodoItem representation
+---
+---exposes a public api while still providing access to the underlying todo_item
+---@param todo_item checkmate.TodoItem
+---@return checkmate.Todo
+function M.build_todo(todo_item)
+  local metadata_array = {}
+  for _, entry in ipairs(todo_item.metadata.entries) do
+    table.insert(metadata_array, { entry.tag, entry.value })
+  end
+
+  local function get_metadata(name)
+    local result = vim
+      .iter(metadata_array)
+      :filter(function(m)
+        return m[1] == name
+      end)()
+    return result[1], result[2]
+  end
+
+  local function is_checked()
+    return todo_item.state == "checked"
+  end
+
+  ---@type checkmate.Todo
+  return {
+    _todo_item = todo_item,
+    state = todo_item.state,
+    text = todo_item.todo_text,
+    metadata = metadata_array,
+    is_checked = is_checked,
+    get_metadata = get_metadata,
+  }
+end
+
 -- Cursor helper
 M.Cursor = {}
 

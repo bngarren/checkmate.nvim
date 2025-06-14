@@ -4,14 +4,13 @@
 ---@field func function Function to call
 ---@field opts table Command options
 
+---@deprecated
 local M = {}
 
--- Set to true during development to include debug commands
-local INCLUDE_DEBUG_COMMANDS = false
+local has_shown_deprecation_warning = false
 
--- Regular commands that are always available
 ---@type CheckmateCommand[]
-M.regular_commands = {
+M.commands = {
   {
     name = "Toggle",
     cmd = "CheckmateToggle",
@@ -68,98 +67,7 @@ M.regular_commands = {
     end,
     opts = { desc = "Identify Checkmate formatting issues" },
   },
-  -- TODO: auto-fix
-
-  --[[ {
-    name = "Auto Fix",
-    cmd = "CheckmateFix",
-    func = function()
-      local bufnr = vim.api.nvim_get_current_buf()
-      local linter = require("checkmate.linter")
-      local result, fixed = linter.fix_issues(bufnr)
-
-      if result then
-        if fixed > 0 then
-          vim.notify("Auto fixable issues fixed", vim.log.levels.INFO)
-        else
-          vim.notify("No auto fixable issues found", vim.log.levels.INFO)
-        end
-      else
-        vim.notify("Could not fix auto-fixable issues", vim.log.levels.WARN)
-      end
-    end,
-    opts = { desc = "Check for Markdown formatting issues" },
-  }, ]]
 }
-
--- Debug commands only available when INCLUDE_DEBUG_COMMANDS is true
----@type CheckmateCommand[]
-M.debug_commands = {
-  {
-    name = "DebugLog",
-    cmd = "CheckmateDebugLog",
-    func = function()
-      require("checkmate").debug_log()
-    end,
-    opts = { desc = "Open the debug log" },
-  },
-  {
-    name = "DebugClear",
-    cmd = "CheckmateDebugClear",
-    func = function()
-      require("checkmate").debug_clear()
-    end,
-    opts = { desc = "Clear the debug log" },
-  },
-  {
-    name = "DebugAtCursor",
-    cmd = "CheckmateDebugAtCursor",
-    func = function()
-      require("checkmate").debug_at_cursor()
-    end,
-    opts = { desc = "Inspect the todo item under the cursor" },
-  },
-  {
-    name = "DebugPrintTodoMap",
-    cmd = "CheckmateDebugPrintTodoMap",
-    func = function()
-      require("checkmate").debug_print_todo_map()
-    end,
-    opts = { desc = "Print this buffer's todo_map" },
-  },
-  {
-    name = "DebugProfilerStart",
-    cmd = "CheckmateDebugProfilerStart",
-    func = function()
-      require("checkmate.profiler").start_session()
-    end,
-    opts = { desc = "Start performance profiling" },
-  },
-  {
-    name = "DebugProfilerStop",
-    cmd = "CheckmateDebugProfilerStop",
-    func = function()
-      local profiler = require("checkmate.profiler")
-      profiler.stop_session()
-    end,
-    opts = { desc = "Stop performance profiling" },
-  },
-  {
-    name = "DebugProfilerReport",
-    cmd = "CheckmateDebugProfilerReport",
-    func = function()
-      local profiler = require("checkmate.profiler")
-      if profiler.is_active() then
-        profiler.stop_session()
-      end
-      require("checkmate.profiler").show_report()
-    end,
-    opts = { desc = "Show performance profiling report" },
-  },
-}
-
--- Combine commands based on debug flag
-M.commands = {}
 
 -- Register all commands
 function M.setup(bufnr)
@@ -167,21 +75,17 @@ function M.setup(bufnr)
     return
   end
 
-  -- Always include regular commands
-  for _, command in ipairs(M.regular_commands) do
-    table.insert(M.commands, command)
-  end
-
-  -- Include debug commands if enabled
-  if INCLUDE_DEBUG_COMMANDS then
-    for _, command in ipairs(M.debug_commands) do
-      table.insert(M.commands, command)
-    end
-  end
-
-  -- Register all selected commands
   for _, command in ipairs(M.commands) do
-    vim.api.nvim_buf_create_user_command(bufnr, command.cmd, command.func, command.opts)
+    vim.api.nvim_buf_create_user_command(bufnr, command.cmd, function()
+      if not has_shown_deprecation_warning then
+        vim.notify(
+          string.format("'%s' is deprecated. Use `:Checkmate subcommand` syntax.", command.cmd),
+          vim.log.levels.WARN
+        )
+        has_shown_deprecation_warning = true
+      end
+      command.func()
+    end, command.opts)
   end
 end
 

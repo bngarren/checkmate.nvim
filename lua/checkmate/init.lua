@@ -198,7 +198,8 @@ function M._setup_autocommands()
       end
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
-        require("checkmate.commands").setup(event.buf)
+        require("checkmate.commands").setup(event.buf) -- legacy commands
+        require("checkmate.commands_new").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
       end
     end,
@@ -210,7 +211,8 @@ function M._setup_autocommands()
       local bufs = M.get_active_buffer_list()
       for _, buf in ipairs(bufs) do
         if event.buf == buf and event.match ~= "markdown" then
-          require("checkmate.commands").dispose(buf)
+          require("checkmate.commands").dispose(buf) -- legacy
+          require("checkmate.commands_new").dispose(buf)
           require("checkmate.api").shutdown(buf)
           M.unregister_buffer(buf)
         end

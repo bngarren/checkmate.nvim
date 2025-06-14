@@ -145,14 +145,17 @@ describe("Parser", function()
       assert.equal(list_items[10].node, list_items[12].parent_node)
       -- Child list item e.3
       assert.equal(list_items[10].node, list_items[13].parent_node)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
   end)
 
   describe("todo discovery", function()
     it("should calculate correct ranges for todos with different lengths", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 # Range Test
@@ -177,15 +180,12 @@ describe("Parser", function()
       assert.is_not_nil(three_line)
       ---@cast three_line checkmate.TodoItem
 
-      -- Single line tests
       assert.equal(1, single_line.range.start.row)
       assert.equal(1, single_line.range["end"].row)
 
-      -- Multi-line tests (2 lines)
       assert.equal(2, multi_line.range.start.row)
       assert.equal(3, multi_line.range["end"].row)
 
-      -- Three-line tests
       assert.equal(4, three_line.range.start.row)
       assert.equal(6, three_line.range["end"].row)
 
@@ -193,14 +193,15 @@ describe("Parser", function()
       verify_todo_range_matches_content(bufnr, multi_line)
       verify_todo_range_matches_content(bufnr, three_line)
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should correctly handle complex hierarchical todos with various indentations", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Complex Hierarchy
@@ -310,14 +311,15 @@ describe("Parser", function()
       ---@cast unusual checkmate.TodoItem
       assert.equal(another_top.id, unusual.parent_id)
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should build correct parent-child relationships with mixed list types", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 # Mixed List Types
@@ -354,17 +356,17 @@ describe("Parser", function()
       assert.is_not_nil(mixed_child)
       ---@cast mixed_child checkmate.TodoItem
 
-      -- verify parent-child relationships
+      -- parent-child relationships
       assert.equal(2, #parent_dash.children)
       assert.equal(2, #ordered_parent.children)
 
-      -- verify mixed list marker relationships
+      -- mixed list marker relationships
       assert.equal(parent_dash.id, child_asterisk.parent_id, "Child with asterisk should be child of parent with dash")
       assert.equal(parent_dash.id, child_plus.parent_id)
       assert.equal(ordered_parent.id, ordered_child.parent_id, "Ordered child should be child of ordered parent")
       assert.equal(ordered_parent.id, mixed_child.parent_id, "Unordered child should be child of ordered parent")
 
-      -- verify list marker type is correctly detected
+      -- list marker type is correctly detected
       assert.equal("unordered", parent_dash.list_marker.type)
       assert.equal("unordered", child_asterisk.list_marker.type)
       assert.equal("unordered", child_plus.list_marker.type)
@@ -372,14 +374,15 @@ describe("Parser", function()
       assert.equal("ordered", ordered_child.list_marker.type)
       assert.equal("unordered", mixed_child.list_marker.type)
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should handle edge cases", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo at document start
@@ -411,28 +414,29 @@ Line that should not affect parent-child relationship
       assert.is_not_nil(end_todo)
       ---@cast end_todo checkmate.TodoItem
 
-      -- verify edge position todos
+      -- edge position todos
       assert.is_nil(start_todo.parent_id)
       assert.is_nil(end_todo.parent_id)
 
-      -- verify parent-child with content in between
+      -- parent-child with content in between
       assert.equal(2, #parent_todo.children)
       assert.equal(parent_todo.id, checked_child.parent_id)
       assert.equal(parent_todo.id, unchecked_child.parent_id)
 
-      -- verify checked state is maintained in hierarchy
+      -- checked state is maintained in hierarchy
       assert.equal("unchecked", parent_todo.state)
       assert.equal("checked", checked_child.state)
       assert.equal("unchecked", unchecked_child.state)
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should return correct buffer positions for each discovered todo item", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       -- buffer with two todos, one unchecked and one checked
       local file_path = h.create_temp_file()
@@ -463,7 +467,7 @@ Line that should not affect parent-child relationship
   describe("todo item detection", function()
     it("should detect unchecked todo items with default marker", function()
       local parser = require("checkmate.parser")
-      local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+      local unchecked_marker = h.get_unchecked_marker()
 
       local cases = {
         "- " .. unchecked_marker .. " This is an unchecked todo",
@@ -477,7 +481,7 @@ Line that should not affect parent-child relationship
 
     it("should detect checked todo items with default marker", function()
       local parser = require("checkmate.parser")
-      local checked_marker = require("checkmate.config").options.todo_markers.checked
+      local checked_marker = h.get_checked_marker()
 
       local cases = {
         "- " .. checked_marker .. " This is an checked todo",
@@ -491,7 +495,7 @@ Line that should not affect parent-child relationship
 
     it("should detect unchecked todo items with various list markers", function()
       local parser = require("checkmate.parser")
-      local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+      local unchecked_marker = h.get_unchecked_marker()
 
       -- test with different list markers
       local list_markers = { "-", "+", "*" }
@@ -509,7 +513,7 @@ Line that should not affect parent-child relationship
 
     it("should detect todo items with indentation", function()
       local parser = require("checkmate.parser")
-      local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+      local unchecked_marker = h.get_unchecked_marker()
       local line = "    - " .. unchecked_marker .. " Indented todo"
       local state = parser.get_todo_item_state(line)
 
@@ -518,7 +522,7 @@ Line that should not affect parent-child relationship
 
     it("should detect todo items with ordered list markers", function()
       local parser = require("checkmate.parser")
-      local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+      local unchecked_marker = h.get_unchecked_marker()
 
       -- test with different numbered list formats
       local formats = { "1. ", "1) ", "50. " }
@@ -531,7 +535,7 @@ Line that should not affect parent-child relationship
 
     it("should return nil for non-todo items", function()
       local parser = require("checkmate.parser")
-      local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
+      local unchecked_marker = h.get_unchecked_marker()
 
       local lines = {
         "Regular text",
@@ -744,17 +748,15 @@ Line that should not affect parent-child relationship
 
       local metadata = parser.extract_metadata(line, row)
 
-      -- Should have both entries
       assert.equal(2, #metadata.entries)
 
-      -- Last one should win in the by_tag lookup
+      -- last one should win in the by_tag lookup
       assert.equal("high", metadata.by_tag.priority.value)
     end)
   end)
 
-  -- Test Markdown/Unicode conversion functions
+  -- Markdown/Unicode conversion functions
   describe("format conversion", function()
-    -- Test convert_markdown_to_unicode
     describe("convert_markdown_to_unicode", function()
       it("should convert markdown checkboxes to unicode symbols", function()
         local parser = require("checkmate.parser")
@@ -787,8 +789,8 @@ Line that should not affect parent-child relationship
 
         local converted_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        local unchecked = config.options.todo_markers.unchecked
-        local checked = config.options.todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         assert.equal("# Todo List", converted_lines[1]) -- Heading unchanged
         assert.equal("", converted_lines[2]) -- Empty line unchanged
@@ -806,13 +808,14 @@ Line that should not affect parent-child relationship
         assert.equal("1. " .. unchecked, converted_lines[14])
         assert.equal("1. " .. checked, converted_lines[15])
 
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
       end)
 
       it("should convert only single-space [ ] checkboxes", function()
         local parser = require("checkmate.parser")
-        local config = require("checkmate.config")
-        local unchecked = config.options.todo_markers.unchecked
+        local unchecked = h.get_unchecked_marker()
 
         local content = [[
 - [ ] valid
@@ -832,7 +835,9 @@ Line that should not affect parent-child relationship
         assert.equal("- [ ]another -- missing space after ]", lines[3])
         assert.equal("- " .. unchecked .. "   This is okay", lines[4])
 
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
       end)
     end)
 
@@ -840,9 +845,8 @@ Line that should not affect parent-child relationship
     describe("convert_unicode_to_markdown", function()
       it("should convert unicode symbols back to markdown checkboxes", function()
         local parser = require("checkmate.parser")
-        local config = require("checkmate.config")
-        local unchecked = config.options.todo_markers.unchecked
-        local checked = config.options.todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local bufnr = vim.api.nvim_create_buf(false, true)
         local unicode_lines = {
@@ -877,15 +881,15 @@ Line that should not affect parent-child relationship
         assert.equal("", converted_lines[9]) -- Empty line unchanged
         assert.equal("- Not a task", converted_lines[10]) -- Regular list item unchanged
 
-        -- Clean up
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
       end)
 
       it("should handle indented todo items", function()
         local parser = require("checkmate.parser")
-        local config = require("checkmate.config")
-        local unchecked = config.options.todo_markers.unchecked
-        local checked = config.options.todo_markers.checked
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
 
         local bufnr = vim.api.nvim_create_buf(false, true)
         local unicode_lines = {
@@ -908,7 +912,9 @@ Line that should not affect parent-child relationship
         assert.equal("  - [ ] Indented child task", converted_lines[3])
         assert.equal("    - [x] Deeply indented task", converted_lines[4])
 
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
       end)
     end)
 
@@ -939,11 +945,12 @@ Line that should not affect parent-child relationship
         assert.equal(line, final_lines[i])
       end
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should not add extra lines", function()
-      require("checkmate").setup()
       local parser = require("checkmate.parser")
 
       local bufnr = vim.api.nvim_create_buf(false, true)
@@ -962,16 +969,18 @@ Line that should not affect parent-child relationship
 
       assert.equal(1, #final_lines)
       assert.equal("- [ ] Task", final_lines[1])
-      require("checkmate").stop()
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
   end)
 
   describe("performance", function()
     it("should handle large documents with many todos at different levels", function()
-      local config = require("checkmate.config")
       local parser = require("checkmate.parser")
-      local unchecked = config.options.todo_markers.unchecked
-      local checked = config.options.todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content_lines = { "# Large Document Test" }
 
@@ -1058,13 +1067,13 @@ Line that should not affect parent-child relationship
         count = count + 1
       end
 
-      -- verify that todos with metadata have it properly extracted
+      -- todos with metadata properly extracted
       local found_metadata = 0
       for _, todo in pairs(todo_map) do
         if #todo.metadata.entries > 0 then
           found_metadata = found_metadata + 1
 
-          -- verify at least one priority and one due date metadata
+          -- at least one priority and one due date metadata
           if todo.metadata.by_tag.priority then
             assert.equal("high", todo.metadata.by_tag.priority.value)
           end
@@ -1076,10 +1085,12 @@ Line that should not affect parent-child relationship
 
       assert.is_true(found_metadata > 0)
 
-      -- Performance should be reasonable even for large documents
+      -- performance should be reasonable even for large documents
       assert.is_true(end_time < 0.1) -- 100 ms
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
   end)
 end)

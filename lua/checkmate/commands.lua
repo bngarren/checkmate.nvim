@@ -67,6 +67,14 @@ M.commands = {
     end,
     opts = { desc = "Identify Checkmate formatting issues" },
   },
+  {
+    name = "Select Metadata Value",
+    cmd = "CheckmateSelectMetadataValue",
+    func = function()
+      require("checkmate").select_metadata_value()
+    end,
+    opts = { desc = "Update the value in a metadata tag" },
+  },
 }
 
 -- Register all commands

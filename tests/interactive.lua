@@ -32,7 +32,7 @@ local env = environments.get(env_name)
 
 -- base specs for all environments
 local spec = {
-  { dir = vim.uv.cwd(), opts = {}, ft = "markdown" },
+  { dir = vim.uv.cwd(), opts = env.checkmate, ft = "markdown" },
 }
 
 -- environment-specific specs

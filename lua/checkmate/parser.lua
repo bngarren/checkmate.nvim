@@ -51,7 +51,7 @@ local M = {}
 --- @field children integer[] IDs of child todo items
 --- @field parent_id integer? ID of parent todo item
 
-local FULL_TODO_QUERY = vim.treesitter.query.parse(
+M.FULL_TODO_QUERY = vim.treesitter.query.parse(
   "markdown",
   [[
   (list_item) @list_item
@@ -543,8 +543,8 @@ function M.discover_todos(bufnr)
     paragraphs_by_parent = {}, -- parent node id -> paragraph nodes
   }
 
-  for id, node, _ in FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
-    local capture_name = FULL_TODO_QUERY.captures[id]
+  for id, node, _ in M.FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
+    local capture_name = M.FULL_TODO_QUERY.captures[id]
 
     if capture_name == "list_item" then
       local start_row, start_col, end_row, end_col = node:range()
@@ -671,12 +671,6 @@ function M.discover_todos(bufnr)
 
   profiler.stop("parser.discover_todos")
   return todo_map
-end
-
----Returns a TS query for finding markdown list_markers
----@return vim.treesitter.Query
-function M.get_list_marker_query()
-  return FULL_TODO_QUERY
 end
 
 ---Returns the list_marker type as "unordered" or "ordered"
@@ -905,7 +899,7 @@ function M.get_all_list_items(bufnr)
     local marker_type = nil
 
     -- Find direct children that are list markers
-    local marker_query = M.get_list_marker_query()
+    local marker_query = M.FULL_TODO_QUERY
     for marker_id, marker, _ in marker_query:iter_captures(node, bufnr, 0, -1) do
       local name = marker_query.captures[marker_id]
       local m_type = M.get_marker_type_from_capture_name(name)

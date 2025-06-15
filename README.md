@@ -24,7 +24,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Smart toggling behavior
 - Archive completed todos
 
-> !IMPORTANT
+> [!IMPORTANT]
 > Check out the newly upgraded metadata features introduced in v0.9.0.
 > These include more powerful metadata definitions/custmomization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
 
@@ -82,12 +82,11 @@ Checkmate automatically activates when you open a Markdown file that matches you
 
 <br>
 
-> [!TIP]
-> You can customize which files activate Checkmate using the `files` configuration option:
-> ```lua
-> files = { "tasks", "*.plan", "project/**/todo.md" }
-> ```
-> Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
+You can customize **which files activate Checkmate** using the `files` configuration option:
+```lua
+files = { "tasks", "*.plan", "project/**/todo.md" }
+```
+Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
 
 ### 2. Create Todo Items
 
@@ -111,8 +110,7 @@ Checkmate automatically activates when you open a Markdown file that matches you
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
-> [!NOTE]
-> The Checkmate buffer is saved as regular Markdown!
+The Checkmate buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
 
 # ☑️ Commands
 > [!WARNING]
@@ -128,6 +126,8 @@ Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 | `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
 | `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |
 | `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` |
+| `metadata jump_next` | Move the cursor to the next metadata tag for the todo item under the cursor. See api `jump_next_metadata()` |
+| `metadata jump_previous` | Move the cursor to the previous metadata tag for the todo item under the cursor. See api `jump_previous_metadata()` |
 | `metadata remove` | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)` |
 | `metadata select_value` | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()` |
 | `metadata toggle` | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)` |
@@ -668,7 +668,7 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
   - `@priority` - "low" | "medium" (default) | "high"
 
 
-For how-tos and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
+For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
 
 ## Todo count indicator
 
@@ -751,7 +751,7 @@ opts = {
 # Archiving
 Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
 
-See `CheckmateArchive` command or `require("checkmate").archive()`
+See `Checkmate archive` command or `require("checkmate").archive()`
 
 > Current behavior (could be adjusted in the future): a checked todo item that is nested under an unchecked parent will not be archived. This prevents 'orphan' todos being separated from their parents. Similarly, a checked parent todo will carry all nested todos (checked and unchecked) when archived.
 
@@ -837,7 +837,7 @@ Planned features:
 
 - [x] **Archiving** - manually or automatically move completed items to the bottom of the document. _Added v0.7.0_ (experimental)
 
-- [x] Smart toggling - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
+- [x] **Smart toggling** - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
 

@@ -520,6 +520,7 @@ function M.validate_options(opts)
     { opts.show_todo_count, "boolean", "show_todo_count", true },
     { opts.todo_count_recursive, "boolean", "todo_count_recursive", true },
     { opts.use_metadata_keymaps, "boolean", "use_metadata_keymaps", true },
+    { opts.disable_ts_highlights, "boolean", "disable_ts_highlights", true },
   }
 
   for _, v in ipairs(validations) do
@@ -612,6 +613,25 @@ function M.validate_options(opts)
     local valid_markers = { ["-"] = true, ["*"] = true, ["+"] = true }
     if not valid_markers[opts.default_list_marker] then
       return false, "default_list_marker must be one of: '-', '*', '+'"
+    end
+  end
+
+  if opts.ui ~= nil then
+    local ok, err = validate_type(opts.ui, "table", "ui", true)
+    if not ok then
+      return false, err
+    end
+
+    local picker = opts.ui.picker
+
+    if picker ~= nil and type(picker) == "string" then
+      if not vim.tbl_contains({ "telescope", "snacks", "mini" }, picker) then
+        local msg = string.format(
+          "'%s' is not a currently supported picker plugin. Consider passing a custom picker function.",
+          picker
+        )
+        return false, msg
+      end
     end
   end
 
@@ -861,7 +881,11 @@ function M.setup(opts)
 
     -- then merge user options after validating
     if type(opts) == "table" then
-      assert(M.validate_options(opts))
+      local ok, err = M.validate_options(opts)
+      if not ok then
+        error(err)
+      end
+
       config = vim.tbl_deep_extend("force", config, opts)
     end
 
@@ -878,9 +902,10 @@ function M.setup(opts)
   end)
 
   if not success then
-    vim.notify("Checkmate: Config setup failed: " .. tostring(result), vim.log.levels.ERROR)
+    vim.notify("Checkmate: Config error: " .. tostring(result), vim.log.levels.ERROR)
     return {}
   end
+  ---@cast result checkmate.Config
 
   return result
 end

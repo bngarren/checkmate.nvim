@@ -141,7 +141,7 @@ M.setup = function(opts)
 
     local cfg = config.setup(opts or {})
     if vim.tbl_isempty(cfg) then
-      error("config setup failed")
+      error()
     end
 
     M.set_initialized(true)
@@ -152,7 +152,11 @@ M.setup = function(opts)
   end)
 
   if not success then
-    vim.notify("Checkmate: Setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    local msg = "Checkmate: Setup failed"
+    if err then
+      msg = msg .. ": " .. tostring(err)
+    end
+    vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
     return false
   end

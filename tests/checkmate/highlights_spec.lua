@@ -63,12 +63,12 @@ describe("Highlights", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
   - Non Todo 1
     - Non Todo 1.1
+  1. Ordered
 ]]
 
       local bufnr = h.create_test_buffer(content)
@@ -78,11 +78,14 @@ describe("Highlights", function()
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
       local extmarks = h.get_extmarks(bufnr, config.ns)
-      local got = {}
+
+      -- UNORDERED
+
+      local got_unordered = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
         if d and d.hl_group == "CheckmateListMarkerUnordered" then
-          table.insert(got, {
+          table.insert(got_unordered, {
             start = { row = mark[2], col = mark[3] },
             ["end"] = { row = d.end_row, col = d.end_col },
           })
@@ -95,8 +98,28 @@ describe("Highlights", function()
         { start = { row = 2, col = 4 }, ["end"] = { row = 2, col = 5 } },
       }
 
-      assert.equal(#expected, #got)
-      assert.same(expected, got)
+      assert.equal(#expected, #got_unordered)
+      assert.same(expected, got_unordered)
+
+      -- ORDERED
+
+      local got_ordered = {}
+      for _, mark in ipairs(extmarks) do
+        local d = mark[4]
+        if d and d.hl_group == "CheckmateListMarkerOrdered" then
+          table.insert(got_ordered, {
+            start = { row = mark[2], col = mark[3] },
+            ["end"] = { row = d.end_row, col = d.end_col },
+          })
+        end
+      end
+
+      expected = {
+        { start = { row = 3, col = 2 }, ["end"] = { row = 3, col = 4 } },
+      }
+
+      assert.equal(#expected, #got_ordered)
+      assert.same(expected, got_ordered)
 
       finally(function()
         h.cleanup_buffer(bufnr)

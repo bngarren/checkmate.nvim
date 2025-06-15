@@ -79,14 +79,14 @@ local checkmate_spec = {
         return colors[context.value] or { fg = "#f8f8f2" }
       end,
       on_change = function(todo_item, old_value, new_value)
-        vim.notify(
-          string.format(
-            "todo item on row %d had @type changed from %s to %s",
-            todo_item.range.start.row,
-            old_value,
-            new_value
-          )
-        )
+        -- vim.notify(
+        --   string.format(
+        --     "todo item on row %d had @type changed from %s to %s",
+        --     todo_item.range.start.row,
+        --     old_value,
+        --     new_value
+        --   )
+        -- )
       end,
     },
 
@@ -200,7 +200,7 @@ M.configs = {
       },
     },
     checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
-      ui = {
+      --[[ ui = {
         picker = function(items, opts)
           ---@type snacks.picker.ui_select
           require("snacks").picker.select(items, {
@@ -210,7 +210,7 @@ M.configs = {
             opts.on_choice(item)
           end)
         end,
-      },
+      }, ]]
     }),
   },
   mini = {

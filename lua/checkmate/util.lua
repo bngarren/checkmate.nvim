@@ -617,6 +617,9 @@ function M.build_todo(todo_item)
       :filter(function(m)
         return m[1] == name
       end)()
+    if not result then
+      return nil, nil
+    end
     return result[1], result[2]
   end
 

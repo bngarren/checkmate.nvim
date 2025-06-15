@@ -199,13 +199,46 @@ M.configs = {
         },
       },
     },
-    checkmate = checkmate_spec,
+    checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      ui = {
+        picker = function(items, opts)
+          ---@type snacks.picker.ui_select
+          require("snacks").picker.select(items, {
+            prompt = "CUSTOM",
+            preview = false,
+          }, function(item)
+            opts.on_choice(item)
+          end)
+        end,
+      },
+    }),
   },
   mini = {
     spec = {
       { "echasnovski/mini.nvim", version = false },
     },
-    checkmate = checkmate_spec,
+    checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      ui = {
+        picker = function(items, opts)
+          require("mini.pick").ui_select(
+            items,
+            {
+              prompt = opts.prompt or "Select an item",
+              format_item = opts.format_item,
+            },
+            opts.on_choice,
+            {
+              window = {
+                config = {
+                  border = "rounded",
+                  title = "CUSTOM MINI",
+                },
+              },
+            }
+          )
+        end,
+      },
+    }),
   },
   telescope = {
     spec = {

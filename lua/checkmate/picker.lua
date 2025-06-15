@@ -8,15 +8,15 @@ local function get_preferred_picker()
   local config = require("checkmate.config")
   local ui = config.options.ui
 
-  if not ui or not ui.preferred_picker then
-    return nil
-  end
-
-  if ui.preferred_picker == false then
+  if ui and ui.picker == false then
     return false
   end
 
-  return ui.preferred_picker
+  if not ui or not ui.picker then
+    return nil
+  end
+
+  return ui.picker
 end
 
 -- Default window dimensions
@@ -28,8 +28,13 @@ local DEFAULT_MIN_WIDTH = 40
 ---@field prompt? string
 ---@field format_item? fun(item: string): string
 ---@field on_choice? fun(choice: string|nil, ...)
----@field backend? "telescope" | "snacks" | "mini"
+---@field backend? checkmate.Picker
 
+---Opens a picker with 'items'
+---Uses the following rules to determine picker implementation:
+--- - If config.ui.picker == false, use native vim.ui.select
+--- - If config.ui.picker is nil (default), attempt to use an installed picker UI, or fallback to native
+--- - If config.ui.picker is a function, run this in pcall, if fails, fallback to installed or native
 ---@param items string[] List of choices
 ---@param opts SelectOpts
 function M.select(items, opts)
@@ -40,7 +45,20 @@ function M.select(items, opts)
   local width = math.max(math.floor(vim.o.columns * DEFAULT_WIDTH), DEFAULT_MIN_WIDTH)
   local height = math.min(#items + 8, DEFAULT_HEIGHT)
 
-  if (not backend or backend == "telescope") and has_module("telescope.pickers") then
+  -- user passed a custom picker backend
+  if type(backend) == "function" then
+    local ok, result = pcall(function()
+      return backend(items, { on_choice = opts.on_choice })
+    end)
+    if not ok then
+      vim.notify("Checkmate: error with custom picker: " .. tostring(result), vim.log.levels.ERROR)
+      -- reset backend and let it fall through
+      backend = nil
+    end
+    return result
+  end
+
+  if (backend == nil or backend == "telescope") and has_module("telescope.pickers") then
     local pickers = require("telescope.pickers")
     local finders = require("telescope.finders")
     local conf = require("telescope.config").values
@@ -96,7 +114,7 @@ function M.select(items, opts)
     return
   end
 
-  if (not backend or backend == "snacks") and has_module("snacks") then
+  if (backend == nil or backend == "snacks") and has_module("snacks") then
     ---@type snacks.picker.ui_select
     require("snacks").picker.select(items, {
       prompt = opts.prompt or "Select an item",
@@ -108,7 +126,7 @@ function M.select(items, opts)
     return
   end
 
-  if (not backend or backend == "mini") and has_module("mini.pick") then
+  if (backend == nil or backend == "mini") and has_module("mini.pick") then
     local pick = require("mini.pick")
 
     -- center position
@@ -141,7 +159,6 @@ function M.select(items, opts)
     return
   end
 
-  -- Fallback to built-in
   vim.ui.select(items, {
     prompt = opts.prompt,
     format_item = opts.format_item,

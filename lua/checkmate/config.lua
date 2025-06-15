@@ -156,9 +156,11 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 ---@class checkmate.UISettings
 ---
+---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
 ---Default behavior: attempt to use an installed plugin, if found
 ---If false, will default to vim.ui.select
----@field preferred_picker? "telescope" | "snacks" | "mini" | false
+---If a function is passed, will use this picker implementation
+---@field picker? checkmate.Picker
 
 -----------------------------------------------------
 

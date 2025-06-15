@@ -993,7 +993,7 @@ end
 ---@param items checkmate.TodoItem[]
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value
----@return checkmate.TextDiffHunk[]
+---@return checkmate.TextDiffHunk[], table<integer, {old_value: string, new_value: string}>
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
   local log = require("checkmate.log")
   local meta_module = require("checkmate.metadata")
@@ -1001,11 +1001,12 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
   local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
     log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
-    return {}
+    return {}, {}
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
+  local changes = {} -- track for on_change callback
 
   for _, todo_item in ipairs(items) do
     local row = todo_item.range.start.row
@@ -1020,6 +1021,14 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
       local updated_metadata = vim.deepcopy(todo_item.metadata)
 
       if existing_entry then
+        -- track for on_change callbacks
+        if existing_entry.value ~= value then
+          changes[todo_item.id] = {
+            old_value = existing_entry.value,
+            new_value = value,
+          }
+        end
+
         for i, entry in ipairs(updated_metadata.entries) do
           if entry.tag == existing_entry.tag then
             updated_metadata.entries[i].value = value
@@ -1050,7 +1059,7 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
       end
     end
   end
-  return hunks
+  return hunks, changes
 end
 
 --- Add metadata to todo items
@@ -1066,7 +1075,8 @@ function M.add_metadata(ctx, operations)
   local to_jump = nil
 
   -- group by metadata type for callbacks
-  local callbacks_by_meta = {}
+  local new_adds_by_meta = {} -- track new additions for on_add callbacks
+  local changes_by_meta = {} -- track changes for on_change callbacks
 
   for _, op in ipairs(operations) do
     local item = ctx.get_todo_by_id(op.id)
@@ -1083,13 +1093,21 @@ function M.add_metadata(ctx, operations)
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
     local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context) or ""
 
-    local item_hunks = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
+    local item_hunks, item_changes = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
     vim.list_extend(hunks, item_hunks)
 
     -- add callbacks
-    if meta_props.on_add then
-      callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
-      table.insert(callbacks_by_meta[op.meta_name], op.id)
+    if item_changes[item.id] then
+      changes_by_meta[op.meta_name] = changes_by_meta[op.meta_name] or {}
+      table.insert(changes_by_meta[op.meta_name], {
+        id = op.id,
+        old_value = item_changes[item.id].old_value,
+        new_value = item_changes[item.id].new_value,
+      })
+    elseif not item.metadata.by_tag[op.meta_name] and meta_props.on_add then
+      -- only queue on_add if it's actually a new addition
+      new_adds_by_meta[op.meta_name] = new_adds_by_meta[op.meta_name] or {}
+      table.insert(new_adds_by_meta[op.meta_name], op.id)
     end
 
     -- track jump target (for single item operations)
@@ -1098,8 +1116,8 @@ function M.add_metadata(ctx, operations)
     end
   end
 
-  -- queue callbacks
-  for meta_name, ids in pairs(callbacks_by_meta) do
+  -- queue on_add cbs
+  for meta_name, ids in pairs(new_adds_by_meta) do
     local meta_config = config.options.metadata[meta_name]
     for _, id in ipairs(ids) do
       ctx.add_cb(function(tx_ctx)
@@ -1108,6 +1126,21 @@ function M.add_metadata(ctx, operations)
           meta_config.on_add(updated_item)
         end
       end)
+    end
+  end
+
+  -- queue on_change cbs
+  for meta_name, changes in pairs(changes_by_meta) do
+    local meta_config = config.options.metadata[meta_name]
+    if meta_config.on_change then
+      for _, change in ipairs(changes) do
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(change.id)
+          if updated_item then
+            meta_config.on_change(updated_item, change.old_value, change.new_value)
+          end
+        end)
+      end
     end
   end
 
@@ -1342,6 +1375,25 @@ function M.set_metadata_value(ctx, metadata, new_value)
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
   if not line then
     return {}
+  end
+
+  -- queue on_change callback
+  if metadata.value ~= new_value then
+    local config = require("checkmate.config")
+    local canonical_name = metadata.alias_for or metadata.tag
+    local meta_config = config.options.metadata[canonical_name]
+
+    if meta_config and meta_config.on_change then
+      local todo_item = ctx.get_todo_by_row(row)
+      if todo_item then
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(todo_item.id)
+          if updated_item then
+            meta_config.on_change(updated_item, metadata.value, new_value)
+          end
+        end)
+      end
+    end
   end
 
   return M.compute_diff_update_metadata(line, metadata, new_value)

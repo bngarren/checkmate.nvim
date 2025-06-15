@@ -301,6 +301,10 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_remove? fun(todo_item: checkmate.TodoItem)
+---
+---Callback to run when this metadata tag's value is changed (not on initial add)
+---Receives the todo item, old value, and new value
+---@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
 
 -----------------------------------------------------
 
@@ -796,6 +800,7 @@ function M.validate_options(opts)
         { meta_props.sort_order, "number", "metadata." .. meta_name .. ".sort_order", true },
         { meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true },
         { meta_props.on_remove, "function", "metadata." .. meta_name .. ".on_remove", true },
+        { meta_props.on_change, "function", "metadata." .. meta_name .. ".on_change", true },
         { meta_props.select_on_insert, "boolean", "metadata." .. meta_name .. ".select_on_insert", true },
       }
 

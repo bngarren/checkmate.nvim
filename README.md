@@ -24,6 +24,10 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Smart toggling behavior
 - Archive completed todos
 
+> !IMPORTANT
+> Check out the newly upgraded metadata features introduced in v0.9.0.
+> These include more powerful metadata definitions/custmomization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
+
 <br/>
 
 <img width="700" alt="Checkmate example 1" src="./assets/todos-example-1.png">
@@ -243,6 +247,8 @@ CheckmateLint
 ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
 ---@field show_todo_count boolean
 ---
+---Options for todo count indicator position
+---@alias checkmate.TodoCountPosition "eol" | "inline"
 ---Position to show the todo count indicator (if enabled)
 --- `eol` = End of the todo item line
 --- `inline` = After the todo marker, before the todo item text
@@ -277,10 +283,7 @@ CheckmateLint
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value"
-
----Options for todo count indicator position
----@alias checkmate.TodoCountPosition "eol" | "inline"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
 -----------------------------------------------------
 
@@ -304,6 +307,7 @@ CheckmateLint
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@class checkmate.TodoMarkers
+---
 ---Character used for unchecked items
 ---@field unchecked string
 ---
@@ -314,9 +318,11 @@ CheckmateLint
 
 ---@class checkmate.UISettings
 ---
+---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
 ---Default behavior: attempt to use an installed plugin, if found
 ---If false, will default to vim.ui.select
----@field preferred_picker? "telescope" | "snacks" | "mini" | false
+---If a function is passed, will use this picker implementation
+---@field picker? checkmate.Picker
 
 -----------------------------------------------------
 
@@ -408,6 +414,7 @@ CheckmateLint
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
 ---@class checkmate.MetadataProps
+---
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
 ---also be used and have the same styling/functionality
@@ -420,9 +427,11 @@ CheckmateLint
 ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
 ---@field style? vim.api.keyset.highlight|checkmate.StyleFn
 ---
+---@alias checkmate.GetValueFn fun(context?: checkmate.MetadataContext):string
+---
 ---Function that returns the default value for this metadata tag
 ---i.e. what is used after insertion
----@field get_value? fun():string?|fun(context?: checkmate.MetadataContext):string
+---@field get_value? checkmate.GetValueFn
 ---
 ---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
 ---
@@ -432,7 +441,7 @@ CheckmateLint
 --- - A function that returns items
 ---@field choices? string[]|checkmate.ChoicesFn
 ---
----Keymapping for toggling this metadata tag
+---Keymapping for toggling (adding/removing) this metadata tag
 ---@field key? string
 ---
 ---Used for displaying metadata in a consistent order
@@ -457,6 +466,10 @@ CheckmateLint
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
 ---@field on_remove? fun(todo_item: checkmate.TodoItem)
+---
+---Callback to run when this metadata tag's value is changed (not on initial add or removal)
+---Receives the todo item, old value, and new value
+---@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
 
 -----------------------------------------------------
 
@@ -535,6 +548,8 @@ local defaults = {
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
     ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
     ["<leader>Tv"] = "select_metadata_value", -- Update the value of a metadata tag under the cursor
+    ["<leader>T]"] = "jump_next_metadata", -- Move cursor to next metadata tag
+    ["<leader>T["] = "jump_previous_metadata", -- Move cursor to previous metadata tag
   },
   default_list_marker = "-",
   todo_markers = {
@@ -641,7 +656,7 @@ opts = {
 > [!WARNING]
 > Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
 
-## Metadata
+# Metadata
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 

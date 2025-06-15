@@ -85,6 +85,8 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
 ---@field show_todo_count boolean
 ---
+---Options for todo count indicator position
+---@alias checkmate.TodoCountPosition "eol" | "inline"
 ---Position to show the todo count indicator (if enabled)
 --- `eol` = End of the todo item line
 --- `inline` = After the todo marker, before the todo item text
@@ -121,9 +123,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
----Options for todo count indicator position
----@alias checkmate.TodoCountPosition "eol" | "inline"
-
 -----------------------------------------------------
 
 ---@class checkmate.LogSettings
@@ -146,6 +145,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@class checkmate.TodoMarkers
+---
 ---Character used for unchecked items
 ---@field unchecked string
 ---
@@ -252,6 +252,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
 ---@class checkmate.MetadataProps
+---
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
 ---also be used and have the same styling/functionality
@@ -278,7 +279,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- - A function that returns items
 ---@field choices? string[]|checkmate.ChoicesFn
 ---
----Keymapping for toggling this metadata tag
+---Keymapping for toggling (adding/removing) this metadata tag
 ---@field key? string
 ---
 ---Used for displaying metadata in a consistent order
@@ -304,7 +305,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---E.g. can be used to change the todo item state
 ---@field on_remove? fun(todo_item: checkmate.TodoItem)
 ---
----Callback to run when this metadata tag's value is changed (not on initial add)
+---Callback to run when this metadata tag's value is changed (not on initial add or removal)
 ---Receives the todo item, old value, and new value
 ---@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
 

@@ -269,19 +269,18 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   ctx.depth = ctx.depth + 1
 
   local success, err = pcall(function()
-    -- 1. Highlight the todo marker
+    -- row lookup for todo items for O(1) access
+    local todo_rows = {}
+    for _, todo in pairs(todo_map) do
+      todo_rows[todo.range.start.row] = true
+    end
+
     M.highlight_todo_marker(bufnr, todo_item)
 
-    -- 2. Highlight the list marker of the todo item
-    M.highlight_list_marker(bufnr, todo_item)
+    M.highlight_list_markers_in_range(bufnr, todo_item, todo_rows)
 
-    -- 3. Highlight the child list markers within this todo item
-    M.highlight_child_list_markers(bufnr, todo_item)
-
-    -- 4. Highlight content directly in this todo item
     M.highlight_content(bufnr, todo_item, todo_map)
 
-    -- 5. Show child count indicator
     M.show_todo_count_indicator(bufnr, todo_item, todo_map)
   end)
 
@@ -370,20 +369,16 @@ function M.highlight_list_marker(bufnr, todo_item)
 
   local start_row, start_col, _, _ = list_marker.node:range()
 
-  local line = M.get_buffer_line(bufnr, start_row)
-  if not line then
+  local marker_text = list_marker.text
+  if not marker_text then
     return
   end
-
-  -- get actual marker text (-, *, +, or digits followed by . or ))
-  local marker_text = todo_item.list_marker.text
-  local marker_end_col = start_col + #marker_text
 
   local hl_group = list_marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
   vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
     end_row = start_row, -- don't let it ever span multiple lines
-    end_col = marker_end_col, -- end exclusive (end col doesn't actually include the list marker)
+    end_col = start_col + #marker_text, -- end exclusive (end col doesn't actually include the list marker)
     hl_group = hl_group,
     priority = M.PRIORITY.LIST_MARKER,
     right_gravity = false,
@@ -392,7 +387,7 @@ function M.highlight_list_marker(bufnr, todo_item)
   })
 end
 
----Finds and highlights all markdown list_markers within the todo item, excluding the
+---Highlight all child list markers (non-todo list items) within this todo item's range
 ---list_marker for the todo item itself (i.e. the first list_marker in the todo item's list_item node)
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
@@ -404,28 +399,29 @@ function M.highlight_child_list_markers(bufnr, todo_item)
     return
   end
 
-  local list_marker_query = parser.get_list_marker_query()
+  local list_items = parser.get_all_list_items(bufnr)
 
-  for id, marker_node, _ in list_marker_query:iter_captures(todo_item.node, bufnr, 0, -1) do
-    local name = list_marker_query.captures[id]
-    local marker_type = parser.get_marker_type_from_capture_name(name)
+  for _, list_item in ipairs(list_items) do
+    local item_start_row = list_item.range.start.row
 
-    -- only process if it's not the todo item's own list marker
-    if not (todo_item.list_marker and todo_item.list_marker.node == marker_node) then
-      local marker_start_row, marker_start_col, marker_end_row, _ = marker_node:range()
-
-      -- safety check: only highlight list markers within the parent todo's range
-      if marker_start_row >= todo_item.range.start.row and marker_end_row <= todo_item.range["end"].row then
-        local line = M.get_buffer_line(bufnr, marker_start_row)
-        if line then
-          local marker_text = todo_item.list_marker.text
+    -- Skip if:
+    -- 1. outside todo item's range
+    -- 2. it's the todo item itself (same start row)
+    -- 3. it's another todo item (has a todo state)
+    if item_start_row > todo_item.range.start.row and item_start_row <= todo_item.range["end"].row then
+      local line = M.get_buffer_line(bufnr, item_start_row)
+      if line and not parser.get_todo_item_state(line) then
+        local marker = list_item.list_marker
+        if marker and marker.node then
+          local marker_text = list_item.text:match("^%s*([%-%*%+])") or list_item.text:match("^%s*(%d+[%.%)])")
 
           if marker_text then
-            local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+            local _, marker_col = marker.node:range()
+            local hl_group = marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
-            vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
-              end_row = marker_start_row, -- never span lines
-              end_col = marker_start_col + #marker_text, -- end exclusive
+            vim.api.nvim_buf_set_extmark(bufnr, config.ns, item_start_row, marker_col, {
+              end_row = item_start_row,
+              end_col = marker_col + #marker_text,
               hl_group = hl_group,
               priority = M.PRIORITY.LIST_MARKER,
               right_gravity = false,
@@ -434,6 +430,64 @@ function M.highlight_child_list_markers(bufnr, todo_item)
             })
           end
         end
+      end
+    end
+  end
+end
+
+---Highlight list markers for todo items and their child list items
+---@param bufnr integer Buffer number
+---@param todo_item checkmate.TodoItem
+---@param todo_rows table<integer, checkmate.TodoItem> row to todo lookup table
+function M.highlight_list_markers_in_range(bufnr, todo_item, todo_rows)
+  local config = require("checkmate.config")
+  local parser = require("checkmate.parser")
+
+  -- highlight the todo item's own marker
+  if todo_item.list_marker and todo_item.list_marker.node then
+    local start_row, start_col = todo_item.list_marker.node:range()
+    local marker_text = todo_item.list_marker.text
+
+    if marker_text then
+      local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
+        or "CheckmateListMarkerUnordered"
+
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
+        end_row = start_row,
+        end_col = start_col + #marker_text,
+        hl_group = hl_group,
+        priority = M.PRIORITY.LIST_MARKER,
+        right_gravity = false,
+        end_right_gravity = false,
+        hl_eol = false,
+      })
+    end
+  end
+
+  local query = parser.FULL_TODO_QUERY
+
+  for id, node in query:iter_captures(todo_item.node, bufnr) do
+    local capture_name = query.captures[id]
+
+    if capture_name == "list_marker" or capture_name == "list_marker_ordered" then
+      local marker_start_row, marker_start_col, _, marker_end_col = node:range()
+
+      -- skip if:
+      -- - the todo item's own marker (same row)
+      -- - not another todo item
+      if marker_start_row > todo_item.range.start.row and not todo_rows[marker_start_row] then
+        local marker_type = parser.get_marker_type_from_capture_name(capture_name)
+        local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
+
+        vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+          end_row = marker_start_row,
+          end_col = marker_end_col - 1, -- ts includes trailing space after list marker, we exclude it here
+          hl_group = hl_group,
+          priority = M.PRIORITY.LIST_MARKER,
+          right_gravity = false,
+          end_right_gravity = false,
+          hl_eol = false,
+        })
       end
     end
   end

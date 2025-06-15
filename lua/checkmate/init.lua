@@ -730,6 +730,24 @@ function M.select_metadata_value()
   end)
 end
 
+--- Move the cursor to the next metadata tag for the todo item under the cursor, if present
+function M.jump_next_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+end
+
+--- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
+function M.jump_previous_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+end
+
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules
 ---
 --- This is not intended to be a comprehensive Markdown linter

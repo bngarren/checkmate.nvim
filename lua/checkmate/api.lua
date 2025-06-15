@@ -159,6 +159,14 @@ function M.setup_keymaps(bufnr)
       command = "Checkmate metadata select_value",
       modes = { "n" },
     },
+    jump_next_metadata = {
+      command = "Checkmate metadata jump_next",
+      modes = { "n" },
+    },
+    jump_previous_metadata = {
+      command = "Checkmate metadata jump_previous",
+      modes = { "n" },
+    },
   }
 
   for key, action_name in pairs(keys) do
@@ -1366,6 +1374,67 @@ function M.compute_diff_update_metadata(line, metadata, value)
   }
 
   return { hunk }
+end
+
+--- moves the cursor forward or backward to the next metadata tag for the todo item
+--- under the cursor, if present
+---@param bufnr integer
+---@param todo_item checkmate.TodoItem
+---@param backward boolean? if true, move to previous
+function M.move_cursor_to_metadata(bufnr, todo_item, backward)
+  if not (todo_item and todo_item.metadata and #todo_item.metadata.entries > 0) then
+    return
+  end
+
+  -- current cursor (row is 1-based, col is 0-based)
+  local win = vim.api.nvim_get_current_win()
+
+  if vim.api.nvim_win_get_buf(win) ~= bufnr then
+    return
+  end
+
+  local cur = vim.api.nvim_win_get_cursor(win)
+  local cur_col = cur[2]
+
+  local entries = vim.tbl_map(function(e)
+    return e
+  end, todo_item.metadata.entries)
+  table.sort(entries, function(a, b)
+    return a.range.start.col < b.range.start.col
+  end)
+
+  local target
+  if backward then
+    for i = #entries, 1, -1 do
+      local e = entries[i]
+      local s = e.range.start.col
+      local fin = e.range["end"].col -- end-exclusive
+      -- only metadata that are fully left of cursor (skip if cursor is inside)
+      if s < cur_col and cur_col >= fin then
+        target = e
+        break
+      end
+    end
+    -- wrap
+    if not target then
+      target = entries[#entries]
+    end
+  else
+    for _, entry in ipairs(entries) do
+      if cur_col < entry.range.start.col then
+        target = entry
+        break
+      end
+    end
+    -- wrap
+    if not target then
+      target = entries[1]
+    end
+  end
+
+  if target then
+    vim.api.nvim_win_set_cursor(win, { todo_item.range.start.row + 1, target.range.start.col })
+  end
 end
 
 ---Sorts metadata entries based on their configured sort_order

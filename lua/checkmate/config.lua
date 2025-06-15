@@ -119,7 +119,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value"
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
@@ -376,6 +376,8 @@ local defaults = {
     ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
     ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
     ["<leader>Tv"] = "select_metadata_value", -- Update the value of a metadata tag under the cursor
+    ["<leader>T]"] = "jump_next_metadata", -- Move cursor to next metadata tag
+    ["<leader>T["] = "jump_previous_metadata", -- Move cursor to previous metadata tag
   },
   default_list_marker = "-",
   todo_markers = {

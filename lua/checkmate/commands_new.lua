@@ -111,6 +111,20 @@ local top_commands = {
           require("checkmate").select_metadata_value()
         end,
       },
+      jump_next = {
+        desc = "Move cursor to next metadata tag for todo under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").jump_next_metadata()
+        end,
+      },
+      jump_previous = {
+        desc = "Move cursor to previous metadata tag for todo under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").jump_previous_metadata()
+        end,
+      },
     },
   },
 

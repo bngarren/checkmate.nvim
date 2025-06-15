@@ -1093,6 +1093,77 @@ Line 2
     end)
   end)
 
+  describe("movement", function()
+    it("should move cursor to next metadata entry and wrap around", function()
+      local parser = require("checkmate.parser")
+      local api = require("checkmate.api")
+
+      local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
+      local bufnr, file_path = h.setup_todo_buffer(content)
+
+      local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
+      assert.is_not_nil(todo_item)
+      ---@cast todo_item checkmate.TodoItem
+      local row = todo_item.range.start.row + 1
+
+      vim.api.nvim_win_set_cursor(0, { row, 0 })
+
+      -- cycle forward through each metadata
+      api.move_cursor_to_metadata(bufnr, todo_item)
+      local _, col1 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[1].range.start.col, col1)
+
+      api.move_cursor_to_metadata(bufnr, todo_item)
+      local _, col2 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[2].range.start.col, col2)
+
+      api.move_cursor_to_metadata(bufnr, todo_item)
+      local _, col3 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[3].range.start.col, col3)
+
+      -- wrap back to the first
+      api.move_cursor_to_metadata(bufnr, todo_item)
+      local _, col4 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[1].range.start.col, col4)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+
+    it("should move cursor to previous metadata entry and wrap around, skipping current metadata", function()
+      local parser = require("checkmate.parser")
+      local api = require("checkmate.api")
+
+      local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
+      local bufnr, file_path = h.setup_todo_buffer(content)
+
+      local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
+      assert.is_not_nil(todo_item)
+      ---@cast todo_item checkmate.TodoItem
+      local row = todo_item.range.start.row + 1
+
+      -- place cursor inside the second metadata range
+      local bar = todo_item.metadata.entries[2]
+      local mid = bar.range.start.col + 2
+      vim.api.nvim_win_set_cursor(0, { row, mid })
+
+      -- go backwards: should skip the one we're in and land on the first
+      api.move_cursor_to_metadata(bufnr, todo_item, true)
+      local _, col1 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[1].range.start.col, col1)
+
+      -- another backwards wraps to the last
+      api.move_cursor_to_metadata(bufnr, todo_item, true)
+      local _, col2 = unpack(vim.api.nvim_win_get_cursor(0))
+      assert.equal(todo_item.metadata.entries[3].range.start.col, col2)
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
+  end)
+
   describe("smart toggle", function()
     local function setup_smart_toggle_buffer(content, smart_toggle_config)
       -- merge our 'testing' smart_toggle config with base config

@@ -238,12 +238,12 @@ describe("Highlights", function()
         {
           hl_group = "CheckmateUncheckedMainContent",
           start = { row = 0, col = 2 + #unchecked + 1 },
-          ["end"] = { row = 0, col = #"- " .. unchecked .. " Todo A main content" },
+          ["end"] = { row = 0, col = #("- " .. unchecked .. " Todo A main content") },
         },
         {
           hl_group = "CheckmateCheckedMainContent",
           start = { row = 3, col = 2 + #checked + 1 },
-          ["end"] = { row = 3, col = #"- " .. checked .. " Todo B main content" },
+          ["end"] = { row = 3, col = #("- " .. checked .. " Todo B main content") },
         },
       }
 

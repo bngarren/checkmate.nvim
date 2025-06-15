@@ -631,18 +631,32 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       -- skip empty lines
       if row_line and not row_line:match("^%s*$") then
         local content_start = nil
-        for i = 0, #row_line - 1 do
-          local char = row_line:sub(i + 1, i + 1)
-          if char ~= " " and char ~= "\t" then
-            content_start = i
-            break
+
+        local list_marker_pattern = "^(%s*)[%-%*%+]%s+" -- unordered
+        local ordered_pattern = "^(%s*)%d+[%.%)]%s+" -- ordered
+
+        local _, marker_end = row_line:find(list_marker_pattern)
+        if not marker_end then
+          _, marker_end = row_line:find(ordered_pattern)
+        end
+
+        if marker_end then
+          content_start = marker_end -- already 0-based since find returns 1-based
+        else
+          -- no list marker, find first non-whitespace
+          for i = 0, #row_line - 1 do
+            local char = row_line:sub(i + 1, i + 1)
+            if char ~= " " and char ~= "\t" then
+              content_start = i
+              break
+            end
           end
         end
 
-        if content_start then
+        if content_start and content_start < #row_line then
           vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
             end_row = row,
-            end_col = #row_line, -- byte length
+            end_col = #row_line,
             hl_group = additional_content_hl,
             priority = M.PRIORITY.CONTENT,
             hl_eol = false,

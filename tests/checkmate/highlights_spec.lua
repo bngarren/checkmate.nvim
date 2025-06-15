@@ -196,6 +196,109 @@ describe("Highlights", function()
     end)
   end)
 
+  describe("content", function()
+    it("should correctly highlight main and additional content", function()
+      local config = require("checkmate.config")
+      local highlights = require("checkmate.highlights")
+      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = config.get_defaults().todo_markers.checked
+
+      local content = [[
+- ]] .. unchecked .. [[ Todo A main content
+  Additional content line 1
+  Additional content line 2
+- ]] .. checked .. [[ Todo B main content
+  - Regular list item
+  More additional content
+]]
+
+      local bufnr = h.create_test_buffer(content)
+
+      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+
+      highlights.apply_highlighting(bufnr, { debug_reason = "test" })
+
+      local extmarks = h.get_extmarks(bufnr, config.ns)
+
+      -- MAIN CONTENT (first line of each todo)
+      local got_main = {}
+      for _, mark in ipairs(extmarks) do
+        local d = mark[4]
+        if d and (d.hl_group == "CheckmateUncheckedMainContent" or d.hl_group == "CheckmateCheckedMainContent") then
+          table.insert(got_main, {
+            hl_group = d.hl_group,
+            start = { row = mark[2], col = mark[3] },
+            ["end"] = { row = d.end_row, col = d.end_col },
+          })
+        end
+      end
+
+      -- Main content should start after "- □ " (or "- ✔ ")
+      local expected_main = {
+        {
+          hl_group = "CheckmateUncheckedMainContent",
+          start = { row = 0, col = 2 + #unchecked + 1 },
+          ["end"] = { row = 0, col = #"- " .. unchecked .. " Todo A main content" },
+        },
+        {
+          hl_group = "CheckmateCheckedMainContent",
+          start = { row = 3, col = 2 + #checked + 1 },
+          ["end"] = { row = 3, col = #"- " .. checked .. " Todo B main content" },
+        },
+      }
+
+      assert.equal(#expected_main, #got_main)
+      assert.same(expected_main, got_main)
+
+      -- ADDITIONAL CONTENT (subsequent lines)
+      local got_additional = {}
+      for _, mark in ipairs(extmarks) do
+        local d = mark[4]
+        if
+          d
+          and (d.hl_group == "CheckmateUncheckedAdditionalContent" or d.hl_group == "CheckmateCheckedAdditionalContent")
+        then
+          table.insert(got_additional, {
+            hl_group = d.hl_group,
+            start = { row = mark[2], col = mark[3] },
+            ["end"] = { row = d.end_row, col = d.end_col },
+          })
+        end
+      end
+
+      -- additional content should start at first non-whitespace (skipping list markers)
+      local expected_additional = {
+        {
+          hl_group = "CheckmateUncheckedAdditionalContent",
+          start = { row = 1, col = 2 },
+          ["end"] = { row = 1, col = #"  Additional content line 1" },
+        },
+        {
+          hl_group = "CheckmateUncheckedAdditionalContent",
+          start = { row = 2, col = 2 },
+          ["end"] = { row = 2, col = #"  Additional content line 2" },
+        },
+        {
+          hl_group = "CheckmateCheckedAdditionalContent",
+          start = { row = 4, col = 4 },
+          ["end"] = { row = 4, col = #"  - Regular list item" },
+        },
+        {
+          hl_group = "CheckmateCheckedAdditionalContent",
+          start = { row = 5, col = 2 },
+          ["end"] = { row = 5, col = #"  More additional content" },
+        },
+      }
+
+      assert.equal(#expected_additional, #got_additional)
+      assert.same(expected_additional, got_additional)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+  end)
+
   describe("metadata", function()
     it("should apply metadata tag highlights", function()
       local config = require("checkmate.config")

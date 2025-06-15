@@ -104,6 +104,27 @@ local top_commands = {
           return vim.tbl_keys(require("checkmate.config").options.metadata)
         end,
       },
+      select_value = {
+        desc = "Select a value from completion options for the metadata tag under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").select_metadata_value()
+        end,
+      },
+      jump_next = {
+        desc = "Move cursor to next metadata tag for todo under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").jump_next_metadata()
+        end,
+      },
+      jump_previous = {
+        desc = "Move cursor to previous metadata tag for todo under the cursor",
+        nargs = "0",
+        handler = function()
+          require("checkmate").jump_previous_metadata()
+        end,
+      },
     },
   },
 

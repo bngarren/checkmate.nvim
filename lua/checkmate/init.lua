@@ -1,6 +1,24 @@
 ---@class Checkmate
 local M = {}
 
+-- Public Types
+
+---@class checkmate.Todo
+---@field _todo_item checkmate.TodoItem internal representation
+---@field state checkmate.TodoItemState
+---@field text string First line of the todo
+---@field metadata string[][] Table of {tag, value} tuples
+---@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
+
+---@class checkmate.MetadataContext
+---@field name string Metadata tag name
+---@field value string Current metadata value
+---@field todo checkmate.Todo Access to todo item data
+---@field buffer integer Buffer number
+
+--- internal
+
 local state = {
   initialized = false,
   running = false,
@@ -123,7 +141,7 @@ M.setup = function(opts)
 
     local cfg = config.setup(opts or {})
     if vim.tbl_isempty(cfg) then
-      error("config setup failed")
+      error()
     end
 
     M.set_initialized(true)
@@ -134,7 +152,11 @@ M.setup = function(opts)
   end)
 
   if not success then
-    vim.notify("Checkmate: Setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    local msg = "Checkmate: Setup failed"
+    if err then
+      msg = msg .. ": " .. tostring(err)
+    end
+    vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
     return false
   end
@@ -198,6 +220,7 @@ function M._setup_autocommands()
       end
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
+        --  TODO: remove legacy in v0.10+
         require("checkmate.commands").setup(event.buf) -- legacy commands
         require("checkmate.commands_new").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
@@ -211,6 +234,7 @@ function M._setup_autocommands()
       local bufs = M.get_active_buffer_list()
       for _, buf in ipairs(bufs) do
         if event.buf == buf and event.match ~= "markdown" then
+          --  TODO: remove legacy in v0.10+
           require("checkmate.commands").dispose(buf) -- legacy
           require("checkmate.commands_new").dispose(buf)
           require("checkmate.api").shutdown(buf)
@@ -683,6 +707,49 @@ function M.toggle_metadata(meta_name, custom_value)
 
   profiler.stop("M.toggle_metadata")
   return true
+end
+
+---Opens a picker to select a new value for the metadata under the cursor
+---
+---Set `config.ui.preferred_picker` to designate a specific picker implementation
+---Otherwise, will attempt to use an installed picker UI plugin, or fallback to native vim.ui.select
+function M.select_metadata_value()
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local picker = require("checkmate.metadata.picker")
+
+  picker.open_picker(function(choice, metadata)
+    local ctx = transaction.current_context()
+    if ctx then
+      ctx.add_op(api.set_metadata_value, metadata, choice)
+      return
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    transaction.run(bufnr, function(_ctx)
+      _ctx.add_op(api.set_metadata_value, metadata, choice)
+    end, function()
+      require("checkmate.highlights").apply_highlighting(bufnr)
+    end)
+  end)
+end
+
+--- Move the cursor to the next metadata tag for the todo item under the cursor, if present
+function M.jump_next_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+end
+
+--- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
+function M.jump_previous_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], true)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

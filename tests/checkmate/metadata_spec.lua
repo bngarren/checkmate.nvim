@@ -65,6 +65,10 @@ describe("Metadata", function()
       assert.are_same("started", s1)
       assert.are_same("today", s2)
 
+      local u1, u2 = todo.get_metadata("unknown")
+      assert.is_nil(u1)
+      assert.is_nil(u2)
+
       finally(function()
         h.cleanup_buffer(bufnr)
       end)

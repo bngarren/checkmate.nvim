@@ -132,4 +132,41 @@ function M.virt_line(opts)
   })
 end
 
+---@class InlineOpts
+---@field bufnr? integer buffer (default current)
+---@field text? string label
+---@field range checkmate.Range
+---@field hl_group? string highlight group (default "Comment")
+---@field interval? integer ms between frames (default 100)
+
+---@param opts InlineOpts
+function M.inline(opts)
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local interval = opts.interval or 80
+  local label = opts.text or ""
+
+  local frames = { "⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓" }
+
+  local function render(frame, state)
+    local virt = frame .. (label ~= "" and " " .. label or "")
+    local mark_opts = {
+      end_row = opts.range["end"].row,
+      end_col = opts.range["end"].col,
+      virt_text = { { virt, "Comment" } },
+      virt_text_pos = "inline",
+      hl_mode = "combine",
+      id = state.ext_id,
+      priority = 100,
+    }
+    return vim.api.nvim_buf_set_extmark(state.bufnr, state.ns, opts.range.start.row, opts.range.start.col, mark_opts)
+  end
+
+  return M.new({
+    bufnr = bufnr,
+    frames = frames,
+    render = render,
+    interval = interval,
+  })
+end
+
 return M

@@ -20,6 +20,7 @@ local M = {}
 ---@field tag string The tag name
 ---@field value string The value
 ---@field range checkmate.Range Position range (0-indexed), end_col is end_exclusive
+---@field value_col integer Start col (0-indexed) of value
 ---@field alias_for? string The canonical tag name if this is an alias
 ---@field position_in_line integer (1-indexed)
 
@@ -807,6 +808,7 @@ function M.extract_metadata(line, row)
         -- end-exclusive means the end col points to the pos after the last char
         ["end"] = { row = row, col = end_byte },
       },
+      value_col = line:find("%b()", start_byte) or start_byte + #tag + 1,
       alias_for = nil, -- Will be set later if it's an alias
       position_in_line = start_byte, -- track original position in the line, use byte pos for sorting
     }

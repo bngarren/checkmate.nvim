@@ -70,13 +70,16 @@ function M.open_picker(on_select)
     priority = 250,
   })
 
-  local spinner = animation.virt_line({
+  local spinner = animation.inline({
     bufnr = bufnr,
-    row = row,
-    col = 0,
-    text = "Loading completions...",
-    hl_group = "Comment",
+    range = vim.tbl_deep_extend("force", selected_metadata.range, {
+      start = {
+        col = selected_metadata.value_col,
+      },
+    }),
     interval = 50,
+    hl_group = "Comment",
+    text = "",
   })
 
   active_pickers[bufnr] = {

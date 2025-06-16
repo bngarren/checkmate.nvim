@@ -6,7 +6,9 @@ local checkmate_spec = {
   metadata = {
     test = {
       choices = function(ctx, cb)
-        return { "A", "B", "C" }
+        vim.defer_fn(function()
+          cb({ "A", "B", "C" })
+        end, 10000)
       end,
       key = "<leader>T7",
     },

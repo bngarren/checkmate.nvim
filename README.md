@@ -24,9 +24,9 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Smart toggling behavior
 - Archive completed todos
 
-> [!IMPORTANT]
-> Check out the newly upgraded metadata features introduced in v0.9.0.
-> These include more powerful metadata definitions/custmomization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
+> [!NOTE]
+> Check out the **new** metadata features introduced in v0.9.0!
+> These include more powerful metadata definitions/customization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
 
 <br/>
 
@@ -840,8 +840,6 @@ Planned features:
 - [x] **Smart toggling** - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
-
-- [ ] Distinguish todo siblings - highlighting feature that applies slightly different colors to siblings to better differentiate them
 
 # Contributing
 

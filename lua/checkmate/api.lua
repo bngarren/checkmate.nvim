@@ -272,7 +272,8 @@ function M.setup_autocmds(bufnr)
         if not success then
           log.error("Failed to convert Unicode to Markdown", { module = "api" })
           vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          util.notify("Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
+          vim.notify("Checkmate: Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
+          vim.b[bufnr]._checkmate_writing = false
           return false
         end
 
@@ -297,9 +298,9 @@ function M.setup_autocmds(bufnr)
               uv.fs_unlink(temp_filename)
             end)
             log.error("Failed to rename temp file: " .. (rename_err or "unknown error"), { module = "api" })
-            util.notify("Failed to save file", vim.log.levels.ERROR)
+            vim.notify("Checkmate: Failed to save file", vim.log.levels.ERROR)
             vim.bo[bufnr].modified = was_modified
-            vim.b[bufnr]._checkmate_writing = nil
+            vim.b[bufnr]._checkmate_writing = false
             return false
           end
 
@@ -311,7 +312,7 @@ function M.setup_autocmds(bufnr)
 
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.b[bufnr]._checkmate_writing = nil
+              vim.b[bufnr]._checkmate_writing = false
             end
           end, 0)
 

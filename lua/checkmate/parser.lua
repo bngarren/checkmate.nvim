@@ -179,34 +179,7 @@ function M.setup()
   log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns() or {}, " , "))
   log.debug("Unchecked pattern is: " .. table.concat(M.getUncheckedTodoPatterns() or {}, " , "))
 
-  local todo_query = [[
-; Capture list items and their content for structure understanding
-(list_item) @list_item
-(paragraph) @paragraph
-
-; Capture list markers for structure understanding
-((list_marker_minus) @list_marker_minus)
-((list_marker_plus) @list_marker_plus)
-((list_marker_star) @list_marker_star)
-]]
-  -- register the query
-  vim.treesitter.query.set("markdown", "todo_items", todo_query)
-
   highlights.setup_highlights()
-
-  -- set up an autocmd to re-apply highlighting when colorscheme changes
-  vim.api.nvim_create_autocmd("ColorScheme", {
-    group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
-    callback = function()
-      -- Re-apply highlight groups after a small delay
-      vim.defer_fn(function()
-        highlights.setup_highlights()
-
-        -- Clear the dynamic highlight cache to ensure they're recreated with the new colorscheme
-        highlights.clear_highlight_cache()
-      end, 10)
-    end,
-  })
 end
 
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols

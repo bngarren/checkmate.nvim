@@ -647,14 +647,21 @@ Line that should not affect parent-child relationship
 
     it("should handle metadata with spaces in values", function()
       local parser = require("checkmate.parser")
-      local line = "- □ Task @note(this is a note with spaces)"
-      local row = 0
 
-      local metadata = parser.extract_metadata(line, row)
+      local line = "- □ Task @note(this is a note with spaces)"
+      local metadata = parser.extract_metadata(line, 0)
 
       assert.equal(1, #metadata.entries)
       assert.equal("note", metadata.entries[1].tag)
       assert.equal("this is a note with spaces", metadata.entries[1].value)
+
+      line = "- □ Task @note( T )"
+      metadata = parser.extract_metadata(line, 0)
+
+      -- will trim whitespace
+      assert.equal(1, #metadata.entries)
+      assert.equal("note", metadata.entries[1].tag)
+      assert.equal("T", metadata.entries[1].value)
     end)
 
     it("should handle metadata with trailing and leading spaces in values", function()

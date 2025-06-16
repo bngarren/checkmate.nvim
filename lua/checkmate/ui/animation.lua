@@ -46,6 +46,8 @@ function M.new(opts)
     local ok, ext_id = pcall(render, frames[state.idx], state)
     if ok and ext_id then
       state.ext_id = ext_id
+    else
+      state.ext_id = nil
     end
   end
 

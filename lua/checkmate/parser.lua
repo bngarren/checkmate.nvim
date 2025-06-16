@@ -20,6 +20,7 @@ local M = {}
 ---@field tag string The tag name
 ---@field value string The value
 ---@field range checkmate.Range Position range (0-indexed), end_col is end_exclusive
+---@field value_col integer Start col (0-indexed) of value
 ---@field alias_for? string The canonical tag name if this is an alias
 ---@field position_in_line integer (1-indexed)
 
@@ -47,7 +48,7 @@ local M = {}
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
 --- @field list_marker checkmate.ListMarkerInfo Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
---- @field todo_text string Text content of the todo item line (first line), may be truncated. Only for debugging or tests.
+--- @field todo_text string Text content of the todo item line (first line)
 --- @field children integer[] IDs of child todo items
 --- @field parent_id integer? ID of parent todo item
 
@@ -763,6 +764,7 @@ end
 function M.extract_metadata(line, row)
   local log = require("checkmate.log")
   local config = require("checkmate.config")
+  local meta_module = require("checkmate.metadata")
 
   ---@type checkmate.TodoMetadata
   local metadata = {
@@ -806,27 +808,15 @@ function M.extract_metadata(line, row)
         -- end-exclusive means the end col points to the pos after the last char
         ["end"] = { row = row, col = end_byte },
       },
+      value_col = line:find("%b()", start_byte) or start_byte + #tag + 1,
       alias_for = nil, -- Will be set later if it's an alias
       position_in_line = start_byte, -- track original position in the line, use byte pos for sorting
     }
 
     -- check if this is an alias and map to canonical name
-    for canonical_name, meta_props in pairs(config.options.metadata) do
-      if tag == canonical_name then
-        -- This is a canonical name, no need to set alias_for
-        break
-      end
-
-      for _, alias in ipairs(meta_props.aliases or {}) do
-        if tag == alias then
-          entry.alias_for = canonical_name
-          break
-        end
-      end
-
-      if entry.alias_for then
-        break
-      end
+    local canonical_name = meta_module.get_canonical_name(tag)
+    if canonical_name and canonical_name ~= tag then
+      entry.alias_for = canonical_name
     end
 
     table.insert(metadata.entries, entry)

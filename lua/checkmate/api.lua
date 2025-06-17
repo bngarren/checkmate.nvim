@@ -117,83 +117,103 @@ function M.setup_keymaps(bufnr)
   local log = require("checkmate.log")
   local keys = config.options.keys or {}
 
-  buffer_local_keys[bufnr] = {}
-
-  -- Get command descriptions from the commands module
-  local commands_module = require("checkmate.commands")
-  local command_descs = {}
-
-  -- Build a mapping of command names to their descriptions
-  for _, cmd in ipairs(commands_module.commands) do
-    command_descs[cmd.cmd] = cmd.opts.desc
+  local function buffer_map(_bufnr, mode, lhs, rhs, desc)
+    local opts = { buffer = _bufnr, silent = true, desc = desc }
+    vim.keymap.set(mode, lhs, rhs, opts)
   end
 
-  -- Define actions with their properties and behavior
-  ---@type table<checkmate.Action, table>
-  local actions = {
-    toggle = {
-      command = "Checkmate toggle",
-      modes = { "n", "v" },
-    },
-    check = {
-      command = "Checkmate check",
-      modes = { "n", "v" },
-    },
-    uncheck = {
-      command = "Checkmate uncheck",
-      modes = { "n", "v" },
-    },
-    create = {
-      command = "Checkmate create",
-      modes = { "n", "v" },
-    },
-    remove_all_metadata = {
-      command = "Checkmate remove_all_metadata",
-      modes = { "n", "v" },
-    },
-    archive = {
-      command = "Checkmate archive",
-      modes = { "n" },
-    },
-    select_metadata_value = {
-      command = "Checkmate metadata select_value",
-      modes = { "n" },
-    },
-    jump_next_metadata = {
-      command = "Checkmate metadata jump_next",
-      modes = { "n" },
-    },
-    jump_previous_metadata = {
-      command = "Checkmate metadata jump_previous",
-      modes = { "n" },
-    },
+  local has_wk, wk = pcall(require, "which-key")
+
+  -- TODO: need further which-key integration
+  if has_wk then
+    wk.add({
+      "<leader>T",
+      buffer = bufnr,
+      group = "Checkmate [T]odos",
+      icon = "⊡",
+    })
+  end
+
+  buffer_local_keys[bufnr] = {}
+
+  -- map legacy actions to commands
+  ---@deprecated TODO: Remove in v0.10
+  local action_to_command = {
+    toggle = { cmd = "Checkmate toggle", desc = "Toggle todo item" },
+    check = { cmd = "Checkmate check", desc = "Check todo item" },
+    uncheck = { cmd = "Checkmate uncheck", desc = "Uncheck todo item" },
+    create = { cmd = "Checkmate create", desc = "Create todo item" },
+    remove_all_metadata = { cmd = "Checkmate remove_all_metadata", desc = "Remove all metadata" },
+    archive = { cmd = "Checkmate archive", desc = "Archive completed todos" },
+    select_metadata_value = { cmd = "Checkmate metadata select_value", desc = "Select metadata value" },
+    jump_next_metadata = { cmd = "Checkmate metadata jump_next", desc = "Jump to next metadata" },
+    jump_previous_metadata = { cmd = "Checkmate metadata jump_previous", desc = "Jump to previous metadata" },
   }
 
-  for key, action_name in pairs(keys) do
-    if action_name ~= false then
-      local action = actions[action_name]
-      if action then
-        local base_desc = command_descs[action.command] or "Checkmate action"
+  -- pre v0.9
+  local deprecated_actions = {}
 
-        -- Map for each supported mode
-        for _, mode in ipairs(action.modes) do
-          local mode_desc = base_desc
-          if mode == "v" then
-            mode_desc = mode_desc .. " (visual)"
-          end
+  local DEFAULT_DESC = "Checkmate <unnamed>"
+  local DEFAULT_MODES = { "n" }
 
-          log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "api" })
-          vim.api.nvim_buf_set_keymap(bufnr, mode, key, string.format("<cmd>%s<CR>", action.command), {
-            noremap = true,
-            silent = true,
-            desc = mode_desc,
-          })
-          table.insert(buffer_local_keys[bufnr], { mode, key })
+  for key, value in pairs(keys) do
+    if value ~= false then
+      ---@type checkmate.KeymapConfig
+      local mapping_config = {}
+
+      -- backwards comptability
+      if type(value) == "string" then
+        table.insert(deprecated_actions, value)
+        local action_info = action_to_command[value]
+        if action_info then
+          mapping_config = {
+            rhs = "<cmd>" .. action_info.cmd .. "<CR>",
+            desc = action_info.desc,
+          }
+        else
+          log.warn(string.format("Unknown action '%s' for key '%s'", value, key), { module = "api" })
+        end
+        -- New table-based config
+      elseif type(value) == "table" then
+        -- sequence of {rhs, desc, modes}
+        if value[1] ~= nil then
+          local rhs, desc, modes = unpack(value)
+          mapping_config = { rhs = rhs, desc = desc, modes = modes }
+        else -- dict like table
+          mapping_config = vim.deepcopy(value)
         end
       else
-        log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
+        log.warn(string.format("Invalid value type for key '%s'", key), { module = "api" })
+      end
+
+      if mapping_config and mapping_config.rhs then
+        -- defaults
+        mapping_config.modes = mapping_config.modes or DEFAULT_MODES
+        mapping_config.desc = mapping_config.desc or DEFAULT_DESC
+
+        for _, mode in ipairs(mapping_config.modes) do
+          local success = false
+
+          if mapping_config.rhs then
+            success = pcall(function()
+              buffer_map(bufnr, mode, key, mapping_config.rhs, mapping_config.desc)
+            end)
+          end
+
+          if success then
+            table.insert(buffer_local_keys[bufnr], { mode, key })
+          end
+        end
       end
     end
+  end
+
+  -- show deprecation warning
+  if #deprecated_actions > 0 then
+    vim.notify(
+      string.format("Checkmate: deprecated config.keys entry for: %s", table.concat(deprecated_actions, ", ")),
+      vim.log.levels.WARN
+    )
   end
 
   -- Setup metadata keymaps
@@ -204,23 +224,24 @@ function M.setup_keymaps(bufnr)
 
         -- Map metadata actions to both normal and visual modes
         for _, mode in ipairs(modes) do
-          log.debug(
-            "Mapping " .. mode .. " mode key " .. meta_props.key .. " to metadata." .. meta_name,
-            { module = "api" }
-          )
+          local key, desc
+          -- we allow user to pass [key, desc] tuple
+          if type(meta_props.key) == "table" then
+            key = meta_props.key[1]
+            desc = meta_props.key[2]
+          else
+            key = tostring(meta_props.key)
+            desc = "Toggle '@" .. meta_name .. "' metadata"
+          end
 
-          vim.api.nvim_buf_set_keymap(
-            bufnr,
-            mode,
-            meta_props.key,
-            string.format("<cmd>lua require('checkmate').toggle_metadata('%s')<CR>", meta_name),
-            {
-              noremap = true,
-              silent = true,
-              desc = "Checkmate: Set toggle '" .. meta_name .. "' metadata",
-            }
-          )
-          table.insert(buffer_local_keys[bufnr], { mode, meta_props.key })
+          local rhs = function()
+            require("checkmate").toggle_metadata(meta_name)
+          end
+
+          log.debug("Mapping " .. mode .. " mode key " .. key .. " to metadata." .. meta_name, { module = "api" })
+
+          buffer_map(bufnr, mode, key, rhs, desc)
+          table.insert(buffer_local_keys[bufnr], { mode, key })
         end
       end
     end

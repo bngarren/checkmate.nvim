@@ -60,7 +60,7 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 If you'd like _stable-ish_ version during pre-release, can add a minor version to the [lazy spec](https://lazy.folke.io/spec#spec-versioning):
 ```
 {
-  version = "~0.8.0" -- pins to minor 0.8.x
+  version = "~0.9.0" -- pins to minor 0.9.x
 }
 ```
 
@@ -102,11 +102,11 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 
 ### 3. Manage Your Tasks
 
-- Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
-- Check items with `:CheckmateCheck` (default: `<leader>Tc`)
-- Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
+- Toggle items with `:Checkmate toggle` (default: `<leader>Tt`)
+- Check items with `:Checkmate check` (default: `<leader>Tc`)
+- Uncheck items with `:Checkmate uncheck` (default: `<leader>Tu`)
 - Select multiple items in visual mode and use the same commands
-- Archive completed todos with `:CheckmateArchive` (default: `<leader>Ta`)
+- Archive completed todos with `:Checkmate archive` (default: `<leader>Ta`)
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
@@ -208,9 +208,18 @@ CheckmateLint
 ---Logging settings
 ---@field log checkmate.LogSettings
 ---
+---Define the keymap as a dict-style table or a sequence of { rhs, desc, { modes } }
+---See `h: vim.set.keymap` for how 'rhs' is treated, including being able to pass a Lua function directly
+---Default modes is {"n"}
+---@alias checkmate.KeymapConfig {rhs: string|function, desc?: string, modes?: string[]} | table<integer, any>
+---
 ---Keymappings (false to disable)
+---
+---Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
+---
+---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
 ---Note: mappings for metadata are set separately in the `metadata` table
----@field keys ( table<string, checkmate.Action>| false )
+---@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
 ---@field todo_markers checkmate.TodoMarkers
@@ -220,7 +229,7 @@ CheckmateLint
 ---
 ---@field ui? checkmate.UISettings
 ---
----Highlight settings (override merge with defaults)
+---Highlight settings (merge with defaults, user config takes precedence)
 ---Default style will attempt to integrate with current colorscheme (experimental)
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
@@ -267,6 +276,10 @@ CheckmateLint
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
 ---To add custom metadata tag, add a new field to this table with the metadata properties
+---
+---Note: When setting metadata in config, entire metadata entries are replaced,
+---not deep-merged. To modify only specific fields of default metadata,
+---you will need to manually merge the default implementation.
 ---@field metadata checkmate.Metadata
 ---
 ---Settings for the archived todos section
@@ -283,6 +296,7 @@ CheckmateLint
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
+---@deprecated TODO: remove v0.10
 ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
 -----------------------------------------------------
@@ -421,7 +435,7 @@ CheckmateLint
 ---@field aliases? string[]
 ---
 ---@alias checkmate.StyleFn
----| fun(value: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
+---| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
 ---| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
 ---
 ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
@@ -442,7 +456,8 @@ CheckmateLint
 ---@field choices? string[]|checkmate.ChoicesFn
 ---
 ---Keymapping for toggling (adding/removing) this metadata tag
----@field key? string
+---Can also pass a tuple (key, desc) to include a description
+---@field key? string|string[]
 ---
 ---Used for displaying metadata in a consistent order
 ---@field sort_order? integer
@@ -541,15 +556,51 @@ local defaults = {
   },
   -- Default keymappings
   keys = {
-    ["<leader>Tt"] = "toggle", -- Toggle todo item
-    ["<leader>Tc"] = "check", -- Set todo item as checked (done)
-    ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
-    ["<leader>Tn"] = "create", -- Create todo item
-    ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
-    ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
-    ["<leader>Tv"] = "select_metadata_value", -- Update the value of a metadata tag under the cursor
-    ["<leader>T]"] = "jump_next_metadata", -- Move cursor to next metadata tag
-    ["<leader>T["] = "jump_previous_metadata", -- Move cursor to previous metadata tag
+    ["<leader>Tt"] = {
+      rhs = "<cmd>Checkmate toggle<CR>",
+      desc = "Toggle todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tc"] = {
+      rhs = "<cmd>Checkmate check<CR>",
+      desc = "Set todo item as checked (done)",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tu"] = {
+      rhs = "<cmd>Checkmate uncheck<CR>",
+      desc = "Set todo item as unchecked (not done)",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tn"] = {
+      rhs = "<cmd>Checkmate create<CR>",
+      desc = "Create todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>TR"] = {
+      rhs = "<cmd>Checkmate remove_all_metadata<CR>",
+      desc = "Remove all metadata from a todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>Ta"] = {
+      rhs = "<cmd>Checkmate archive<CR>",
+      desc = "Archive checked/completed todo items (move to bottom section)",
+      modes = { "n" },
+    },
+    ["<leader>Tv"] = {
+      rhs = "<cmd>Checkmate metadata select_value<CR>",
+      desc = "Update the value of a metadata tag under the cursor",
+      modes = { "n" },
+    },
+    ["<leader>T]"] = {
+      rhs = "<cmd>Checkmate metadata jump_next<CR>",
+      desc = "Move cursor to next metadata tag",
+      modes = { "n" },
+    },
+    ["<leader>T["] = {
+      rhs = "<cmd>Checkmate metadata jump_previous<CR>",
+      desc = "Move cursor to previous metadata tag",
+      modes = { "n" },
+    },
   },
   default_list_marker = "-",
   todo_markers = {
@@ -637,10 +688,35 @@ local defaults = {
 }
 ```
 
-Note: `checkmate.StyleSettings` uses highlight definition maps to define the colors/style, refer to `:h nvim_set_hl()`
+## Keymapping
+Default keymaps can be disabled by setting `keys = false`.
+
+As of version 0.9, the `checkmate.Action` string has been deprecated and will be removed in next release.
+
+Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?, modes?}`.
+
+```lua
+keys = {
+  ["<leader>Ta"] = {
+      rhs = "<cmd>Checkmate archive<CR>",
+      desc = "Archive todos",
+      modes = { "n" },
+  },
+}
+```
+
+or
+
+```lua
+keys = {
+  ["<leader>Ta"] = {"<cmd>Checkmate archive<CR>", "Archive todos", {"n"} }
+}
+```
+
+The `rhs` parameter follows `:h vim.keymap.set()` and can be a string or Lua function.
 
 ## Styling
-As of version 0.6, default styles are calculated based on the current _colorscheme_. This attempts to provide reasonable out-of-the-box defaults based on colorscheme-defined hl groups and contrast ratios.
+Default styles are calculated based on the current _colorscheme_. This attempts to provide reasonable out-of-the-box defaults based on colorscheme-defined hl groups and contrast ratios.
 
 Individual styles can still be overriden using the same `config.style` table and passing a 'highlight definition map' according to `:h nvim_set_hl()` and `vim.api.keyset.highlight`.
 

@@ -121,6 +121,7 @@ local checkmate_spec = {
       key = "<leader>T9",
     },
     issue = {
+      key = { "<leader>TI", "Add/remove @issue" },
       choices = function(context, callback)
         local co = coroutine.create(function()
           local handle = io.popen('curl -sS "https://api.github.com/repos/bngarren/checkmate.nvim/issues?state=open"')
@@ -166,7 +167,6 @@ local checkmate_spec = {
 
         vim.schedule(resume)
       end,
-      key = "<leader>T8",
     },
   },
 }
@@ -200,8 +200,38 @@ M.configs = {
           words = { enabled = true },
         },
       },
+      {
+        "folke/which-key.nvim",
+        event = "VeryLazy",
+        opts = {},
+        keys = {
+          {
+            "<leader>?",
+            function()
+              require("which-key").show({ global = false })
+            end,
+            desc = "Buffer Local Keymaps (which-key)",
+          },
+        },
+      },
     },
     checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      keys = {
+        ["<leader>Tt"] = "toggle", -- legacy
+        ["<leader>Ta"] = {
+          rhs = "<cmd>Checkmate archive<CR>",
+          desc = "Archive todos",
+          modes = { "n" },
+        },
+        ["<leader>Tc"] = {
+          rhs = function()
+            require("checkmate").check()
+          end,
+          desc = "Check todo",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tu"] = { "<cmd>lua require('checkmate').uncheck()<CR>", "UNCHECK TODO", { "n", "v" } },
+      },
       --[[ ui = {
         picker = function(items, opts)
           ---@type snacks.picker.ui_select

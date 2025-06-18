@@ -96,13 +96,43 @@ function M.evaluate_choices(meta_props, context, cb)
     return cb({})
   end
 
+  local function get_sanitized_items(items)
+    if type(items) ~= "table" then
+      return {}
+    end
+    local sanitized = {}
+    for _, item in pairs(items) do
+      if type(item) == "string" then
+        local trimmed = vim.trim(item)
+        if trimmed ~= "" then
+          table.insert(sanitized, trimmed)
+        end
+      elseif type(item) == "number" then
+        table.insert(sanitized, tostring(item))
+      else
+        -- wrong type of 'item'
+      end
+    end
+    return sanitized
+  end
+
   if type(choices) == "table" then
-    return cb(choices)
+    local sanitized = get_sanitized_items(choices)
+    return cb(sanitized)
   elseif type(choices) == "function" then
     local state = {
       callback_invoked = false,
-      timeout_id = nil,
+      timer = nil, ---@type uv.uv_timer_t|nil
+      bufnr = context.buffer,
     }
+
+    local function cleanup()
+      if state.timer then
+        state.timer:stop()
+        state.timer:close()
+        state.timer = nil
+      end
+    end
 
     local wrapped_callback = function(items)
       if state.callback_invoked then
@@ -116,12 +146,13 @@ function M.evaluate_choices(meta_props, context, cb)
         return
       end
 
-      state.callback_invoked = true
-
-      if state.timeout_id then
-        vim.fn.timer_stop(state.timeout_id)
-        state.timeout_id = nil
+      if not vim.api.nvim_buf_is_valid(state.bufnr) then
+        cleanup()
+        return
       end
+
+      state.callback_invoked = true
+      cleanup()
 
       if type(items) ~= "table" then
         vim.notify(
@@ -131,57 +162,62 @@ function M.evaluate_choices(meta_props, context, cb)
         return cb({})
       end
 
-      local sanitized = {}
-      for _, item in ipairs(items) do
-        if type(item) == "string" and item ~= "" then
-          table.insert(sanitized, item)
-        end
-      end
-
+      local sanitized = get_sanitized_items(items)
       return cb(sanitized)
     end
 
-    local success, result = pcall(choices, context, wrapped_callback)
+    local success, result = pcall(choices, context, vim.schedule_wrap(wrapped_callback))
 
     if success then
       -- user returned items directly (sync)
       if type(result) == "table" and not state.callback_invoked then
-        return cb(result)
+        cleanup()
+        local sanitized = get_sanitized_items(result)
+        return cb(sanitized)
       end
 
       -- user using async pattern
       if not state.callback_invoked then
-        -- timeout
-        state.timeout_id = vim.fn.timer_start(5000, function()
-          if not state.callback_invoked then
-            vim.notify(
-              string.format("Checkmate: 'choices' function timed out for @%s", context.name),
-              vim.log.levels.WARN
-            )
-            cb({})
-          end
-        end)
-        return
+        state.timer = vim.uv.new_timer()
+        state.timer:start(
+          5000,
+          0,
+          vim.schedule_wrap(function()
+            if not state.callback_invoked then
+              state.callback_invoked = true
+              cleanup()
+              vim.notify(
+                string.format("Checkmate: 'choices' function timed out for @%s", context.name),
+                vim.log.levels.WARN
+              )
+              cb({})
+            end
+          end)
+        )
       end
-
-      -- callback was already invoked
+      -- async handling via callback
       return
     end
 
     -- 2-param call failed, try with just context
     success, result = pcall(choices, context)
     if success and type(result) == "table" then
-      return cb(result)
+      cleanup()
+      local sanitized = get_sanitized_items(result)
+      return cb(sanitized)
     end
 
     -- try with no params
     success, result = pcall(choices)
     if success and type(result) == "table" then
-      return cb(result)
+      cleanup()
+      local sanitized = get_sanitized_items(result)
+      return cb(sanitized)
     end
 
     -- all attempts failed
     vim.notify(string.format("Checkmate: failed to get choices for @%s", context.name), vim.log.levels.ERROR)
+    cleanup()
     cb({})
   end
 end

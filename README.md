@@ -55,6 +55,9 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 - [Contributing](#contributing)
 - [Credits](#credits)
 
+<br>
+
+<a id="installation"><a/>
 
 # ☑️ Installation
 
@@ -82,6 +85,7 @@ If you'd like _stable-ish_ version during pre-release, can add a minor version t
   version = "~0.8.0" -- pins to minor 0.8.x
 }
 ```
+<a id="usage"><a/>
 
 # ☑️ Usage
 
@@ -130,6 +134,8 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 The Checkmate buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
+
+<a id="commands"><a/>
 
 # ☑️ Commands
 > [!WARNING]
@@ -181,6 +187,8 @@ CheckmateLint
 
 </details>
 <br>
+
+<a id="config"><a/>
 
 # ☑️ Config
 
@@ -752,8 +760,9 @@ opts = {
   }
 }
 ```
+<a id="metadata"><a/>
 
-# Metadata
+# ☑️ Metadata
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
@@ -767,8 +776,9 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
 For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
 
+<a id="archiving"><a/>
 
-# Archiving
+# ☑️ Archiving
 Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
 
 See `Checkmate archive` command or `require("checkmate").archive()`
@@ -817,7 +827,9 @@ E.g. `parent_spacing = 1`
 - ✔ Add additional tests 
 ```
 
-# Integrations
+<a id="integrations"><a/>
+
+# ☑️ Integrations
 
 Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
 
@@ -827,7 +839,9 @@ Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additiona
 | scratch buffer/floating window for quick todos, e.g. [snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
 
 
-# Linting
+<a id="linting"><a/>
+
+# ☑️ Linting
 Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
 
 > The embedded linter is NOT a general-purpose Markdown linter and _may_ interfere with other linting tools. Though, in testing with conform.nvim and prettier, I have not found any issues.
@@ -856,7 +870,9 @@ If you feel comfortable with the nuances of Markdown list syntax, you can disabl
 }
 ```
 
-# Roadmap
+<a id="roadmap"><a/>
+
+# ☑️ Roadmap
 
 Planned features:
 
@@ -868,12 +884,18 @@ Planned features:
 
 - [x] **Smart toggling** - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
+- [x] **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
+
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
 
-# Contributing
+<a id="contributing"><a/>
+
+# ☑️ Contributing
 
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!
 
-# Credits
+<a id="credits"><a/>
+
+# ☑️ Credits
 
 - Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))

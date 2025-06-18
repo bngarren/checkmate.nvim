@@ -19,6 +19,20 @@ describe("Transaction", function()
     checkmate.stop()
   end)
 
+  it("should reject nested transactions in same buffer", function()
+    local bufnr = h.create_test_buffer("")
+
+    assert.has_error(function()
+      transaction.run(bufnr, function()
+        transaction.run(bufnr, function() end)
+      end)
+    end, "Nested transactions are not supported for buffer " .. bufnr)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
   it("should apply queued operations and clear state", function()
     local unchecked = h.get_unchecked_marker()
     local checked = h.get_checked_marker()
@@ -187,18 +201,40 @@ describe("Transaction", function()
   it("should provide current_context when transaction is active", function()
     local bufnr = h.create_test_buffer("")
     local context_inside = nil
-    local context_outside = transaction.current_context()
+    local context_outside = transaction.current_context(bufnr)
 
     assert.is_nil(context_outside)
 
     transaction.run(bufnr, function(ctx)
-      context_inside = transaction.current_context()
+      context_inside = transaction.current_context(bufnr)
       assert.is_not_nil(context_inside)
       assert.equal(ctx, context_inside)
     end)
 
-    context_outside = transaction.current_context()
+    context_outside = transaction.current_context(bufnr)
     assert.is_nil(context_outside)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should deduplicate repeated operations", function()
+    local bufnr = h.create_test_buffer("")
+    local op_called = 0
+
+    local function dummy_op()
+      op_called = op_called + 1
+      return {}
+    end
+
+    transaction.run(bufnr, function(ctx)
+      ctx.add_op(dummy_op, "foo", "bar")
+      ctx.add_op(dummy_op, "foo", "bar") -- same key
+      ctx.add_op(dummy_op, "baz") -- different
+    end)
+
+    assert.equal(2, op_called)
 
     finally(function()
       h.cleanup_buffer(bufnr)

@@ -313,15 +313,11 @@ function M.toggle(target_state)
     -- If toggle() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       if smart_toggle_enabled then
-        api.propagate_toggle(ctx, { todo_item }, transaction._state.todo_map, target_state)
+        api.propagate_toggle(ctx, { todo_item }, ctx.get_todo_map(), target_state)
       else
         ctx.add_op(api.toggle_state, {
           {
@@ -383,7 +379,7 @@ function M.set_todo_item(todo_item, target_state)
   local ctx = transaction.current_context()
   if ctx then
     if smart_toggle_enabled then
-      local todo_map = transaction._state.todo_map
+      local todo_map = ctx.get_todo_map()
       api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
     else
       ctx.add_op(api.toggle_state, { {
@@ -514,12 +510,8 @@ function M.add_metadata(metadata_name, value)
     -- if add_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.add_metadata, { { id = todo_item.id, meta_name = metadata_name, meta_value = value } })
     end
@@ -566,12 +558,8 @@ function M.remove_metadata(metadata_name)
     -- if remove_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
     end
@@ -616,12 +604,8 @@ function M.remove_all_metadata()
     -- if remove_all_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_all_metadata, { todo_item.id })
     end
@@ -667,12 +651,8 @@ function M.toggle_metadata(meta_name, custom_value)
     -- if toggle_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = meta_name, custom_value = custom_value } })
     end

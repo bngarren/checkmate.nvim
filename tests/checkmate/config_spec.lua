@@ -23,6 +23,8 @@ describe("Config", function()
     vim.g.loaded_checkmate = nil
     vim.g.checkmate_config = nil
     vim.g.checkmate_user_opts = nil
+
+    vim.g.mapleader = " "
   end)
 
   after_each(function()
@@ -48,6 +50,83 @@ describe("Config", function()
       assert.is_true(config.options.enter_insert_after_new)
 
       checkmate.stop()
+    end)
+
+    it("should correctly setup keymaps", function()
+      local checkmate = require("checkmate")
+
+      local bufnr, file_path = h.setup_todo_buffer("", {
+        config = {
+          keys = {
+            ["<leader>Tt"] = "toggle", -- legacy
+            ["<leader>Ta"] = { -- cmd
+              rhs = "<cmd>Checkmate archive<CR>",
+              desc = "Archive todos",
+              modes = { "n" },
+            },
+            ["<leader>Tc"] = { -- callback
+              rhs = function()
+                require("checkmate").check()
+              end,
+              desc = "Check todo",
+              modes = { "n", "v" },
+            },
+            ["<leader>Tu"] = { "<cmd>lua require('checkmate').uncheck()<CR>", "UNCHECK", { "n", "v" } },
+          },
+        },
+      })
+      vim.api.nvim_set_current_buf(bufnr)
+      vim.api.nvim_win_set_buf(0, bufnr)
+
+      -- keymaps were created
+      local keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
+
+      local found_toggle = false
+      local found_archive = false
+      local found_check = false
+      local found_uncheck = false
+
+      for _, keymap in ipairs(keymaps) do
+        if keymap.lhs == " Tt" then
+          found_toggle = true
+        elseif keymap.lhs == " Ta" then
+          found_archive = true
+        elseif keymap.lhs == " Tc" then
+          found_check = true
+        elseif keymap.lhs == " Tu" then
+          found_uncheck = true
+        end
+      end
+
+      assert.is_true(found_toggle)
+      assert.is_true(found_archive)
+      assert.is_true(found_check)
+      assert.is_true(found_uncheck)
+
+      local toggle_stub = stub(checkmate, "toggle")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tt", true, false, true), "x", false)
+      assert.stub(toggle_stub).called(1)
+
+      local archive_stub = stub(checkmate, "archive")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Ta", true, false, true), "x", false)
+      assert.stub(archive_stub).called(1)
+
+      local check_stub = stub(checkmate, "check")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tc", true, false, true), "x", false)
+      assert.stub(check_stub).called(1)
+
+      local uncheck_stub = stub(checkmate, "uncheck")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tu", true, false, true), "x", false)
+      assert.stub(uncheck_stub).called(1)
+
+      finally(function()
+        checkmate.stop()
+        h.cleanup_buffer(bufnr, file_path)
+        toggle_stub:revert()
+        archive_stub:revert()
+        check_stub:revert()
+        uncheck_stub:revert()
+      end)
     end)
   end)
 
@@ -159,45 +238,75 @@ describe("Config", function()
       end)
     end)
 
-    it("should pass validation with opts = {}", function()
-      local config = require("checkmate.config")
-      local opts = {} ---@cast opts checkmate.Config
-      local valid, err = config.validate_options(opts)
-      assert.equal(true, valid, err)
-    end)
+    describe("validate_options", function()
+      it("should pass validation with opts = {}", function()
+        local config = require("checkmate.config")
+        local opts = {} ---@cast opts checkmate.Config
+        local valid, err = config.validate_options(opts)
+        assert.equal(true, valid, err)
+      end)
 
-    it("should not start if validation fails", function()
-      ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
-      require("checkmate").setup({ enabled = "cant be string" })
-      vim.wait(20)
-      assert.is_not_true(require("checkmate").is_running())
-    end)
+      it("should not start if validation fails", function()
+        ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
+        require("checkmate").setup({ enabled = "cant be string" })
+        vim.wait(20)
+        assert.is_not_true(require("checkmate").is_running())
+      end)
 
-    it("should successfully validate default options", function()
-      local config = require("checkmate.config")
-      assert.is_true(config.validate_options(config.get_defaults()))
-    end)
+      it("should successfully validate default options", function()
+        local config = require("checkmate.config")
+        assert.is_true(config.validate_options(config.get_defaults()))
+      end)
 
-    it("should allow user to redefine a default metadata entry while keeping other defaults", function()
-      local checkmate = require("checkmate")
-      ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({
-        metadata = {
-          ---@diagnostic disable-next-line: missing-fields
-          done = {
-            key = "test",
+      it("should allow user to redefine a default metadata entry while keeping other defaults", function()
+        local checkmate = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        checkmate.setup({
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            done = {
+              key = "test",
+            },
           },
-        },
-      })
+        })
 
-      local config = require("checkmate.config")
+        local config = require("checkmate.config")
 
-      assert.equal(vim.tbl_count(config.options.metadata.done), 1)
-      assert.equal(config.options.metadata.done.key, "test")
+        assert.equal(vim.tbl_count(config.options.metadata.done), 1)
+        assert.equal(config.options.metadata.done.key, "test")
 
-      assert.same(config.options.metadata.started, config.get_defaults().metadata.started)
+        assert.same(config.options.metadata.started, config.get_defaults().metadata.started)
 
-      checkmate.stop()
+        checkmate.stop()
+      end)
+
+      it("should fail to validate bad opts", function()
+        local config = require("checkmate.config")
+
+        ---@type table<integer, checkmate.Config>
+        local keys_iters = {
+          ---@diagnostic disable-next-line: missing-fields
+          {
+            keys = {
+              ["<leader>Tt"] = { 1 },
+            },
+          },
+          ---@diagnostic disable-next-line: missing-fields
+          {
+            keys = {
+              ["<leader>Tt"] = { desc = "test", modes = { "n" } }, -- missing rhs
+            },
+          },
+        }
+
+        for _, iter in ipairs(keys_iters) do
+          local defaults = config.get_defaults()
+          defaults.keys = nil
+          local opts = vim.tbl_deep_extend("force", defaults, iter)
+          local ok, _ = config.validate_options(opts)
+          assert.is_false(ok)
+        end
+      end)
     end)
   end)
 end)

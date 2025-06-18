@@ -122,9 +122,7 @@ function M.create_test_buffer(content, name)
 
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  if name then
-    vim.api.nvim_buf_set_name(bufnr, name)
-  end
+  vim.api.nvim_buf_set_name(bufnr, name or "todo.md")
 
   vim.bo[bufnr].filetype = "markdown"
   return bufnr

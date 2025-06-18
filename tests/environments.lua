@@ -122,6 +122,7 @@ local checkmate_spec = {
       key = "<leader>T9",
     },
     issue = {
+      key = { "<leader>TI", "Add/remove @issue" },
       choices = function(context, callback)
         vim.system({
           "curl",
@@ -146,7 +147,6 @@ local checkmate_spec = {
           callback(result)
         end)
       end,
-      key = "<leader>T8",
     },
   },
 }
@@ -202,8 +202,38 @@ M.configs = {
           },
         },
       },
+      {
+        "folke/which-key.nvim",
+        event = "VeryLazy",
+        opts = {},
+        keys = {
+          {
+            "<leader>?",
+            function()
+              require("which-key").show({ global = false })
+            end,
+            desc = "Buffer Local Keymaps (which-key)",
+          },
+        },
+      },
     },
     checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      keys = {
+        ["<leader>Tt"] = "toggle", -- legacy
+        ["<leader>Ta"] = {
+          rhs = "<cmd>Checkmate archive<CR>",
+          desc = "Archive todos",
+          modes = { "n" },
+        },
+        ["<leader>Tc"] = {
+          rhs = function()
+            require("checkmate").check()
+          end,
+          desc = "Check todo",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tu"] = { "<cmd>lua require('checkmate').uncheck()<CR>", "UNCHECK TODO", { "n", "v" } },
+      },
       --[[ ui = {
         picker = function(items, opts)
           ---@type snacks.picker.ui_select

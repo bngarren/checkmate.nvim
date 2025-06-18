@@ -31,22 +31,23 @@ local checkmate_spec = {
     branch = {
       key = "<leader>Tb",
       choices = function(context, callback)
-        local branches = {}
-        vim.fn.jobstart({ "git", "branch", "-r" }, {
-          on_stdout = function(_, data)
-            for _, line in ipairs(data) do
-              if line ~= "" then
-                local branch = line:match("origin/(.+)")
-                if branch then
-                  table.insert(branches, branch)
-                end
-              end
-            end
-          end,
-          on_exit = function()
-            callback(branches)
-          end,
-        })
+        local out = vim.system({ "git", "branch", "-r", "--format=%(refname:short)" }):wait()
+
+        if out.code == 0 then
+          local items = vim.split(out.stdout, "\n", { trimempty = true })
+
+          items = vim.tbl_filter(function(branch)
+            return not branch:match("^origin/HEAD%s*->")
+          end, items)
+
+          items = vim.tbl_map(function(branch)
+            return branch:gsub("^origin/", "")
+          end, items)
+
+          callback(items)
+        else
+          callback({})
+        end
       end,
     },
 
@@ -123,49 +124,28 @@ local checkmate_spec = {
     issue = {
       key = { "<leader>TI", "Add/remove @issue" },
       choices = function(context, callback)
-        local co = coroutine.create(function()
-          local handle = io.popen('curl -sS "https://api.github.com/repos/bngarren/checkmate.nvim/issues?state=open"')
-          if not handle then
+        vim.system({
+          "curl",
+          "-sS",
+          "https://api.github.com/repos/bngarren/checkmate.nvim/issues?state=open",
+        }, { text = true }, function(out)
+          if out.code ~= 0 then
             callback({})
             return
           end
 
-          local chunks = {}
-          while true do
-            local chunk = handle:read(1024) -- Read 1KB at a time
-            if not chunk then
-              break
-            end
-            table.insert(chunks, chunk)
-            coroutine.yield()
-          end
-
-          handle:close()
-          local json_text = table.concat(chunks)
-
-          local ok, issues = pcall(vim.json.decode, json_text)
-          if not ok then
+          local ok, issues = pcall(vim.json.decode, out.stdout)
+          if not ok or type(issues) ~= "table" then
             callback({})
             return
           end
 
-          local result = {}
-          for _, issue in ipairs(issues) do
-            local text = string.format("#%d %s", issue.number, issue.title)
-            table.insert(result, text)
-          end
+          local result = vim.tbl_map(function(issue)
+            return string.format("#%d %s", issue.number, issue.title)
+          end, issues)
 
           callback(result)
         end)
-
-        local function resume()
-          if coroutine.status(co) ~= "dead" then
-            coroutine.resume(co)
-            vim.defer_fn(resume, 10) -- Resume every 10ms
-          end
-        end
-
-        vim.schedule(resume)
       end,
     },
   },

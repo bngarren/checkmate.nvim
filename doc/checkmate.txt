@@ -1,18 +1,20 @@
-*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 16
+*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 18
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
 
+  - Table of Contents                            |checkmate-table-of-contents|
 1. Installation                                       |checkmate-installation|
   - Requirements                         |checkmate-installation-requirements|
 2. Usage                                                     |checkmate-usage|
 3. Commands                                               |checkmate-commands|
 4. Config                                                   |checkmate-config|
   - Styling                                         |checkmate-config-styling|
+  - Todo count indicator               |checkmate-config-todo-count-indicator|
+  - Smart Toggle                               |checkmate-config-smart-toggle|
 5. Metadata                                               |checkmate-metadata|
-  - Todo count indicator             |checkmate-metadata-todo-count-indicator|
-6. Smart Toggle                                       |checkmate-smart-toggle|
-7. Archiving                                             |checkmate-archiving|
+6. Archiving                                             |checkmate-archiving|
+7. Integrations                                       |checkmate-integrations|
 8. Linting                                                 |checkmate-linting|
 9. Roadmap                                                 |checkmate-roadmap|
 10. Contributing                                      |checkmate-contributing|
@@ -42,12 +44,38 @@ FEATURES ~
   picker, and jump commands. See the Wiki
   <https://github.com/bngarren/checkmate.nvim/wiki/Metadata> for in-depth guide
   and recipes!
+  Also, easily setup a per-project, low-friction todo buffer workflow with snacks
+  <https://github.com/folke/snacks.nvim> powered by checkmate! See the how-to
+  here <https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim>.
 
 
 
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
+
+
+TABLE OF CONTENTS                                *checkmate-table-of-contents*
+
+- |checkmate-installation|
+- |checkmate-requirements|
+- |checkmate-usage|
+- |checkmate-commands|
+- |checkmate-configuration|
+    - |checkmate-styling|
+    - |checkmate-todo-counts|
+    - |checkmate-smart-toggle|
+- |checkmate-metadata|
+- |checkmate-archiving|
+- |checkmate-integrations|
+- |checkmate-linting|
+- |checkmate-roadmap|
+- |checkmate-contributing|
+- |checkmate-credits|
+
+
+
+
 
 
 ==============================================================================
@@ -81,6 +109,8 @@ version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>
       version = "~0.8.0" -- pins to minor 0.8.x
     }
 <
+
+
 
 
 ==============================================================================
@@ -139,6 +169,8 @@ Enhance your todos with custom |checkmate-metadata| with quick keymaps!
 
 The Checkmate buffer is **saved as regular Markdown** which means it’s
 compatible with any Markdown editor!
+
+
 
 
 ==============================================================================
@@ -253,6 +285,8 @@ CheckmateArchive                       Reorganize checked/completed todo items t
 
 
 CheckmateLint                          Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+
+
 
 
 
@@ -762,23 +796,7 @@ EXAMPLE: CHANGE THE CHECKED MARKER TO A BOLD GREEN ~
   [!WARNING] Multi-character todo markers are not currently supported but _may_
   work. For consistent behavior, recommend using a single character.
 
-==============================================================================
-5. Metadata                                               *checkmate-metadata*
-
-Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
-
-
-
-- Default tags:
-    - `@started` - default value is the current date/time
-    - `@done` - default value is the current date/time
-    - `@priority` - "low" | "medium" (default) | "high"
-
-For in-depth guide and recipes for custom metadata, see the Wiki
-<https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata> page.
-
-
-TODO COUNT INDICATOR                 *checkmate-metadata-todo-count-indicator*
+TODO COUNT INDICATOR                   *checkmate-config-todo-count-indicator*
 
 
 Todo count indicator using eol position
@@ -808,8 +826,7 @@ Todo count indicator using recursive option. The children of 'Sub-task 3' are
 included in the overall count of 'Big important task'.
 
 
-==============================================================================
-6. Smart Toggle                                       *checkmate-smart-toggle*
+SMART TOGGLE                                   *checkmate-config-smart-toggle*
 
 Smart toggle provides intelligent parent-child todo state propagation. When you
 toggle a todo item, it can automatically update related todos based on your
@@ -842,8 +859,28 @@ the behavior:
 <
 
 
+
+
 ==============================================================================
-7. Archiving                                             *checkmate-archiving*
+5. Metadata                                               *checkmate-metadata*
+
+Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
+
+
+
+- Default tags:
+    - `@started` - default value is the current date/time
+    - `@done` - default value is the current date/time
+    - `@priority` - "low" | "medium" (default) | "high"
+
+For in-depth guide and recipes for custom metadata, see the Wiki
+<https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata> page.
+
+
+
+
+==============================================================================
+6. Archiving                                             *checkmate-archiving*
 
 Allows you to easily reorganize the buffer by moving all checked/completed todo
 items to a Markdown section beneath all other content. The unchecked todos are
@@ -908,6 +945,25 @@ E.g. `parent_spacing = 1`
 <
 
 
+
+
+==============================================================================
+7. Integrations                                       *checkmate-integrations*
+
+Please see Wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
+additional details/recipes.
+
+  -----------------------------------------------------------------------
+  integration                                 capable?
+  ------------------------------------------- ---------------------------
+  render-markdown                             wiki
+
+  scratch buffer/floating window for quick    wiki
+  todos, e.g. snacks.nvim                     
+  -----------------------------------------------------------------------
+
+
+
 ==============================================================================
 8. Linting                                                 *checkmate-linting*
 
@@ -953,6 +1009,8 @@ disable the linter (default is enabled) via config:
 <
 
 
+
+
 ==============================================================================
 9. Roadmap                                                 *checkmate-roadmap*
 
@@ -966,10 +1024,13 @@ Planned features:
     the document. _Added v0.7.0_ (experimental)
 - **Smart toggling** - toggle all children checked if a parent todo is checked.
     Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_
+- **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
 - Sorting API - user can register custom sorting functions and keymap them so
     that sibling todo items can be reordered quickly. e.g. `function(todo_a,
     todo_b)` should return an integer, and where todo_a/todo_b is a table
     containing data such as checked state and metadata tag/values
+
+
 
 
 ==============================================================================
@@ -977,6 +1038,8 @@ Planned features:
 
 If you have feature suggestions or ideas, please feel free to open an issue on
 GitHub!
+
+
 
 
 ==============================================================================

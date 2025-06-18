@@ -27,6 +27,8 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 > [!NOTE]
 > Check out the **new** metadata features introduced in v0.9.0!
 > These include more powerful metadata definitions/customization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
+>
+> Also, easily setup a per-project, low-friction todo buffer workflow with [snacks](https://github.com/folke/snacks.nvim) powered by checkmate! See the how-to [here](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim).
 
 <br/>
 
@@ -36,6 +38,26 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 
+## Table of Contents
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [Usage](#usage)
+- [Commands](#commands)
+- [Configuration](#config)
+  - [Styling](#styling)
+  - [Todo counts](#todo-count-indicator)
+  - [Smart toggle](#smart-toggle)
+- [Metadata](#metadata)
+- [Archiving](#archiving)
+- [Integrations](#integrations)
+- [Linting](#linting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Credits](#credits)
+
+<br>
+
+<a id="installation"><a/>
 
 # ☑️ Installation
 
@@ -63,6 +85,7 @@ If you'd like _stable-ish_ version during pre-release, can add a minor version t
   version = "~0.9.0" -- pins to minor 0.9.x
 }
 ```
+<a id="usage"><a/>
 
 # ☑️ Usage
 
@@ -111,6 +134,8 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
 The Checkmate buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
+
+<a id="commands"><a/>
 
 # ☑️ Commands
 > [!WARNING]
@@ -162,6 +187,8 @@ CheckmateLint
 
 </details>
 <br>
+
+<a id="config"><a/>
 
 # ☑️ Config
 
@@ -732,20 +759,6 @@ opts = {
 > [!WARNING]
 > Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
 
-# Metadata
-
-Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
-
-<img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
-
-- Default tags:
-  - `@started` - default value is the current date/time
-  - `@done` - default value is the current date/time
-  - `@priority` - "low" | "medium" (default) | "high"
-
-
-For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
-
 ## Todo count indicator
 
 <table>
@@ -798,7 +811,7 @@ todo_count_recursive = true,
       /><br/>
 <sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
 
-# Smart Toggle
+## Smart Toggle
 
 Smart toggle provides intelligent parent-child todo state propagation. When you toggle a todo item, it can automatically update related todos based on your configuration.
 
@@ -823,8 +836,25 @@ opts = {
   }
 }
 ```
+<a id="metadata"><a/>
 
-# Archiving
+# ☑️ Metadata
+
+Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
+
+<img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
+
+- Default tags:
+  - `@started` - default value is the current date/time
+  - `@done` - default value is the current date/time
+  - `@priority` - "low" | "medium" (default) | "high"
+
+
+For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
+
+<a id="archiving"><a/>
+
+# ☑️ Archiving
 Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
 
 See `Checkmate archive` command or `require("checkmate").archive()`
@@ -873,8 +903,21 @@ E.g. `parent_spacing = 1`
 - ✔ Add additional tests 
 ```
 
+<a id="integrations"><a/>
 
-# Linting
+# ☑️ Integrations
+
+Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
+
+| integration | capable? |
+|----------------|----------|
+| [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#render-markdownnvim)|
+| scratch buffer/floating window for quick todos, e.g. [snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
+
+
+<a id="linting"><a/>
+
+# ☑️ Linting
 Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
 
 > The embedded linter is NOT a general-purpose Markdown linter and _may_ interfere with other linting tools. Though, in testing with conform.nvim and prettier, I have not found any issues.
@@ -903,7 +946,9 @@ If you feel comfortable with the nuances of Markdown list syntax, you can disabl
 }
 ```
 
-# Roadmap
+<a id="roadmap"><a/>
+
+# ☑️ Roadmap
 
 Planned features:
 
@@ -915,12 +960,18 @@ Planned features:
 
 - [x] **Smart toggling** - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
+- [x] **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
+
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
 
-# Contributing
+<a id="contributing"><a/>
+
+# ☑️ Contributing
 
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!
 
-# Credits
+<a id="credits"><a/>
+
+# ☑️ Credits
 
 - Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))

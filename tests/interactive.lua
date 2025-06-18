@@ -16,11 +16,11 @@ for _, m in ipairs({
   vim.g["loaded_" .. m] = 1
 end
 
-load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
-
 local env_name = vim.env.TEST_ENV or "default"
 vim.env.LAZY_STDPATH = ".testdata"
 vim.env.NVIM_APPNAME = env_name
+
+load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
 
 -- setup vim
 dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/options.lua"))
@@ -50,3 +50,4 @@ end
 
 vim.cmd("edit tests/test.todo.md")
 vim.notify("Loaded environment: " .. env_name, vim.log.levels.INFO)
+vim.notify("data: " .. vim.fn.stdpath("data"))

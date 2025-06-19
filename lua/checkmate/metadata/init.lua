@@ -121,8 +121,9 @@ function M.evaluate_choices(meta_props, context, cb)
     return cb(sanitized)
   elseif type(choices) == "function" then
     local state = {
-      callback_invoked = false,
+      callback_invoked = false, -- user's callback was actually called
       timer = nil, ---@type uv.uv_timer_t|nil
+      timed_out = false, -- we gave up waiting, no callback called
       bufnr = context.buffer,
     }
 
@@ -135,6 +136,12 @@ function M.evaluate_choices(meta_props, context, cb)
     end
 
     local wrapped_callback = function(items)
+      if state.timed_out then
+        -- ignore post-timeout callbacks
+        return
+      end
+
+      -- did the user invoke the cb more than once? warn
       if state.callback_invoked then
         vim.notify(
           string.format(
@@ -146,12 +153,13 @@ function M.evaluate_choices(meta_props, context, cb)
         return
       end
 
+      state.callback_invoked = true
+
       if not vim.api.nvim_buf_is_valid(state.bufnr) then
         cleanup()
         return
       end
 
-      state.callback_invoked = true
       cleanup()
 
       if type(items) ~= "table" then
@@ -184,7 +192,7 @@ function M.evaluate_choices(meta_props, context, cb)
           0,
           vim.schedule_wrap(function()
             if not state.callback_invoked then
-              state.callback_invoked = true
+              state.timed_out = true
               cleanup()
               vim.notify(
                 string.format("Checkmate: 'choices' function timed out for @%s", context.name),

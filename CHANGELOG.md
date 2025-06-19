@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/bngarren/checkmate.nvim/compare/v0.9.0...v0.9.1) (2025-06-19)
+
+
+### Bug Fixes
+
+* **api:** fixes subtle bug in api shutdown process ([#126](https://github.com/bngarren/checkmate.nvim/issues/126)) ([be98986](https://github.com/bngarren/checkmate.nvim/commit/be989868dfbffb9149035dc0297f02c51f90a5f6))
+* fixes bug in async handling of metadata 'choices' function ([#128](https://github.com/bngarren/checkmate.nvim/issues/128)) ([cf8b7ef](https://github.com/bngarren/checkmate.nvim/commit/cf8b7ef8a746ccad6425b59e64c1dac41d07bf2f))
+
 ## [0.9.0](https://github.com/bngarren/checkmate.nvim/compare/v0.8.4...v0.9.0) (2025-06-19)
 
 

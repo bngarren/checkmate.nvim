@@ -852,6 +852,9 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
   - `@done` - default value is the current date/time
   - `@priority` - "low" | "medium" (default) | "high"
 
+The default tags are not deeply merged in order to avoid unexpected behavior. If you wish to modify a default metadata, you should copy the default implementation.
+
+By configuring a metadata's `choices` option, you can populate your own lists of metadata values for powerful workflows, e.g. project file names, Git branches, PR's, issues, etc., team member names, external APIs, etc.
 
 For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
 

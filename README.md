@@ -256,7 +256,7 @@ CheckmateLint
 ---
 ---@field ui? checkmate.UISettings
 ---
----Highlight settings (merge with defaults, user config takes precedence)
+---Highlight settings (merges with defaults, user config takes precedence)
 ---Default style will attempt to integrate with current colorscheme (experimental)
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
@@ -285,6 +285,7 @@ CheckmateLint
 ---
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
+---
 ---Position to show the todo count indicator (if enabled)
 --- `eol` = End of the todo item line
 --- `inline` = After the todo marker, before the todo item text
@@ -401,6 +402,10 @@ CheckmateLint
 
 -----------------------------------------------------
 
+--- Style
+
+---@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
+---
 ---@alias checkmate.StyleKey
 ---| "list_marker_unordered"
 ---| "list_marker_ordered"
@@ -412,41 +417,22 @@ CheckmateLint
 ---| "checked_additional_content"
 ---| "todo_count_indicator"
 
+---@alias checkmate.HighlightGroup
+---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
+---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
+---| "CheckmateUncheckedMarker" -- unchecked markers (□)
+---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
+---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+---| "CheckmateCheckedMarker" -- checked markers (✔)
+---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
+---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
+
 ---Customize the style of markers and content
----@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
----
----Highlight settings for unordered list markers (-,+,*)
----@field list_marker_unordered vim.api.keyset.highlight?
----
----Highlight settings for ordered (numerical) list markers (1.,2.)
----@field list_marker_ordered vim.api.keyset.highlight?
----
----Highlight settings for unchecked markers
----@field unchecked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of unchecked todo items
----This is typically the first line/paragraph
----@field unchecked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of unchecked todo items
----This is the content below the first line/paragraph
----@field unchecked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for checked markers
----@field checked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of checked todo items
----This is typically the first line/paragraph
----@field checked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of checked todo items
----This is the content below the first line/paragraph
----@field checked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for the todo count indicator (e.g. x/x)
----@field todo_count_indicator vim.api.keyset.highlight?
+---@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
 
 -----------------------------------------------------
+
 --- Metadata
 
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
@@ -715,6 +701,9 @@ local defaults = {
 }
 ```
 
+> [!WARNING]
+> Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
+
 ## Keymapping
 Default keymaps can be disabled by setting `keys = false`.
 
@@ -745,19 +734,33 @@ The `rhs` parameter follows `:h vim.keymap.set()` and can be a string or Lua fun
 ## Styling
 Default styles are calculated based on the current _colorscheme_. This attempts to provide reasonable out-of-the-box defaults based on colorscheme-defined hl groups and contrast ratios.
 
-Individual styles can still be overriden using the same `config.style` table and passing a 'highlight definition map' according to `:h nvim_set_hl()` and `vim.api.keyset.highlight`.
+Individual styles can still be overriden using the `style` option and passing a 'highlight definition map' according to `:h nvim_set_hl()` and `vim.api.keyset.highlight` for the desired highlight group (see below).
+
+### Highlight groups
+| hl_group | description |
+|----------|-------------|
+| CheckmateListMarkerUnordered | Unordered list markers, e.g. `-`,`*`, and `+`. (_Only those associated with a todo_) |
+| CheckmateListMarkerOrdered | Ordered list markers, e.g. `1.`, `2)`. (_Only those associated with a todo_) |
+| CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_markers` option |
+| CheckmateUncheckedMainContent | The main content of an unchecked todo (typically the first line) |
+| CheckmateUncheckedAdditionalContent | Additional content for an unchecked todo (below the first line, including nested non-todo content) |
+| CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_markers` option |
+| CheckmateCheckedMainContent | The main content of a checked todo (typically the first line) |
+| CheckmateCheckedAdditionalContent | Additional content for a checked todo (below the first line, including nested non-todo content) |
+| CheckmateTodoCountIndicator | The todo count indicator, e.g. `1/4`, shown on the todo line, if enabled. See `show_todo_count` option |
+
+Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag name and style.
 
 ### Example: Change the checked marker to a bold green
 ```lua
 opts = {
     style = {
-        checked_marker = { fg = "#7bff4f", bold = true}
+        CheckmateCheckedMarker = { fg = "#7bff4f", bold = true}
     }
 }
 ```
 
-> [!WARNING]
-> Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
+
 
 ## Todo count indicator
 

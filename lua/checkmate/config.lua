@@ -67,7 +67,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---@field ui? checkmate.UISettings
 ---
----Highlight settings (merge with defaults, user config takes precedence)
+---Highlight settings (merges with defaults, user config takes precedence)
 ---Default style will attempt to integrate with current colorscheme (experimental)
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
@@ -96,6 +96,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---Options for todo count indicator position
 ---@alias checkmate.TodoCountPosition "eol" | "inline"
+---
 ---Position to show the todo count indicator (if enabled)
 --- `eol` = End of the todo item line
 --- `inline` = After the todo marker, before the todo item text
@@ -212,6 +213,10 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+--- Style
+
+---@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
+---
 ---@alias checkmate.StyleKey
 ---| "list_marker_unordered"
 ---| "list_marker_ordered"
@@ -223,41 +228,22 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---| "checked_additional_content"
 ---| "todo_count_indicator"
 
+---@alias checkmate.HighlightGroup
+---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
+---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
+---| "CheckmateUncheckedMarker" -- unchecked markers (□)
+---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
+---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+---| "CheckmateCheckedMarker" -- checked markers (✔)
+---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
+---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
+
 ---Customize the style of markers and content
----@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
----
----Highlight settings for unordered list markers (-,+,*)
----@field list_marker_unordered vim.api.keyset.highlight?
----
----Highlight settings for ordered (numerical) list markers (1.,2.)
----@field list_marker_ordered vim.api.keyset.highlight?
----
----Highlight settings for unchecked markers
----@field unchecked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of unchecked todo items
----This is typically the first line/paragraph
----@field unchecked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of unchecked todo items
----This is the content below the first line/paragraph
----@field unchecked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for checked markers
----@field checked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of checked todo items
----This is typically the first line/paragraph
----@field checked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of checked todo items
----This is the content below the first line/paragraph
----@field checked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for the todo count indicator (e.g. x/x)
----@field todo_count_indicator vim.api.keyset.highlight?
+---@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
 
 -----------------------------------------------------
+
 --- Metadata
 
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
@@ -743,12 +729,14 @@ function M.validate_options(opts)
 
   -- Validate style
   if opts.style ~= nil then
-    local ok, err = validate_type(opts.style, "table", "style", true)
+    ok, err = validate_type(opts.style, "table", "style", true)
     if not ok then
       return false, err
     end
 
-    local style_fields = {
+    -- TODO: remove legacy with v0.10
+    local valid_style_keys = {
+      -- Legacy style keys
       "list_marker_unordered",
       "list_marker_ordered",
       "unchecked_marker",
@@ -758,10 +746,29 @@ function M.validate_options(opts)
       "checked_main_content",
       "checked_additional_content",
       "todo_count_indicator",
+      -- Highlight group names
+      "CheckmateListMarkerUnordered",
+      "CheckmateListMarkerOrdered",
+      "CheckmateUncheckedMarker",
+      "CheckmateUncheckedMainContent",
+      "CheckmateUncheckedAdditionalContent",
+      "CheckmateCheckedMarker",
+      "CheckmateCheckedMainContent",
+      "CheckmateCheckedAdditionalContent",
+      "CheckmateTodoCountIndicator",
     }
 
-    for _, field in ipairs(style_fields) do
-      ok, err = validate_type(opts.style[field], "table", "style." .. field, true)
+    local valid_keys_set = {}
+    for _, key in ipairs(valid_style_keys) do
+      valid_keys_set[key] = true
+    end
+
+    for field, value in pairs(opts.style) do
+      if not valid_keys_set[field] then
+        return false, string.format("style.%s is not a recognized style key or highlight group", field)
+      end
+
+      ok, err = validate_type(value, "table", "style." .. field, false)
       if not ok then
         return false, err
       end
@@ -975,6 +982,19 @@ function M.validate_options(opts)
   return true
 end
 
+--- TODO: legacy, remove in next release v0.10
+M.style_key_to_highlight_group = {
+  list_marker_unordered = "CheckmateListMarkerUnordered",
+  list_marker_ordered = "CheckmateListMarkerOrdered",
+  unchecked_marker = "CheckmateUncheckedMarker",
+  unchecked_main_content = "CheckmateUncheckedMainContent",
+  unchecked_additional_content = "CheckmateUncheckedAdditionalContent",
+  checked_marker = "CheckmateCheckedMarker",
+  checked_main_content = "CheckmateCheckedMainContent",
+  checked_additional_content = "CheckmateCheckedAdditionalContent",
+  todo_count_indicator = "CheckmateTodoCountIndicator",
+}
+
 --- Setup function
 ---@param opts? checkmate.Config
 ---@return checkmate.Config config
@@ -998,12 +1018,27 @@ function M.setup(opts)
       config = vim.tbl_deep_extend("force", config, opts)
 
       -- don't merge, just override full table for these
-
       if opts.metadata then
         for meta_name, meta_props in pairs(opts.metadata) do
           config.metadata[meta_name] = vim.deepcopy(meta_props)
         end
       end
+    end
+
+    -- normalize style settings: convert legacy keys to highlight group names
+    if config.style then
+      local normalized_style = {}
+
+      for key, settings in pairs(config.style) do
+        local highlight_group = M.style_key_to_highlight_group[key]
+        if highlight_group then
+          normalized_style[highlight_group] = settings
+        else
+          normalized_style[key] = settings
+        end
+      end
+
+      config.style = normalized_style
     end
 
     -- save user style for colorscheme updates

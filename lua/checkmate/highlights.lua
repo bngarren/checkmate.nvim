@@ -73,35 +73,19 @@ function M.register_highlight_groups()
   local config = require("checkmate.config")
   local log = require("checkmate.log")
 
-  -- Define highlight groups from config
   local highlights = {
-
+    ---this is used when we apply an extmark to override , e.g. setext headings
     ---@type vim.api.keyset.highlight
     CheckmateNormal = { bold = false, force = true, nocombine = true },
-
-    -- List markers
-    CheckmateListMarkerUnordered = config.options.style.list_marker_unordered,
-    CheckmateListMarkerOrdered = config.options.style.list_marker_ordered,
-
-    -- Unchecked todos
-    CheckmateUncheckedMarker = config.options.style.unchecked_marker,
-    CheckmateUncheckedMainContent = config.options.style.unchecked_main_content,
-    CheckmateUncheckedAdditionalContent = config.options.style.unchecked_additional_content,
-
-    -- Checked todos
-    CheckmateCheckedMarker = config.options.style.checked_marker,
-    CheckmateCheckedMainContent = config.options.style.checked_main_content,
-    CheckmateCheckedAdditionalContent = config.options.style.checked_additional_content,
-
-    -- Todo count
-    CheckmateTodoCountIndicator = config.options.style.todo_count_indicator,
   }
+
+  for group_name, settings in pairs(config.options.style or {}) do
+    highlights[group_name] = settings
+  end
 
   -- For metadata tags, we only set up the base highlight groups from static styles
   -- Dynamic styles (functions) will be handled during the actual highlighting process
   for meta_name, meta_props in pairs(config.options.metadata) do
-    -- Only add static styles directly to highlights table
-    -- Function-based styles will be processed during actual highlighting
     if type(meta_props.style) ~= "function" then
       ---@diagnostic disable-next-line: assign-type-mismatch
       highlights["CheckmateMeta" .. "_" .. meta_name] = meta_props.style

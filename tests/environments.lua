@@ -150,10 +150,27 @@ local checkmate_spec = {
     },
     file = {
       key = "<leader>Tmf",
+      style = function(context)
+        local value = context.value
+        if value:match("%.md$") then
+          return { fg = "#fcfcb3" }
+        elseif value:match("%.lua$") then
+          return { fg = "#cafcf5" }
+        else
+          return { fg = "#dfdaf0" }
+        end
+      end,
       choices = function(_, cb)
         local project_root = vim.fs.root(0, ".git") or vim.uv.cwd() or ""
-        local items = vim.fs.find(function()
-          return true -- match all
+        local items = vim.fs.find(function(name, path)
+          if name:match("^%.") then
+            return false
+          end
+          -- skip any dir starting with "."
+          if path:match("[/\\]%.[^/\\]+") then
+            return false
+          end
+          return true
         end, { limit = math.huge, type = "file" })
         items = vim.tbl_map(function(i)
           return vim.fs.relpath(project_root, i)

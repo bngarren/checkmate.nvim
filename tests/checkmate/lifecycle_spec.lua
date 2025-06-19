@@ -212,6 +212,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.is_true(checkmate.is_buffer_active(bufnr))
       assert.equal(1, checkmate.count_active_buffers())
+      assert.equal(bufnr, checkmate.get_active_buffer_list()[1])
 
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -233,10 +234,18 @@ describe("checkmate init and lifecycle", function()
       assert.is_false(checkmate.is_buffer_active(bufnr))
       assert.equal(0, checkmate.count_active_buffers())
 
-      print("test buffer: " .. bufnr)
-
       buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
       assert.same(content, buf_string)
+
+      checkmate.enable()
+
+      assert.is_true(checkmate.is_buffer_active(bufnr))
+      assert.equal(1, checkmate.count_active_buffers())
+      assert.equal(bufnr, checkmate.get_active_buffer_list()[1])
+
+      buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+      ok = h.verify_content_lines(buf_string, expected_lines)
+      assert.is_true(ok)
 
       finally(function()
         h.cleanup_buffer(bufnr)

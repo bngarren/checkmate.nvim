@@ -265,6 +265,21 @@ M.configs = {
     },
     checkmate = checkmate_spec,
   },
+  v0_8_config = {
+    checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      keys = {
+        ["<leader>Tt"] = "toggle", -- Toggle todo item
+        ["<leader>Tc"] = "check", -- Set todo item as checked (done)
+        ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
+        ["<leader>Tn"] = "create", -- Create todo item
+        ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
+        ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
+      },
+      style = {
+        list_marker_unordered = { fg = "#ff0000" },
+      },
+    }),
+  },
 }
 
 function M.get(name)

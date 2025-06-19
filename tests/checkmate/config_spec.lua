@@ -173,9 +173,9 @@ describe("Config", function()
         orig_theme = theme.generate_style_defaults()
         stub(theme, "generate_style_defaults", function()
           return vim.tbl_deep_extend("keep", {
-            unchecked_marker = { fg = "#111111", bold = true },
-            checked_marker = { fg = "#222222", bold = true },
-            list_marker_unordered = { fg = "#333333" },
+            CheckmateUncheckedMarker = { fg = "#111111", bold = true },
+            CheckmateCheckedMarker = { fg = "#222222", bold = true },
+            CheckmateListMarkerUnordered = { fg = "#333333" },
           }, orig_theme)
         end)
       end)
@@ -190,21 +190,21 @@ describe("Config", function()
         ---@diagnostic disable-next-line: missing-fields
         checkmate.setup({
           style = {
-            unchecked_marker = { fg = "#ff0000" }, -- user overrides fg only
+            CheckmateUncheckedMarker = { fg = "#ff0000" }, -- user overrides fg only
           },
         })
 
         local st = config.options.style
 
-        if not st or not st.unchecked_marker then
+        if not st or not st.CheckmateUncheckedMarker then
           error()
         end
 
         -- user wins on explicit key
-        assert.equal("#ff0000", st.unchecked_marker.fg)
+        assert.equal("#ff0000", st.CheckmateUncheckedMarker.fg)
 
         -- otherwise use theme defaults
-        assert.same(orig_theme.checked_main_content, st.checked_main_content)
+        assert.same(orig_theme.CheckmateCheckedMainContent, st.CheckmateCheckedMainContent)
 
         assert.stub(theme.generate_style_defaults).was.called(1)
 
@@ -218,18 +218,18 @@ describe("Config", function()
         ---@diagnostic disable-next-line: missing-fields
         checkmate.setup({
           style = {
-            unchecked_marker = { fg = "#00ff00", bold = false }, -- user sets both
+            CheckmateUncheckedMarker = { fg = "#00ff00", bold = false }, -- user sets both
           },
         })
 
         local st = config.options.style
 
-        if not st or not st.unchecked_marker then
+        if not st or not st.CheckmateUncheckedMarker then
           error()
         end
 
-        assert.equal("#00ff00", st.unchecked_marker.fg)
-        assert.is_false(st.unchecked_marker.bold)
+        assert.equal("#00ff00", st.CheckmateUncheckedMarker.fg)
+        assert.is_false(st.CheckmateUncheckedMarker.bold)
 
         -- Again, ensure we only called the style factory once
         assert.stub(theme.generate_style_defaults).was.called(1)

@@ -1,3 +1,5 @@
+local h = require("tests.checkmate.helpers")
+
 describe("checkmate init and lifecycle", function()
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -126,7 +128,6 @@ describe("checkmate init and lifecycle", function()
       local checkmate = require("checkmate")
       checkmate.setup()
 
-      -- checkmate.setup() has already run during the before_each block above
       assert.is_true(checkmate.is_running())
 
       checkmate.stop()
@@ -163,9 +164,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.equal(0, checkmate.count_active_buffers())
 
-      vim.cmd("edit todo")
-      local bufnr = vim.api.nvim_get_current_buf()
-      vim.bo[bufnr].filetype = "markdown"
+      local bufnr = h.create_test_buffer("", "todo")
 
       vim.wait(50, function()
         return vim.b[bufnr].checkmate_setup_complete == true
@@ -176,12 +175,72 @@ describe("checkmate init and lifecycle", function()
       checkmate.stop()
 
       local config = require("checkmate.config")
-      local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns, 0, -1, {})
-      assert.equal(0, #extmarks)
+      local ns_extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns, 0, -1, {})
+      assert.equal(0, #ns_extmarks)
+
+      local ns_todo_extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns_todos, 0, -1, {})
+      assert.equal(0, #ns_todo_extmarks)
 
       assert.equal(0, checkmate.count_active_buffers())
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should handle a disable then enable cycle", function()
+      local checkmate = require("checkmate")
+
+      checkmate.setup()
+
+      assert.is_true(checkmate.is_initialized())
+      assert.is_true(checkmate.is_running())
+      assert.equal(0, checkmate.count_active_buffers())
+
+      local content = [[
+- [ ] Todo A
+- [ ] Todo B
+  - [x] Sub-todo 1
+  - [ ] Sub-todo 2
+
+  Regular line
+      ]]
+
+      local bufnr = h.create_test_buffer(content, "todo")
+
+      assert.is_true(checkmate.is_buffer_active(bufnr))
+      assert.equal(1, checkmate.count_active_buffers())
+
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
+
+      local expected_lines = {
+        "- " .. unchecked .. " Todo A",
+        "- " .. unchecked .. " Todo B",
+        "  - " .. checked .. " Sub-todo 1",
+        "  - " .. unchecked .. " Sub-todo 2",
+      }
+
+      local buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+      local ok = h.verify_content_lines(buf_string, expected_lines)
+      assert.is_true(ok)
+
+      checkmate.disable()
+
+      assert.is_false(checkmate.is_running())
+      assert.is_false(checkmate.is_buffer_active(bufnr))
+      assert.equal(0, checkmate.count_active_buffers())
+
+      print("test buffer: " .. bufnr)
+
+      buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+      assert.same(content, buf_string)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
   end)
 
@@ -199,6 +258,10 @@ describe("checkmate init and lifecycle", function()
       assert.is_true(vim.b[bufnr].checkmate_setup_complete or false)
 
       checkmate.stop()
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should not activate for non-matching files", function()

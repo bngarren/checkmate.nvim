@@ -148,6 +148,36 @@ local checkmate_spec = {
         end)
       end,
     },
+    file = {
+      key = "<leader>Tmf",
+      style = function(context)
+        local value = context.value
+        if value:match("%.md$") then
+          return { fg = "#fcfcb3" }
+        elseif value:match("%.lua$") then
+          return { fg = "#cafcf5" }
+        else
+          return { fg = "#dfdaf0" }
+        end
+      end,
+      choices = function(_, cb)
+        local project_root = vim.fs.root(0, ".git") or vim.uv.cwd() or ""
+        local items = vim.fs.find(function(name, path)
+          if name:match("^%.") then
+            return false
+          end
+          -- skip any dir starting with "."
+          if path:match("[/\\]%.[^/\\]+") then
+            return false
+          end
+          return true
+        end, { limit = math.huge, type = "file" })
+        items = vim.tbl_map(function(i)
+          return vim.fs.relpath(project_root, i)
+        end, items)
+        cb(items)
+      end,
+    },
   },
 }
 
@@ -264,6 +294,29 @@ M.configs = {
       dependencies = { "nvim-lua/plenary.nvim" },
     },
     checkmate = checkmate_spec,
+  },
+  fzf_lua = {
+    spec = {
+      { "junegunn/fzf.vim", dependencies = { "junegunn/fzf" } },
+      {
+        "ibhagwan/fzf-lua",
+        dependencies = { "nvim-tree/nvim-web-devicons" },
+        opts = {},
+      },
+    },
+    checkmate = vim.tbl_deep_extend("force", checkmate_spec, {
+      ui = {
+        picker = function(items, opts)
+          require("fzf-lua").fzf_exec(items, {
+            actions = {
+              ["default"] = function(selected)
+                opts.on_choice(selected[1])
+              end,
+            },
+          })
+        end,
+      },
+    }),
   },
   v0_8_config = {
     checkmate = vim.tbl_deep_extend("force", checkmate_spec, {

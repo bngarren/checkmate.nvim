@@ -184,6 +184,7 @@ describe("checkmate init and lifecycle", function()
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end)
   end)
+
   describe("buffer activation", function()
     it("should activate on FileType autocmd for matching files", function()
       local checkmate = require("checkmate")

@@ -253,7 +253,7 @@ function M.stop()
   local active_buffers = M.get_active_buffer_list()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
-  for bufnr, _ in pairs(active_buffers) do
+  for _, bufnr in ipairs(active_buffers) do
     require("checkmate.api").shutdown(bufnr)
   end
 

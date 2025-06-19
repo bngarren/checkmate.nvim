@@ -75,18 +75,18 @@ function M.setup_buffer(bufnr)
   if config.options.linter and config.options.linter.enabled ~= false then
     local linter = require("checkmate.linter")
     linter.setup(config.options.linter)
-    -- Initial lint buffer
     linter.lint_buffer(bufnr)
   end
 
   local highlights = require("checkmate.highlights")
   highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
 
-  vim.api.nvim_set_option_value("syntax", "OFF", { buf = bufnr })
-
   -- User can opt out of TS highlighting if desired
   if config.options.disable_ts_highlights == true then
     vim.treesitter.stop(bufnr)
+  else
+    vim.treesitter.start(bufnr, "markdown")
+    vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
   M.setup_keymaps(bufnr)
@@ -117,71 +117,103 @@ function M.setup_keymaps(bufnr)
   local log = require("checkmate.log")
   local keys = config.options.keys or {}
 
-  buffer_local_keys[bufnr] = {}
-
-  -- Get command descriptions from the commands module
-  local commands_module = require("checkmate.commands")
-  local command_descs = {}
-
-  -- Build a mapping of command names to their descriptions
-  for _, cmd in ipairs(commands_module.commands) do
-    command_descs[cmd.cmd] = cmd.opts.desc
+  local function buffer_map(_bufnr, mode, lhs, rhs, desc)
+    local opts = { buffer = _bufnr, silent = true, desc = desc }
+    vim.keymap.set(mode, lhs, rhs, opts)
   end
 
-  -- Define actions with their properties and behavior
-  ---@type table<checkmate.Action, table>
-  local actions = {
-    toggle = {
-      command = "CheckmateToggle",
-      modes = { "n", "v" },
-    },
-    check = {
-      command = "CheckmateCheck",
-      modes = { "n", "v" },
-    },
-    uncheck = {
-      command = "CheckmateUncheck",
-      modes = { "n", "v" },
-    },
-    create = {
-      command = "CheckmateCreate",
-      modes = { "n", "v" },
-    },
-    remove_all_metadata = {
-      command = "CheckmateRemoveAllMetadata",
-      modes = { "n", "v" },
-    },
-    archive = {
-      command = "CheckmateArchive",
-      modes = { "n" },
-    },
+  local has_wk, wk = pcall(require, "which-key")
+
+  -- TODO: need further which-key integration
+  if has_wk then
+    wk.add({
+      "<leader>T",
+      buffer = bufnr,
+      group = "Checkmate [T]odos",
+      icon = "⊡",
+    })
+  end
+
+  buffer_local_keys[bufnr] = {}
+
+  -- map legacy actions to commands
+  ---@deprecated TODO: Remove in v0.10
+  local action_to_command = {
+    toggle = { cmd = "Checkmate toggle", desc = "Toggle todo item" },
+    check = { cmd = "Checkmate check", desc = "Check todo item" },
+    uncheck = { cmd = "Checkmate uncheck", desc = "Uncheck todo item" },
+    create = { cmd = "Checkmate create", desc = "Create todo item" },
+    remove_all_metadata = { cmd = "Checkmate remove_all_metadata", desc = "Remove all metadata" },
+    archive = { cmd = "Checkmate archive", desc = "Archive completed todos" },
+    select_metadata_value = { cmd = "Checkmate metadata select_value", desc = "Select metadata value" },
+    jump_next_metadata = { cmd = "Checkmate metadata jump_next", desc = "Jump to next metadata" },
+    jump_previous_metadata = { cmd = "Checkmate metadata jump_previous", desc = "Jump to previous metadata" },
   }
 
-  for key, action_name in pairs(keys) do
-    if action_name ~= false then
-      local action = actions[action_name]
-      if action then
-        local base_desc = command_descs[action.command] or "Checkmate action"
+  -- pre v0.9
+  local deprecated_actions = {}
 
-        -- Map for each supported mode
-        for _, mode in ipairs(action.modes) do
-          local mode_desc = base_desc
-          if mode == "v" then
-            mode_desc = mode_desc .. " (visual)"
-          end
+  local DEFAULT_DESC = "Checkmate <unnamed>"
+  local DEFAULT_MODES = { "n" }
 
-          log.debug(string.format("Mapping %s mode key %s to %s", mode, key, action_name), { module = "api" })
-          vim.api.nvim_buf_set_keymap(bufnr, mode, key, string.format("<cmd>%s<CR>", action.command), {
-            noremap = true,
-            silent = true,
-            desc = mode_desc,
-          })
-          table.insert(buffer_local_keys[bufnr], { mode, key })
+  for key, value in pairs(keys) do
+    if value ~= false then
+      ---@type checkmate.KeymapConfig
+      local mapping_config = {}
+
+      -- backwards comptability
+      if type(value) == "string" then
+        table.insert(deprecated_actions, value)
+        local action_info = action_to_command[value]
+        if action_info then
+          mapping_config = {
+            rhs = "<cmd>" .. action_info.cmd .. "<CR>",
+            desc = action_info.desc,
+          }
+        else
+          log.warn(string.format("Unknown action '%s' for key '%s'", value, key), { module = "api" })
+        end
+        -- New table-based config
+      elseif type(value) == "table" then
+        -- sequence of {rhs, desc, modes}
+        if value[1] ~= nil then
+          local rhs, desc, modes = unpack(value)
+          mapping_config = { rhs = rhs, desc = desc, modes = modes }
+        else -- dict like table
+          mapping_config = vim.deepcopy(value)
         end
       else
-        log.warn(string.format("Unknown action '%s' for mapping '%s'", action_name, key), { module = "api" })
+        log.warn(string.format("Invalid value type for key '%s'", key), { module = "api" })
+      end
+
+      if mapping_config and mapping_config.rhs then
+        -- defaults
+        mapping_config.modes = mapping_config.modes or DEFAULT_MODES
+        mapping_config.desc = mapping_config.desc or DEFAULT_DESC
+
+        for _, mode in ipairs(mapping_config.modes) do
+          local success = false
+
+          if mapping_config.rhs then
+            success = pcall(function()
+              buffer_map(bufnr, mode, key, mapping_config.rhs, mapping_config.desc)
+            end)
+          end
+
+          if success then
+            table.insert(buffer_local_keys[bufnr], { mode, key })
+          end
+        end
       end
     end
+  end
+
+  -- show deprecation warning
+  if #deprecated_actions > 0 then
+    vim.notify(
+      string.format("Checkmate: deprecated config.keys entry for: %s", table.concat(deprecated_actions, ", ")),
+      vim.log.levels.WARN
+    )
   end
 
   -- Setup metadata keymaps
@@ -192,23 +224,24 @@ function M.setup_keymaps(bufnr)
 
         -- Map metadata actions to both normal and visual modes
         for _, mode in ipairs(modes) do
-          log.debug(
-            "Mapping " .. mode .. " mode key " .. meta_props.key .. " to metadata." .. meta_name,
-            { module = "api" }
-          )
+          local key, desc
+          -- we allow user to pass [key, desc] tuple
+          if type(meta_props.key) == "table" then
+            key = meta_props.key[1]
+            desc = meta_props.key[2]
+          else
+            key = tostring(meta_props.key)
+            desc = "Toggle '@" .. meta_name .. "' metadata"
+          end
 
-          vim.api.nvim_buf_set_keymap(
-            bufnr,
-            mode,
-            meta_props.key,
-            string.format("<cmd>lua require('checkmate').toggle_metadata('%s')<CR>", meta_name),
-            {
-              noremap = true,
-              silent = true,
-              desc = "Checkmate: Set toggle '" .. meta_name .. "' metadata",
-            }
-          )
-          table.insert(buffer_local_keys[bufnr], { mode, meta_props.key })
+          local rhs = function()
+            require("checkmate").toggle_metadata(meta_name)
+          end
+
+          log.debug("Mapping " .. mode .. " mode key " .. key .. " to metadata." .. meta_name, { module = "api" })
+
+          buffer_map(bufnr, mode, key, rhs, desc)
+          table.insert(buffer_local_keys[bufnr], { mode, key })
         end
       end
     end
@@ -260,7 +293,8 @@ function M.setup_autocmds(bufnr)
         if not success then
           log.error("Failed to convert Unicode to Markdown", { module = "api" })
           vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          util.notify("Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
+          vim.notify("Checkmate: Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
+          vim.b[bufnr]._checkmate_writing = false
           return false
         end
 
@@ -285,9 +319,9 @@ function M.setup_autocmds(bufnr)
               uv.fs_unlink(temp_filename)
             end)
             log.error("Failed to rename temp file: " .. (rename_err or "unknown error"), { module = "api" })
-            util.notify("Failed to save file", vim.log.levels.ERROR)
+            vim.notify("Checkmate: Failed to save file", vim.log.levels.ERROR)
             vim.bo[bufnr].modified = was_modified
-            vim.b[bufnr]._checkmate_writing = nil
+            vim.b[bufnr]._checkmate_writing = false
             return false
           end
 
@@ -299,7 +333,7 @@ function M.setup_autocmds(bufnr)
 
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.b[bufnr]._checkmate_writing = nil
+              vim.b[bufnr]._checkmate_writing = false
             end
           end, 0)
 
@@ -354,6 +388,8 @@ function M.setup_autocmds(bufnr)
         M._debounced_processors[bufnr] = nil
         -- clear the todo map cache for this buffer
         require("checkmate.parser").todo_map_cache[bufnr] = nil
+
+        require("checkmate.metadata.picker").cleanup_ui(bufnr)
       end,
     })
     vim.b[bufnr].checkmate_autocmds_setup = true
@@ -979,18 +1015,20 @@ end
 ---@param items checkmate.TodoItem[]
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value
----@return checkmate.TextDiffHunk[]
+---@return checkmate.TextDiffHunk[], table<integer, {old_value: string, new_value: string}>
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
-  local config = require("checkmate.config")
   local log = require("checkmate.log")
-  local meta_props = config.options.metadata[meta_name]
+  local meta_module = require("checkmate.metadata")
+
+  local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
     log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
-    return {}
+    return {}, {}
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
+  local changes = {} -- track for on_change callback
 
   for _, todo_item in ipairs(items) do
     local row = todo_item.range.start.row
@@ -1005,6 +1043,14 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
       local updated_metadata = vim.deepcopy(todo_item.metadata)
 
       if existing_entry then
+        -- track for on_change callbacks
+        if existing_entry.value ~= value then
+          changes[todo_item.id] = {
+            old_value = existing_entry.value,
+            new_value = value,
+          }
+        end
+
         for i, entry in ipairs(updated_metadata.entries) do
           if entry.tag == existing_entry.tag then
             updated_metadata.entries[i].value = value
@@ -1035,7 +1081,7 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
       end
     end
   end
-  return hunks
+  return hunks, changes
 end
 
 --- Add metadata to todo items
@@ -1044,12 +1090,15 @@ end
 ---@return checkmate.TextDiffHunk[] hunks
 function M.add_metadata(ctx, operations)
   local config = require("checkmate.config")
+  local meta_module = require("checkmate.metadata")
+
   local bufnr = ctx.get_buf()
   local hunks = {}
   local to_jump = nil
 
   -- group by metadata type for callbacks
-  local callbacks_by_meta = {}
+  local new_adds_by_meta = {} -- track new additions for on_add callbacks
+  local changes_by_meta = {} -- track changes for on_change callbacks
 
   for _, op in ipairs(operations) do
     local item = ctx.get_todo_by_id(op.id)
@@ -1057,26 +1106,30 @@ function M.add_metadata(ctx, operations)
       return {}
     end
 
-    local meta_props = config.options.metadata[op.meta_name]
+    local meta_props = meta_module.get_meta_props(op.meta_name)
     if not meta_props then
       return {}
     end
 
     -- get value with fallback to get_value()
-    local meta_value = op.meta_value
-    if not meta_value and meta_props.get_value then
-      meta_value = meta_props.get_value()
-      meta_value = meta_value:gsub("^%s+", ""):gsub("%s+$", "")
-    end
-    meta_value = meta_value or ""
+    local context = meta_module.create_context(item, op.meta_name, "", bufnr)
+    local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context) or ""
 
-    local item_hunks = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
+    local item_hunks, item_changes = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
     vim.list_extend(hunks, item_hunks)
 
     -- add callbacks
-    if meta_props.on_add then
-      callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
-      table.insert(callbacks_by_meta[op.meta_name], op.id)
+    if item_changes[item.id] then
+      changes_by_meta[op.meta_name] = changes_by_meta[op.meta_name] or {}
+      table.insert(changes_by_meta[op.meta_name], {
+        id = op.id,
+        old_value = item_changes[item.id].old_value,
+        new_value = item_changes[item.id].new_value,
+      })
+    elseif not item.metadata.by_tag[op.meta_name] and meta_props.on_add then
+      -- only queue on_add if it's actually a new addition
+      new_adds_by_meta[op.meta_name] = new_adds_by_meta[op.meta_name] or {}
+      table.insert(new_adds_by_meta[op.meta_name], op.id)
     end
 
     -- track jump target (for single item operations)
@@ -1085,8 +1138,8 @@ function M.add_metadata(ctx, operations)
     end
   end
 
-  -- queue callbacks
-  for meta_name, ids in pairs(callbacks_by_meta) do
+  -- queue on_add cbs
+  for meta_name, ids in pairs(new_adds_by_meta) do
     local meta_config = config.options.metadata[meta_name]
     for _, id in ipairs(ids) do
       ctx.add_cb(function(tx_ctx)
@@ -1095,6 +1148,21 @@ function M.add_metadata(ctx, operations)
           meta_config.on_add(updated_item)
         end
       end)
+    end
+  end
+
+  -- queue on_change cbs
+  for meta_name, changes in pairs(changes_by_meta) do
+    local meta_config = config.options.metadata[meta_name]
+    if meta_config.on_change then
+      for _, change in ipairs(changes) do
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(change.id)
+          if updated_item then
+            meta_config.on_change(updated_item, change.old_value, change.new_value)
+          end
+        end)
+      end
     end
   end
 
@@ -1110,8 +1178,8 @@ end
 ---@param meta_name string Metadata tag name
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_remove_metadata(items, meta_name)
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
+  local meta_module = require("checkmate.metadata")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local hunks = {}
@@ -1131,16 +1199,9 @@ function M.compute_diff_remove_metadata(items, meta_name)
       local entry = todo_item.metadata.by_tag[meta_name]
       if not entry then
         -- Check for aliases
-        for canonical, props in pairs(config.options.metadata) do
-          for _, alias in ipairs(props.aliases or {}) do
-            if alias == meta_name then
-              entry = todo_item.metadata.by_tag[canonical]
-              break
-            end
-          end
-          if entry then
-            break
-          end
+        local canonical = meta_module.get_canonical_name(meta_name)
+        if canonical then
+          entry = todo_item.metadata.by_tag[canonical]
         end
       end
 
@@ -1323,6 +1384,131 @@ function M.toggle_metadata(ctx, operations)
   end
 
   return hunks
+end
+
+---@param ctx checkmate.TransactionContext
+---@param metadata checkmate.MetadataEntry
+---@param new_value string
+---@return checkmate.TextDiffHunk[]
+function M.set_metadata_value(ctx, metadata, new_value)
+  local bufnr = ctx.get_buf()
+  local row = metadata.range.start.row
+
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+  if not line then
+    return {}
+  end
+
+  -- queue on_change callback
+  if metadata.value ~= new_value then
+    local config = require("checkmate.config")
+    local canonical_name = metadata.alias_for or metadata.tag
+    local meta_config = config.options.metadata[canonical_name]
+
+    if meta_config and meta_config.on_change then
+      local todo_item = ctx.get_todo_by_row(row)
+      if todo_item then
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(todo_item.id)
+          if updated_item then
+            meta_config.on_change(updated_item, metadata.value, new_value)
+          end
+        end)
+      end
+    end
+  end
+
+  return M.compute_diff_update_metadata(line, metadata, new_value)
+end
+
+function M.compute_diff_update_metadata(line, metadata, value)
+  local row = metadata.range.start.row
+  -- 1-indexed for string operations
+  local tag_start_1indexed = metadata.range.start.col + 1
+  local tag_end_1indexed = metadata.range["end"].col -- end is exclusive, so no +1
+
+  local metadata_str = line:sub(tag_start_1indexed, tag_end_1indexed)
+
+  -- find the outer parentheses
+  local paren_open, paren_close = metadata_str:find("%b()")
+  if not paren_open then
+    return {}
+  end
+
+  -- need 0-indexed for the hunk
+  local value_start_0indexed = metadata.range.start.col + paren_open -- position after '('
+  local value_end_0indexed = metadata.range.start.col + paren_close - 1 -- position before ')'
+
+  local hunk = {
+    start_row = row,
+    start_col = value_start_0indexed,
+    end_row = row,
+    end_col = value_end_0indexed,
+    insert = { value },
+  }
+
+  return { hunk }
+end
+
+--- moves the cursor forward or backward to the next metadata tag for the todo item
+--- under the cursor, if present
+---@param bufnr integer
+---@param todo_item checkmate.TodoItem
+---@param backward boolean? if true, move to previous
+function M.move_cursor_to_metadata(bufnr, todo_item, backward)
+  if not (todo_item and todo_item.metadata and #todo_item.metadata.entries > 0) then
+    return
+  end
+
+  -- current cursor (row is 1-based, col is 0-based)
+  local win = vim.api.nvim_get_current_win()
+
+  if vim.api.nvim_win_get_buf(win) ~= bufnr then
+    return
+  end
+
+  local cur = vim.api.nvim_win_get_cursor(win)
+  local cur_col = cur[2]
+
+  local entries = vim.tbl_map(function(e)
+    return e
+  end, todo_item.metadata.entries)
+  table.sort(entries, function(a, b)
+    return a.range.start.col < b.range.start.col
+  end)
+
+  local target
+  if backward then
+    for i = #entries, 1, -1 do
+      local e = entries[i]
+      local s = e.range.start.col
+      local fin = e.range["end"].col -- end-exclusive
+      -- only metadata that are fully left of cursor (skip if cursor is inside)
+      if s < cur_col and cur_col >= fin then
+        target = e
+        break
+      end
+    end
+    -- wrap
+    if not target then
+      target = entries[#entries]
+    end
+  else
+    for _, entry in ipairs(entries) do
+      if cur_col < entry.range.start.col then
+        target = entry
+        break
+      end
+    end
+    -- wrap
+    if not target then
+      target = entries[1]
+    end
+  end
+
+  if target then
+    vim.api.nvim_win_set_cursor(win, { todo_item.range.start.row + 1, target.range.start.col })
+  end
 end
 
 ---Sorts metadata entries based on their configured sort_order
@@ -1689,6 +1875,10 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
   end
 
   vim.schedule(function()
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
     local row = todo_item.range.start.row
     local updated_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
     if not updated_line then

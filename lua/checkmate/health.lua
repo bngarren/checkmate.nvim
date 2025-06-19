@@ -31,6 +31,24 @@ function M.check()
       "`require('render-markdown').setup({checkbox = { enabled = false }})`",
     })
   end
+
+  start("Checkmate configuration")
+  local config = require("checkmate.config")
+
+  local validation_ok, validation_err = config.validate_options(config.options)
+  if validation_ok then
+    ok("Configuration is valid")
+  else
+    error("Configuration validation failed: " .. validation_err)
+  end
+
+  if config.options.enabled then
+    ok("Checkmate is enabled")
+  else
+    warn("Checkmate is disabled", {
+      "Set `enabled = true` in your config to enable",
+    })
+  end
 end
 
 return M

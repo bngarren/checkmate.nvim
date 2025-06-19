@@ -19,10 +19,23 @@ describe("Transaction", function()
     checkmate.stop()
   end)
 
+  it("should reject nested transactions in same buffer", function()
+    local bufnr = h.create_test_buffer("")
+
+    assert.has_error(function()
+      transaction.run(bufnr, function()
+        transaction.run(bufnr, function() end)
+      end)
+    end, "Nested transactions are not supported for buffer " .. bufnr)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
   it("should apply queued operations and clear state", function()
-    local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
-    local checked = config.options.todo_markers.checked
+    local unchecked = h.get_unchecked_marker()
+    local checked = h.get_checked_marker()
 
     -- Create temp buf with one unchecked todo
     local content = "- " .. unchecked .. " TaskX"
@@ -75,7 +88,7 @@ describe("Transaction", function()
 
   it("should batch multiple operations into single apply_diff call", function()
     local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = [[
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
@@ -112,8 +125,7 @@ describe("Transaction", function()
   end)
 
   it("should update todo map after operations for subsequent callbacks", function()
-    local config = require("checkmate.config")
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
     local bufnr = h.create_test_buffer(content)
 
@@ -146,9 +158,7 @@ describe("Transaction", function()
   end)
 
   it("should execute callbacks after all operations in a batch", function()
-    local config = require("checkmate.config")
-
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = [[
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
@@ -191,18 +201,40 @@ describe("Transaction", function()
   it("should provide current_context when transaction is active", function()
     local bufnr = h.create_test_buffer("")
     local context_inside = nil
-    local context_outside = transaction.current_context()
+    local context_outside = transaction.current_context(bufnr)
 
     assert.is_nil(context_outside)
 
     transaction.run(bufnr, function(ctx)
-      context_inside = transaction.current_context()
+      context_inside = transaction.current_context(bufnr)
       assert.is_not_nil(context_inside)
       assert.equal(ctx, context_inside)
     end)
 
-    context_outside = transaction.current_context()
+    context_outside = transaction.current_context(bufnr)
     assert.is_nil(context_outside)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should deduplicate repeated operations", function()
+    local bufnr = h.create_test_buffer("")
+    local op_called = 0
+
+    local function dummy_op()
+      op_called = op_called + 1
+      return {}
+    end
+
+    transaction.run(bufnr, function(ctx)
+      ctx.add_op(dummy_op, "foo", "bar")
+      ctx.add_op(dummy_op, "foo", "bar") -- same key
+      ctx.add_op(dummy_op, "baz") -- different
+    end)
+
+    assert.equal(2, op_called)
 
     finally(function()
       h.cleanup_buffer(bufnr)
@@ -256,9 +288,7 @@ describe("Transaction", function()
   end)
 
   it("should handle callback errors with operations present", function()
-    local config = require("checkmate.config")
-
-    local unchecked = config.options.todo_markers.unchecked
+    local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
     local bufnr = h.create_test_buffer(content)
 
@@ -280,7 +310,7 @@ describe("Transaction", function()
 
     -- op should have still worked/applied diff to buffer
     local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]
-    assert.matches(config.options.todo_markers.checked, line)
+    assert.matches(h.get_checked_marker(), line)
 
     assert.is_false(transaction.is_active())
 

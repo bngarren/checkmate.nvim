@@ -39,93 +39,56 @@ function M.get_buffer_line(bufnr, row)
   return cache:get(row)
 end
 
----Some highlights are created from factory functions via the config module. Instead of re-running these every time
----highlights are re-applied, we cache the results of the highlight generating functions
-M._dynamic_highlight_cache = {
-  metadata = {},
-}
+-- Maps hash -> { highlight_group, style }
+M._style_cache = {}
 
--- Generic function to get or create a dynamic highlight group
----@param category string The category of highlight (e.g., 'metadata', etc.)
----@param key string A unique identifier within the category
----@param base_name string The base name for the highlight group
----@param style_fn function|table A function that returns style options or a style table directly
----@return string highlight_group The name of the highlight group
-function M.get_or_create_dynamic_highlight(category, key, base_name, style_fn)
-  -- Initialize category if needed
-  M._dynamic_highlight_cache[category] = M._dynamic_highlight_cache[category] or {}
+-- Simple hash function for style tables
+local function hash_style(style)
+  local keys = vim.tbl_keys(style)
+  table.sort(keys)
 
-  if M._dynamic_highlight_cache[category][key] then
-    return M._dynamic_highlight_cache[category][key]
+  local parts = {}
+  for _, key in ipairs(keys) do
+    local value = style[key]
+    if type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
+      table.insert(parts, key .. ":" .. tostring(value))
+    end
   end
 
-  -- a simple size limit on the cache (shouldnt need this)
-  local cache = M._dynamic_highlight_cache[category] or {}
-  if vim.tbl_count(cache) > 200 then
-    M._dynamic_highlight_cache[category] = {}
+  -- Create a hash from the concatenated string
+  local str = table.concat(parts, ",")
+  local hash = 0
+  for i = 1, #str do
+    hash = (hash * 31 + string.byte(str, i)) % 2147483647
   end
 
-  local highlight_group = base_name .. "_" .. key:gsub("[^%w]", "_")
-
-  -- Apply style - handle both functions and direct style tables
-  local style = type(style_fn) == "function" and style_fn(key) or style_fn
-
-  -- Create the highlight group
-  ---@diagnostic disable-next-line: param-type-mismatch
-  vim.api.nvim_set_hl(0, highlight_group, style)
-
-  -- Cache it
-  M._dynamic_highlight_cache[category][key] = highlight_group
-
-  return highlight_group
+  return tostring(hash)
 end
 
--- Clear cache for a specific category or all categories
----@param category? string Optional category to clear (nil clears all)
-function M.clear_highlight_cache(category)
-  if category then
-    M._dynamic_highlight_cache[category] = {}
-  else
-    M._dynamic_highlight_cache = {}
-  end
+function M.clear_highlight_cache()
+  M._style_cache = {}
 end
 
 function M.register_highlight_groups()
   local config = require("checkmate.config")
   local log = require("checkmate.log")
 
-  -- Define highlight groups from config
   local highlights = {
-
+    ---this is used when we apply an extmark to override , e.g. setext headings
     ---@type vim.api.keyset.highlight
     CheckmateNormal = { bold = false, force = true, nocombine = true },
-
-    -- List markers
-    CheckmateListMarkerUnordered = config.options.style.list_marker_unordered,
-    CheckmateListMarkerOrdered = config.options.style.list_marker_ordered,
-
-    -- Unchecked todos
-    CheckmateUncheckedMarker = config.options.style.unchecked_marker,
-    CheckmateUncheckedMainContent = config.options.style.unchecked_main_content,
-    CheckmateUncheckedAdditionalContent = config.options.style.unchecked_additional_content,
-
-    -- Checked todos
-    CheckmateCheckedMarker = config.options.style.checked_marker,
-    CheckmateCheckedMainContent = config.options.style.checked_main_content,
-    CheckmateCheckedAdditionalContent = config.options.style.checked_additional_content,
-
-    -- Todo count
-    CheckmateTodoCountIndicator = config.options.style.todo_count_indicator,
   }
+
+  for group_name, settings in pairs(config.options.style or {}) do
+    highlights[group_name] = settings
+  end
 
   -- For metadata tags, we only set up the base highlight groups from static styles
   -- Dynamic styles (functions) will be handled during the actual highlighting process
   for meta_name, meta_props in pairs(config.options.metadata) do
-    -- Only add static styles directly to highlights table
-    -- Function-based styles will be processed during actual highlighting
     if type(meta_props.style) ~= "function" then
       ---@diagnostic disable-next-line: assign-type-mismatch
-      highlights["CheckmateMeta_" .. meta_name] = meta_props.style
+      highlights["CheckmateMeta" .. "_" .. meta_name] = meta_props.style
     end
   end
 
@@ -277,7 +240,7 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
 
     M.highlight_todo_marker(bufnr, todo_item)
 
-    M.highlight_list_markers_in_range(bufnr, todo_item, todo_rows)
+    M.highlight_list_markers(bufnr, todo_item, todo_rows)
 
     M.highlight_content(bufnr, todo_item, todo_map)
 
@@ -356,90 +319,11 @@ function M.highlight_todo_marker(bufnr, todo_item)
   end
 end
 
----Highlight the list marker (-, +, *, 1., etc.)
----@param bufnr integer Buffer number
----@param todo_item checkmate.TodoItem
-function M.highlight_list_marker(bufnr, todo_item)
-  local config = require("checkmate.config")
-  local list_marker = todo_item.list_marker
-
-  if not list_marker or not list_marker.node then
-    return
-  end
-
-  local start_row, start_col, _, _ = list_marker.node:range()
-
-  local marker_text = list_marker.text
-  if not marker_text then
-    return
-  end
-
-  local hl_group = list_marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
-
-  vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
-    end_row = start_row, -- don't let it ever span multiple lines
-    end_col = start_col + #marker_text, -- end exclusive (end col doesn't actually include the list marker)
-    hl_group = hl_group,
-    priority = M.PRIORITY.LIST_MARKER,
-    right_gravity = false,
-    end_right_gravity = false,
-    hl_eol = false,
-  })
-end
-
----Highlight all child list markers (non-todo list items) within this todo item's range
----list_marker for the todo item itself (i.e. the first list_marker in the todo item's list_item node)
----@param bufnr integer Buffer number
----@param todo_item checkmate.TodoItem
-function M.highlight_child_list_markers(bufnr, todo_item)
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
-
-  if not todo_item.node then
-    return
-  end
-
-  local list_items = parser.get_all_list_items(bufnr)
-
-  for _, list_item in ipairs(list_items) do
-    local item_start_row = list_item.range.start.row
-
-    -- Skip if:
-    -- 1. outside todo item's range
-    -- 2. it's the todo item itself (same start row)
-    -- 3. it's another todo item (has a todo state)
-    if item_start_row > todo_item.range.start.row and item_start_row <= todo_item.range["end"].row then
-      local line = M.get_buffer_line(bufnr, item_start_row)
-      if line and not parser.get_todo_item_state(line) then
-        local marker = list_item.list_marker
-        if marker and marker.node then
-          local marker_text = list_item.text:match("^%s*([%-%*%+])") or list_item.text:match("^%s*(%d+[%.%)])")
-
-          if marker_text then
-            local _, marker_col = marker.node:range()
-            local hl_group = marker.type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
-
-            vim.api.nvim_buf_set_extmark(bufnr, config.ns, item_start_row, marker_col, {
-              end_row = item_start_row,
-              end_col = marker_col + #marker_text,
-              hl_group = hl_group,
-              priority = M.PRIORITY.LIST_MARKER,
-              right_gravity = false,
-              end_right_gravity = false,
-              hl_eol = false,
-            })
-          end
-        end
-      end
-    end
-  end
-end
-
 ---Highlight list markers for todo items and their child list items
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
 ---@param todo_rows table<integer, checkmate.TodoItem> row to todo lookup table
-function M.highlight_list_markers_in_range(bufnr, todo_item, todo_rows)
+function M.highlight_list_markers(bufnr, todo_item, todo_rows)
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
 
@@ -496,9 +380,12 @@ end
 ---Applies highlight groups to metadata entries
 ---@param bufnr integer Buffer number
 ---@param config checkmate.Config.mod Configuration module
----@param metadata checkmate.TodoMetadata The metadata for this todo item
-function M.highlight_metadata(bufnr, config, metadata)
+---@param todo_item checkmate.TodoItem Todo item for this metadata
+function M.highlight_metadata(bufnr, config, todo_item)
   local log = require("checkmate.log")
+  local meta_module = require("checkmate.metadata")
+
+  local metadata = todo_item.metadata
 
   if not metadata or not metadata.entries or #metadata.entries == 0 then
     return
@@ -514,11 +401,24 @@ function M.highlight_metadata(bufnr, config, metadata)
       local highlight_group
 
       if type(meta_config.style) == "function" then
-        local cache_key = canonical_name .. "_" .. value
-        highlight_group = M.get_or_create_dynamic_highlight("metadata", cache_key, "CheckmateMeta", function()
-          return meta_config.style(value)
-        end)
+        local context = meta_module.create_context(todo_item, canonical_name, value, bufnr)
+        local style = meta_module.evaluate_style(meta_config, context)
+
+        local style_hash = hash_style(style)
+
+        if M._style_cache[style_hash] then
+          highlight_group = M._style_cache[style_hash].highlight_group
+        else
+          highlight_group = "CheckmateMeta_" .. canonical_name .. "_" .. style_hash
+          vim.api.nvim_set_hl(0, highlight_group, style)
+
+          M._style_cache[style_hash] = {
+            highlight_group = highlight_group,
+            style = style,
+          }
+        end
       else
+        -- static styles
         highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
@@ -668,7 +568,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     end
   end
 
-  M.highlight_metadata(bufnr, config, todo_item.metadata)
+  M.highlight_metadata(bufnr, config, todo_item)
 end
 
 ---Show todo count indicator

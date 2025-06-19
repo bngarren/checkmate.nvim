@@ -36,27 +36,31 @@ local parser = require("checkmate.parser")
 local api = require("checkmate.api")
 
 ---the exposed transaction state is referred to as "context"
----the internal state is M._state
+---the internal state is M._states[bufnr]
 ---@class checkmate.TransactionContext
+---@field get_todo_map function(): table<integer, checkmate.TodoItem>
 ---@field get_todo_by_id function(id: integer): checkmate.TodoItem?
 ---@field get_todo_by_row function(row: integer): checkmate.TodoItem?
 ---@field add_op function(fn: fn, ...)
 ---@field add_cb function(fn: fn, ...)
 ---@field get_buf function(): integer Returns the buffer
 
-M._state = nil
+M._states = {} -- bufnr -> state
 
-function M.is_active()
-  return M._state ~= nil
+function M.is_active(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  return M._states[bufnr] ~= nil
 end
 
-function M.current_context()
-  return M._state and M._state.context or nil
+function M.current_context(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  return M._states[bufnr] and M._states[bufnr].context or nil
 end
 
 --- Get current transaction state (for debugging)
-function M.get_state()
-  return M._state
+function M.get_state(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  return M._states[bufnr]
 end
 
 --- Starts a transaction for a buffer
@@ -64,7 +68,7 @@ end
 ---@param entry_fn function Function to start the transaction
 ---@param post_fn function? Function to run after transaction completes
 function M.run(bufnr, entry_fn, post_fn)
-  assert(not M._state, "Nested transactions are not supported")
+  assert(not M._states[bufnr], "Nested transactions are not supported for buffer " .. bufnr)
 
   local state = {
     bufnr = bufnr,
@@ -77,18 +81,16 @@ function M.run(bufnr, entry_fn, post_fn)
   -- Create the transaction context
   ---@type checkmate.TransactionContext
   state.context = {
+    get_todo_map = function()
+      return state.todo_map
+    end,
     -- Get the current (latest) todo item by ID
     get_todo_by_id = function(extmark_id)
-      return M._state.todo_map[extmark_id]
+      return state.todo_map[extmark_id]
     end,
 
     get_todo_by_row = function(row)
-      return require("checkmate.parser").get_todo_item_at_position(
-        M._state.bufnr,
-        row,
-        0,
-        { todo_map = M._state.todo_map }
-      )
+      return require("checkmate.parser").get_todo_item_at_position(state.bufnr, row, 0, { todo_map = state.todo_map })
     end,
 
     --- Queue any function and its arguments
@@ -102,9 +104,9 @@ function M.run(bufnr, entry_fn, post_fn)
         seen_key = seen_key .. "|" .. tostring(select(i, ...))
       end
 
-      if not M._state.seen_ops[seen_key] then
-        M._state.seen_ops[seen_key] = true
-        table.insert(M._state.op_queue, {
+      if not state.seen_ops[seen_key] then
+        state.seen_ops[seen_key] = true
+        table.insert(state.op_queue, {
           fn = fn,
           args = { ... },
         })
@@ -113,26 +115,26 @@ function M.run(bufnr, entry_fn, post_fn)
 
     -- Queue a callback
     add_cb = function(cb_fn, ...)
-      table.insert(M._state.cb_queue, {
+      table.insert(state.cb_queue, {
         cb_fn = cb_fn,
         params = { ... },
       })
     end,
 
     get_buf = function()
-      return M._state.bufnr
+      return state.bufnr
     end,
   }
 
-  M._state = state
+  M._states[bufnr] = state
 
   entry_fn(state.context)
 
   -- transaction loop --> process operations and callbacks until both queues are empty
-  while #M._state.op_queue > 0 or #M._state.cb_queue > 0 do
-    if #M._state.op_queue > 0 then
-      local queued = M._state.op_queue
-      M._state.op_queue = {}
+  while #state.op_queue > 0 or #state.cb_queue > 0 do
+    if #state.op_queue > 0 then
+      local queued = state.op_queue
+      state.op_queue = {}
 
       -- collect every diff from each op into a single array
       local all_hunks = {}
@@ -145,13 +147,13 @@ function M.run(bufnr, entry_fn, post_fn)
 
       if #all_hunks > 0 then
         api.apply_diff(bufnr, all_hunks)
-        M._state.todo_map = parser.discover_todos(bufnr)
+        state.todo_map = parser.discover_todos(bufnr)
       end
     end
 
-    if #M._state.cb_queue > 0 then
-      local cbs = M._state.cb_queue
-      M._state.cb_queue = {}
+    if #state.cb_queue > 0 then
+      local cbs = state.cb_queue
+      state.cb_queue = {}
 
       for _, cb in ipairs(cbs) do
         pcall(function()
@@ -165,7 +167,7 @@ function M.run(bufnr, entry_fn, post_fn)
     post_fn()
   end
 
-  M._state = nil
+  M._states[bufnr] = nil
 end
 
 return M

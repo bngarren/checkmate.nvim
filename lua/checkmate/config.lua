@@ -46,9 +46,18 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Logging settings
 ---@field log checkmate.LogSettings
 ---
+---Define the keymap as a dict-style table or a sequence of { rhs, desc, { modes } }
+---See `h: vim.set.keymap` for how 'rhs' is treated, including being able to pass a Lua function directly
+---Default modes is {"n"}
+---@alias checkmate.KeymapConfig {rhs: string|function, desc?: string, modes?: string[]} | table<integer, any>
+---
 ---Keymappings (false to disable)
+---
+---Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
+---
+---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
 ---Note: mappings for metadata are set separately in the `metadata` table
----@field keys ( table<string, checkmate.Action>| false )
+---@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
 ---@field todo_markers checkmate.TodoMarkers
@@ -56,7 +65,9 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Default list item marker to be used when creating new Todo items
 ---@field default_list_marker "-" | "*" | "+"
 ---
----Highlight settings (override merge with defaults)
+---@field ui? checkmate.UISettings
+---
+---Highlight settings (merges with defaults, user config takes precedence)
 ---Default style will attempt to integrate with current colorscheme (experimental)
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
@@ -68,7 +79,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
 ---@field todo_action_depth integer
 ---
----Enter insert mode after `:CheckmateCreate`, require("checkmate").create()
+---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
 ---Options for smart toggle behavior
@@ -83,6 +94,9 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
 ---@field show_todo_count boolean
 ---
+---Options for todo count indicator position
+---@alias checkmate.TodoCountPosition "eol" | "inline"
+---
 ---Position to show the todo count indicator (if enabled)
 --- `eol` = End of the todo item line
 --- `inline` = After the todo marker, before the todo item text
@@ -96,12 +110,15 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field todo_count_recursive boolean
 ---
 ---Whether to register keymappings defined in each metadata definition. If set the false,
----metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
+---metadata actions need to be called programatically or otherwise mapped manually
 ---@field use_metadata_keymaps boolean
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
----To add custom metadata tag, simply add a field and props to this metadata table and it
----will be merged with defaults.
+---To add custom metadata tag, add a new field to this table with the metadata properties
+---
+---Note: When setting metadata in config, entire metadata entries are replaced,
+---not deep-merged. To modify only specific fields of default metadata,
+---you will need to manually merge the default implementation.
 ---@field metadata checkmate.Metadata
 ---
 ---Settings for the archived todos section
@@ -118,10 +135,8 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 -----------------------------------------------------
 
 ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
-
----Options for todo count indicator position
----@alias checkmate.TodoCountPosition "eol" | "inline"
+---@deprecated TODO: remove v0.10
+---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
 -----------------------------------------------------
 
@@ -130,7 +145,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 ---
 --- Should print log output to a file
---- Open with `:Checkmate debug_file`
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
@@ -138,7 +152,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field file_path string?
 ---
 --- Should print log output to a scratch buffer
---- Open with `require("checkmate").debug_log()`
+--- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
 ---@field use_buffer boolean
 
 -----------------------------------------------------
@@ -146,6 +160,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@class checkmate.TodoMarkers
+---
 ---Character used for unchecked items
 ---@field unchecked string
 ---
@@ -154,7 +169,18 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+---@class checkmate.UISettings
+---
+---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
+---Default behavior: attempt to use an installed plugin, if found
+---If false, will default to vim.ui.select
+---If a function is passed, will use this picker implementation
+---@field picker? checkmate.Picker
+
+-----------------------------------------------------
+
 ---@class checkmate.SmartToggleSettings
+---
 ---Whether to enable smart toggle behavior
 ---Default: true
 ---@field enabled boolean?
@@ -187,6 +213,10 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+--- Style
+
+---@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
+---
 ---@alias checkmate.StyleKey
 ---| "list_marker_unordered"
 ---| "list_marker_ordered"
@@ -198,82 +228,87 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---| "checked_additional_content"
 ---| "todo_count_indicator"
 
+---@alias checkmate.HighlightGroup
+---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
+---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
+---| "CheckmateUncheckedMarker" -- unchecked markers (□)
+---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
+---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+---| "CheckmateCheckedMarker" -- checked markers (✔)
+---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
+---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
+
 ---Customize the style of markers and content
----@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
----
----Highlight settings for unordered list markers (-,+,*)
----@field list_marker_unordered vim.api.keyset.highlight?
----
----Highlight settings for ordered (numerical) list markers (1.,2.)
----@field list_marker_ordered vim.api.keyset.highlight?
----
----Highlight settings for unchecked markers
----@field unchecked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of unchecked todo items
----This is typically the first line/paragraph
----@field unchecked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of unchecked todo items
----This is the content below the first line/paragraph
----@field unchecked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for checked markers
----@field checked_marker vim.api.keyset.highlight?
----
----Highlight settings for main content of checked todo items
----This is typically the first line/paragraph
----@field checked_main_content vim.api.keyset.highlight?
----
----Highlight settings for additional content of checked todo items
----This is the content below the first line/paragraph
----@field checked_additional_content vim.api.keyset.highlight?
----
----Highlight settings for the todo count indicator (e.g. x/x)
----@field todo_count_indicator vim.api.keyset.highlight?
+---@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
 
 -----------------------------------------------------
 
+--- Metadata
+
 ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+---
+---A 'canonical' name is the main lookup name for a metadata tag; additional 'aliases' can be used that point to this name
 ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
 
 ---@class checkmate.MetadataProps
+---
 ---Additional string values that can be used interchangably with the canonical tag name.
 ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
 ---also be used and have the same styling/functionality
----@field aliases string[]?
+---@field aliases? string[]
 ---
----Highlight settings or function that returns highlight settings based on the metadata's current value
----@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+---@alias checkmate.StyleFn
+---| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
+---| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+---
+---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
+---@field style? vim.api.keyset.highlight|checkmate.StyleFn
+---
+---@alias checkmate.GetValueFn fun(context?: checkmate.MetadataContext):string
 ---
 ---Function that returns the default value for this metadata tag
----@field get_value fun():string
+---i.e. what is used after insertion
+---@field get_value? checkmate.GetValueFn
 ---
----Keymapping for toggling this metadata tag
----@field key string?
+---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+---
+---Values that are populated during completion or select pickers
+---Can be either:
+--- - An array of items (string[])
+--- - A function that returns items
+---@field choices? string[]|checkmate.ChoicesFn
+---
+---Keymapping for toggling (adding/removing) this metadata tag
+---Can also pass a tuple (key, desc) to include a description
+---@field key? string|string[]
 ---
 ---Used for displaying metadata in a consistent order
----@field sort_order integer?
+---@field sort_order? integer
 ---
 ---Moves the cursor to the metadata after it is inserted
 ---  - "tag" - moves to the beginning of the tag
 ---  - "value" - moves to the beginning of the value
 ---  - false - disables jump (default)
----@field jump_to_on_insert "tag" | "value" | false?
+---@field jump_to_on_insert? "tag" | "value" | false
 ---
 ---Selects metadata text in visual mode after metadata is inserted
 ---The `jump_to_on_insert` field must be set (not false)
 ---The selected text will be the tag or value, based on jump_to_on_insert setting
 ---Default (false) - off
----@field select_on_insert boolean?
+---@field select_on_insert? boolean
 ---
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
----@field on_add fun(todo_item: checkmate.TodoItem)?
+---@field on_add? fun(todo_item: checkmate.TodoItem)
 ---
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
----@field on_remove fun(todo_item: checkmate.TodoItem)?
+---@field on_remove? fun(todo_item: checkmate.TodoItem)
+---
+---Callback to run when this metadata tag's value is changed (not on initial add or removal)
+---Receives the todo item, old value, and new value
+---@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
 
 -----------------------------------------------------
 
@@ -320,7 +355,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 -----------------------------------------------------
 
 ---@type checkmate.Config
-local _DEFAULTS = {
+local defaults = {
   enabled = true,
   notify = true,
   -- Default file matching:
@@ -342,19 +377,58 @@ local _DEFAULTS = {
   },
   -- Default keymappings
   keys = {
-    ["<leader>Tt"] = "toggle", -- Toggle todo item
-    ["<leader>Tc"] = "check", -- Set todo item as checked (done)
-    ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
-    ["<leader>Tn"] = "create", -- Create todo item
-    ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
-    ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
+    ["<leader>Tt"] = {
+      rhs = "<cmd>Checkmate toggle<CR>",
+      desc = "Toggle todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tc"] = {
+      rhs = "<cmd>Checkmate check<CR>",
+      desc = "Set todo item as checked (done)",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tu"] = {
+      rhs = "<cmd>Checkmate uncheck<CR>",
+      desc = "Set todo item as unchecked (not done)",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tn"] = {
+      rhs = "<cmd>Checkmate create<CR>",
+      desc = "Create todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>TR"] = {
+      rhs = "<cmd>Checkmate remove_all_metadata<CR>",
+      desc = "Remove all metadata from a todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>Ta"] = {
+      rhs = "<cmd>Checkmate archive<CR>",
+      desc = "Archive checked/completed todo items (move to bottom section)",
+      modes = { "n" },
+    },
+    ["<leader>Tv"] = {
+      rhs = "<cmd>Checkmate metadata select_value<CR>",
+      desc = "Update the value of a metadata tag under the cursor",
+      modes = { "n" },
+    },
+    ["<leader>T]"] = {
+      rhs = "<cmd>Checkmate metadata jump_next<CR>",
+      desc = "Move cursor to next metadata tag",
+      modes = { "n" },
+    },
+    ["<leader>T["] = {
+      rhs = "<cmd>Checkmate metadata jump_previous<CR>",
+      desc = "Move cursor to previous metadata tag",
+      modes = { "n" },
+    },
   },
   default_list_marker = "-",
   todo_markers = {
     unchecked = "□",
     checked = "✔",
   },
-  style = {},
+  style = {}, -- override defaults
   todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
   enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
   smart_toggle = {
@@ -371,8 +445,8 @@ local _DEFAULTS = {
   metadata = {
     -- Example: A @priority tag that has dynamic color based on the priority value
     priority = {
-      style = function(_value)
-        local value = _value:lower()
+      style = function(context)
+        local value = context.value:lower()
         if value == "high" then
           return { fg = "#ff5555", bold = true }
         elseif value == "medium" then
@@ -385,6 +459,9 @@ local _DEFAULTS = {
       end,
       get_value = function()
         return "medium" -- Default priority
+      end,
+      choices = function()
+        return { "low", "medium", "high" }
       end,
       key = "<leader>Tp",
       sort_order = 10,
@@ -443,17 +520,15 @@ M.options = {}
 
 local function validate_type(value, expected_type, path, allow_nil)
   if value == nil then
-    if allow_nil ~= true then
-      return false, string.format("%s is required", path)
-    else
+    if allow_nil then
       return true
+    else
+      return false, (path .. " is required")
     end
   end
-
   if type(value) ~= expected_type then
     return false, string.format("%s must be a %s", path, expected_type)
   end
-
   return true
 end
 
@@ -480,6 +555,7 @@ function M.validate_options(opts)
     { opts.show_todo_count, "boolean", "show_todo_count", true },
     { opts.todo_count_recursive, "boolean", "todo_count_recursive", true },
     { opts.use_metadata_keymaps, "boolean", "use_metadata_keymaps", true },
+    { opts.disable_ts_highlights, "boolean", "disable_ts_highlights", true },
   }
 
   for _, v in ipairs(validations) do
@@ -525,11 +601,47 @@ function M.validate_options(opts)
     end
   end
 
-  if opts.keys ~= nil and opts.keys ~= false then
-    local ok, err = validate_type(opts.keys, "table", "keys", true)
+  -- validate keys
+  local function validate_keys(keys)
+    if keys == nil or keys == false then
+      return true
+    end
+
+    local ok, err = validate_type(keys, "table", "keys", false)
     if not ok then
       return false, err
     end
+
+    for lhs, mapping in pairs(keys) do
+      if mapping ~= false then
+        local mt = type(mapping)
+
+        if mt == "table" then
+          -- sequence-form or dict-form .rhs
+          local rhs = mapping[1] or mapping.rhs
+
+          if rhs == nil then
+            return false, ("keys.%s: missing rhs"):format(lhs)
+          end
+
+          local rt = type(rhs)
+          if rt ~= "string" and rt ~= "function" then
+            return false, ("keys.%s: rhs must be a string or function"):format(lhs)
+          end
+        elseif mt == "string" then
+        -- legacy action-name
+        else
+          return false, ("keys.%s: must be false, string, or table"):format(lhs)
+        end
+      end
+    end
+
+    return true
+  end
+
+  local ok, err = validate_keys(opts.keys)
+  if not ok then
+    return false, err
   end
 
   -- Validate todo_markers
@@ -575,6 +687,25 @@ function M.validate_options(opts)
     end
   end
 
+  if opts.ui ~= nil then
+    local ok, err = validate_type(opts.ui, "table", "ui", true)
+    if not ok then
+      return false, err
+    end
+
+    local picker = opts.ui.picker
+
+    if picker ~= nil and type(picker) == "string" then
+      if not vim.tbl_contains({ "telescope", "snacks", "mini" }, picker) then
+        local msg = string.format(
+          "'%s' is not a currently supported picker plugin. Consider passing a custom picker function.",
+          picker
+        )
+        return false, msg
+      end
+    end
+  end
+
   -- Validate todo_count_position
   if opts.todo_count_position ~= nil then
     local ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
@@ -598,12 +729,14 @@ function M.validate_options(opts)
 
   -- Validate style
   if opts.style ~= nil then
-    local ok, err = validate_type(opts.style, "table", "style", true)
+    ok, err = validate_type(opts.style, "table", "style", true)
     if not ok then
       return false, err
     end
 
-    local style_fields = {
+    -- TODO: remove legacy with v0.10
+    local valid_style_keys = {
+      -- Legacy style keys
       "list_marker_unordered",
       "list_marker_ordered",
       "unchecked_marker",
@@ -613,10 +746,29 @@ function M.validate_options(opts)
       "checked_main_content",
       "checked_additional_content",
       "todo_count_indicator",
+      -- Highlight group names
+      "CheckmateListMarkerUnordered",
+      "CheckmateListMarkerOrdered",
+      "CheckmateUncheckedMarker",
+      "CheckmateUncheckedMainContent",
+      "CheckmateUncheckedAdditionalContent",
+      "CheckmateCheckedMarker",
+      "CheckmateCheckedMainContent",
+      "CheckmateCheckedAdditionalContent",
+      "CheckmateTodoCountIndicator",
     }
 
-    for _, field in ipairs(style_fields) do
-      ok, err = validate_type(opts.style[field], "table", "style." .. field, true)
+    local valid_keys_set = {}
+    for _, key in ipairs(valid_style_keys) do
+      valid_keys_set[key] = true
+    end
+
+    for field, value in pairs(opts.style) do
+      if not valid_keys_set[field] then
+        return false, string.format("style.%s is not a recognized style key or highlight group", field)
+      end
+
+      ok, err = validate_type(value, "table", "style." .. field, false)
       if not ok then
         return false, err
       end
@@ -759,15 +911,40 @@ function M.validate_options(opts)
       -- Validate metadata properties
       local meta_validations = {
         { meta_props.get_value, "function", "metadata." .. meta_name .. ".get_value", true },
-        { meta_props.key, "string", "metadata." .. meta_name .. ".key", true },
         { meta_props.sort_order, "number", "metadata." .. meta_name .. ".sort_order", true },
         { meta_props.on_add, "function", "metadata." .. meta_name .. ".on_add", true },
         { meta_props.on_remove, "function", "metadata." .. meta_name .. ".on_remove", true },
+        { meta_props.on_change, "function", "metadata." .. meta_name .. ".on_change", true },
         { meta_props.select_on_insert, "boolean", "metadata." .. meta_name .. ".select_on_insert", true },
       }
 
       for _, v in ipairs(meta_validations) do
         ok, err = validate_type(v[1], v[2], v[3], v[4])
+        if not ok then
+          return false, err
+        end
+      end
+
+      if meta_props.choices ~= nil then
+        local choices = meta_props.choices
+        local choices_type = type(choices)
+        if choices_type ~= "table" and choices_type ~= "function" then
+          return false, "metadata." .. meta_name .. ".choices must be a table or function"
+        end
+        if choices_type == "table" then
+          for i, choice in ipairs(choices) do
+            if type(choice) ~= "string" then
+              return false, "metadata." .. meta_name .. ".choices[" .. i .. "] must be a string"
+            end
+          end
+        end
+      end
+
+      if meta_props.key then
+        ok, err = validate_type(meta_props.key, "string", "metadata" .. meta_name .. ".key", true)
+        if not ok then
+          ok, err = validate_type(meta_props.key, "table", "metadata" .. meta_name .. ".key", true)
+        end
         if not ok then
           return false, err
         end
@@ -805,13 +982,26 @@ function M.validate_options(opts)
   return true
 end
 
+--- TODO: legacy, remove in next release v0.10
+M.style_key_to_highlight_group = {
+  list_marker_unordered = "CheckmateListMarkerUnordered",
+  list_marker_ordered = "CheckmateListMarkerOrdered",
+  unchecked_marker = "CheckmateUncheckedMarker",
+  unchecked_main_content = "CheckmateUncheckedMainContent",
+  unchecked_additional_content = "CheckmateUncheckedAdditionalContent",
+  checked_marker = "CheckmateCheckedMarker",
+  checked_main_content = "CheckmateCheckedMainContent",
+  checked_additional_content = "CheckmateCheckedAdditionalContent",
+  todo_count_indicator = "CheckmateTodoCountIndicator",
+}
+
 --- Setup function
 ---@param opts? checkmate.Config
 ---@return checkmate.Config config
 function M.setup(opts)
   local success, result = pcall(function()
     -- start with static defaults
-    local config = vim.deepcopy(_DEFAULTS)
+    local config = vim.deepcopy(defaults)
 
     -- then merge global config if present
     if type(vim.g.checkmate_config) == "table" then
@@ -820,8 +1010,35 @@ function M.setup(opts)
 
     -- then merge user options after validating
     if type(opts) == "table" then
-      assert(M.validate_options(opts))
+      local ok, err = M.validate_options(opts)
+      if not ok then
+        error(err)
+      end
+
       config = vim.tbl_deep_extend("force", config, opts)
+
+      -- don't merge, just override full table for these
+      if opts.metadata then
+        for meta_name, meta_props in pairs(opts.metadata) do
+          config.metadata[meta_name] = vim.deepcopy(meta_props)
+        end
+      end
+    end
+
+    -- normalize style settings: convert legacy keys to highlight group names
+    if config.style then
+      local normalized_style = {}
+
+      for key, settings in pairs(config.style) do
+        local highlight_group = M.style_key_to_highlight_group[key]
+        if highlight_group then
+          normalized_style[highlight_group] = settings
+        else
+          normalized_style[key] = settings
+        end
+      end
+
+      config.style = normalized_style
     end
 
     -- save user style for colorscheme updates
@@ -837,15 +1054,16 @@ function M.setup(opts)
   end)
 
   if not success then
-    vim.notify("Checkmate: Config setup failed: " .. tostring(result), vim.log.levels.ERROR)
+    vim.notify("Checkmate: Config error: " .. tostring(result), vim.log.levels.ERROR)
     return {}
   end
+  ---@cast result checkmate.Config
 
   return result
 end
 
 function M.get_defaults()
-  return vim.deepcopy(_DEFAULTS)
+  return vim.deepcopy(defaults)
 end
 
 return M

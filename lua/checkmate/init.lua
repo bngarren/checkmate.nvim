@@ -1,6 +1,24 @@
 ---@class Checkmate
 local M = {}
 
+-- Public Types
+
+---@class checkmate.Todo
+---@field _todo_item checkmate.TodoItem internal representation
+---@field state checkmate.TodoItemState
+---@field text string First line of the todo
+---@field metadata string[][] Table of {tag, value} tuples
+---@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
+
+---@class checkmate.MetadataContext
+---@field name string Metadata tag name
+---@field value string Current metadata value
+---@field todo checkmate.Todo Access to todo item data
+---@field buffer integer Buffer number
+
+--- internal
+
 local state = {
   initialized = false,
   running = false,
@@ -123,7 +141,7 @@ M.setup = function(opts)
 
     local cfg = config.setup(opts or {})
     if vim.tbl_isempty(cfg) then
-      error("config setup failed")
+      error()
     end
 
     M.set_initialized(true)
@@ -134,7 +152,11 @@ M.setup = function(opts)
   end)
 
   if not success then
-    vim.notify("Checkmate: Setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    local msg = "Checkmate: Setup failed"
+    if err then
+      msg = msg .. ": " .. tostring(err)
+    end
+    vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
     return false
   end
@@ -198,7 +220,9 @@ function M._setup_autocommands()
       end
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
-        require("checkmate.commands").setup(event.buf)
+        --  TODO: remove legacy in v0.10+
+        require("checkmate.commands").setup(event.buf) -- legacy commands
+        require("checkmate.commands_new").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
       end
     end,
@@ -210,7 +234,9 @@ function M._setup_autocommands()
       local bufs = M.get_active_buffer_list()
       for _, buf in ipairs(bufs) do
         if event.buf == buf and event.match ~= "markdown" then
-          require("checkmate.commands").dispose(buf)
+          --  TODO: remove legacy in v0.10+
+          require("checkmate.commands").dispose(buf) -- legacy
+          require("checkmate.commands_new").dispose(buf)
           require("checkmate.api").shutdown(buf)
           M.unregister_buffer(buf)
         end
@@ -287,15 +313,11 @@ function M.toggle(target_state)
     -- If toggle() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       if smart_toggle_enabled then
-        api.propagate_toggle(ctx, { todo_item }, transaction._state.todo_map, target_state)
+        api.propagate_toggle(ctx, { todo_item }, ctx.get_todo_map(), target_state)
       else
         ctx.add_op(api.toggle_state, {
           {
@@ -357,7 +379,7 @@ function M.set_todo_item(todo_item, target_state)
   local ctx = transaction.current_context()
   if ctx then
     if smart_toggle_enabled then
-      local todo_map = transaction._state.todo_map
+      local todo_map = ctx.get_todo_map()
       api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
     else
       ctx.add_op(api.toggle_state, { {
@@ -488,12 +510,8 @@ function M.add_metadata(metadata_name, value)
     -- if add_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.add_metadata, { { id = todo_item.id, meta_name = metadata_name, meta_value = value } })
     end
@@ -540,12 +558,8 @@ function M.remove_metadata(metadata_name)
     -- if remove_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
     end
@@ -590,12 +604,8 @@ function M.remove_all_metadata()
     -- if remove_all_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_all_metadata, { todo_item.id })
     end
@@ -641,12 +651,8 @@ function M.toggle_metadata(meta_name, custom_value)
     -- if toggle_metadata() is run within an existing transaction, we will use the cursor position
     local parser = require("checkmate.parser")
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local todo_item = parser.get_todo_item_at_position(
-      ctx.get_buf(),
-      cursor[1] - 1,
-      cursor[2],
-      { todo_map = transaction._state.todo_map }
-    )
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = meta_name, custom_value = custom_value } })
     end
@@ -681,6 +687,49 @@ function M.toggle_metadata(meta_name, custom_value)
 
   profiler.stop("M.toggle_metadata")
   return true
+end
+
+---Opens a picker to select a new value for the metadata under the cursor
+---
+---Set `config.ui.preferred_picker` to designate a specific picker implementation
+---Otherwise, will attempt to use an installed picker UI plugin, or fallback to native vim.ui.select
+function M.select_metadata_value()
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local picker = require("checkmate.metadata.picker")
+
+  picker.open_picker(function(choice, metadata)
+    local ctx = transaction.current_context()
+    if ctx then
+      ctx.add_op(api.set_metadata_value, metadata, choice)
+      return
+    end
+
+    local bufnr = vim.api.nvim_get_current_buf()
+    transaction.run(bufnr, function(_ctx)
+      _ctx.add_op(api.set_metadata_value, metadata, choice)
+    end, function()
+      require("checkmate.highlights").apply_highlighting(bufnr)
+    end)
+  end)
+end
+
+--- Move the cursor to the next metadata tag for the todo item under the cursor, if present
+function M.jump_next_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+end
+
+--- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
+function M.jump_previous_metadata()
+  local api = require("checkmate.api")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(false)
+
+  api.move_cursor_to_metadata(bufnr, todo_items[1], true)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

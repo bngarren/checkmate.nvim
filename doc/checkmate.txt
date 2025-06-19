@@ -1,23 +1,26 @@
-*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 09
+*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 19
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
 
+  - Table of Contents                            |checkmate-table-of-contents|
 1. Installation                                       |checkmate-installation|
   - Requirements                         |checkmate-installation-requirements|
 2. Usage                                                     |checkmate-usage|
 3. Commands                                               |checkmate-commands|
 4. Config                                                   |checkmate-config|
+  - Keymapping                                   |checkmate-config-keymapping|
   - Styling                                         |checkmate-config-styling|
-  - Metadata                                       |checkmate-config-metadata|
   - Todo count indicator               |checkmate-config-todo-count-indicator|
-5. Smart Toggle                                       |checkmate-smart-toggle|
+  - Smart Toggle                               |checkmate-config-smart-toggle|
+5. Metadata                                               |checkmate-metadata|
 6. Archiving                                             |checkmate-archiving|
-7. Linting                                                 |checkmate-linting|
-8. Roadmap                                                 |checkmate-roadmap|
-9. Contributing                                       |checkmate-contributing|
-10. Credits                                                |checkmate-credits|
-11. Links                                                    |checkmate-links|
+7. Integrations                                       |checkmate-integrations|
+8. Linting                                                 |checkmate-linting|
+9. Roadmap                                                 |checkmate-roadmap|
+10. Contributing                                      |checkmate-contributing|
+11. Credits                                                |checkmate-credits|
+12. Links                                                    |checkmate-links|
 
 
 
@@ -37,11 +40,43 @@ FEATURES ~
 - Archive completed todos
 
 
+  [!NOTE] Check out the **new** metadata features introduced in v0.9.0! These
+  include more powerful metadata definitions/customization, a metadata value
+  picker, and jump commands. See the Wiki
+  <https://github.com/bngarren/checkmate.nvim/wiki/Metadata> for in-depth guide
+  and recipes!
+  Also, easily setup a per-project, low-friction todo buffer workflow with snacks
+  <https://github.com/folke/snacks.nvim> powered by checkmate! See the how-to
+  here <https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim>.
+
 
 
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
+
+
+TABLE OF CONTENTS                                *checkmate-table-of-contents*
+
+- |checkmate-installation|
+- |checkmate-requirements|
+- |checkmate-usage|
+- |checkmate-commands|
+- |checkmate-configuration|
+    - |checkmate-styling|
+    - |checkmate-todo-counts|
+    - |checkmate-smart-toggle|
+- |checkmate-metadata|
+- |checkmate-archiving|
+- |checkmate-integrations|
+- |checkmate-linting|
+- |checkmate-roadmap|
+- |checkmate-contributing|
+- |checkmate-credits|
+
+
+
+
 
 
 ==============================================================================
@@ -72,9 +107,11 @@ version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>
 
 >
     {
-      version = "~0.8.0" -- pins to minor 0.8.x
+      version = "~0.9.0" -- pins to minor 0.9.x
     }
 <
+
+
 
 
 ==============================================================================
@@ -97,14 +134,16 @@ your configured patterns.
   filetype=markdown`)
 
 
+You can customize **which files activate Checkmate** using the `files`
+configuration option:
 
-  [!TIP] You can customize which files activate Checkmate using the `files`
-  configuration option:
-  >lua
-      files = { "tasks", "*.plan", "project/**/todo.md" }
-  <
-  Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and
-  `{foo,bar}`
+>lua
+    files = { "tasks", "*.plan", "project/**/todo.md" }
+<
+
+Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and
+`{foo,bar}`
+
 
 2. CREATE TODO ITEMS ~
 
@@ -121,61 +160,136 @@ your configured patterns.
 
 3. MANAGE YOUR TASKS ~
 
-- Toggle items with `:CheckmateToggle` (default: `<leader>Tt`)
-- Check items with `:CheckmateCheck` (default: `<leader>Tc`)
-- Uncheck items with `:CheckmateUncheck` (default: `<leader>Tu`)
+- Toggle items with `:Checkmate toggle` (default: `<leader>Tt`)
+- Check items with `:Checkmate check` (default: `<leader>Tc`)
+- Uncheck items with `:Checkmate uncheck` (default: `<leader>Tu`)
 - Select multiple items in visual mode and use the same commands
-- Archive completed todos with `:CheckmateArchive` (default: `<leader>Ta`)
+- Archive completed todos with `:Checkmate archive` (default: `<leader>Ta`)
 
 Enhance your todos with custom |checkmate-metadata| with quick keymaps!
 
+The Checkmate buffer is **saved as regular Markdown** which means it’s
+compatible with any Markdown editor!
 
-  [!NOTE] The Checkmate buffer is saved as regular Markdown!
+
+
 
 ==============================================================================
 3. Commands                                               *checkmate-commands*
 
 
-                                                *checkmate-:CheckmateToggle*
+  [!WARNING] The top-level commands such as `:CheckmateToggle`,
+  `:CheckmateArchive`, etc. have been deprecated and will be removed in upcoming
+  release. Use the subcommands or public API below.
+
+USER COMMANDS
+
+`:Checkmate [subcommand]`
+
+  --------------------------------------------------------------------------------
+  subcommand                           Description
+  ------------------------------------ -------------------------------------------
+  archive                              Archive all checked todo items in the
+                                       buffer. See api archive()
+
+  check                                Mark the todo item under the cursor as
+                                       checked. See api check()
+
+  create                               Create a new todo item at the current line
+                                       or line below if a todo already exists. In
+                                       visual mode, convert each line to a todo
+                                       item. See api create()
+
+  lint                                 Lint this buffer for Checkmate formatting
+                                       issues. See api lint()
+
+  metadata add                         Add a metadata tag to the todo under the
+                                       cursor or within the selection. Usage:
+                                       :Checkmate metadata add <key> [value]. See
+                                       api add_metadata(key, value)
+
+  metadata jump_next                   Move the cursor to the next metadata tag
+                                       for the todo item under the cursor. See api
+                                       jump_next_metadata()
+
+  metadata jump_previous               Move the cursor to the previous metadata
+                                       tag for the todo item under the cursor. See
+                                       api jump_previous_metadata()
+
+  metadata remove                      Remove a specific metadata tag from the
+                                       todo under the cursor or within the
+                                       selection. Usage:
+                                       :Checkmate metadata remove <key>. See api
+                                       remove_metadata(key)
+
+  metadata select_value                Select a value from the ‘choices’ option
+                                       for the metadata tag under the cursor. See
+                                       api select_metadata_value()
+
+  metadata toggle                      Toggle a metadata tag on/off for the todo
+                                       under the cursor or within the selection.
+                                       Usage:
+                                       :Checkmate metadata toggle <key> [value].
+                                       See api toggle_metadata(key, value)
+
+  remove_all_metadata                  Remove all metadata tags from the todo
+                                       under the cursor or within the selection.
+                                       See api remove_all_metadata()
+
+  toggle                               Toggle the todo item under the cursor
+                                       (normal mode) or all todo items within the
+                                       selection (visual mode). See api toggle()
+
+  uncheck                              Mark the todo item under the cursor as
+                                       unchecked. See api uncheck()
+  --------------------------------------------------------------------------------
+Legacy commands (deprecated) ~
 
 
-:CheckmateToggle                       Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+                                                 *checkmate-CheckmateToggle*
 
 
-                                                *checkmate-:CheckmateCreate*
+CheckmateToggle                        Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
 
-:CheckmateCreate                       Convert the current line to a todo item
+                                                 *checkmate-CheckmateCreate*
 
 
-                                                 *checkmate-:CheckmateCheck*
+CheckmateCreate                        Convert the current line to a todo item
 
 
-:CheckmateCheck                        Mark todo item as checked (done/completed) in normal or visual mode
+                                                  *checkmate-CheckmateCheck*
 
 
-                                               *checkmate-:CheckmateUncheck*
+CheckmateCheck                         Mark todo item as checked (done/completed) in normal or visual mode
 
 
-:CheckmateUncheck                      Mark todo item as unchecked in normal or visual mode
+                                                *checkmate-CheckmateUncheck*
 
 
-                                     *checkmate-:CheckmateRemoveAllMetadata*
+CheckmateUncheck                       Mark todo item as unchecked in normal or visual mode
 
 
-:CheckmateRemoveAllMetadata            Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+                                      *checkmate-CheckmateRemoveAllMetadata*
 
 
-                                               *checkmate-:CheckmateArchive*
+CheckmateRemoveAllMetadata             Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
 
-:CheckmateArchive                      Reorganize checked/completed todo items to the bottom section
+                                                *checkmate-CheckmateArchive*
 
 
-                                                  *checkmate-:CheckmateLint*
+CheckmateArchive                       Reorganize checked/completed todo items to the bottom section
 
 
-:CheckmateLint                         Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+                                                   *checkmate-CheckmateLint*
+
+
+CheckmateLint                          Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+
+
+
+
 
 
 
@@ -225,9 +339,18 @@ Config definitions/annotations ~
     ---Logging settings
     ---@field log checkmate.LogSettings
     ---
+    ---Define the keymap as a dict-style table or a sequence of { rhs, desc, { modes } }
+    ---See `h: vim.set.keymap` for how 'rhs' is treated, including being able to pass a Lua function directly
+    ---Default modes is {"n"}
+    ---@alias checkmate.KeymapConfig {rhs: string|function, desc?: string, modes?: string[]} | table<integer, any>
+    ---
     ---Keymappings (false to disable)
+    ---
+    ---Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
+    ---
+    ---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
     ---Note: mappings for metadata are set separately in the `metadata` table
-    ---@field keys ( table<string, checkmate.Action>| false )
+    ---@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
     ---
     ---Characters for todo markers (checked and unchecked)
     ---@field todo_markers checkmate.TodoMarkers
@@ -235,7 +358,9 @@ Config definitions/annotations ~
     ---Default list item marker to be used when creating new Todo items
     ---@field default_list_marker "-" | "*" | "+"
     ---
-    ---Highlight settings (override merge with defaults)
+    ---@field ui? checkmate.UISettings
+    ---
+    ---Highlight settings (merges with defaults, user config takes precedence)
     ---Default style will attempt to integrate with current colorscheme (experimental)
     ---May need to tweak some colors to your liking
     ---@field style checkmate.StyleSettings?
@@ -247,7 +372,7 @@ Config definitions/annotations ~
     --- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
     ---@field todo_action_depth integer
     ---
-    ---Enter insert mode after `:CheckmateCreate`, require("checkmate").create()
+    ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
     ---@field enter_insert_after_new boolean
     ---
     ---Options for smart toggle behavior
@@ -262,6 +387,9 @@ Config definitions/annotations ~
     ---Enable/disable the todo count indicator (shows number of sub-todo items completed)
     ---@field show_todo_count boolean
     ---
+    ---Options for todo count indicator position
+    ---@alias checkmate.TodoCountPosition "eol" | "inline"
+    ---
     ---Position to show the todo count indicator (if enabled)
     --- `eol` = End of the todo item line
     --- `inline` = After the todo marker, before the todo item text
@@ -275,30 +403,33 @@ Config definitions/annotations ~
     ---@field todo_count_recursive boolean
     ---
     ---Whether to register keymappings defined in each metadata definition. If set the false,
-    ---metadata actions (insert/remove) would need to be called programatically or otherwise mapped manually
+    ---metadata actions need to be called programatically or otherwise mapped manually
     ---@field use_metadata_keymaps boolean
     ---
     ---Custom @tag(value) fields that can be toggled on todo items
-    ---To add custom metadata tag, simply add a field and props to this metadata table and it
-    ---will be merged with defaults.
+    ---To add custom metadata tag, add a new field to this table with the metadata properties
+    ---
+    ---Note: When setting metadata in config, entire metadata entries are replaced,
+    ---not deep-merged. To modify only specific fields of default metadata,
+    ---you will need to manually merge the default implementation.
     ---@field metadata checkmate.Metadata
     ---
-    ---@field archive checkmate.ArchiveSettings? -- Settings for the archived todos section
+    ---Settings for the archived todos section
+    ---@field archive checkmate.ArchiveSettings?
     ---
     ---Config for the linter
     ---@field linter checkmate.LinterConfig?
     ---
     ---Turn off treesitter highlights (on by default)
+    ---Buffer local
     ---See `:h treesitter-highlight`
     ---@field disable_ts_highlights? boolean
     
     -----------------------------------------------------
     
     ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
-    ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive"
-    
-    ---Options for todo count indicator position
-    ---@alias checkmate.TodoCountPosition "eol" | "inline"
+    ---@deprecated TODO: remove v0.10
+    ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
     
     -----------------------------------------------------
     
@@ -307,7 +438,6 @@ Config definitions/annotations ~
     ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
     ---
     --- Should print log output to a file
-    --- Open with `:Checkmate debug_file`
     ---@field use_file boolean
     ---
     --- The default path on-disk where log files will be written to.
@@ -315,7 +445,7 @@ Config definitions/annotations ~
     ---@field file_path string?
     ---
     --- Should print log output to a scratch buffer
-    --- Open with `require("checkmate").debug_log()`
+    --- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
     ---@field use_buffer boolean
     
     -----------------------------------------------------
@@ -323,6 +453,7 @@ Config definitions/annotations ~
     --- The text string used for todo markers is expected to be 1 character length.
     --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
     ---@class checkmate.TodoMarkers
+    ---
     ---Character used for unchecked items
     ---@field unchecked string
     ---
@@ -331,7 +462,18 @@ Config definitions/annotations ~
     
     -----------------------------------------------------
     
+    ---@class checkmate.UISettings
+    ---
+    ---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
+    ---Default behavior: attempt to use an installed plugin, if found
+    ---If false, will default to vim.ui.select
+    ---If a function is passed, will use this picker implementation
+    ---@field picker? checkmate.Picker
+    
+    -----------------------------------------------------
+    
     ---@class checkmate.SmartToggleSettings
+    ---
     ---Whether to enable smart toggle behavior
     ---Default: true
     ---@field enabled boolean?
@@ -364,6 +506,10 @@ Config definitions/annotations ~
     
     -----------------------------------------------------
     
+    --- Style
+    
+    ---@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
+    ---
     ---@alias checkmate.StyleKey
     ---| "list_marker_unordered"
     ---| "list_marker_ordered"
@@ -375,82 +521,87 @@ Config definitions/annotations ~
     ---| "checked_additional_content"
     ---| "todo_count_indicator"
     
+    ---@alias checkmate.HighlightGroup
+    ---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
+    ---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
+    ---| "CheckmateUncheckedMarker" -- unchecked markers (□)
+    ---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
+    ---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+    ---| "CheckmateCheckedMarker" -- checked markers (✔)
+    ---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
+    ---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+    ---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
+    
     ---Customize the style of markers and content
-    ---@class checkmate.StyleSettings : table<checkmate.StyleKey, vim.api.keyset.highlight>
-    ---
-    ---Highlight settings for unordered list markers (-,+,*)
-    ---@field list_marker_unordered vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for ordered (numerical) list markers (1.,2.)
-    ---@field list_marker_ordered vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for unchecked markers
-    ---@field unchecked_marker vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for main content of unchecked todo items
-    ---This is typically the first line/paragraph
-    ---@field unchecked_main_content vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for additional content of unchecked todo items
-    ---This is the content below the first line/paragraph
-    ---@field unchecked_additional_content vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for checked markers
-    ---@field checked_marker vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for main content of checked todo items
-    ---This is typically the first line/paragraph
-    ---@field checked_main_content vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for additional content of checked todo items
-    ---This is the content below the first line/paragraph
-    ---@field checked_additional_content vim.api.keyset.highlight?
-    ---
-    ---Highlight settings for the todo count indicator (e.g. x/x)
-    ---@field todo_count_indicator vim.api.keyset.highlight?
+    ---@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
     
     -----------------------------------------------------
     
+    --- Metadata
+    
     ---A table of canonical metadata tag names and associated properties that define the look and function of the tag
+    ---
+    ---A 'canonical' name is the main lookup name for a metadata tag; additional 'aliases' can be used that point to this name
     ---@alias checkmate.Metadata table<string, checkmate.MetadataProps>
     
     ---@class checkmate.MetadataProps
+    ---
     ---Additional string values that can be used interchangably with the canonical tag name.
     ---E.g. @started could have aliases of `{"initiated", "began"}` so that @initiated and @began could
     ---also be used and have the same styling/functionality
-    ---@field aliases string[]?
+    ---@field aliases? string[]
     ---
-    ---Highlight settings or function that returns highlight settings based on the metadata's current value
-    ---@field style vim.api.keyset.highlight|fun(value:string):vim.api.keyset.highlight
+    ---@alias checkmate.StyleFn
+    ---| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
+    ---| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+    ---
+    ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
+    ---@field style? vim.api.keyset.highlight|checkmate.StyleFn
+    ---
+    ---@alias checkmate.GetValueFn fun(context?: checkmate.MetadataContext):string
     ---
     ---Function that returns the default value for this metadata tag
-    ---@field get_value fun():string
+    ---i.e. what is used after insertion
+    ---@field get_value? checkmate.GetValueFn
     ---
-    ---Keymapping for toggling this metadata tag
-    ---@field key string?
+    ---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+    ---
+    ---Values that are populated during completion or select pickers
+    ---Can be either:
+    --- - An array of items (string[])
+    --- - A function that returns items
+    ---@field choices? string[]|checkmate.ChoicesFn
+    ---
+    ---Keymapping for toggling (adding/removing) this metadata tag
+    ---Can also pass a tuple (key, desc) to include a description
+    ---@field key? string|string[]
     ---
     ---Used for displaying metadata in a consistent order
-    ---@field sort_order integer?
+    ---@field sort_order? integer
     ---
     ---Moves the cursor to the metadata after it is inserted
     ---  - "tag" - moves to the beginning of the tag
     ---  - "value" - moves to the beginning of the value
     ---  - false - disables jump (default)
-    ---@field jump_to_on_insert "tag" | "value" | false?
+    ---@field jump_to_on_insert? "tag" | "value" | false
     ---
     ---Selects metadata text in visual mode after metadata is inserted
     ---The `jump_to_on_insert` field must be set (not false)
     ---The selected text will be the tag or value, based on jump_to_on_insert setting
     ---Default (false) - off
-    ---@field select_on_insert boolean?
+    ---@field select_on_insert? boolean
     ---
     ---Callback to run when this metadata tag is added to a todo item
     ---E.g. can be used to change the todo item state
-    ---@field on_add fun(todo_item: checkmate.TodoItem)?
+    ---@field on_add? fun(todo_item: checkmate.TodoItem)
     ---
     ---Callback to run when this metadata tag is removed from a todo item
     ---E.g. can be used to change the todo item state
-    ---@field on_remove fun(todo_item: checkmate.TodoItem)?
+    ---@field on_remove? fun(todo_item: checkmate.TodoItem)
+    ---
+    ---Callback to run when this metadata tag's value is changed (not on initial add or removal)
+    ---Receives the todo item, old value, and new value
+    ---@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
     
     -----------------------------------------------------
     
@@ -500,7 +651,7 @@ DEFAULTS ~
 
 >lua
     ---@type checkmate.Config
-    local _DEFAULTS = {
+    local defaults = {
       enabled = true,
       notify = true,
       -- Default file matching:
@@ -522,19 +673,58 @@ DEFAULTS ~
       },
       -- Default keymappings
       keys = {
-        ["<leader>Tt"] = "toggle", -- Toggle todo item
-        ["<leader>Tc"] = "check", -- Set todo item as checked (done)
-        ["<leader>Tu"] = "uncheck", -- Set todo item as unchecked (not done)
-        ["<leader>Tn"] = "create", -- Create todo item
-        ["<leader>TR"] = "remove_all_metadata", -- Remove all metadata from a todo item
-        ["<leader>Ta"] = "archive", -- Archive checked/completed todo items (move to bottom section)
+        ["<leader>Tt"] = {
+          rhs = "<cmd>Checkmate toggle<CR>",
+          desc = "Toggle todo item",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tc"] = {
+          rhs = "<cmd>Checkmate check<CR>",
+          desc = "Set todo item as checked (done)",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tu"] = {
+          rhs = "<cmd>Checkmate uncheck<CR>",
+          desc = "Set todo item as unchecked (not done)",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tn"] = {
+          rhs = "<cmd>Checkmate create<CR>",
+          desc = "Create todo item",
+          modes = { "n", "v" },
+        },
+        ["<leader>TR"] = {
+          rhs = "<cmd>Checkmate remove_all_metadata<CR>",
+          desc = "Remove all metadata from a todo item",
+          modes = { "n", "v" },
+        },
+        ["<leader>Ta"] = {
+          rhs = "<cmd>Checkmate archive<CR>",
+          desc = "Archive checked/completed todo items (move to bottom section)",
+          modes = { "n" },
+        },
+        ["<leader>Tv"] = {
+          rhs = "<cmd>Checkmate metadata select_value<CR>",
+          desc = "Update the value of a metadata tag under the cursor",
+          modes = { "n" },
+        },
+        ["<leader>T]"] = {
+          rhs = "<cmd>Checkmate metadata jump_next<CR>",
+          desc = "Move cursor to next metadata tag",
+          modes = { "n" },
+        },
+        ["<leader>T["] = {
+          rhs = "<cmd>Checkmate metadata jump_previous<CR>",
+          desc = "Move cursor to previous metadata tag",
+          modes = { "n" },
+        },
       },
       default_list_marker = "-",
       todo_markers = {
         unchecked = "□",
         checked = "✔",
       },
-      style = {},
+      style = {}, -- override defaults
       todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
       enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
       smart_toggle = {
@@ -551,8 +741,8 @@ DEFAULTS ~
       metadata = {
         -- Example: A @priority tag that has dynamic color based on the priority value
         priority = {
-          style = function(_value)
-            local value = _value:lower()
+          style = function(context)
+            local value = context.value:lower()
             if value == "high" then
               return { fg = "#ff5555", bold = true }
             elseif value == "medium" then
@@ -565,6 +755,9 @@ DEFAULTS ~
           end,
           get_value = function()
             return "medium" -- Default priority
+          end,
+          choices = function()
+            return { "low", "medium", "high" }
           end,
           key = "<leader>Tp",
           sort_order = 10,
@@ -604,7 +797,7 @@ DEFAULTS ~
           level = 2, -- e.g. ##
         },
         parent_spacing = 0, -- no extra lines between archived todos
-        newest_first = true
+        newest_first = true,
       },
       linter = {
         enabled = true,
@@ -612,19 +805,90 @@ DEFAULTS ~
     }
 <
 
-Note: `checkmate.StyleSettings` uses highlight definition maps to define the
-colors/style, refer to |nvim_set_hl()|
+
+  [!WARNING] Multi-character todo markers are not currently supported but _may_
+  work. For consistent behavior, recommend using a single character.
+
+KEYMAPPING                                       *checkmate-config-keymapping*
+
+Default keymaps can be disabled by setting `keys = false`.
+
+As of version 0.9, the `checkmate.Action` string has been deprecated and will
+be removed in next release.
+
+Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?,
+modes?}`.
+
+>lua
+    keys = {
+      ["<leader>Ta"] = {
+          rhs = "<cmd>Checkmate archive<CR>",
+          desc = "Archive todos",
+          modes = { "n" },
+      },
+    }
+<
+
+or
+
+>lua
+    keys = {
+      ["<leader>Ta"] = {"<cmd>Checkmate archive<CR>", "Archive todos", {"n"} }
+    }
+<
+
+The `rhs` parameter follows |vim.keymap.set()| and can be a string or Lua
+function.
 
 
 STYLING                                             *checkmate-config-styling*
 
-As of version 0.6, default styles are calculated based on the current
-_colorscheme_. This attempts to provide reasonable out-of-the-box defaults
-based on colorscheme-defined hl groups and contrast ratios.
+Default styles are calculated based on the current _colorscheme_. This attempts
+to provide reasonable out-of-the-box defaults based on colorscheme-defined hl
+groups and contrast ratios.
 
-Individual styles can still be overriden using the same `config.style` table
-and passing a 'highlight definition map' according to |nvim_set_hl()| and
-`vim.api.keyset.highlight`.
+Individual styles can still be overriden using the `style` option and passing a
+'highlight definition map' according to |nvim_set_hl()| and
+`vim.api.keyset.highlight` for the desired highlight group (see below).
+
+
+HIGHLIGHT GROUPS ~
+
+  ------------------------------------------------------------------------------
+  hl_group                              description
+  ------------------------------------- ----------------------------------------
+  CheckmateListMarkerUnordered          Unordered list markers, e.g. -,*, and +.
+                                        (Only those associated with a todo)
+
+  CheckmateListMarkerOrdered            Ordered list markers, e.g. 1., 2). (Only
+                                        those associated with a todo)
+
+  CheckmateUncheckedMarker              Unchecked todo marker, e.g. □. See
+                                        todo_markers option
+
+  CheckmateUncheckedMainContent         The main content of an unchecked todo
+                                        (typically the first line)
+
+  CheckmateUncheckedAdditionalContent   Additional content for an unchecked todo
+                                        (below the first line, including nested
+                                        non-todo content)
+
+  CheckmateCheckedMarker                Checked todo marker, e.g. ✔. See
+                                        todo_markers option
+
+  CheckmateCheckedMainContent           The main content of a checked todo
+                                        (typically the first line)
+
+  CheckmateCheckedAdditionalContent     Additional content for a checked todo
+                                        (below the first line, including nested
+                                        non-todo content)
+
+  CheckmateTodoCountIndicator           The todo count indicator, e.g. 1/4,
+                                        shown on the todo line, if enabled. See
+                                        show_todo_count option
+  ------------------------------------------------------------------------------
+Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag
+name and style.
 
 
 EXAMPLE: CHANGE THE CHECKED MARKER TO A BOLD GREEN ~
@@ -632,73 +896,9 @@ EXAMPLE: CHANGE THE CHECKED MARKER TO A BOLD GREEN ~
 >lua
     opts = {
         style = {
-            checked_marker = { fg = "#7bff4f", bold = true}
+            CheckmateCheckedMarker = { fg = "#7bff4f", bold = true}
         }
     }
-<
-
-
-  [!WARN] Multi-character todo markers are not currently supported but _may_
-  work. For consistent behavior, recommend using a single character.
-
-METADATA                                           *checkmate-config-metadata*
-
-Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
-
-
-
-- Default tags:
-    - `@started` - default value is the current date/time
-    - `@done` - default value is the current date/time
-    - `@priority` - "low" | "medium" (default) | "high"
-
-
-@PRIORITY EXAMPLE
-
->lua
-    priority = {
-      -- Dynamic styling based on the tag's current value
-      style = function(value)
-        local value = value:lower()
-        if value == "high" then
-          return { fg = "#ff5555", bold = true }
-        elseif value == "medium" then
-          return { fg = "#ffb86c" }
-        elseif value == "low" then
-          return { fg = "#8be9fd" }
-        else -- fallback
-          return { fg = "#8be9fd" }
-        end
-      end,
-      get_value = function() return "medium" end,  -- Default value
-      key = "<leader>Tp",                          -- Keymap to toggle
-      sort_order = 10,                             -- Order when multiple tags exist (lower comes first)
-      jump_to_on_insert = "value",                 -- Move the cursor after insertion
-      select_on_insert = true                      -- Select the 'value' (visual mode) on insert
-    },
-<
-
-
-@DONE EXAMPLE
-
->lua
-    done = {
-      aliases = { "completed", "finished" },
-      style = { fg = "#96de7a" },
-      get_value = function()
-        return tostring(os.date("%m/%d/%y %H:%M"))
-      end,
-      key = "<leader>Td",
-      -- Changes todo state when tag is added
-      on_add = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "checked")
-      end,
-      -- Changes todo state when tag is removed
-      on_remove = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "unchecked")
-      end,
-      sort_order = 30,
-    },
 <
 
 
@@ -732,8 +932,7 @@ Todo count indicator using recursive option. The children of 'Sub-task 3' are
 included in the overall count of 'Big important task'.
 
 
-==============================================================================
-5. Smart Toggle                                       *checkmate-smart-toggle*
+SMART TOGGLE                                   *checkmate-config-smart-toggle*
 
 Smart toggle provides intelligent parent-child todo state propagation. When you
 toggle a todo item, it can automatically update related todos based on your
@@ -766,6 +965,34 @@ the behavior:
 <
 
 
+
+
+==============================================================================
+5. Metadata                                               *checkmate-metadata*
+
+Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
+
+
+
+- Default tags:
+    - `@started` - default value is the current date/time
+    - `@done` - default value is the current date/time
+    - `@priority` - "low" | "medium" (default) | "high"
+
+The default tags are not deeply merged in order to avoid unexpected behavior.
+If you wish to modify a default metadata, you should copy the default
+implementation.
+
+By configuring a metadata’s `choices` option, you can populate your own lists
+of metadata values for powerful workflows, e.g. project file names, Git
+branches, PR’s, issues, etc., team member names, external APIs, etc.
+
+For in-depth guide and recipes for custom metadata, see the Wiki
+<https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata> page.
+
+
+
+
 ==============================================================================
 6. Archiving                                             *checkmate-archiving*
 
@@ -773,7 +1000,7 @@ Allows you to easily reorganize the buffer by moving all checked/completed todo
 items to a Markdown section beneath all other content. The unchecked todos are
 reorganized up top and spacing is adjusted.
 
-See `CheckmateArchive` command or `require("checkmate").archive()`
+See `Checkmate archive` command or `require("checkmate").archive()`
 
 
   Current behavior (could be adjusted in the future): a checked todo item that is
@@ -832,8 +1059,27 @@ E.g. `parent_spacing = 1`
 <
 
 
+
+
 ==============================================================================
-7. Linting                                                 *checkmate-linting*
+7. Integrations                                       *checkmate-integrations*
+
+Please see Wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
+additional details/recipes.
+
+  -----------------------------------------------------------------------
+  integration                                 capable?
+  ------------------------------------------- ---------------------------
+  render-markdown                             wiki
+
+  scratch buffer/floating window for quick    wiki
+  todos, e.g. snacks.nvim                     
+  -----------------------------------------------------------------------
+
+
+
+==============================================================================
+8. Linting                                                 *checkmate-linting*
 
 Checkmate uses a _very_ limited custom linter in order require zero
 dependencies but attempt to warn the user of Markdown (CommonMark spec)
@@ -877,8 +1123,10 @@ disable the linter (default is enabled) via config:
 <
 
 
+
+
 ==============================================================================
-8. Roadmap                                                 *checkmate-roadmap*
+9. Roadmap                                                 *checkmate-roadmap*
 
 Planned features:
 
@@ -888,30 +1136,33 @@ Planned features:
     items. _Added v0.3.0_
 - **Archiving** - manually or automatically move completed items to the bottom of
     the document. _Added v0.7.0_ (experimental)
-- Smart toggling - toggle all children checked if a parent todo is checked.
+- **Smart toggling** - toggle all children checked if a parent todo is checked.
     Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_
+- **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
 - Sorting API - user can register custom sorting functions and keymap them so
     that sibling todo items can be reordered quickly. e.g. `function(todo_a,
     todo_b)` should return an integer, and where todo_a/todo_b is a table
     containing data such as checked state and metadata tag/values
-- Distinguish todo siblings - highlighting feature that applies slightly
-    different colors to siblings to better differentiate them
+
+
 
 
 ==============================================================================
-9. Contributing                                       *checkmate-contributing*
+10. Contributing                                      *checkmate-contributing*
 
 If you have feature suggestions or ideas, please feel free to open an issue on
 GitHub!
 
 
+
+
 ==============================================================================
-10. Credits                                                *checkmate-credits*
+11. Credits                                                *checkmate-credits*
 
 - Inspired by the Todo+ <https://github.com/fabiospampinato/vscode-todo-plus> VS Code extension (credit to @fabiospampinato <https://github.com/fabiospampinato>)
 
 ==============================================================================
-11. Links                                                    *checkmate-links*
+12. Links                                                    *checkmate-links*
 
 1. *@started*: 
 2. *@done*: 

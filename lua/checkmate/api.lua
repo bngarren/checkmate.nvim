@@ -45,8 +45,6 @@ end
 
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
   if not M.is_valid_buffer(bufnr) then
     return false
   end

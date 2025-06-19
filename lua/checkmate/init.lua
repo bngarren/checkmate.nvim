@@ -19,6 +19,8 @@ local M = {}
 
 --- internal
 
+local user_opts = {}
+
 local state = {
   initialized = false,
   running = false,
@@ -122,6 +124,8 @@ end
 ---@return boolean success
 M.setup = function(opts)
   local config = require("checkmate.config")
+
+  user_opts = opts or {}
 
   -- reload if config has changed
   if M.is_initialized() then
@@ -289,6 +293,20 @@ function M._setup_existing_markdown_buffers()
 end
 
 -- PUBLIC API --
+
+-- Globally disables/deactivates Checkmate for all buffers
+function M.disable()
+  local cfg = require("checkmate.config")
+  cfg.options.enabled = false
+  M.stop()
+end
+
+-- Starts/activates Checkmate
+function M.enable()
+  local cfg = require("checkmate.config")
+  cfg.options.enabled = true
+  M.setup(user_opts)
+end
 
 ---Toggle todo item(s) state under cursor or in visual selection
 ---

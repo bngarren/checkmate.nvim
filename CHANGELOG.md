@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.0](https://github.com/bngarren/checkmate.nvim/compare/v0.8.4...v0.9.0) (2025-06-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** no longer apply default metadata props to a modified default metadata in config ([#95](https://github.com/bngarren/checkmate.nvim/issues/95))
+
+### Features
+
+* improved keymapping config, deprecated checkmate.Action ([#119](https://github.com/bngarren/checkmate.nvim/issues/119)) ([899337b](https://github.com/bngarren/checkmate.nvim/commit/899337b350d2604ae7bb1dc46b7554271716a89d))
+* new features for metadata ([#116](https://github.com/bngarren/checkmate.nvim/issues/116)) ([116b272](https://github.com/bngarren/checkmate.nvim/commit/116b272f13e484e1794a9a74927e46da30139c66))
+* simplify highlight groups and style configuration ([#124](https://github.com/bngarren/checkmate.nvim/issues/124)) ([ea73174](https://github.com/bngarren/checkmate.nvim/commit/ea73174c69fb62156edf55ee89726f12d6602709))
+* updated user commands to use nested subcommands ([#109](https://github.com/bngarren/checkmate.nvim/issues/109)) ([8b87942](https://github.com/bngarren/checkmate.nvim/commit/8b87942a9ecaeed09502f2ccd6db7a8dffd48a86))
+
+
+### Bug Fixes
+
+* **config:** no longer apply default metadata props to a modified default metadata in config ([#95](https://github.com/bngarren/checkmate.nvim/issues/95)) ([1d68a40](https://github.com/bngarren/checkmate.nvim/commit/1d68a40388d4b8307a30ddf64baa0eaf34f98199))
+* fixes bugs with sync/async processing of metadata 'choices' fn ([#121](https://github.com/bngarren/checkmate.nvim/issues/121)) ([22a9157](https://github.com/bngarren/checkmate.nvim/commit/22a91576691b55146301b5c365c9f203371d1fe6))
+* **highlights:** ensures treesitter markdown highlights are ON by default ([#115](https://github.com/bngarren/checkmate.nvim/issues/115)) ([d289ebe](https://github.com/bngarren/checkmate.nvim/commit/d289ebe1cc6e2d9d8d8849c6631ff5d1db31e943))
+* pre release fixes ([d62dcb3](https://github.com/bngarren/checkmate.nvim/commit/d62dcb3483c07c078096d4e0106dbcac074e5a89))
+* various bug fixes ([#117](https://github.com/bngarren/checkmate.nvim/issues/117)) ([116b272](https://github.com/bngarren/checkmate.nvim/commit/116b272f13e484e1794a9a74927e46da30139c66))
+
 ## [0.8.4](https://github.com/bngarren/checkmate.nvim/compare/v0.8.3...v0.8.4) (2025-06-15)
 
 

@@ -294,12 +294,14 @@ end
 
 -- PUBLIC API --
 
+-- Globally disables/deactivates Checkmate for all buffers
 function M.disable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = false
   M.stop()
 end
 
+-- Starts/activates Checkmate
 function M.enable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = true

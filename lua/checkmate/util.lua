@@ -104,6 +104,15 @@ function M.get_hl_color(hl_group, prop, default)
   return default
 end
 
+---@return string trimmed
+---@return number count
+function M.trim_trailing(line)
+  if not line or #line == 0 then
+    return "", 0
+  end
+  return line:gsub("(%s+)$", "")
+end
+
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
 --
 -- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,

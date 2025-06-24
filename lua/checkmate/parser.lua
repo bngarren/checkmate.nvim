@@ -71,15 +71,41 @@ local METADATA_PATTERN = "@([%a][%w_%-]*)(%b())"
 M.list_item_markers = { "-", "+", "*" }
 
 local PATTERN_CACHE = {
+  list_item_with_captures = nil,
+  list_item_without_captures = nil,
+  unicode_checked_todo_with_captures = nil,
+  unicode_checked_todo_without_captures = nil,
   checked_todo = nil,
   unchecked_todo = nil,
 }
 
 function M.clear_pattern_cache()
   PATTERN_CACHE = {
+    list_item_with_captures = nil,
+    list_item_without_captures = nil,
+    unicode_checked_todo_with_captures = nil,
+    unicode_checked_todo_without_captures = nil,
     checked_todo = nil,
     unchecked_todo = nil,
   }
+end
+
+---@return string[] patterns
+function M.get_list_item_patterns(with_captures)
+  if with_captures and not PATTERN_CACHE.list_item_with_captures then
+    PATTERN_CACHE.list_item_with_captures =
+      require("checkmate.parser.helpers").create_list_item_patterns({ with_captures = true })
+  end
+  if not with_captures and not PATTERN_CACHE.list_item_without_captures then
+    PATTERN_CACHE.list_item_without_captures =
+      require("checkmate.parser.helpers").create_list_item_patterns({ with_captures = false })
+  end
+
+  if with_captures then
+    return PATTERN_CACHE.list_item_with_captures
+  else
+    return PATTERN_CACHE.list_item_without_captures
+  end
 end
 
 function M.getCheckedTodoPatterns()

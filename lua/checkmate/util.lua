@@ -123,6 +123,7 @@ end
 --
 -- @param s string: Input string to escape
 -- @return string: Escaped string safe for use inside a Lua character class
+---@deprecated
 local function escape_for_char_class(s)
   if not s or s == "" then
     return ""
@@ -157,6 +158,7 @@ end
 --   - use_numbered_list_markers: boolean (default true)
 --   - with_capture: boolean - whether to wrap the pattern in a capturing group (default true)
 ---@return string[]: A Lua pattern for matching list prefixes
+---@deprecated
 function M.create_list_prefix_patterns(opts)
   opts = opts or {}
   local simple_markers = opts.simple_markers or "-+*"
@@ -189,6 +191,7 @@ end
 -- @param patterns string[]: List of Lua patterns
 -- @param str string: Input string to test
 -- @return string|nil: The first match found, or nil if none match
+---@deprecated
 function M.match_first(patterns, str)
   for _, pat in ipairs(patterns) do
     local match = str:match(pat)
@@ -208,6 +211,7 @@ end
 --   - simple_markers: string | table (e.g., "-+*")
 --   - use_numbered_list_markers: boolean (default true)
 ---@return function(todo_marker): string[] pattern
+---@deprecated
 function M.build_todo_patterns(opts)
   opts = opts or {}
 
@@ -242,6 +246,7 @@ end
 --   - use_numbered_list_markers: boolean - Whether to include "1." or "1)" (default: true)
 --   - right_pattern: string - Pattern for content after list marker (default: "")
 ---@return string[]: A list of full patterns
+---@deprecated
 function M.build_list_pattern(opts)
   opts = opts or {}
 
@@ -259,21 +264,6 @@ function M.build_list_pattern(opts)
   end
 
   return full_patterns
-end
-
---- Builds patterns to match `- `, `* `, or other configured list markers
-function M.build_empty_list_patterns(list_item_markers)
-  return M.build_list_pattern({
-    simple_markers = list_item_markers,
-  })
-end
-
---- Builds patterns to match a Unicode todo item like `- ✔`
-function M.build_unicode_todo_patterns(list_item_markers, todo_marker)
-  return M.build_list_pattern({
-    simple_markers = list_item_markers,
-    right_pattern = escape_literal(todo_marker),
-  })
 end
 
 --- Builds patterns to match GitHub Flavored Markdown checkboxes like `- [x]` or `1. [ ]`

@@ -69,14 +69,16 @@ M.FULL_TODO_QUERY = vim.treesitter.query.parse(
 local METADATA_PATTERN = "@([%a][%w_%-]*)(%b())"
 
 M.list_item_markers = { "-", "+", "*" }
+M.markdown_checked_checkbox = "%[[xX]%]"
+M.markdown_unchecked_checkbox = "%[ %]"
 
 local PATTERN_CACHE = {
   list_item_with_captures = nil,
   list_item_without_captures = nil,
   unicode_checked_todo_with_captures = nil,
   unicode_checked_todo_without_captures = nil,
-  checked_todo = nil,
-  unchecked_todo = nil,
+  unicode_unchecked_todo_with_captures = nil,
+  unicode_unchecked_todo_without_captures = nil,
 }
 
 function M.clear_pattern_cache()
@@ -85,8 +87,8 @@ function M.clear_pattern_cache()
     list_item_without_captures = nil,
     unicode_checked_todo_with_captures = nil,
     unicode_checked_todo_without_captures = nil,
-    checked_todo = nil,
-    unchecked_todo = nil,
+    unicode_unchecked_todo_with_captures = nil,
+    unicode_unchecked_todo_without_captures = nil,
   }
 end
 
@@ -108,32 +110,44 @@ function M.get_list_item_patterns(with_captures)
   end
 end
 
-function M.getCheckedTodoPatterns()
-  if not PATTERN_CACHE.checked_todo then
-    local checked_marker = require("checkmate.config").options.todo_markers.checked
-    local util = require("checkmate.util")
-    ---@type fun(marker: string): string[]
-    local build_patterns = util.build_todo_patterns({
-      simple_markers = M.list_item_markers,
-      use_numbered_list_markers = true,
-    })
-    PATTERN_CACHE.checked_todo = build_patterns(checked_marker)
+---@param with_captures? boolean (default false) Whether to include capture groups in the pattern. See `create_unicode_todo_patterns`
+---@return string[] patterns
+function M.get_unicode_checked_todo_patterns(with_captures)
+  if with_captures and not PATTERN_CACHE.unicode_checked_todo_with_captures then
+    local checked = require("checkmate.config").options.todo_markers.checked
+    PATTERN_CACHE.unicode_checked_todo_with_captures =
+      require("checkmate.parser.helpers").create_unicode_todo_patterns(checked, { with_captures = true })
   end
-  return PATTERN_CACHE.checked_todo
+  if not with_captures and not PATTERN_CACHE.unicode_checked_todo_without_captures then
+    local checked = require("checkmate.config").options.todo_markers.checked
+    PATTERN_CACHE.unicode_checked_todo_without_captures =
+      require("checkmate.parser.helpers").create_unicode_todo_patterns(checked, { with_captures = false })
+  end
+  if with_captures then
+    return PATTERN_CACHE.unicode_checked_todo_with_captures
+  else
+    return PATTERN_CACHE.unicode_checked_todo_without_captures
+  end
 end
 
-function M.getUncheckedTodoPatterns()
-  if not PATTERN_CACHE.unchecked_todo then
-    local unchecked_marker = require("checkmate.config").options.todo_markers.unchecked
-    local util = require("checkmate.util")
-    ---@type fun(marker: string): string[]
-    local build_patterns = util.build_todo_patterns({
-      simple_markers = M.list_item_markers,
-      use_numbered_list_markers = true,
-    })
-    PATTERN_CACHE.unchecked_todo = build_patterns(unchecked_marker)
+---@param with_captures? boolean (default false) Whether to include capture groups in the pattern. See `create_unicode_todo_patterns`
+---@return string[] patterns
+function M.get_unicode_unchecked_todo_patterns(with_captures)
+  if with_captures and not PATTERN_CACHE.unicode_unchecked_todo_with_captures then
+    local unchecked = require("checkmate.config").options.todo_markers.unchecked
+    PATTERN_CACHE.unicode_unchecked_todo_with_captures =
+      require("checkmate.parser.helpers").create_unicode_todo_patterns(unchecked, { with_captures = true })
   end
-  return PATTERN_CACHE.unchecked_todo
+  if not with_captures and not PATTERN_CACHE.unicode_unchecked_todo_without_captures then
+    local unchecked = require("checkmate.config").options.todo_markers.unchecked
+    PATTERN_CACHE.unicode_unchecked_todo_without_captures =
+      require("checkmate.parser.helpers").create_unicode_todo_patterns(unchecked, { with_captures = false })
+  end
+  if with_captures then
+    return PATTERN_CACHE.unicode_unchecked_todo_with_captures
+  else
+    return PATTERN_CACHE.unicode_unchecked_todo_without_captures
+  end
 end
 
 -- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
@@ -178,8 +192,8 @@ function M.get_todo_item_state(line)
 
   ---@type checkmate.TodoItemState
   local todo_state = nil
-  local unchecked_patterns = M.getUncheckedTodoPatterns()
-  local checked_patterns = M.getCheckedTodoPatterns()
+  local unchecked_patterns = M.get_unicode_unchecked_todo_patterns(false)
+  local checked_patterns = M.get_unicode_checked_todo_patterns(false)
 
   if util.match_first(unchecked_patterns, line) then
     todo_state = "unchecked"
@@ -202,8 +216,8 @@ function M.setup()
 
   M.todo_map_cache = {}
 
-  log.debug("Checked pattern is: " .. table.concat(M.getCheckedTodoPatterns() or {}, " , "))
-  log.debug("Unchecked pattern is: " .. table.concat(M.getUncheckedTodoPatterns() or {}, " , "))
+  log.debug("Checked pattern is: " .. table.concat(M.get_unicode_checked_todo_patterns(false) or {}, " , "))
+  log.debug("Unchecked pattern is: " .. table.concat(M.get_unicode_unchecked_todo_patterns(false) or {}, " , "))
 
   highlights.setup_highlights()
 end
@@ -290,22 +304,17 @@ end
 -- Convert Unicode symbols back to standard markdown 'task list marker' syntax
 function M.convert_unicode_to_markdown(bufnr)
   local log = require("checkmate.log")
-  local config = require("checkmate.config")
-  local util = require("checkmate.util")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
 
-  -- Build patterns
-  local unchecked = config.options.todo_markers.unchecked
-  local checked = config.options.todo_markers.checked
-
   local unchecked_patterns, checked_patterns
   local ok, err = pcall(function()
-    unchecked_patterns = util.build_unicode_todo_patterns(M.list_item_markers, unchecked)
-    checked_patterns = util.build_unicode_todo_patterns(M.list_item_markers, checked)
+    -- capture groups: 1=list prefix, 2=todo marker, 3=content
+    unchecked_patterns = M.get_unicode_unchecked_todo_patterns(true)
+    checked_patterns = M.get_unicode_checked_todo_patterns(true)
     return true
   end)
 
@@ -323,7 +332,7 @@ function M.convert_unicode_to_markdown(bufnr)
 
     for _, pattern in ipairs(unchecked_patterns) do
       ok, err = pcall(function()
-        new_line = new_line:gsub(pattern, "%1[ ]")
+        new_line = new_line:gsub(pattern, "%1[ ]%3")
         return true
       end)
 
@@ -340,7 +349,7 @@ function M.convert_unicode_to_markdown(bufnr)
 
     for _, pattern in ipairs(checked_patterns) do
       ok, err = pcall(function()
-        new_line = new_line:gsub(pattern, "%1[x]")
+        new_line = new_line:gsub(pattern, "%1[x]%3")
         return true
       end)
 

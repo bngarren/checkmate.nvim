@@ -4,6 +4,7 @@
 local M = {}
 
 --- Returns the line's leading whitespace (indentation)
+---@param line string
 ---@return string indent
 function M.get_line_indent(line)
   return line:match("^(%s*)") or ""
@@ -17,17 +18,19 @@ end
 -- Example:
 --   escape_for_char_class("-^]") → "%-%^%]"
 --
--- @param s string: Input string to escape
--- @return string: Escaped string safe for use inside a Lua character class
+---@param s string: Input string to escape
+---@return string: Escaped string safe for use inside a Lua character class
 local function escape_for_char_class(s)
   if not s or s == "" then
     return ""
   end
-  return s:gsub("([%%%^%]%-])", "%%%1")
+  local result = s:gsub("([%%%^%]%-])", "%%%1")
+  return result
 end
 
--- @param patterns string[]: List of Lua patterns
--- @param str string: Input string to test
+---@param patterns string[]: List of Lua patterns
+---@param str string: Input string to test
+---@return ...: All captured values from the first matching pattern, or nil if no match
 function M.match_first(patterns, str)
   for _, pat in ipairs(patterns) do
     local match = { str:match(pat) }
@@ -145,15 +148,61 @@ function M.create_unicode_todo_patterns(todo_marker, opts)
   if opts.with_captures == false then
     -- without capture groups
     for _, li_pattern in ipairs(list_item_patterns) do
-      table.insert(result, li_pattern .. vim.pesc(todo_marker) .. "%s+")
+      table.insert(result, li_pattern .. vim.pesc(todo_marker) .. "%s+.*$")
+      -- allow empty content
+      table.insert(result, li_pattern .. vim.pesc(todo_marker) .. "$")
     end
   else
     for _, li_pattern in ipairs(list_item_patterns) do
       li_pattern = li_pattern:gsub("^(%^)", "")
-      table.insert(result, "^(" .. li_pattern .. ")" .. "(" .. vim.pesc(todo_marker) .. ")" .. "(%s+.*)")
+      table.insert(result, "^(" .. li_pattern .. ")" .. "(" .. vim.pesc(todo_marker) .. ")" .. "(%s+.*)$")
+      -- allow empty content
+      table.insert(result, "^(" .. li_pattern .. ")" .. "(" .. vim.pesc(todo_marker) .. ")" .. "$")
     end
   end
   return result
+end
+
+--- Builds patterns to match GitHub Flavored Markdown checkboxes like `- [x]` or `1. [ ]`
+---
+--- For each list marker type we create 2 pattern variants:
+--- 1. One for checkboxes at end of line
+--- 2. One for checkboxes followed by space
+---
+--- IMPORTANT: the patterns returned have different behaviors:
+--- - EOL patterns (variant 1): Match list prefix + checkbox, captured in group 1
+--- - Space patterns (variant 2): Match list prefix + checkbox + space, but only capture prefix in group 1
+---   The trailing space is matched but NOT captured, requiring special handling in gsub replacements
+---
+---@param checkbox_pattern string Must be a Lua pattern, e.g. "%[[xX]%]" or "%[ %]"
+---@return string[] patterns List of full Lua patterns with capture group for:
+---  - 1. indentation
+---  - 2. list marker + first trailing whitespace
+---  - 3. checkbox
+function M.create_markdown_checkbox_patterns(checkbox_pattern)
+  if not checkbox_pattern or checkbox_pattern == "" then
+    error("checkbox_pattern cannot be nil or empty")
+  end
+
+  local patterns = {}
+
+  local list_patterns = M.create_list_item_patterns({
+    with_captures = true,
+  })
+
+  for _, list_pattern in ipairs(list_patterns) do
+    -- original: "^(%s*)([%-+*]%s)(.*)"
+    -- we need: "^(%s*[%-+*]%s+)" for the list prefix
+    local prefix_pattern = list_pattern:gsub("%(%.%*%)$", "") -- Remove content capture
+
+    -- Variant 1: Checkbox at end of line
+    table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. "$")
+
+    -- Variant 2: Checkbox followed by space (space not captured)
+    table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. " ")
+  end
+
+  return patterns
 end
 
 return M

@@ -357,4 +357,122 @@ describe("Parser Helpers", function()
       end
     end)
   end)
+
+  describe("create markdown checkbox patterns", function()
+    it("should create unchecked checkbox with both variants", function()
+      local parser = require("checkmate.parser")
+      local unchecked_box = ph.create_markdown_checkbox_patterns(parser.markdown_unchecked_checkbox)
+
+      local cases = {
+        {
+          "- [ ] Todo", -- line
+          0, -- indent
+          "- ", -- list marker capture (includes 1st whitespace)
+          "[ ]", -- checkbox capture
+        },
+        {
+          "1. [ ] Todo",
+          0,
+          "1. ",
+          "[ ]",
+        },
+        {
+          "  - [ ] Todo",
+          2,
+          "- ",
+          "[ ]",
+        },
+        {
+          "    1) [ ] Todo",
+          4,
+          "1) ",
+          "[ ]",
+        },
+        {
+          "- [ ]",
+          0,
+          "- ",
+          "[ ]",
+        },
+        {
+          "1. [ ]",
+          0,
+          "1. ",
+          "[ ]",
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local match = { ph.match_first(unchecked_box, case[1]) }
+        assert.is_true(#match > 0)
+        assert.equal(case[2], #match[1])
+        assert.equal(case[3], match[2])
+        assert.equal(case[4], match[3])
+      end
+
+      match = { ph.match_first(unchecked_box, "- [ ]No space") }
+      assert.is_not_true(#match > 0)
+    end)
+
+    it("should create checked checkbox with both variants", function()
+      local parser = require("checkmate.parser")
+      local checked_box = ph.create_markdown_checkbox_patterns(parser.markdown_checked_checkbox)
+
+      local cases = {
+        {
+          "- [x] Todo", -- line
+          0, -- indent
+          "- ", -- list marker capture (includes 1st whitespace)
+          "[x]", -- checkbox capture
+        },
+        {
+          "1. [x] Todo",
+          0,
+          "1. ",
+          "[x]",
+        },
+        {
+          "  - [x] Todo",
+          2,
+          "- ",
+          "[x]",
+        },
+        {
+          "    1) [x] Todo",
+          4,
+          "1) ",
+          "[x]",
+        },
+        {
+          "- [x]",
+          0,
+          "- ",
+          "[x]",
+        },
+        {
+          "1. [x]",
+          0,
+          "1. ",
+          "[x]",
+        },
+        {
+          "- [X] Todo", --uppercase
+          0,
+          "- ",
+          "[X]",
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local match = { ph.match_first(checked_box, case[1]) }
+        assert.is_true(#match > 0)
+        assert.equal(case[2], #match[1])
+        assert.equal(case[3], match[2])
+        assert.equal(case[4], match[3])
+      end
+
+      match = { ph.match_first(checked_box, "- [X]No space") }
+      assert.is_not_true(#match > 0)
+    end)
+  end)
 end)

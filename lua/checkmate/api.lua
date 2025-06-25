@@ -595,8 +595,8 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
     -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local state = parser.get_todo_item_state(cur_line)
-      if state == nil then
+      local is_todo = parser.is_todo_item(cur_line)
+      if is_todo == false then
         local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
         if new_hunks and #new_hunks > 0 then
           vim.list_extend(hunks, new_hunks)
@@ -647,30 +647,26 @@ end
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_convert_to_todo(bufnr, row)
   local config = require("checkmate.config")
-  local util = require("checkmate.util")
-  local parser = require("checkmate.parser")
+  local ph = require("checkmate.parser.helpers")
 
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
   -- existing indentation
-  local indent = line:match("^(%s*)") or ""
+  local indent = require("checkmate.util").get_line_indent(line)
 
-  -- does the line already already have a list marker
-  local list_marker = util.match_first(
-    util.create_list_prefix_patterns({
-      simple_markers = parser.list_item_markers,
-      use_numbered_list_markers = true,
-      with_capture = true,
-    }),
-    line
-  )
+  local list_item = ph.match_list_item(line)
+  local list_marker = list_item and list_item.marker
 
   local unchecked = config.options.todo_markers.unchecked
   local new_text
 
   if list_marker then
     -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
-    new_text = line:gsub("^(" .. vim.pesc(list_marker) .. ")", "%1" .. unchecked .. " ")
+    new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. unchecked)
+    -- add a space if the new line ends with the unchecked marker
+    if new_text:match(unchecked .. "$") then
+      new_text = new_text .. " "
+    end
   else
     local default_marker = config.options.default_list_marker or "-"
     new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")

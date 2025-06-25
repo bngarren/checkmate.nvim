@@ -567,8 +567,6 @@ describe("checkmate init and lifecycle", function()
     local buf2 = vim.api.nvim_get_current_buf()
     vim.bo[buf2].filetype = "markdown"
 
-    vim.print(config.options.files)
-
     local should_buf2 = file_matcher.should_activate_for_buffer(buf2, { "tasks.md" })
     print(should_buf2)
 

@@ -79,6 +79,8 @@ local PATTERN_CACHE = {
   unicode_checked_todo_without_captures = nil,
   unicode_unchecked_todo_with_captures = nil,
   unicode_unchecked_todo_without_captures = nil,
+  markdown_checked_checkbox_with_captures = nil,
+  markdown_unchecked_checkbox_with_captures = nil,
 }
 
 function M.clear_pattern_cache()
@@ -89,6 +91,8 @@ function M.clear_pattern_cache()
     unicode_checked_todo_without_captures = nil,
     unicode_unchecked_todo_with_captures = nil,
     unicode_unchecked_todo_without_captures = nil,
+    markdown_checked_checkbox_with_captures = nil,
+    markdown_unchecked_checkbox_with_captures = nil,
   }
 end
 
@@ -148,6 +152,24 @@ function M.get_unicode_unchecked_todo_patterns(with_captures)
   else
     return PATTERN_CACHE.unicode_unchecked_todo_without_captures
   end
+end
+
+---@return string[] patterns
+function M.get_markdown_checked_checkbox_patterns()
+  if not PATTERN_CACHE.markdown_checked_checkbox_with_captures then
+    PATTERN_CACHE.markdown_checked_checkbox_with_captures =
+      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(M.markdown_checked_checkbox)
+  end
+  return PATTERN_CACHE.markdown_checked_checkbox_with_captures
+end
+
+---@return string[] patterns
+function M.get_markdown_unchecked_checkbox_patterns()
+  if not PATTERN_CACHE.markdown_unchecked_checkbox_with_captures then
+    PATTERN_CACHE.markdown_unchecked_checkbox_with_captures =
+      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(M.markdown_unchecked_checkbox)
+  end
+  return PATTERN_CACHE.markdown_unchecked_checkbox_with_captures
 end
 
 -- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
@@ -234,9 +256,8 @@ function M.convert_markdown_to_unicode(bufnr)
   local modified = false
   local original_modified = vim.bo[bufnr].modified
 
-  -- build patterns once
-  local unchecked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[ %]")
-  local checked_patterns = util.build_markdown_checkbox_patterns(M.list_item_markers, "%[[xX]%]")
+  local md_unchecked_patterns = M.get_markdown_unchecked_checkbox_patterns()
+  local md_checked_patterns = M.get_markdown_checked_checkbox_patterns()
   local unchecked = config.options.todo_markers.unchecked
   local checked = config.options.todo_markers.checked
 
@@ -258,24 +279,26 @@ function M.convert_markdown_to_unicode(bufnr)
     -- this was the best way I could find to match `- [ ]` but not `- [ ]this`
     -- i.e., if the [ ] is not at EOL, there must be a space, otherwise no space is needed
 
+    -- capture groups: 1. indent 2. list marker + 1st whitespace 3. checkbox
+
     -- unchecked replacements
-    for _, pat in ipairs(unchecked_patterns) do
+    for _, pat in ipairs(md_unchecked_patterns) do
       if pat:sub(-1) == " " then
         -- pattern ends with space (variant 2), so add it back in replacement
-        new_line = new_line:gsub(pat, "%1" .. unchecked .. " ")
+        new_line = new_line:gsub(pat, "%1%2" .. unchecked .. " ")
       else
         -- pattern ends with $, no space needed
-        new_line = new_line:gsub(pat, "%1" .. unchecked)
+        new_line = new_line:gsub(pat, "%1%2" .. unchecked)
       end
     end
 
     -- checked replacements
-    for _, pat in ipairs(checked_patterns) do
+    for _, pat in ipairs(md_checked_patterns) do
       if pat:sub(-1) == " " then
         -- same as unchecked, above
-        new_line = new_line:gsub(pat, "%1" .. checked .. " ")
+        new_line = new_line:gsub(pat, "%1%2" .. checked .. " ")
       else
-        new_line = new_line:gsub(pat, "%1" .. checked)
+        new_line = new_line:gsub(pat, "%1%2" .. checked)
       end
     end
 

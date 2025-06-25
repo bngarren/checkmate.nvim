@@ -3,31 +3,6 @@
 
 local M = {}
 
---- Returns the line's leading whitespace (indentation)
----@param line string
----@return string indent
-function M.get_line_indent(line)
-  return line:match("^(%s*)") or ""
-end
-
---- Escapes special characters in a string for safe use in a Lua pattern character class.
---
--- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,
--- since characters like `-`, `]`, `^`, and `%` have special meaning inside `[]`.
---
--- Example:
---   escape_for_char_class("-^]") → "%-%^%]"
---
----@param s string: Input string to escape
----@return string: Escaped string safe for use inside a Lua character class
-local function escape_for_char_class(s)
-  if not s or s == "" then
-    return ""
-  end
-  local result = s:gsub("([%%%^%]%-])", "%%%1")
-  return result
-end
-
 ---@param patterns string[]: List of Lua patterns
 ---@param str string: Input string to test
 ---@return ...: All captured values from the first matching pattern, or nil if no match
@@ -70,7 +45,7 @@ function M.create_list_item_patterns(opts)
     bullet_markers = table.concat(bullet_markers, "")
   end
 
-  local cls = escape_for_char_class(bullet_markers)
+  local cls = require("checkmate.util").escape_for_char_class(bullet_markers)
 
   local patterns = {}
 

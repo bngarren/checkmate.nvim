@@ -356,9 +356,24 @@ describe("Parser Helpers", function()
         assert.equal(case[2], match ~= nil)
       end
     end)
+
+    it("should match unicode todo patterns with empty content", function()
+      local checked = h.get_checked_marker()
+      local patterns = ph.create_unicode_todo_patterns(checked, { with_captures = true })
+
+      local line = "- " .. checked
+      local match = { ph.match_first(patterns, line) }
+
+      assert.is_true(#match > 0)
+      assert.equal("- ", match[1])
+      assert.equal(checked, match[2])
+      assert.equal("", match[3] or "")
+    end)
   end)
 
   describe("create markdown checkbox patterns", function()
+    -- the "variants" are described in parser.convert_markdown_to_unicode() but, briefly, are used
+    -- to match a checkbox at EOL like - [ ], as well as ensure a space after the checkbox when it isn't EOL
     it("should create unchecked checkbox with both variants", function()
       local parser = require("checkmate.parser")
       local unchecked_box = ph.create_markdown_checkbox_patterns(parser.markdown_unchecked_checkbox)
@@ -389,13 +404,13 @@ describe("Parser Helpers", function()
           "[ ]",
         },
         {
-          "- [ ]",
+          "- [ ]", -- at EOL
           0,
           "- ",
           "[ ]",
         },
         {
-          "1. [ ]",
+          "1. [ ]", -- at EOL
           0,
           "1. ",
           "[ ]",
@@ -444,7 +459,7 @@ describe("Parser Helpers", function()
           "[x]",
         },
         {
-          "- [x]",
+          "- [x]", -- at EOL
           0,
           "- ",
           "[x]",

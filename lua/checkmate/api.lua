@@ -638,12 +638,10 @@ function M.compute_diff_convert_to_todo(bufnr, row)
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
   -- existing indentation
-  local indent = ph.get_line_indent(line)
+  local indent = require("checkmate.util").get_line_indent(line)
 
   local list_item = ph.match_list_item(line)
   local list_marker = list_item and list_item.marker
-
-  vim.print(list_marker)
 
   local unchecked = config.options.todo_markers.unchecked
   local new_text

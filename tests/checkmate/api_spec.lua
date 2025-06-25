@@ -446,7 +446,7 @@ Some other content ]]
       local content = [[
 Line 1
 Line 2
-  - Line 3]]
+  ]] .. default_list_marker .. [[ Line 3]]
       local bufnr, file_path = h.setup_todo_buffer(content)
 
       -- select all lines

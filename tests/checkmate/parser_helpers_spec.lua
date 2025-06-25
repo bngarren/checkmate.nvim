@@ -229,8 +229,8 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = ph.match_first(checked_patterns, case[1])
-        assert.equal(case[2], match ~= nil)
+        local result = ph.match_first(checked_patterns, case[1])
+        assert.equal(case[2], result.matched)
       end
     end)
 
@@ -257,11 +257,11 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = { ph.match_first(checked_patterns, case[1]) }
-        assert.equal(true, #match ~= 0)
-        assert.equal(case[2], match[1])
-        assert.equal(checked, match[2])
-        assert.equal(case[3], match[3])
+        local result = ph.match_first(checked_patterns, case[1])
+        assert.equal(true, result.matched)
+        assert.equal(case[2], result.captures[1])
+        assert.equal(checked, result.captures[2])
+        assert.equal(case[3], result.captures[3])
       end
     end)
 
@@ -283,11 +283,11 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = { ph.match_first(unchecked_patterns, case[1]) }
-        assert.equal(true, #match ~= 0)
-        assert.equal(case[2], match[1])
-        assert.equal(unchecked, match[2])
-        assert.equal(case[3], match[3])
+        local result = ph.match_first(unchecked_patterns, case[1])
+        assert.equal(true, result.matched)
+        assert.equal(case[2], result.captures[1])
+        assert.equal(unchecked, result.captures[2])
+        assert.equal(case[3], result.captures[3])
       end
     end)
 
@@ -319,8 +319,8 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = ph.match_first(checked_patterns, case[1])
-        assert.equal(case[2], match ~= nil)
+        local result = ph.match_first(checked_patterns, case[1])
+        assert.equal(case[2], result.matched)
       end
     end)
 
@@ -352,8 +352,8 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = ph.match_first(unchecked_patterns, case[1])
-        assert.equal(case[2], match ~= nil)
+        local result = ph.match_first(unchecked_patterns, case[1])
+        assert.equal(case[2], result.matched)
       end
     end)
 
@@ -362,12 +362,12 @@ describe("Parser Helpers", function()
       local patterns = ph.create_unicode_todo_patterns(checked, { with_captures = true })
 
       local line = "- " .. checked
-      local match = { ph.match_first(patterns, line) }
+      local result = ph.match_first(patterns, line)
 
-      assert.is_true(#match > 0)
-      assert.equal("- ", match[1])
-      assert.equal(checked, match[2])
-      assert.equal("", match[3] or "")
+      assert.is_true(result.matched)
+      assert.equal("- ", result.captures[1])
+      assert.equal(checked, result.captures[2])
+      assert.equal("", result.captures[3] or "")
     end)
   end)
 
@@ -418,15 +418,15 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = { ph.match_first(unchecked_box, case[1]) }
-        assert.is_true(#match > 0)
-        assert.equal(case[2], #match[1])
-        assert.equal(case[3], match[2])
-        assert.equal(case[4], match[3])
+        local result = ph.match_first(unchecked_box, case[1])
+        assert.is_true(result.matched)
+        assert.equal(case[2], #result.captures[1])
+        assert.equal(case[3], result.captures[2])
+        assert.equal(case[4], result.captures[3])
       end
 
-      match = { ph.match_first(unchecked_box, "- [ ]No space") }
-      assert.is_not_true(#match > 0)
+      local result = ph.match_first(unchecked_box, "- [ ]No space")
+      assert.is_not_true(result.matched)
     end)
 
     it("should create checked checkbox with both variants", function()
@@ -479,15 +479,15 @@ describe("Parser Helpers", function()
       }
 
       for _, case in ipairs(cases) do
-        local match = { ph.match_first(checked_box, case[1]) }
-        assert.is_true(#match > 0)
-        assert.equal(case[2], #match[1])
-        assert.equal(case[3], match[2])
-        assert.equal(case[4], match[3])
+        local result = ph.match_first(checked_box, case[1])
+        assert.is_true(result.matched)
+        assert.equal(case[2], #result.captures[1])
+        assert.equal(case[3], result.captures[2])
+        assert.equal(case[4], result.captures[3])
       end
 
-      match = { ph.match_first(checked_box, "- [X]No space") }
-      assert.is_not_true(#match > 0)
+      local result = ph.match_first(checked_box, "- [X]No space")
+      assert.is_not_true(result.matched)
     end)
   end)
 end)

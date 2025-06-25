@@ -96,6 +96,7 @@ function M.clear_pattern_cache()
   }
 end
 
+---@param with_captures? boolean (default false) Whether to include capture groups in the pattern. See `create_list_item_patterns`
 ---@return string[] patterns
 function M.get_list_item_patterns(with_captures)
   if with_captures and not PATTERN_CACHE.list_item_with_captures then
@@ -205,28 +206,33 @@ function M.get_todo_map(bufnr)
 end
 
 --- Given a line (string), returns the todo item type either "checked" or "unchecked"
---- Returns nil if no todo item was found on the line
 ---@param line string Line to extract Todo item state
----@return checkmate.TodoItemState?
+---@return checkmate.TodoItemState? state Todo item state, or nil if todo item wasn't found
 function M.get_todo_item_state(line)
-  local log = require("checkmate.log")
-  local util = require("checkmate.util")
+  local ph = require("checkmate.parser.helpers")
 
   ---@type checkmate.TodoItemState
   local todo_state = nil
   local unchecked_patterns = M.get_unicode_unchecked_todo_patterns(false)
   local checked_patterns = M.get_unicode_checked_todo_patterns(false)
 
-  if util.match_first(unchecked_patterns, line) then
+  if ph.match_any(unchecked_patterns, line) then
     todo_state = "unchecked"
-    log.trace("Matched unchecked pattern", { module = "parser" })
-  elseif util.match_first(checked_patterns, line) then
+  elseif ph.match_any(checked_patterns, line) then
     todo_state = "checked"
-    log.trace("Matched checked pattern", { module = "parser" })
   end
 
-  log.trace("Todo type: " .. (todo_state or "nil"), { module = "parser" })
   return todo_state
+end
+
+--- Returns true if the given line is a Checkmate todo item
+--- This will only match on the configured todo markers, not Markdown task items
+--- i.e. Does the line start with `- □` or `- ✔` ?
+--- Will also match ordered list items such as `1. □`
+---@param line string
+---@return boolean
+function M.is_todo_item(line)
+  return M.get_todo_item_state(line) ~= nil
 end
 
 function M.setup()
@@ -247,7 +253,6 @@ end
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
 function M.convert_markdown_to_unicode(bufnr)
   local log = require("checkmate.log")
-  local util = require("checkmate.util")
   local config = require("checkmate.config")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()

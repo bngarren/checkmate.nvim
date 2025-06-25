@@ -265,7 +265,9 @@ function M.stop()
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
   pcall(vim.api.nvim_del_augroup_by_name, "CheckmateHighlighting")
 
-  require("checkmate.parser").todo_map_cache = {}
+  local parser = require("checkmate.parser")
+  parser.todo_map_cache = {}
+  parser.clear_pattern_cache()
 
   if package.loaded["checkmate.log"] then
     pcall(function()

@@ -138,22 +138,6 @@ function M.escape_for_char_class(s)
   return result
 end
 
---- Tries each pattern in order and returns the first successful match.
---
--- @param patterns string[]: List of Lua patterns
--- @param str string: Input string to test
--- @return string|nil: The first match found, or nil if none match
----@deprecated
-function M.match_first(patterns, str)
-  for _, pat in ipairs(patterns) do
-    local match = str:match(pat)
-    if match then
-      return match
-    end
-  end
-  return nil
-end
-
 ---Returns a todo_map table sorted by start row
 ---@generic T: table<integer, checkmate.TodoItem>
 ---@param todo_map T

@@ -581,8 +581,8 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
     -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local state = parser.get_todo_item_state(cur_line)
-      if state == nil then
+      local is_todo = parser.is_todo_item(cur_line)
+      if is_todo == false then
         local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
         if new_hunks and #new_hunks > 0 then
           vim.list_extend(hunks, new_hunks)

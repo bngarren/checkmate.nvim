@@ -3,17 +3,36 @@
 
 local M = {}
 
----@param patterns string[]: List of Lua patterns
----@param str string: Input string to test
----@return ...: All captured values from the first matching pattern, or nil if no match
+--- Returns a structured result on the first pattern match
+---  - Check the `result.matched` to see if a pattern matched
+---  - The `result.captures` will hold the captures (if capture groups were present), otherwise the matched string
+---  - Can use `result.unpack` to get the captures, such as:
+---    `local indent, marker, content = result:unpack()`
+---@param patterns string[]: list of Lua patterns
+---@param str string: input string to test
+---@return {matched: boolean, captures: string[], pattern: string, unpack: function} result
 function M.match_first(patterns, str)
   for _, pat in ipairs(patterns) do
-    local match = { str:match(pat) }
-    if match[1] then
-      return unpack(match)
+    local captures = { str:match(pat) }
+    if #captures > 0 then
+      return {
+        matched = true,
+        captures = captures,
+        pattern = pat,
+        unpack = function(self)
+          return unpack(self.captures)
+        end,
+      }
     end
   end
-  return nil
+  return { matched = false, captures = {} }
+end
+
+--- Returns true if any pattern matches the string
+---@param patterns string[]: list of Lua patterns
+---@param str string: input string to test
+function M.match_any(patterns, str)
+  return M.match_first(patterns, str).matched
 end
 
 ---@class CreateListItemPatternsOpts
@@ -82,16 +101,16 @@ function M.match_list_item(line)
   -- i.e. `-` won't match but `- ` will
   line = line .. " "
 
-  local matched = { M.match_first(list_item_patterns, line) }
-  if #matched == 0 then
+  local result = M.match_first(list_item_patterns, line)
+  if not result.matched then
     return nil
   end
 
-  local indent = #matched[1]
-  local lm_raw = matched[2]
+  local indent = #result.captures[1]
+  local lm_raw = result.captures[2]
   local lm = vim.trim(lm_raw)
   local lm_trailing_ws = lm_raw:match("^" .. lm .. "(%s*)")
-  local content = lm_trailing_ws .. matched[3]
+  local content = lm_trailing_ws .. result.captures[3]
   content = require("checkmate.util").trim_trailing(content)
 
   return {

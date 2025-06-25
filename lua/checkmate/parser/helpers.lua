@@ -170,10 +170,10 @@ function M.create_markdown_checkbox_patterns(checkbox_pattern)
     -- we need: "^(%s*[%-+*]%s+)" for the list prefix
     local prefix_pattern = list_pattern:gsub("%(%.%*%)$", "") -- Remove content capture
 
-    -- Variant 1: Checkbox at end of line
+    -- variant 1: checkbox at EOL
     table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. "$")
 
-    -- Variant 2: Checkbox followed by space (space not captured)
+    -- variant 2: checkbox followed by space (space not captured)
     table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. " ")
   end
 

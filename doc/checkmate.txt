@@ -127,7 +127,7 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and
 
 2. CREATE TODO ITEMS ~
 
-- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command
+- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:Checkmate create` command
 - Or manually using Markdown syntax:
 
 >md
@@ -225,49 +225,24 @@ USER COMMANDS
   --------------------------------------------------------------------------------
 Legacy commands (deprecated) ~
 
+`CheckmateToggle` - Toggle the todo item under the cursor (normal mode) or all
+todo items within the selection (visual mode)
 
-                                                 *checkmate-CheckmateToggle*
+`CheckmateCreate` - Convert the current line to a todo item
 
+`CheckmateCheck` - Mark todo item as checked (done/completed) in normal or
+visual mode
 
-CheckmateToggle                        Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+`CheckmateUncheck` - Mark todo item as unchecked in normal or visual mode
 
+`CheckmateRemoveAllMetadata` - Removes all metadata from todo item under the
+cursor (normal mode) or all todo items within the selection (visual mode)
 
-                                                 *checkmate-CheckmateCreate*
+`CheckmateArchive` - Reorganize checked/completed todo items to the bottom
+section
 
-
-CheckmateCreate                        Convert the current line to a todo item
-
-
-                                                  *checkmate-CheckmateCheck*
-
-
-CheckmateCheck                         Mark todo item as checked (done/completed) in normal or visual mode
-
-
-                                                *checkmate-CheckmateUncheck*
-
-
-CheckmateUncheck                       Mark todo item as unchecked in normal or visual mode
-
-
-                                      *checkmate-CheckmateRemoveAllMetadata*
-
-
-CheckmateRemoveAllMetadata             Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
-
-
-                                                *checkmate-CheckmateArchive*
-
-
-CheckmateArchive                       Reorganize checked/completed todo items to the bottom section
-
-
-                                                   *checkmate-CheckmateLint*
-
-
-CheckmateLint                          Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
-
-
+`CheckmateLint` - Perform limited linting of Checkmate buffer to warn about
+syntax issues that could cause unexpected plugin behavior
 
 
 

@@ -128,6 +128,15 @@ function M.create_test_buffer(content, name)
   return bufnr
 end
 
+--- Asserts that x is not nil, or errors.
+---@generic T
+---@param x T?
+---@return T
+function M.exists(x)
+  assert(x ~= nil, "Unexpected nil")
+  return x
+end
+
 ---@param bufnr integer
 ---@param ns integer
 ---@return table extmarks

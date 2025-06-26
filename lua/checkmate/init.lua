@@ -807,6 +807,8 @@ function M.archive(opts)
   return api.archive_todos(opts)
 end
 
+---------- DEBUGGING API ----------------
+
 --- Open debug log
 function M.debug_log()
   require("checkmate.log").open()
@@ -832,9 +834,7 @@ function M.debug_at_cursor()
   -- clear previous
   pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
 
-  local item = parser.get_todo_item_at_position(bufnr, row, col, {
-    search = { main_content = true },
-  })
+  local item = parser.get_todo_item_at_position(bufnr, row, col)
 
   if not item then
     util.notify("No todo item found at cursor", vim.log.levels.INFO)
@@ -871,13 +871,13 @@ function M.debug_at_cursor()
     end_row = item.range["end"].row,
     end_col = item.range["end"].col,
     hl_group = "CheckmateDebugHighlight",
-    priority = 9999, -- Ensure it draws on top
+    priority = 9999,
   })
 
-  -- Auto-remove highlight after 3 seconds
+  -- remove hl after x seconds
   vim.defer_fn(function()
     pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-  end, 3000)
+  end, 10000)
 end
 
 --- Print todo map

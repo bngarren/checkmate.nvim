@@ -257,13 +257,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
 ---
---- Depth within a todo item's hierarchy from which actions (e.g. toggle) will act on the parent todo item
---- Examples:
---- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
---- 1 = toggle triggered when cursor/selection includes any direct child of todo item
---- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
----@field todo_action_depth integer
----
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
@@ -617,8 +610,7 @@ local defaults = {
     checked = "✔",
   },
   style = {}, -- override defaults
-  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
     check_down = "direct_children",
@@ -698,7 +690,7 @@ local defaults = {
 ```
 
 > [!WARNING]
-> Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
+> Multi-character todo markers are not officially supported but _may_ work. For consistent behavior, recommend using a single character.
 
 ## Keymapping
 Default keymaps can be disabled by setting `keys = false`.

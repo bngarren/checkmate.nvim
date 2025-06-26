@@ -3,6 +3,13 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+function M.tbl_isempty_or_nil(t)
+  if t == nil then
+    return true
+  end
+  return vim.tbl_isempty(t)
+end
+
 ---Returns true is current mode is VISUAL, false otherwise
 ---@return boolean
 function M.is_visual_mode()

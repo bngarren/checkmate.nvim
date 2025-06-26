@@ -46,7 +46,6 @@ describe("Config", function()
       assert.equal("□", config.options.todo_markers.unchecked)
       assert.equal("✔", config.options.todo_markers.checked)
       assert.equal("-", config.options.default_list_marker)
-      assert.equal(1, config.options.todo_action_depth)
       assert.is_true(config.options.enter_insert_after_new)
 
       checkmate.stop()

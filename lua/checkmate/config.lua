@@ -72,13 +72,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
 ---
---- Depth within a todo item's hierarchy from which actions (e.g. toggle) will act on the parent todo item
---- Examples:
---- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
---- 1 = toggle triggered when cursor/selection includes any direct child of todo item
---- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
----@field todo_action_depth integer
----
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
@@ -429,8 +422,7 @@ local defaults = {
     checked = "✔",
   },
   style = {}, -- override defaults
-  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
     check_down = "direct_children",
@@ -772,18 +764,6 @@ function M.validate_options(opts)
       if not ok then
         return false, err
       end
-    end
-  end
-
-  -- Validate todo_action_depth
-  if opts.todo_action_depth ~= nil then
-    local ok, err = validate_type(opts.todo_action_depth, "number", "todo_action_depth", true)
-    if not ok then
-      return false, err
-    end
-
-    if math.floor(opts.todo_action_depth) ~= opts.todo_action_depth or opts.todo_action_depth < 0 then
-      return false, "todo_action_depth must be a non-negative integer"
     end
   end
 

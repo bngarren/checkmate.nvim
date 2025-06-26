@@ -501,6 +501,160 @@ Line 2
 
   describe("todo manipulation", function()
     describe("metadata operations", function()
+      describe("find_metadata_insert_position", function()
+        local api = require("checkmate.api")
+        local parser = require("checkmate.parser")
+
+        -- find byte position after a pattern in a line
+        local function find_byte_pos_after(line, pattern)
+          local _, end_pos = line:find(pattern)
+          return end_pos -- returns 1-based, but we'll convert when needed
+        end
+
+        -- get the byte position at end of content (excluding trailing whitespace)
+        local function get_content_end_pos(line)
+          local trimmed = line:match("^(.-)%s*$")
+          return #trimmed
+        end
+
+        it("should find correct position when no metadata exists", function()
+          local content = [[
+- [ ] Single line todo
+- [ ] 
+- [ ] Multi-line todo
+  that continues here
+- [ ] Another todo
+
+  With a separate paragraph
+- [ ] ⭐️ Unicode ✅]]
+
+          local bufnr, file_path = h.setup_todo_buffer(content)
+          local todo_item, insert_pos, lines
+
+          -- Test 1: Single line todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          local expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(0, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+          assert.is_true(insert_pos.insert_after_space)
+
+          -- Test 2: Empty todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          -- after the unchecked marker
+          local unchecked = h.get_unchecked_marker()
+          expected_col = find_byte_pos_after(lines[1], unchecked)
+          assert.are.equal(1, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          -- Test 3: Multi-line todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 2, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 3, 4, false) -- get the continuation line
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(3, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          -- Test 4: Unicode content
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 7, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 7, 8, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(7, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          finally(function()
+            h.cleanup_buffer(bufnr, file_path)
+          end)
+        end)
+
+        it("should respect sort_order when metadata exists", function()
+          local content = [[
+- [ ] Todo with metadata @low(1)
+- [ ] ⭐️ @high(3)
+- [ ] Mixed @high(3) @low(1)]]
+
+          local bufnr, file_path = h.setup_todo_buffer(content, {
+            config = {
+              metadata = {
+                -- higher sort_order will be positioned to the right
+                low = { sort_order = 10 },
+                medium = { sort_order = 20 },
+                high = { sort_order = 30 },
+              },
+            },
+          })
+
+          local todo_item, insert_pos
+
+          -- NOTE: since a metadata entry's range col is end-exlusive (one after the last char), it should match the col pos
+          -- of the insert_pos
+
+          -- test 1: Insert medium after low
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          insert_pos = api.find_metadata_insert_position(todo_item, "medium", bufnr)
+
+          -- should be after @low(1)
+          local low_entry = todo_item.metadata.by_tag.low
+          assert.are.equal(low_entry.range["end"].row, insert_pos.row)
+          assert.are.equal(low_entry.range["end"].col, insert_pos.col)
+
+          -- test 2: Insert medium before high
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
+          insert_pos = api.find_metadata_insert_position(todo_item, "medium", bufnr)
+
+          -- should be before @high(3)
+          local high_entry = todo_item.metadata.by_tag.high
+          assert.are.equal(high_entry.range.start.row, insert_pos.row)
+          assert.are.equal(high_entry.range.start.col, insert_pos.col)
+
+          finally(function()
+            h.cleanup_buffer(bufnr, file_path)
+          end)
+        end)
+
+        it("should handle complex multi-line scenarios", function()
+          local content = [[
+- [ ] First line @a(1)
+  continuation @c(3)
+  more text @b(2)
+  final line]]
+
+          local bufnr, file_path = h.setup_todo_buffer(content, {
+            config = {
+              metadata = {
+                a = { sort_order = 10 },
+                b = { sort_order = 20 },
+                c = { sort_order = 30 },
+                d = { sort_order = 25 },
+              },
+            },
+          })
+
+          local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          local insert_pos = api.find_metadata_insert_position(todo_item, "d", bufnr)
+
+          -- NOTE: since a metadata entry's range col is end-exlusive (one after the last char), it should match the col pos
+          -- of the insert_pos
+
+          -- should insert after @b(2) since d's sort_order is 25
+          local b_entry = todo_item.metadata.by_tag.b
+          assert.are.equal(b_entry.range["end"].row, insert_pos.row)
+          assert.are.equal(b_entry.range["end"].col, insert_pos.col)
+
+          finally(function()
+            h.cleanup_buffer(bufnr, file_path)
+          end)
+        end)
+      end)
+
       it("should add metadata to todo items", function()
         local unchecked = h.get_unchecked_marker()
 
@@ -579,6 +733,57 @@ Line 2
         end)
       end)
 
+      it("should add metadata to a multi-line todo", function()
+        -- NOTE: the expected behavior is that the metadata tag is inserted according to sort_order,
+        -- immediately following a lower sort_order tag or before a higher sort_order tag
+
+        local content = [[
+- [ ] Todo item @test1(foo)
+      @test3(baz)
+        ]]
+
+        local bufnr, file_path = h.setup_todo_buffer(content, {
+          config = {
+            metadata = {
+              test1 = {
+                sort_order = 1,
+              },
+              test2 = {
+                sort_order = 2,
+              },
+              test3 = {
+                sort_order = 3,
+              },
+              test4 = {
+                sort_order = 4,
+              },
+            },
+          },
+        })
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
+
+        local success = require("checkmate").add_metadata("test2", "bar")
+        assert.is_true(success)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("Todo item @test1%(foo%) @test2%(bar%)$", lines[1])
+
+        success = require("checkmate").add_metadata("test4", "gah")
+        assert.is_true(success)
+
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("     @test3%(baz%) @test4%(gah%)$", lines[2])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
       it("should remove metadata with complex value", function()
         local unchecked = h.get_unchecked_marker()
 
@@ -623,6 +828,7 @@ Line 2
 
 - ]] .. unchecked .. [[ Task with @priority(high) @due(2023-05-15) @tags(important,urgent)
 - ]] .. unchecked .. [[ Another task @priority(medium) @assigned(john)
+  @issue(2)
 - ]] .. unchecked .. [[ A todo without metadata
 ]]
 
@@ -653,7 +859,8 @@ Line 2
         vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
         require("checkmate").remove_all_metadata()
 
-        vim.cmd("sleep 10m")
+        vim.wait(20)
+
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@priority", lines[3])
@@ -676,15 +883,17 @@ Line 2
 
         require("checkmate").remove_all_metadata()
 
-        vim.cmd("sleep 10m")
+        vim.wait(20)
+
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         -- second todo's metadata was removed
         assert.no.matches("@priority", lines[4])
         assert.no.matches("@assigned", lines[4])
+        assert.no.matches("@issue", lines[5])
 
         -- third todo's line text wasn't changed
-        assert.matches("A todo without metadata", lines[5])
+        assert.matches("A todo without metadata", lines[6])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)

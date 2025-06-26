@@ -305,6 +305,10 @@ function M.setup_autocmds(bufnr)
 
         local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
+        if #markdown_lines == 0 or markdown_lines[#markdown_lines] ~= "" then
+          table.insert(markdown_lines, "")
+        end
+
         local temp_filename = filename .. ".tmp"
 
         -- write to temp file first

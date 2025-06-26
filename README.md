@@ -38,6 +38,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 
+<!-- panvimdoc-ignore-start -->
 ## Table of Contents
 - [Installation](#installation)
 - [Requirements](#requirements)
@@ -54,6 +55,8 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Credits](#credits)
+
+<!-- panvimdoc-ignore-end -->
 
 <br>
 

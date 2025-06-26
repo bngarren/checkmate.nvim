@@ -254,18 +254,17 @@ function M.setup_autocmds(bufnr)
 
   if not vim.b[bufnr].checkmate_autocmds_setup then
     -- This implementation addresses several subtle behavior issues:
-    --   1. vim.schedule() is used to defer setting the modified=false until after
-    -- the autocmd completes. Otherwise, Neovim wasn't calling BufWritCmd on subsequent rewrites.
-    --   2. Atomic write operation - ensures data integrity (either complete write success or
+    --   1. Atomic write operation - ensures data integrity (either complete write success or
     -- complete failure, with preservation of the original buffer) by using temp file with a
     -- rename operation (which is atomic at the POSIX filesystem level)
-    --   3. A temp buffer is used to perform the unicode to markdown conversion in order to
+    --   2. A temp buffer is used to perform the unicode to markdown conversion in order to
     -- keep a consistent visual experience for the user, maintain a clean undo history, and
     -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
+    --   3. BufWritePre and BufWritePost are called manually so that other plugins can still hook into the write events
     vim.api.nvim_create_autocmd("BufWriteCmd", {
       group = augroup,
       buffer = bufnr,
-      desc = "Checkmate: Convert and save .todo files",
+      desc = "Checkmate: Convert and save checkmate.nvim files",
       callback = function()
         local parser = require("checkmate.parser")
         local log = require("checkmate.log")
@@ -278,17 +277,23 @@ function M.setup_autocmds(bufnr)
         end
         vim.b[bufnr]._checkmate_writing = true
 
+        -- this allows other plugins like conform.nvim to format before we save
+        -- see #133
+        vim.api.nvim_exec_autocmds("BufWritePre", {
+          buffer = bufnr,
+          modeline = false,
+        })
+
         local uv = vim.uv
         local was_modified = vim.bo[bufnr].modified
 
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local filename = vim.api.nvim_buf_get_name(bufnr)
 
-        -- Create temp buffer and convert to markdown
+        -- create temp buffer and convert to markdown
         local temp_bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
 
-        -- Convert Unicode to markdown
         local success = parser.convert_unicode_to_markdown(temp_bufnr)
         if not success then
           log.error("Failed to convert Unicode to Markdown", { module = "api" })
@@ -302,13 +307,13 @@ function M.setup_autocmds(bufnr)
 
         local temp_filename = filename .. ".tmp"
 
-        -- Write to temporary file first
+        -- write to temp file first
         local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
 
         vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
         if write_result == 0 then
-          -- Atomically rename the temp file to the target file
+          -- atomically rename the temp file to the target file
           local ok, rename_err = pcall(function()
             uv.fs_rename(temp_filename, filename)
           end)
@@ -331,13 +336,16 @@ function M.setup_autocmds(bufnr)
           vim.bo[bufnr].modified = false
           vim.cmd("set nomodified")
 
+          vim.api.nvim_exec_autocmds("BufWritePost", {
+            buffer = bufnr,
+            modeline = false,
+          })
+
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
               vim.b[bufnr]._checkmate_writing = false
             end
           end, 0)
-
-          util.notify("Saved", vim.log.levels.INFO)
         else
           -- Failed to write temp file
           -- Try to clean up

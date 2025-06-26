@@ -254,18 +254,17 @@ function M.setup_autocmds(bufnr)
 
   if not vim.b[bufnr].checkmate_autocmds_setup then
     -- This implementation addresses several subtle behavior issues:
-    --   1. vim.schedule() is used to defer setting the modified=false until after
-    -- the autocmd completes. Otherwise, Neovim wasn't calling BufWritCmd on subsequent rewrites.
-    --   2. Atomic write operation - ensures data integrity (either complete write success or
+    --   1. Atomic write operation - ensures data integrity (either complete write success or
     -- complete failure, with preservation of the original buffer) by using temp file with a
     -- rename operation (which is atomic at the POSIX filesystem level)
-    --   3. A temp buffer is used to perform the unicode to markdown conversion in order to
+    --   2. A temp buffer is used to perform the unicode to markdown conversion in order to
     -- keep a consistent visual experience for the user, maintain a clean undo history, and
     -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
+    --   3. BufWritePre and BufWritePost are called manually so that other plugins can still hook into the write events
     vim.api.nvim_create_autocmd("BufWriteCmd", {
       group = augroup,
       buffer = bufnr,
-      desc = "Checkmate: Convert and save .todo files",
+      desc = "Checkmate: Convert and save checkmate.nvim files",
       callback = function()
         local parser = require("checkmate.parser")
         local log = require("checkmate.log")

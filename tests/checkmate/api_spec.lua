@@ -220,6 +220,43 @@ describe("API", function()
           h.cleanup_buffer(bufnr, file_path)
         end)
       end)
+
+      it("should call BufWritePre and BufWritePost", function()
+        local bufnr = h.setup_todo_buffer("")
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Todo new" })
+        assert.is_true(vim.bo[bufnr].modified)
+
+        local buf_write_pre_called = false
+        local buf_write_post_called = false
+
+        local augroup = vim.api.nvim_create_augroup("test", { clear = true })
+
+        vim.api.nvim_create_autocmd("BufWritePre", {
+          buffer = bufnr,
+          group = augroup,
+          callback = function()
+            buf_write_pre_called = true
+          end,
+        })
+        vim.api.nvim_create_autocmd("BufWritePre", {
+          buffer = bufnr,
+          group = augroup,
+          callback = function()
+            buf_write_post_called = true
+          end,
+        })
+
+        vim.cmd("silent write")
+        vim.wait(20)
+
+        assert.is_true(buf_write_pre_called)
+        assert.is_true(buf_write_post_called)
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+          vim.api.nvim_clear_autocmds({ group = augroup })
+        end)
+      end)
     end)
   end)
 

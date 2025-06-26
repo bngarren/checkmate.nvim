@@ -1,9 +1,8 @@
-*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 19
+*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 June 26
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
 
-  - Table of Contents                            |checkmate-table-of-contents|
 1. Installation                                       |checkmate-installation|
   - Requirements                         |checkmate-installation-requirements|
 2. Usage                                                     |checkmate-usage|
@@ -54,25 +53,6 @@ FEATURES ~
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
-
-
-TABLE OF CONTENTS                                *checkmate-table-of-contents*
-
-- |checkmate-installation|
-- |checkmate-requirements|
-- |checkmate-usage|
-- |checkmate-commands|
-- |checkmate-configuration|
-    - |checkmate-styling|
-    - |checkmate-todo-counts|
-    - |checkmate-smart-toggle|
-- |checkmate-metadata|
-- |checkmate-archiving|
-- |checkmate-integrations|
-- |checkmate-linting|
-- |checkmate-roadmap|
-- |checkmate-contributing|
-- |checkmate-credits|
 
 
 

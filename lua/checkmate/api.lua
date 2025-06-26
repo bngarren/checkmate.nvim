@@ -278,17 +278,23 @@ function M.setup_autocmds(bufnr)
         end
         vim.b[bufnr]._checkmate_writing = true
 
+        -- this allows other plugins like conform.nvim to format before we save
+        -- see #133
+        vim.api.nvim_exec_autocmds("BufWritePre", {
+          buffer = bufnr,
+          modeline = false,
+        })
+
         local uv = vim.uv
         local was_modified = vim.bo[bufnr].modified
 
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local filename = vim.api.nvim_buf_get_name(bufnr)
 
-        -- Create temp buffer and convert to markdown
+        -- create temp buffer and convert to markdown
         local temp_bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
 
-        -- Convert Unicode to markdown
         local success = parser.convert_unicode_to_markdown(temp_bufnr)
         if not success then
           log.error("Failed to convert Unicode to Markdown", { module = "api" })
@@ -302,13 +308,13 @@ function M.setup_autocmds(bufnr)
 
         local temp_filename = filename .. ".tmp"
 
-        -- Write to temporary file first
+        -- write to temp file first
         local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
 
         vim.api.nvim_buf_delete(temp_bufnr, { force = true })
 
         if write_result == 0 then
-          -- Atomically rename the temp file to the target file
+          -- atomically rename the temp file to the target file
           local ok, rename_err = pcall(function()
             uv.fs_rename(temp_filename, filename)
           end)
@@ -331,13 +337,16 @@ function M.setup_autocmds(bufnr)
           vim.bo[bufnr].modified = false
           vim.cmd("set nomodified")
 
+          vim.api.nvim_exec_autocmds("BufWritePost", {
+            buffer = bufnr,
+            modeline = false,
+          })
+
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
               vim.b[bufnr]._checkmate_writing = false
             end
           end, 0)
-
-          util.notify("Saved", vim.log.levels.INFO)
         else
           -- Failed to write temp file
           -- Try to clean up

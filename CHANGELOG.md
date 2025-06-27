@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.2](https://github.com/bngarren/checkmate.nvim/compare/v0.9.1...v0.9.2) (2025-06-27)
+
+
+### Bug Fixes
+
+* **api:** ensure that file ends with new line ([#141](https://github.com/bngarren/checkmate.nvim/issues/141)) ([4a5e28c](https://github.com/bngarren/checkmate.nvim/commit/4a5e28c72bb1c993acc845191df630232036616d))
+* **api:** fixes missing BufWritePre and BufWritePost calls ([#137](https://github.com/bngarren/checkmate.nvim/issues/137)) ([da388a6](https://github.com/bngarren/checkmate.nvim/commit/da388a6098767fed498d7949657061a107aa6d54))
+* **docs:** fixes duplicate table of contents in vimdoc ([#135](https://github.com/bngarren/checkmate.nvim/issues/135)) ([72a6be4](https://github.com/bngarren/checkmate.nvim/commit/72a6be47348a5d801d2b6aaf7f91bbfeaed2ef39))
+
 ## [0.9.1](https://github.com/bngarren/checkmate.nvim/compare/v0.9.0...v0.9.1) (2025-06-19)
 
 

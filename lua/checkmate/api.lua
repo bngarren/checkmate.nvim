@@ -305,6 +305,7 @@ function M.setup_autocmds(bufnr)
 
         local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
+        -- ensure that we maintain ending new line per POSIX style
         if #markdown_lines == 0 or markdown_lines[#markdown_lines] ~= "" then
           table.insert(markdown_lines, "")
         end
@@ -312,6 +313,7 @@ function M.setup_autocmds(bufnr)
         local temp_filename = filename .. ".tmp"
 
         -- write to temp file first
+        -- we use binary mode here to ensure byte-by-byte precision and no unexpected newline behaviors
         local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
 
         vim.api.nvim_buf_delete(temp_bufnr, { force = true })

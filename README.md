@@ -38,6 +38,7 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 
+<!-- panvimdoc-ignore-start -->
 ## Table of Contents
 - [Installation](#installation)
 - [Requirements](#requirements)
@@ -54,6 +55,8 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Credits](#credits)
+
+<!-- panvimdoc-ignore-end -->
 
 <br>
 
@@ -113,7 +116,7 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 
 ### 2. Create Todo Items
 
-- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:CheckmateCreate` command
+- Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:Checkmate create` command
 - Or manually using Markdown syntax:
 
 ```md
@@ -164,26 +167,19 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 <details>
 <summary>Legacy commands (deprecated)</summary>
 
-CheckmateToggle
-: Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+`CheckmateToggle` - Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
-CheckmateCreate
-: Convert the current line to a todo item
+`CheckmateCreate` - Convert the current line to a todo item
 
-CheckmateCheck
-: Mark todo item as checked (done/completed) in normal or visual mode
+`CheckmateCheck` - Mark todo item as checked (done/completed) in normal or visual mode
 
-CheckmateUncheck
-: Mark todo item as unchecked in normal or visual mode
+`CheckmateUncheck` - Mark todo item as unchecked in normal or visual mode
 
-CheckmateRemoveAllMetadata
-: Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
+`CheckmateRemoveAllMetadata` - Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
 
-CheckmateArchive
-: Reorganize checked/completed todo items to the bottom section
+`CheckmateArchive` - Reorganize checked/completed todo items to the bottom section
 
-CheckmateLint
-: Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
+`CheckmateLint` - Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
 
 </details>
 <br>

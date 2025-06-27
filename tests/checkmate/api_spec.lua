@@ -154,18 +154,13 @@ describe("API", function()
       end)
     end)
 
-    describe("BufWriteCmd compatibility", function()
+    describe("BufWriteCmd behavior", function()
       it("should handle :wa (write all modified buffers)", function()
         local bufnr1, file1 = h.setup_todo_buffer("- [ ] File 1 todo")
         local bufnr2, file2 = h.setup_todo_buffer("- [ ] File 2 todo")
 
-        vim.bo[bufnr1].eol = false
-        vim.bo[bufnr1].fixeol = false
-        vim.bo[bufnr2].eol = false
-        vim.bo[bufnr2].fixeol = false
-
         vim.api.nvim_buf_set_lines(bufnr1, 0, -1, false, { "- [ ] File 1 new" })
-        vim.api.nvim_buf_set_lines(bufnr2, 0, -1, false, { "- [ ] File 2 new" })
+        vim.api.nvim_buf_set_lines(bufnr2, 0, -1, false, { "- [ ] File 2 new", "" })
 
         assert.is_true(vim.bo[bufnr1].modified)
         assert.is_true(vim.bo[bufnr2].modified)
@@ -187,9 +182,9 @@ describe("API", function()
           error("failed read file2")
         end
 
-        -- 'write' will always leave a new line at the end (see h: eol)
-        assert.equal("- [ ] File 1 new", content1)
-        assert.equal("- [ ] File 2 new", content2)
+        -- we manually handle EOL in BufWriteCmd in binary mode so there should always be a blank last line
+        assert.equal("- [ ] File 1 new\n", content1)
+        assert.equal("- [ ] File 2 new\n", content2)
 
         finally(function()
           h.cleanup_buffer(bufnr1, file1)
@@ -218,6 +213,43 @@ describe("API", function()
         finally(function()
           vim.fn.writefile = original_writefile
           h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should call BufWritePre and BufWritePost", function()
+        local bufnr = h.setup_todo_buffer("")
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Todo new" })
+        assert.is_true(vim.bo[bufnr].modified)
+
+        local buf_write_pre_called = false
+        local buf_write_post_called = false
+
+        local augroup = vim.api.nvim_create_augroup("test", { clear = true })
+
+        vim.api.nvim_create_autocmd("BufWritePre", {
+          buffer = bufnr,
+          group = augroup,
+          callback = function()
+            buf_write_pre_called = true
+          end,
+        })
+        vim.api.nvim_create_autocmd("BufWritePre", {
+          buffer = bufnr,
+          group = augroup,
+          callback = function()
+            buf_write_post_called = true
+          end,
+        })
+
+        vim.cmd("silent write")
+        vim.wait(20)
+
+        assert.is_true(buf_write_pre_called)
+        assert.is_true(buf_write_post_called)
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+          vim.api.nvim_clear_autocmds({ group = augroup })
         end)
       end)
     end)

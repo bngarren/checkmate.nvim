@@ -421,7 +421,8 @@ function M.convert_unicode_to_markdown(bufnr)
 end
 
 ---@class GetTodoItemAtPositionOpts
----@field todo_map table<integer, checkmate.TodoItem>? Pre-parsed todo item map to use instead of performing within function
+---@field todo_map? table<integer, checkmate.TodoItem> Pre-parsed todo item map to use instead of performing within function
+---@field root_only? boolean If true, only matches to the todo item's first line
 
 -- Function to find a todo item at a given buffer position
 --  - If on a blank line, will return nil
@@ -473,7 +474,13 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
       local todo_item = node_to_todo[node:id()]
       -- limit to the semantic end row (TS range's will include a blank line at the end of the node as part of the node)
       if todo_item and row <= todo_item.range["end"].row then
-        return todo_item
+        if opts.root_only ~= true then
+          return todo_item
+        end
+        -- if root_only, we only match if on the exact first row
+        if todo_item.range.start.row == row then
+          return todo_item
+        end
       end
     end
     node = node:parent()

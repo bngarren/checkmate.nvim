@@ -606,7 +606,9 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
   else
     -- normal mode, is current line a todo?
     local row = start_row
-    local todo_item = ctx.get_todo_by_row(row)
+    -- NOTE: only get a todo on this exact row.
+    -- I.e. if the row is a nested list item then it will return the parent todo unless we pass `root_only` = true
+    local todo_item = ctx.get_todo_by_row(row, true)
 
     if todo_item then
       local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)

@@ -33,6 +33,10 @@ local env = environments.get(env_name)
 -- base specs for all environments
 local spec = {
   { dir = vim.uv.cwd(), opts = env.checkmate, ft = "markdown" },
+  {
+    "mason-org/mason.nvim",
+    opts = {},
+  },
 }
 
 -- environment-specific specs

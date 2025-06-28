@@ -497,6 +497,31 @@ Line 2
         h.cleanup_buffer(bufnr, file_path)
       end)
     end)
+
+    it("should convert a list item nested in another todo", function()
+      local unchecked = h.get_unchecked_marker()
+
+      local content = [[
+- [ ] Parent todo
+  - Regular list item
+      ]]
+
+      local bufnr, file_path = h.setup_todo_buffer(content)
+
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      assert.equal("  - " .. unchecked .. " Regular list item", lines[2])
+      assert.matches("^%s*$", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr, file_path)
+      end)
+    end)
   end)
 
   describe("todo manipulation", function()

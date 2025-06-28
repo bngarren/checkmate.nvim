@@ -4,6 +4,7 @@ local M = {}
 --- Highlight priority levels
 ---@enum HighlightPriority
 M.PRIORITY = {
+  NORMAL_OVERRIDE = 100,
   LIST_MARKER = 201,
   CONTENT = 202,
   TODO_MARKER = 203,
@@ -76,7 +77,7 @@ function M.register_highlight_groups()
   local highlights = {
     ---this is used when we apply an extmark to override , e.g. setext headings
     ---@type vim.api.keyset.highlight
-    CheckmateNormal = { bold = false, force = true, nocombine = true },
+    CheckmateNormal = { bold = false, force = true, nocombine = true, fg = "fg" },
   }
 
   for group_name, settings in pairs(config.options.style or {}) do
@@ -477,54 +478,74 @@ function M.highlight_content(bufnr, todo_item, todo_map)
   -- is parsed as a setext_heading applied heading style to the line above it
   for child in todo_item.node:iter_children() do
     if child:type() == "setext_heading" then
-      local row = todo_item.todo_marker.position.row
-      local line = M.get_buffer_line(bufnr, row)
+      local sr, _, er, _ = child:range()
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, 0, {
-        end_row = row,
-        end_col = #line,
+      vim.api.nvim_buf_set_extmark(bufnr, config.ns, sr, 0, {
+        end_row = er,
+        end_col = 0,
         hl_group = "CheckmateNormal",
         hl_eol = true,
-        priority = 10000,
+        priority = M.PRIORITY.NORMAL_OVERRIDE,
       })
     end
   end
 
-  -- highlight main content (first line)
-  local first_row = todo_item.range.start.row
-  local line = M.get_buffer_line(bufnr, first_row)
+  -- highlight main content (first inline range)
 
-  if line and #line > 0 then
-    local marker_pos = todo_item.todo_marker.position.col -- byte pos (0-based)
-    local marker_len = #todo_item.todo_marker.text -- byte length
-
-    -- find the actual content start after the todo marker and any whitespace
-    local search_start = marker_pos + marker_len
-
+  local function get_content_start(line, start)
     local content_start = nil
-    for i = search_start, #line do
+    for i = start, #line do
       local char = line:sub(i + 1, i + 1) -- +1 for 1-based substring
       if char ~= " " and char ~= "\t" then
         content_start = i -- 0-based position
         break
       end
     end
+    return content_start
+  end
 
-    if content_start and content_start < #line then
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, first_row, content_start, {
-        end_row = first_row,
-        end_col = #line, -- byte length
-        hl_group = main_content_hl,
-        priority = M.PRIORITY.CONTENT,
-        hl_eol = false,
-        end_right_gravity = true,
-        right_gravity = false,
-      })
+  local main_range = todo_item.first_inline_range
+  for row = main_range.start.row, main_range["end"].row do
+    local line = M.get_buffer_line(bufnr, row)
+
+    if line and #line > 0 then
+      if row == todo_item.range.start.row then
+        local marker_pos = todo_item.todo_marker.position.col -- byte pos (0-based)
+        local marker_len = #todo_item.todo_marker.text -- byte length
+        -- find the actual content start after the todo marker and any whitespace
+        local search_start = marker_pos + marker_len
+        local content_start = get_content_start(line, search_start)
+
+        if content_start and content_start < #line then
+          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+            end_row = row,
+            end_col = #line, -- byte length
+            hl_group = main_content_hl,
+            priority = M.PRIORITY.CONTENT,
+            hl_eol = false,
+            end_right_gravity = true,
+            right_gravity = false,
+          })
+        end
+      else
+        local content_start = get_content_start(line, 0)
+        if content_start and content_start < #line then
+          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+            end_row = row,
+            end_col = #line, -- byte length
+            hl_group = main_content_hl,
+            priority = M.PRIORITY.CONTENT,
+            hl_eol = false,
+            end_right_gravity = true,
+            right_gravity = false,
+          })
+        end
+      end
     end
   end
 
-  -- Process additional content (lines after the first)
-  for row = first_row + 1, todo_item.range["end"].row do
+  -- Process additional content (lines after the first inline range)
+  for row = todo_item.first_inline_range["end"].row + 1, todo_item.range["end"].row do
     if not child_todo_rows[row] then
       local row_line = M.get_buffer_line(bufnr, row)
 

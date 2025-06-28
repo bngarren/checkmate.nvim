@@ -15,6 +15,8 @@ INDEXING CONVENTIONS:
 ---@class checkmate.Api
 local M = {}
 
+M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
+
 ---@class checkmate.TextDiffHunk
 ---@field start_row integer
 ---@field start_col integer
@@ -52,14 +54,8 @@ function M.setup_buffer(bufnr)
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
 
-  if not checkmate.is_initialized() then
-    if not vim.b[bufnr].checkmate_setup_pending then
-      vim.b[bufnr].checkmate_setup_pending = true
-      checkmate.on_initialized(function()
-        vim.b[bufnr].checkmate_setup_pending = nil
-        M.setup_buffer(bufnr)
-      end)
-    end
+  -- bail early if we're not running
+  if not checkmate.is_running() then
     return false
   end
 
@@ -249,9 +245,6 @@ function M.setup_keymaps(bufnr)
 end
 
 function M.setup_autocmds(bufnr)
-  local augroup_name = "checkate_buffer_" .. bufnr
-  local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
-
   if not vim.b[bufnr].checkmate_autocmds_setup then
     -- This implementation addresses several subtle behavior issues:
     --   1. Atomic write operation - ensures data integrity (either complete write success or
@@ -262,7 +255,7 @@ function M.setup_autocmds(bufnr)
     -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
     --   3. BufWritePre and BufWritePost are called manually so that other plugins can still hook into the write events
     vim.api.nvim_create_autocmd("BufWriteCmd", {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       desc = "Checkmate: Convert and save checkmate.nvim files",
       callback = function()
@@ -368,7 +361,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "InsertLeave", "InsertEnter" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function(args)
         if vim.bo[bufnr].modified then
@@ -378,7 +371,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "TextChanged" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         M.process_buffer(bufnr, "full", "TextChanged")
@@ -386,7 +379,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "TextChangedI" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
@@ -395,7 +388,7 @@ function M.setup_autocmds(bufnr)
 
     -- cleanup buffer when buffer is deleted
     vim.api.nvim_create_autocmd("BufDelete", {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         require("checkmate").unregister_buffer(bufnr)
@@ -514,12 +507,8 @@ function M.shutdown(bufnr)
       end)
     end
 
-    local group_name = "checkate_buffer_" .. bufnr
-    pcall(function()
-      vim.api.nvim_del_augroup_by_name(group_name)
-    end)
+    vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
 
-    vim.b[bufnr].checkmate_setup_pending = nil
     vim.b[bufnr].checkmate_setup_complete = nil
     vim.b[bufnr].checkmate_autocmds_setup = nil
 

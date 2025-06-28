@@ -130,11 +130,6 @@ function M.create_test_buffer(content, name)
 
   vim.bo[bufnr].filetype = "markdown"
 
-  local checkmate = require("checkmate")
-  vim.wait(100, function()
-    return checkmate.is_buffer_active(bufnr)
-  end, 10)
-
   return bufnr
 end
 

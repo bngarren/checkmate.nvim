@@ -53,16 +53,18 @@ function M.setup_buffer(bufnr)
   local checkmate = require("checkmate")
 
   if not checkmate.is_initialized() then
-    checkmate.on_initialized(function()
-      M.setup_buffer(bufnr)
-    end)
+    if not vim.b[bufnr].checkmate_setup_pending then
+      vim.b[bufnr].checkmate_setup_pending = true
+      checkmate.on_initialized(function()
+        vim.b[bufnr].checkmate_setup_pending = nil
+        M.setup_buffer(bufnr)
+      end)
+    end
     return false
   end
 
-  if checkmate.is_buffer_active(bufnr) then
-    if vim.b[bufnr].checkmate_setup_complete then
-      return true
-    end
+  if checkmate.is_buffer_active(bufnr) and vim.b[bufnr].checkmate_setup_complete then
+    return true
   end
 
   checkmate.register_buffer(bufnr)
@@ -517,6 +519,7 @@ function M.shutdown(bufnr)
       vim.api.nvim_del_augroup_by_name(group_name)
     end)
 
+    vim.b[bufnr].checkmate_setup_pending = nil
     vim.b[bufnr].checkmate_setup_complete = nil
     vim.b[bufnr].checkmate_autocmds_setup = nil
 

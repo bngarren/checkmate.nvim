@@ -35,6 +35,8 @@ end
 function M.set_initialized(value)
   state.initialized = value
 
+  vim.print(state)
+
   -- run cb's after setup done
   if value and #state.setup_callbacks > 0 then
     local callbacks = state.setup_callbacks
@@ -55,7 +57,7 @@ end
 
 function M.on_initialized(callback)
   if state.initialized then
-    callback()
+    vim.schedule(callback)
   else
     -- queue it
     table.insert(state.setup_callbacks, callback)
@@ -282,7 +284,9 @@ function M._setup_existing_markdown_buffers()
   local config = require("checkmate.config")
   local file_matcher = require("checkmate.file_matcher")
 
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+  local buffers = vim.api.nvim_list_bufs()
+
+  for _, bufnr in ipairs(buffers) do
     if
       vim.api.nvim_buf_is_valid(bufnr)
       and vim.api.nvim_buf_is_loaded(bufnr)

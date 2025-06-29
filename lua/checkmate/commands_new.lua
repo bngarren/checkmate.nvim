@@ -9,6 +9,20 @@ local commands = {}
 
 ---@type checkmate.CommandDefinition[]
 local top_commands = {
+  enable = {
+    desc = "Activate Checkmate",
+    nargs = "0",
+    handler = function()
+      require("checkmate").enable()
+    end,
+  },
+  disable = {
+    desc = "Deactivate Checkmate",
+    nargs = "0",
+    handler = function()
+      require("checkmate").disable()
+    end,
+  },
   toggle = {
     desc = "Toggle todo item under cursor or selection",
     nargs = "?",

@@ -551,12 +551,13 @@ Line that should not affect parent-child relationship
       end
     end)
 
-    it("should handle custom todo markers from config", function()
+    it("should handle multi-char todo markers from config", function()
       local parser = require("checkmate.parser")
 
       local config = require("checkmate.config")
       local original_markers = vim.deepcopy(config.options.todo_markers)
 
+      -- although we advise against multi-char todo markers, we test them here...
       config.options.todo_markers = {
         unchecked = "[ ]",
         checked = "[x]",

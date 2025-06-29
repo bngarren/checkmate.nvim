@@ -15,6 +15,8 @@ INDEXING CONVENTIONS:
 ---@class checkmate.Api
 local M = {}
 
+M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
+
 ---@class checkmate.TextDiffHunk
 ---@field start_row integer
 ---@field start_col integer
@@ -45,8 +47,6 @@ end
 
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
   if not M.is_valid_buffer(bufnr) then
     return false
   end
@@ -54,17 +54,13 @@ function M.setup_buffer(bufnr)
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
 
-  if not checkmate.is_initialized() then
-    checkmate.on_initialized(function()
-      M.setup_buffer(bufnr)
-    end)
+  -- bail early if we're not running
+  if not checkmate.is_running() then
     return false
   end
 
-  if checkmate.is_buffer_active(bufnr) then
-    if vim.b[bufnr].checkmate_setup_complete then
-      return true
-    end
+  if checkmate.is_buffer_active(bufnr) and vim.b[bufnr].checkmate_setup_complete then
+    return true
   end
 
   checkmate.register_buffer(bufnr)
@@ -249,9 +245,6 @@ function M.setup_keymaps(bufnr)
 end
 
 function M.setup_autocmds(bufnr)
-  local augroup_name = "checkate_buffer_" .. bufnr
-  local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
-
   if not vim.b[bufnr].checkmate_autocmds_setup then
     -- This implementation addresses several subtle behavior issues:
     --   1. Atomic write operation - ensures data integrity (either complete write success or
@@ -262,7 +255,7 @@ function M.setup_autocmds(bufnr)
     -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
     --   3. BufWritePre and BufWritePost are called manually so that other plugins can still hook into the write events
     vim.api.nvim_create_autocmd("BufWriteCmd", {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       desc = "Checkmate: Convert and save checkmate.nvim files",
       callback = function()
@@ -368,7 +361,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "InsertLeave", "InsertEnter" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function(args)
         if vim.bo[bufnr].modified then
@@ -378,7 +371,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "TextChanged" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         M.process_buffer(bufnr, "full", "TextChanged")
@@ -386,7 +379,7 @@ function M.setup_autocmds(bufnr)
     })
 
     vim.api.nvim_create_autocmd({ "TextChangedI" }, {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
@@ -395,7 +388,7 @@ function M.setup_autocmds(bufnr)
 
     -- cleanup buffer when buffer is deleted
     vim.api.nvim_create_autocmd("BufDelete", {
-      group = augroup,
+      group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
         require("checkmate").unregister_buffer(bufnr)
@@ -514,10 +507,7 @@ function M.shutdown(bufnr)
       end)
     end
 
-    local group_name = "checkate_buffer_" .. bufnr
-    pcall(function()
-      vim.api.nvim_del_augroup_by_name(group_name)
-    end)
+    vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
 
     vim.b[bufnr].checkmate_setup_complete = nil
     vim.b[bufnr].checkmate_autocmds_setup = nil
@@ -597,8 +587,8 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
     -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local state = parser.get_todo_item_state(cur_line)
-      if state == nil then
+      local is_todo = parser.is_todo_item(cur_line)
+      if is_todo == false then
         local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
         if new_hunks and #new_hunks > 0 then
           vim.list_extend(hunks, new_hunks)
@@ -649,30 +639,26 @@ end
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_convert_to_todo(bufnr, row)
   local config = require("checkmate.config")
-  local util = require("checkmate.util")
-  local parser = require("checkmate.parser")
+  local ph = require("checkmate.parser.helpers")
 
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
   -- existing indentation
-  local indent = line:match("^(%s*)") or ""
+  local indent = require("checkmate.util").get_line_indent(line)
 
-  -- does the line already already have a list marker
-  local list_marker = util.match_first(
-    util.create_list_prefix_patterns({
-      simple_markers = parser.list_item_markers,
-      use_numbered_list_markers = true,
-      with_capture = true,
-    }),
-    line
-  )
+  local list_item = ph.match_list_item(line)
+  local list_marker = list_item and list_item.marker
 
   local unchecked = config.options.todo_markers.unchecked
   local new_text
 
   if list_marker then
     -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
-    new_text = line:gsub("^(" .. vim.pesc(list_marker) .. ")", "%1" .. unchecked .. " ")
+    new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. unchecked)
+    -- add a space if the new line ends with the unchecked marker
+    if new_text:match(unchecked .. "$") then
+      new_text = new_text .. " "
+    end
   else
     local default_marker = config.options.default_list_marker or "-"
     new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")

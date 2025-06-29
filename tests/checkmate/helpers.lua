@@ -111,7 +111,11 @@ end
 --- @param name string?
 --- @return integer bufnr
 function M.create_test_buffer(content, name)
-  local bufnr = vim.api.nvim_create_buf(false, true)
+  local filename = name or "todo.md"
+
+  local bufnr = vim.api.nvim_create_buf(true, false)
+
+  vim.api.nvim_buf_set_name(bufnr, filename)
 
   local lines
   if type(content) == "table" then
@@ -122,9 +126,10 @@ function M.create_test_buffer(content, name)
 
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  vim.api.nvim_buf_set_name(bufnr, name or "todo.md")
+  vim.api.nvim_win_set_buf(0, bufnr)
 
   vim.bo[bufnr].filetype = "markdown"
+
   return bufnr
 end
 

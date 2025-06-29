@@ -1,124 +1,21 @@
 ---@class Checkmate
 local M = {}
 
--- Public Types
-
----@class checkmate.Todo
----@field _todo_item checkmate.TodoItem internal representation
----@field state checkmate.TodoItemState
----@field text string First line of the todo
----@field metadata string[][] Table of {tag, value} tuples
----@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
----@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
-
----@class checkmate.MetadataContext
----@field name string Metadata tag name
----@field value string Current metadata value
----@field todo checkmate.Todo Access to todo item data
----@field buffer integer Buffer number
+-- Helper module
+local H = {}
 
 --- internal
 
+-- save initial user opts for later restarts
 local user_opts = {}
 
 local state = {
+  -- initialized is config setup
   initialized = false,
+  -- core modules are setup (parser, highlights, linter) and autocmds registered
   running = false,
-  setup_callbacks = {},
   active_buffers = {}, -- bufnr -> true
 }
-
-function M.is_initialized()
-  return state.initialized
-end
-
-function M.set_initialized(value)
-  state.initialized = value
-
-  -- run cb's after setup done
-  if value and #state.setup_callbacks > 0 then
-    local callbacks = state.setup_callbacks
-    state.setup_callbacks = {}
-    for _, callback in ipairs(callbacks) do
-      vim.schedule(callback)
-    end
-  end
-end
-
-function M.is_running()
-  return state.running
-end
-
-function M.set_running(value)
-  state.running = value
-end
-
-function M.on_initialized(callback)
-  if state.initialized then
-    callback()
-  else
-    -- queue it
-    table.insert(state.setup_callbacks, callback)
-  end
-end
-
-function M.register_buffer(bufnr)
-  state.active_buffers[bufnr] = true
-end
-
-function M.unregister_buffer(bufnr)
-  state.active_buffers[bufnr] = nil
-end
-
-function M.is_buffer_active(bufnr)
-  return state.active_buffers[bufnr] == true
-end
-
--- Returns array of buffer numbers
-function M.get_active_buffer_list()
-  local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      table.insert(buffers, bufnr)
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Returns hash table of bufnr -> true
-function M.get_active_buffer_map()
-  local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      buffers[bufnr] = true
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Convenience function that returns count
-function M.count_active_buffers()
-  local count = 0
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      count = count + 1
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return count
-end
-
-function M.reset()
-  state.initialized = false
-  state.running = false
-  state.setup_callbacks = {}
-  state.active_buffers = {}
-end
 
 ---@param opts checkmate.Config?
 ---@return boolean success
@@ -130,7 +27,6 @@ M.setup = function(opts)
   -- reload if config has changed
   if M.is_initialized() then
     local current_config = config.options
-
     if opts and not vim.deep_equal(opts, current_config) then
       M.stop()
     else
@@ -149,10 +45,6 @@ M.setup = function(opts)
     end
 
     M.set_initialized(true)
-
-    if cfg.enabled then
-      M.start()
-    end
   end)
 
   if not success then
@@ -165,19 +57,20 @@ M.setup = function(opts)
     return false
   end
 
+  if config.options.enabled then
+    M.start()
+  end
+
   return true
 end
 
--- spin up parser, highlights, commands, linter, autocmds
+-- spin up parser, highlights, linter, autocmds
 function M.start()
   if M.is_running() then
     return
   end
 
   local config = require("checkmate.config")
-  if not config.options.enabled then
-    return
-  end
 
   local success, err = pcall(function()
     local log = require("checkmate.log")
@@ -190,11 +83,11 @@ function M.start()
       require("checkmate.linter").setup(config.options.linter)
     end
 
-    M._setup_autocommands()
+    H.setup_autocommands()
 
     M.set_running(true)
 
-    M._setup_existing_markdown_buffers()
+    H.setup_existing_markdown_buffers()
 
     log.info("Checkmate plugin started", { module = "init" })
   end)
@@ -202,51 +95,6 @@ function M.start()
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
     M.stop() -- cleanup partial initialization
   end
-end
-
-function M._setup_autocommands()
-  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
-
-  vim.api.nvim_create_autocmd("VimLeavePre", {
-    group = augroup,
-    callback = function()
-      M.stop()
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("FileType", {
-    group = augroup,
-    pattern = "markdown",
-    callback = function(event)
-      local cfg = require("checkmate.config").options
-      if not (cfg and cfg.enabled) then
-        return
-      end
-
-      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
-        --  TODO: remove legacy in v0.10+
-        require("checkmate.commands").setup(event.buf) -- legacy commands
-        require("checkmate.commands_new").setup(event.buf)
-        require("checkmate.api").setup_buffer(event.buf)
-      end
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("FileType", {
-    group = augroup,
-    callback = function(event)
-      local bufs = M.get_active_buffer_list()
-      for _, buf in ipairs(bufs) do
-        if event.buf == buf and event.match ~= "markdown" then
-          --  TODO: remove legacy in v0.10+
-          require("checkmate.commands").dispose(buf) -- legacy
-          require("checkmate.commands_new").dispose(buf)
-          require("checkmate.api").shutdown(buf)
-          M.unregister_buffer(buf)
-        end
-      end
-    end,
-  })
 end
 
 function M.stop()
@@ -261,9 +109,8 @@ function M.stop()
     require("checkmate.api").shutdown(bufnr)
   end
 
-  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_ft")
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
-  pcall(vim.api.nvim_del_augroup_by_name, "CheckmateHighlighting")
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
 
   local parser = require("checkmate.parser")
   parser.todo_map_cache = {}
@@ -278,23 +125,23 @@ function M.stop()
   M.reset()
 end
 
-function M._setup_existing_markdown_buffers()
-  local config = require("checkmate.config")
-  local file_matcher = require("checkmate.file_matcher")
+-------------- PUBLIC API --------------
 
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    if
-      vim.api.nvim_buf_is_valid(bufnr)
-      and vim.api.nvim_buf_is_loaded(bufnr)
-      and vim.bo[bufnr].filetype == "markdown"
-      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
-    then
-      require("checkmate.api").setup_buffer(bufnr)
-    end
-  end
-end
+-- Public Types
 
--- PUBLIC API --
+---@class checkmate.Todo
+---@field _todo_item checkmate.TodoItem internal representation
+---@field state checkmate.TodoItemState
+---@field text string First line of the todo
+---@field metadata string[][] Table of {tag, value} tuples
+---@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
+
+---@class checkmate.MetadataContext
+---@field name string Metadata tag name
+---@field value string Current metadata value
+---@field todo checkmate.Todo Access to todo item data
+---@field buffer integer Buffer number
 
 -- Globally disables/deactivates Checkmate for all buffers
 function M.disable()
@@ -1003,6 +850,146 @@ function M.debug_extmarks()
     local detail_str = "[" .. table.concat(parts, ", ") .. "]"
 
     print(string.format(" • extmark %d @ start=(row=%d, col=%d) (0-based) %s", id, sr0, sc0, detail_str))
+  end
+end
+
+function M.is_initialized()
+  return state.initialized
+end
+
+function M.set_initialized(value)
+  state.initialized = value
+end
+
+function M.is_running()
+  return state.running
+end
+
+function M.set_running(value)
+  state.running = value
+end
+
+function M.register_buffer(bufnr)
+  state.active_buffers[bufnr] = true
+end
+
+function M.unregister_buffer(bufnr)
+  state.active_buffers[bufnr] = nil
+end
+
+function M.is_buffer_active(bufnr)
+  return state.active_buffers[bufnr] == true
+end
+
+-- Returns array of buffer numbers
+function M.get_active_buffer_list()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      table.insert(buffers, bufnr)
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Returns hash table of bufnr -> true
+function M.get_active_buffer_map()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      buffers[bufnr] = true
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Convenience function that returns count
+function M.count_active_buffers()
+  local count = 0
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      count = count + 1
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return count
+end
+
+function M.reset()
+  state.initialized = false
+  state.running = false
+  state.active_buffers = {}
+end
+
+---- Helpers ----
+
+function H.setup_autocommands()
+  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
+
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = augroup,
+    callback = function()
+      M.stop()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    pattern = "markdown",
+    callback = function(event)
+      local cfg = require("checkmate.config").options
+      if not (cfg and cfg.enabled) then
+        return
+      end
+
+      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
+        --  TODO: remove legacy in v0.10+
+        require("checkmate.commands").setup(event.buf) -- legacy commands
+        require("checkmate.commands_new").setup(event.buf)
+        require("checkmate.api").setup_buffer(event.buf)
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    callback = function(event)
+      if event.match ~= "markdown" then
+        local bufs = M.get_active_buffer_map()
+
+        if bufs[event.buf] then
+          local buf = event.buf
+          --  TODO: remove legacy in v0.10+
+          require("checkmate.commands").dispose(buf) -- legacy
+          require("checkmate.commands_new").dispose(buf)
+          require("checkmate.api").shutdown(buf)
+          M.unregister_buffer(buf)
+        end
+      end
+    end,
+  })
+end
+
+function H.setup_existing_markdown_buffers()
+  local config = require("checkmate.config")
+  local file_matcher = require("checkmate.file_matcher")
+
+  local buffers = vim.api.nvim_list_bufs()
+
+  for _, bufnr in ipairs(buffers) do
+    if
+      vim.api.nvim_buf_is_valid(bufnr)
+      and vim.api.nvim_buf_is_loaded(bufnr)
+      and vim.bo[bufnr].filetype == "markdown"
+      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
+    then
+      require("checkmate.api").setup_buffer(bufnr)
+    end
   end
 end
 

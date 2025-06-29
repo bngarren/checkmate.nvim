@@ -108,7 +108,7 @@ function M.setup_highlights()
 
   -- autocmd to re-apply highlighting when colorscheme changes
   vim.api.nvim_create_autocmd("ColorScheme", {
-    group = vim.api.nvim_create_augroup("CheckmateHighlighting", { clear = true }),
+    group = vim.api.nvim_create_augroup("checkmate_highlights", { clear = true }),
     callback = function()
       vim.defer_fn(function()
         M.clear_highlight_cache()

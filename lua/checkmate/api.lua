@@ -1271,7 +1271,6 @@ function M.add_metadata(ctx, operations)
     ctx.add_cb(function(tx_ctx)
       local updated_item = tx_ctx.get_todo_by_id(to_jump.item.id)
       if updated_item then
-        print("here")
         M._handle_metadata_cursor_jump(bufnr, updated_item, to_jump.meta_name, to_jump.meta_config)
       end
     end)

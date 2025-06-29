@@ -67,7 +67,7 @@ describe("Parser", function()
    + Child list item e.3
       ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local list_items = parser.get_all_list_items(bufnr)
 
       assert.equal(#list_items, 13)
@@ -166,7 +166,7 @@ describe("Parser", function()
   todo with
   two continuations]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local single_line = h.find_todo_by_text(todo_map, "Single line")
@@ -219,7 +219,7 @@ describe("Parser", function()
 - ]] .. unchecked .. [[ Todo with empty content after marker
 - ]] .. unchecked .. [[ ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local total_todos = 0
@@ -333,7 +333,7 @@ describe("Parser", function()
    * ]] .. unchecked .. [[ Unordered child with asterisk in ordered parent
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local parent_dash = h.find_todo_by_text(todo_map, "Parent with dash")
@@ -394,7 +394,7 @@ Line that should not affect parent-child relationship
   Not a todo but indented
 - ]] .. unchecked .. [[ Todo at document end]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local start_todo = h.find_todo_by_text(todo_map, "Todo at document start")
@@ -444,7 +444,7 @@ Line that should not affect parent-child relationship
 - ]] .. unchecked .. [[ Alpha
 - ]] .. checked .. [[ Beta
 ]]
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
       assert.equal(2, vim.tbl_count(todo_map))
@@ -552,8 +552,8 @@ Line that should not affect parent-child relationship
         end
       end)
 
-    it("should handle multi-char todo markers from config", function()
-      local parser = require("checkmate.parser")
+      it("should handle multi-char todo markers from config", function()
+        local parser = require("checkmate.parser")
 
         local config = require("checkmate.config")
         local original_markers = vim.deepcopy(config.options.todo_markers)
@@ -594,7 +594,7 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_buffer(content)
+        local bufnr = h.setup_todo_file_buffer(content)
 
         local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
 
@@ -624,7 +624,7 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_buffer(content)
+        local bufnr = h.setup_todo_file_buffer(content)
 
         local todo_item1 = parser.get_todo_item_at_position(bufnr, 0, 0)
         assert.is_not_nil(todo_item1)
@@ -655,7 +655,7 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_buffer(content)
+        local bufnr = h.setup_todo_file_buffer(content)
 
         for i = 1, 3 do
           local todo_item = parser.get_todo_item_at_position(bufnr, i, 0)
@@ -684,7 +684,7 @@ This is another line
       - Even deeper nesting
 - [ ] Another parent
     ]]
-        local bufnr = h.setup_todo_buffer(content)
+        local bufnr = h.setup_todo_file_buffer(content)
 
         -- cursor on wrapped portion of nested todo
         local todo_item = parser.get_todo_item_at_position(bufnr, 3, 10)
@@ -710,7 +710,7 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_buffer(content)
+        local bufnr = h.setup_todo_file_buffer(content)
 
         local todo_item = parser.get_todo_item_at_position(bufnr, 3, 0)
         assert.is_not_nil(todo_item)
@@ -780,7 +780,7 @@ This is another line
   more metadata @due(2024-12-31) on the wrapped line
 - [ ] Another todo
     ]]
-      local bufnr = h.setup_todo_buffer(content)
+      local bufnr = h.setup_todo_file_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 1, 20)
       assert.is_not_nil(todo_item)
@@ -802,7 +802,7 @@ This is another line
 - [ ] Todo with very long metadata value @description(This is a very long
   description that spans multiple lines) @status(pending)
     ]]
-      local bufnr = h.setup_todo_buffer(content)
+      local bufnr = h.setup_todo_file_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
       assert.is_not_nil(todo_item)
@@ -1020,7 +1020,7 @@ This is another line
 - [ ]   This is okay
 ]]
 
-        local bufnr = h.create_test_buffer(content)
+        local bufnr = h.setup_test_buffer(content)
 
         parser.convert_markdown_to_unicode(bufnr)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -1214,7 +1214,7 @@ This is another line
       end
 
       local content = table.concat(content_lines, "\n")
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- measure performance
       local start_time = vim.fn.reltime()

@@ -13,7 +13,7 @@ M.DEFAULT_TEST_CONFIG = {
 --- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
 --- @return integer bufnr
 --- @return string file_path
-function M.setup_todo_buffer(content, opts)
+function M.setup_todo_file_buffer(content, opts)
   opts = opts or {}
 
   local content_str
@@ -110,7 +110,7 @@ end
 --- @param content string|string[]
 --- @param name string?
 --- @return integer bufnr
-function M.create_test_buffer(content, name)
+function M.setup_test_buffer(content, name)
   local filename = name or "todo.md"
 
   local bufnr = vim.api.nvim_create_buf(true, false)

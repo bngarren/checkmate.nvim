@@ -41,7 +41,7 @@ describe("API", function()
    - ]] .. unchecked .. [[ Research destinations
    - ]] .. checked .. [[ Check budget]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.cmd("write")
 
@@ -90,7 +90,7 @@ describe("API", function()
 - [x] Checked task
       ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -120,7 +120,7 @@ describe("API", function()
 - [ ] Task 3
       ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
       local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
@@ -156,8 +156,8 @@ describe("API", function()
 
     describe("BufWriteCmd behavior", function()
       it("should handle :wa (write all modified buffers)", function()
-        local bufnr1, file1 = h.setup_todo_buffer("- [ ] File 1 todo")
-        local bufnr2, file2 = h.setup_todo_buffer("- [ ] File 2 todo")
+        local bufnr1, file1 = h.setup_todo_file_buffer("- [ ] File 1 todo")
+        local bufnr2, file2 = h.setup_todo_file_buffer("- [ ] File 2 todo")
 
         vim.api.nvim_buf_set_lines(bufnr1, 0, -1, false, { "- [ ] File 1 new" })
         vim.api.nvim_buf_set_lines(bufnr2, 0, -1, false, { "- [ ] File 2 new", "" })
@@ -193,7 +193,7 @@ describe("API", function()
       end)
 
       it("should not trigger multiple writes on single save command", function()
-        local bufnr, file_path = h.setup_todo_buffer("- [ ] Test")
+        local bufnr, file_path = h.setup_todo_file_buffer("- [ ] Test")
 
         local write_attempts = 0
         local original_writefile = vim.fn.writefile
@@ -217,7 +217,7 @@ describe("API", function()
       end)
 
       it("should call BufWritePre and BufWritePost", function()
-        local bufnr = h.setup_todo_buffer("")
+        local bufnr = h.setup_todo_file_buffer("")
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Todo new" })
         assert.is_true(vim.bo[bufnr].modified)
 
@@ -263,7 +263,7 @@ describe("API", function()
 - ]] .. unchecked .. [[ Task A
 - ]] .. unchecked .. [[ Task B
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -284,7 +284,7 @@ describe("API", function()
 - ]] .. unchecked .. [[ Task A
 - ]] .. unchecked .. [[ Task B
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- linewise select both todo lines
       h.make_selection(1, 0, 2, 0, "V")
@@ -320,7 +320,7 @@ describe("API", function()
 
       local content = "# Todo List\n\nThis is a regular line\n"
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- move cursor to the regular line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
@@ -345,7 +345,7 @@ describe("API", function()
 + Yet another
 1. Ordered item]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local expected = {
         "- " .. unchecked .. " Regular list item",
@@ -379,7 +379,7 @@ describe("API", function()
 - ]] .. unchecked .. [[ First todo
 Some other content
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -405,7 +405,7 @@ Some other content
       local content = [[
   - ]] .. unchecked .. [[ Indented todo
 Some other content ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -428,7 +428,7 @@ Some other content ]]
 1. ]] .. unchecked .. [[ First item
 2. ]] .. unchecked .. [[ Second item
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- insert after first item
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -454,7 +454,7 @@ Some other content ]]
 - Todo1
 
   - Child1]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
       local success = require("checkmate").create()
@@ -479,7 +479,7 @@ Some other content ]]
 Line 1
 Line 2
   ]] .. default_list_marker .. [[ Line 3]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- select all lines
       vim.cmd("normal! ggVG")
@@ -506,7 +506,7 @@ Line 2
   - Regular list item
       ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
@@ -553,7 +553,7 @@ Line 2
   With a separate paragraph
 - [ ] ⭐️ Unicode ✅]]
 
-          local bufnr, file_path = h.setup_todo_buffer(content)
+          local bufnr, file_path = h.setup_todo_file_buffer(content)
           local todo_item, insert_pos, lines
 
           -- Test 1: Single line todo
@@ -606,7 +606,7 @@ Line 2
 - [ ] ⭐️ @high(3)
 - [ ] Mixed @high(3) @low(1)]]
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 -- higher sort_order will be positioned to the right
@@ -652,7 +652,7 @@ Line 2
   more text @b(2)
   final line]]
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 a = { sort_order = 10 },
@@ -685,7 +685,7 @@ Line 2
 
         local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr, file_path = h.setup_todo_file_buffer(content)
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
@@ -722,7 +722,7 @@ Line 2
   - [ ] Child todo A
   - [ ] Child todo B
 ]]
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr, file_path = h.setup_todo_file_buffer(content)
 
         -- move cursor to the Child todo A on line 2 (1-indexed)
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -767,7 +767,7 @@ Line 2
       @test3(baz)
         ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
           config = {
             metadata = {
               test1 = {
@@ -816,7 +816,7 @@ Line 2
 - [ ] Task @issue(issue #1 - fix(api): broken! @author)
       ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr, file_path = h.setup_todo_file_buffer(content)
 
         local todo_map = require("checkmate.parser").discover_todos(bufnr)
         local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
@@ -857,7 +857,7 @@ Line 2
 - ]] .. unchecked .. [[ A todo without metadata
 ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
           config = {
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
@@ -931,7 +931,7 @@ Line 2
         local unchecked = h.get_unchecked_marker()
         local content = [[- ]] .. unchecked .. [[ Task with metadata @status()]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
           config = {
             metadata = {
               status = {
@@ -966,7 +966,7 @@ Line 2
         local choices_fn_called = false
         local received_context = nil
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
           config = {
             metadata = {
               assignee = {
@@ -1014,7 +1014,7 @@ Line 2
         local choices_fn_called = false
         local received_context = nil
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
           config = {
             metadata = {
               project = {
@@ -1074,7 +1074,7 @@ Line 2
           local on_add_called = false
           local test_todo_item = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1126,7 +1126,7 @@ Line 2
           local on_remove_called = false
           local test_todo_item = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1180,7 +1180,7 @@ Line 2
           local on_add_calls = {}
 
           -- register the metadata tag with a callback that tracks which todos are affected
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1248,7 +1248,7 @@ Line 2
           local on_add_called = false
           local on_change_called = false
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1297,7 +1297,7 @@ Line 2
           local received_old_value = nil
           local received_new_value = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1355,7 +1355,7 @@ Line 2
           local received_old_value = nil
           local received_new_value = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1412,7 +1412,7 @@ Line 2
           local on_change_called = false
           local on_add_called = false
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1467,7 +1467,7 @@ Line 2
           local change_count = 0
           local changes = {}
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1522,7 +1522,7 @@ Line 2
           local on_change_called = false
           local on_remove_called = false
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
+          local bufnr, file_path = h.setup_todo_file_buffer(content, {
             config = {
               metadata = {
                 ---@diagnostic disable-next-line: missing-fields
@@ -1619,7 +1619,7 @@ Line 2
 - [ ] Another parent
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
 
@@ -1675,7 +1675,7 @@ Line 2
 - [ ] Task 3
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- toggle task 1, add metadata to task 2, check task 3
 
@@ -1728,7 +1728,7 @@ Line 2
       local api = require("checkmate.api")
 
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
       assert.is_not_nil(todo_item)
@@ -1765,7 +1765,7 @@ Line 2
       local api = require("checkmate.api")
 
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
       assert.is_not_nil(todo_item)
@@ -1806,7 +1806,7 @@ Line 2
         }, smart_toggle_config or {}),
       }
 
-      return h.setup_todo_buffer(content, { config = config_override })
+      return h.setup_todo_file_buffer(content, { config = config_override })
     end
 
     describe("downward propagation", function()
@@ -2217,7 +2217,7 @@ Line 2
   - ]] .. unchecked .. [[ Subtask 2.1
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local success = require("checkmate").archive()
       assert.is_false(success) -- should return false when nothing to archive
@@ -2268,7 +2268,7 @@ Line 2
 Some content here
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local heading_title = "Completed Todos"
       local success = require("checkmate").archive({ heading = { title = heading_title } })
@@ -2337,7 +2337,7 @@ Some content here
       -- setup with custom archive heading
       local heading_title = "Completed Items"
       local heading_level = 4 -- ####
-      local bufnr, file_path = h.setup_todo_buffer(
+      local bufnr, file_path = h.setup_todo_file_buffer(
         content,
         { config = {
           archive = { heading = { title = heading_title, level = heading_level } },
@@ -2389,7 +2389,7 @@ Some content here
 - ]] .. checked .. [[ Previously archived task
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content, {
+      local bufnr, file_path = h.setup_todo_file_buffer(content, {
         config = {
           archive = {
             newest_first = false, -- ensure newly added todos end up at top of archive section
@@ -2452,7 +2452,8 @@ Some content here
 - ]] .. checked .. [[ Done task B
 ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, { config = { archive = { parent_spacing = spacing } } })
+        local bufnr, file_path =
+          h.setup_todo_file_buffer(content, { config = { archive = { parent_spacing = spacing } } })
 
         local success = require("checkmate").archive()
         vim.wait(20)
@@ -2536,7 +2537,7 @@ Some content here
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2581,7 +2582,7 @@ Some content here
 - ]] .. unchecked .. [[ Task D
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2621,7 +2622,7 @@ Some content here
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2679,7 +2680,7 @@ More content.
 Final content.
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2731,7 +2732,7 @@ Final content.
       -- create a one-line todo
       local content = [[
 - ]] .. unchecked .. [[ MyTask]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local parser = require("checkmate.parser")
       local api = require("checkmate.api")

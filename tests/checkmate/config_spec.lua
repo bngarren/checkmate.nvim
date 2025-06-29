@@ -54,7 +54,7 @@ describe("Config", function()
     it("should correctly setup keymaps", function()
       local checkmate = require("checkmate")
 
-      local bufnr, file_path = h.setup_todo_buffer("", {
+      local bufnr, file_path = h.setup_todo_file_buffer("", {
         config = {
           keys = {
             ["<leader>Tt"] = "toggle", -- legacy

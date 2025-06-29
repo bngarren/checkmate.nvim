@@ -1,11 +1,16 @@
 describe("Highlights", function()
   local h = require("tests.checkmate.helpers")
-  local checkmate = require("checkmate")
+  local checkmate
 
   before_each(function()
     _G.reset_state()
 
+    checkmate = require("checkmate")
+
     checkmate.setup()
+    vim.wait(100, function()
+      return checkmate.is_running()
+    end)
   end)
 
   after_each(function()
@@ -26,7 +31,7 @@ describe("Highlights", function()
     - ]] .. checked .. [[ Todo B.1.1 
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -71,7 +76,7 @@ describe("Highlights", function()
   1. Ordered
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -139,7 +144,7 @@ describe("Highlights", function()
     - ]] .. checked .. [[ Todo B.1.1 
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -215,7 +220,7 @@ describe("Highlights", function()
   More additional content
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_test_buffer(content)
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
       local extmarks = h.get_extmarks(bufnr, config.ns)
@@ -329,7 +334,7 @@ describe("Highlights", function()
 - ]] .. unchecked .. [[ Todo with @priority(high) metadata
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
@@ -370,7 +375,7 @@ describe("Highlights", function()
   - ]] .. unchecked .. [[ Child 3
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 

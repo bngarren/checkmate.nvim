@@ -9,13 +9,15 @@ local H = {}
 -- save initial user opts for later restarts
 local user_opts = {}
 
-local state = {
+M._state = {
   -- initialized is config setup
   initialized = false,
   -- core modules are setup (parser, highlights, linter) and autocmds registered
   running = false,
   active_buffers = {}, -- bufnr -> true
 }
+
+local state = M._state
 
 ---@param opts checkmate.Config?
 ---@return boolean success
@@ -83,9 +85,9 @@ function M.start()
       require("checkmate.linter").setup(config.options.linter)
     end
 
-    H.setup_autocommands()
-
     M.set_running(true)
+
+    H.setup_autocommands()
 
     H.setup_existing_markdown_buffers()
 

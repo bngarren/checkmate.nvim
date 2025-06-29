@@ -164,7 +164,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.equal(0, checkmate.count_active_buffers())
 
-      local bufnr = h.create_test_buffer("", "todo")
+      local bufnr = h.setup_test_buffer("", "todo")
 
       vim.wait(50, function()
         return vim.b[bufnr].checkmate_setup_complete == true
@@ -208,7 +208,7 @@ describe("checkmate init and lifecycle", function()
   Regular line
       ]]
 
-      local bufnr = h.create_test_buffer(content, "todo")
+      local bufnr = h.setup_test_buffer(content, "todo")
 
       assert.is_true(checkmate.is_buffer_active(bufnr))
       assert.equal(1, checkmate.count_active_buffers())

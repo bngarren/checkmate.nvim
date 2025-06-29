@@ -46,7 +46,6 @@ describe("Config", function()
       assert.equal("□", config.options.todo_markers.unchecked)
       assert.equal("✔", config.options.todo_markers.checked)
       assert.equal("-", config.options.default_list_marker)
-      assert.equal(1, config.options.todo_action_depth)
       assert.is_true(config.options.enter_insert_after_new)
 
       checkmate.stop()
@@ -55,7 +54,7 @@ describe("Config", function()
     it("should correctly setup keymaps", function()
       local checkmate = require("checkmate")
 
-      local bufnr, file_path = h.setup_todo_buffer("", {
+      local bufnr, file_path = h.setup_todo_file_buffer("", {
         config = {
           keys = {
             ["<leader>Tt"] = "toggle", -- legacy

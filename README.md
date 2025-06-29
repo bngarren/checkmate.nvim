@@ -257,13 +257,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
 ---
---- Depth within a todo item's hierarchy from which actions (e.g. toggle) will act on the parent todo item
---- Examples:
---- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
---- 1 = toggle triggered when cursor/selection includes any direct child of todo item
---- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
----@field todo_action_depth integer
----
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
@@ -417,11 +410,11 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
 ---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
 ---| "CheckmateUncheckedMarker" -- unchecked markers (□)
----| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
----| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st paragraph)
+---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (subsequent paragraphs or list items)
 ---| "CheckmateCheckedMarker" -- checked markers (✔)
----| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
----| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st paragraph)
+---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (subsequent paragraphs or list items)
 ---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
 
 ---Customize the style of markers and content
@@ -617,8 +610,7 @@ local defaults = {
     checked = "✔",
   },
   style = {}, -- override defaults
-  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
     check_down = "direct_children",
@@ -698,7 +690,7 @@ local defaults = {
 ```
 
 > [!WARNING]
-> Multi-character todo markers are not currently supported but _may_ work. For consistent behavior, recommend using a single character.
+> Multi-character todo markers are not officially supported but _may_ work. For consistent behavior, recommend using a single character.
 
 ## Keymapping
 Default keymaps can be disabled by setting `keys = false`.
@@ -738,11 +730,11 @@ Individual styles can still be overriden using the `style` option and passing a 
 | CheckmateListMarkerUnordered | Unordered list markers, e.g. `-`,`*`, and `+`. (_Only those associated with a todo_) |
 | CheckmateListMarkerOrdered | Ordered list markers, e.g. `1.`, `2)`. (_Only those associated with a todo_) |
 | CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_markers` option |
-| CheckmateUncheckedMainContent | The main content of an unchecked todo (typically the first line) |
-| CheckmateUncheckedAdditionalContent | Additional content for an unchecked todo (below the first line, including nested non-todo content) |
+| CheckmateUncheckedMainContent | The main content of an unchecked todo (typically the first paragraph) |
+| CheckmateUncheckedAdditionalContent | Additional content for an unchecked todo (subsequent paragraphs, list items, etc.) |
 | CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_markers` option |
-| CheckmateCheckedMainContent | The main content of a checked todo (typically the first line) |
-| CheckmateCheckedAdditionalContent | Additional content for a checked todo (below the first line, including nested non-todo content) |
+| CheckmateCheckedMainContent | The main content of a checked todo (typically the first paragraph) |
+| CheckmateCheckedAdditionalContent | Additional content for a checked todo (subsequent paragraphs, list items, etc.) |
 | CheckmateTodoCountIndicator | The todo count indicator, e.g. `1/4`, shown on the todo line, if enabled. See `show_todo_count` option |
 
 Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag name and style.
@@ -755,7 +747,9 @@ opts = {
     }
 }
 ```
-
+#### Main content versus Additional content
+Highlight groups with 'MainContent' refer to the todo item's first paragraph. 'AdditionalContent' refers to subsequent paragraphs, list items, etc.
+<img src="./assets/main-vs-additional-hl-groups.png" />
 
 
 ## Todo count indicator

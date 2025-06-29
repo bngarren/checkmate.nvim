@@ -6,6 +6,7 @@ local H = {}
 
 --- internal
 
+-- save initial user opts for later restarts
 local user_opts = {}
 
 local state = {
@@ -44,10 +45,6 @@ M.setup = function(opts)
     end
 
     M.set_initialized(true)
-
-    if cfg.enabled then
-      M.start()
-    end
   end)
 
   if not success then
@@ -58,6 +55,10 @@ M.setup = function(opts)
     vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
     return false
+  end
+
+  if config.options.enabled then
+    M.start()
   end
 
   return true

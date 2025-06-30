@@ -568,7 +568,6 @@ describe("checkmate init and lifecycle", function()
     vim.bo[buf2].filetype = "markdown"
 
     local should_buf2 = file_matcher.should_activate_for_buffer(buf2, { "tasks.md" })
-    print(should_buf2)
 
     assert.is_true(vim.b[buf1].checkmate_setup_complete or false)
     assert.is_falsy(vim.b[buf2].checkmate_setup_complete)

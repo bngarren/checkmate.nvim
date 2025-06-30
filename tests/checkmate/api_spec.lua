@@ -849,6 +849,60 @@ Line 2
         end)
       end)
 
+      it("should remove metadata from todo with wrapped metadata", function()
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            test1 = {
+              sort_order = 1,
+            },
+            test2 = {
+              sort_order = 2,
+            },
+          },
+        })
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+- [ ] Task @test1(foo) @test2(metadata with
+      broken value)
+      ]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        -- Todo 1
+        -- remove @test1
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("test1")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("- " .. unchecked .. " Task @test2(metadata with", lines[1])
+        assert.matches("^%s*broken value%)", lines[2])
+
+        content = [[
+- ]] .. unchecked .. [[ This is some extra content @started(06/30/25 20:21) @done(06/30/25 
+  20:21) @branch(fix/multi-line-todos)
+        ]]
+
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
+
+        -- Todo 2
+        -- remove @done
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("done")
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("- " .. unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
+        assert.equal("  @branch(fix/multi-line-todos)", lines[2])
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
       it("should remove metadata with complex value", function()
         local cm = require("checkmate")
         cm.setup()

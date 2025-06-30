@@ -430,7 +430,7 @@ function M.remove_metadata(metadata_name)
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = { metadata_name } } })
     end
     return true
   end
@@ -449,7 +449,7 @@ function M.remove_metadata(metadata_name)
   for _, item in ipairs(todo_items) do
     table.insert(operations, {
       id = item.id,
-      meta_name = metadata_name,
+      meta_names = { metadata_name },
     })
   end
 
@@ -476,7 +476,7 @@ function M.remove_all_metadata()
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_all_metadata, { todo_item.id })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = true } })
     end
     return true
   end
@@ -491,12 +491,16 @@ function M.remove_all_metadata()
     return false
   end
 
-  local ids = vim.tbl_map(function(item)
-    return item.id
-  end, todo_items)
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_names = true, -- true means remove all
+    })
+  end
 
   transaction.run(bufnr, function(_ctx)
-    _ctx.add_op(api.remove_all_metadata, ids)
+    _ctx.add_op(api.remove_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)

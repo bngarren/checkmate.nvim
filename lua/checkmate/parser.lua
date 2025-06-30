@@ -20,17 +20,12 @@ local M = {}
 ---@field tag string The tag name
 ---@field value string The value
 ---@field range checkmate.Range Position range (0-indexed), end_col is end_exclusive
----@field value_col integer Start col (0-indexed) of value
+---@field value_range checkmate.Range Position range (0-indexed), end_col is end exclusive
 ---@field alias_for? string The canonical tag name if this is an alias
----@field position_in_line integer (1-indexed)
 
 ---@class checkmate.TodoMetadata
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
 ---@field by_tag table<string, checkmate.MetadataEntry> Quick access by tag name
-
----@class checkmate.Range
----@field start {row: integer, col: integer}
----@field ["end"] {row: integer, col: integer}
 
 --- @class checkmate.TodoItem
 --- Stable key. Uses extmark id positioned just prior to the todo marker.
@@ -661,37 +656,7 @@ function M.discover_todos(bufnr)
 
   -- extract metadata using the inline range
   for _, todo_item in pairs(todo_map) do
-    if todo_item.first_inline_range then
-      local lines = vim.api.nvim_buf_get_lines(
-        bufnr,
-        todo_item.first_inline_range.start.row,
-        todo_item.first_inline_range["end"].row + 1,
-        false
-      )
-
-      local metadata = {
-        entries = {},
-        by_tag = {},
-      }
-
-      for line_idx, line in ipairs(lines) do
-        local row = todo_item.first_inline_range.start.row + line_idx - 1
-        local line_metadata = M.extract_metadata_from_line(line, row)
-
-        for _, entry in ipairs(line_metadata.entries) do
-          table.insert(metadata.entries, entry)
-          metadata.by_tag[entry.tag] = entry
-          if entry.alias_for then
-            metadata.by_tag[entry.alias_for] = entry
-          end
-        end
-      end
-
-      todo_item.metadata = metadata
-    else
-      -- fallback to first line only
-      todo_item.metadata = M.extract_metadata_from_line(todo_item.todo_text, todo_item.range.start.row)
-    end
+    todo_item.metadata = M.extract_metadata(bufnr, todo_item.first_inline_range)
   end
 
   -- Clean up orphaned extmarks
@@ -767,92 +732,99 @@ function M.get_markdown_tree_root(bufnr)
   return root
 end
 
----Extracts metadata from a line and returns structured information
----@param line string The line to extract metadata from
----@param row integer The row number (0-indexed)
----@return checkmate.TodoMetadata
-function M.extract_metadata_from_line(line, row)
-  local log = require("checkmate.log")
-  local meta_module = require("checkmate.metadata")
+--- Extract all @tag(value) metadata from the first‐inline range of a todo.
+--- @param bufnr number
+--- @param range checkmate.Range
+--- @return table{entries:checkmate.MetadataEntry[], by_tag:table<string,checkmate.MetadataEntry>}
+function M.extract_metadata(bufnr, range)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range["end"].row + 1, false)
+  local raw = table.concat(lines, "\n")
 
-  ---@type checkmate.TodoMetadata
-  local metadata = {
-    entries = {},
-    by_tag = {},
-  }
-
-  ---@param _line string String to search
-  ---@param from_byte_pos integer start looking at this byte position
-  ---@return string? tag, string? value, integer? start_byte, integer? end_byte
-  local function find_metadata(_line, from_byte_pos)
-    local s, e, tag, raw = _line:find(METADATA_PATTERN, from_byte_pos)
-    if not s or not e then
-      return nil
+  -- map a byte‐offset of the joined string back to (row,col) in the original lines
+  -- precompute cumulative byte‐lengths for each line
+  -- i.e. each line contributes `#ln + 1` bytes to the offset
+  local cum = { 0 }
+  for i, ln in ipairs(lines) do
+    cum[i + 1] = cum[i] + #ln + 1 -- +1 for the "\n"
+  end
+  -- convert a 1-based raw byte-offset → 0-based {row, col}
+  local offset_to_pos = function(off)
+    for i = 1, #lines do
+      if off <= cum[i + 1] then
+        return {
+          row = range.start.row + i - 1,
+          col = off - cum[i] - 1,
+        }
+      end
     end
-
-    -- raw is "( ... )", so we gotta strip outer parens
-    local inner = raw:sub(2, -2)
-
-    -- trim whitespace
-    local value = inner:match("^%s*(.-)%s*$")
-
-    return tag, value, s, e
+    -- fallback to the end of the range
+    return { row = range["end"].row, col = range["end"].col }
   end
 
-  -- find all @tag(value) patterns and their positions
-  local byte_pos = 1
+  local entries = {}
+  local by_tag = {}
+
+  -- iterate all "@tag(...)" matches
+  local idx = 1
   while true do
-    local tag, value, start_byte, end_byte = find_metadata(line, byte_pos)
-    if not tag or not start_byte or not end_byte then
+    -- s,e are the 1-based INCLUSIVE byte‐offsets of the entire "@tag(...)" substring
+    -- tag is the name; group is "(...)" including parens
+    local s, e, tag, group = raw:find(METADATA_PATTERN, idx)
+    if not s then
       break
     end
 
-    ---@type checkmate.MetadataEntry
+    -- i hate Lua string indexing + Neovim...seriously wtf
+
+    -- find the "(" and ")" -- these are both 1-based, inclusive
+    local open_off = e - #group + 1 -- byte of "("
+    local close_off = e -- byte of ")"
+
+    -- get 1-based range of the value inside
+    local val_start_off = open_off + 1 -- first byte of value
+    local val_end_off = close_off - 1 -- last byte of value
+
+    -- extract and normalize the text
+    local raw_value = raw:sub(val_start_off, val_end_off)
+    local clean_value = raw_value:gsub("\n%s*", " ")
+
+    -- full "@tag(value)" range:
+    local tag_start_pos = offset_to_pos(s) -- at "@"
+    local tag_end_incl = offset_to_pos(e) -- at ")"
+    local tag_end_excl = {
+      row = tag_end_incl.row,
+      col = tag_end_incl.col + 1, -- one past ")"
+    }
+
+    local val_start_pos = offset_to_pos(val_start_off) -- at first byte of value
+    local val_end_excl = offset_to_pos(val_end_off + 1) -- maps to the ")" byte
+
     local entry = {
       tag = tag,
-      value = value or "",
-      range = {
-        start = { row = row, col = start_byte - 1 }, -- 0-indexed column
-        -- For the end col, we need 0 indexed (subtract 1) and since it is end-exclusive we add 1, cancelling out
-        -- end-exclusive means the end col points to the pos after the last char
-        ["end"] = { row = row, col = end_byte },
+      value = clean_value,
+      range = require("checkmate.lib.range").new(tag_start_pos, tag_end_excl),
+      value_range = {
+        start = val_start_pos,
+        ["end"] = val_end_excl,
       },
-      value_col = line:find("%b()", start_byte) or start_byte + #tag + 1,
-      alias_for = nil, -- Will be set later if it's an alias
-      position_in_line = start_byte, -- track original position in the line, use byte pos for sorting
+      alias_for = nil, -- will be set later
     }
 
     -- check if this is an alias and map to canonical name
+    local meta_module = require("checkmate.metadata")
     local canonical_name = meta_module.get_canonical_name(tag)
     if canonical_name and canonical_name ~= tag then
       entry.alias_for = canonical_name
     end
 
-    table.insert(metadata.entries, entry)
+    table.insert(entries, entry)
+    by_tag[tag] = entry
 
-    -- store in by_tag lookup (last one wins if multiple with same tag)
-    metadata.by_tag[tag] = entry
-
-    -- if this is an alias, also store under canonical name
-    if entry.alias_for then
-      metadata.by_tag[entry.alias_for] = entry
-    end
-
-    -- move position for next search
-    byte_pos = end_byte + 1
-
-    log.debug(
-      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, start_byte - 1, row, end_byte),
-      { module = "parser" }
-    )
+    idx = e + 1
   end
 
-  return metadata
+  return { entries = entries, by_tag = by_tag }
 end
-
----@param todo_item checkmate.TodoItem
----@param bufnr integer
-function M.extract_metadata_from_todo(todo_item, bufnr) end
 
 -- Helper function to find the parent list_item node of a given list_item node
 ---@param node TSNode The list_item node to find the parent for

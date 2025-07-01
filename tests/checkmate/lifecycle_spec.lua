@@ -164,7 +164,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.equal(0, checkmate.count_active_buffers())
 
-      local bufnr = h.create_test_buffer("", "todo")
+      local bufnr = h.setup_test_buffer("", "todo")
 
       vim.wait(50, function()
         return vim.b[bufnr].checkmate_setup_complete == true
@@ -208,7 +208,7 @@ describe("checkmate init and lifecycle", function()
   Regular line
       ]]
 
-      local bufnr = h.create_test_buffer(content, "todo")
+      local bufnr = h.setup_test_buffer(content, "todo")
 
       assert.is_true(checkmate.is_buffer_active(bufnr))
       assert.equal(1, checkmate.count_active_buffers())
@@ -568,7 +568,6 @@ describe("checkmate init and lifecycle", function()
     vim.bo[buf2].filetype = "markdown"
 
     local should_buf2 = file_matcher.should_activate_for_buffer(buf2, { "tasks.md" })
-    print(should_buf2)
 
     assert.is_true(vim.b[buf1].checkmate_setup_complete or false)
     assert.is_falsy(vim.b[buf2].checkmate_setup_complete)

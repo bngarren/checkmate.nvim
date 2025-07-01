@@ -54,7 +54,7 @@ function M.open_picker(on_select)
     return
   end
 
-  local selected_metadata = meta_module.find_metadata_at_col(todo_item, col)
+  local selected_metadata = meta_module.find_metadata_at_pos(todo_item, row, col)
 
   if not selected_metadata then
     util.notify("No metadata tag at cursor", vim.log.levels.INFO)
@@ -65,7 +65,7 @@ function M.open_picker(on_select)
   -- highlight the metadata being updated
   vim.api.nvim_buf_set_extmark(bufnr, ns_id, selected_metadata.range.start.row, selected_metadata.range.start.col, {
     hl_group = "DiagnosticVirtualTextInfo",
-    end_row = selected_metadata.range.start.row,
+    end_row = selected_metadata.range["end"].row,
     end_col = selected_metadata.range["end"].col,
     priority = 250,
   })
@@ -74,7 +74,7 @@ function M.open_picker(on_select)
     bufnr = bufnr,
     range = vim.tbl_deep_extend("force", selected_metadata.range, {
       start = {
-        col = selected_metadata.value_col,
+        col = selected_metadata.value_range.start.col,
       },
     }),
     interval = 50,

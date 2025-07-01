@@ -38,12 +38,12 @@ local api = require("checkmate.api")
 ---the exposed transaction state is referred to as "context"
 ---the internal state is M._states[bufnr]
 ---@class checkmate.TransactionContext
----@field get_todo_map function(): table<integer, checkmate.TodoItem>
----@field get_todo_by_id function(id: integer): checkmate.TodoItem?
----@field get_todo_by_row function(row: integer): checkmate.TodoItem?
----@field add_op function(fn: fn, ...)
----@field add_cb function(fn: fn, ...)
----@field get_buf function(): integer Returns the buffer
+---@field get_todo_map fun(): table<integer, checkmate.TodoItem>
+---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
+---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
+---@field add_op fun(fn: function, ...)
+---@field add_cb fun(fn: function, ...)
+---@field get_buf fun(): integer Returns the buffer
 
 M._states = {} -- bufnr -> state
 
@@ -89,8 +89,13 @@ function M.run(bufnr, entry_fn, post_fn)
       return state.todo_map[extmark_id]
     end,
 
-    get_todo_by_row = function(row)
-      return require("checkmate.parser").get_todo_item_at_position(state.bufnr, row, 0, { todo_map = state.todo_map })
+    get_todo_by_row = function(row, root_only)
+      return require("checkmate.parser").get_todo_item_at_position(
+        state.bufnr,
+        row,
+        0,
+        { todo_map = state.todo_map, root_only = root_only }
+      )
     end,
 
     --- Queue any function and its arguments

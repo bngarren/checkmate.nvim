@@ -537,39 +537,6 @@ local function make_marker_replacement_hunk(row, todo_item, new_marker)
   }
 end
 
---- Create a hunk that replaces everything after the todo marker
----@param row integer
----@param todo_item checkmate.TodoItem
----@param old_line string
----@param new_line string
----@return checkmate.TextDiffHunk|nil
-local function make_post_marker_replacement_hunk(row, todo_item, old_line, new_line)
-  local marker_col = todo_item.todo_marker.position.col -- In bytes
-  local marker_text = todo_item.todo_marker.text
-  local marker_byte_len = #marker_text
-
-  -- position after the marker (0-based)
-  local content_start = marker_col + marker_byte_len
-
-  -- extract the portion to replace (from marker end to line end)
-  -- for string operations, convert to 1-based
-  local old_suffix = old_line:sub(content_start + 1)
-  local new_suffix = new_line:sub(content_start + 1)
-
-  if old_suffix == new_suffix then
-    return nil
-  end
-
-  -- make hunk
-  return {
-    start_row = row,
-    start_col = content_start,
-    end_row = row,
-    end_col = content_start + #old_suffix,
-    insert = { new_suffix },
-  }
-end
-
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param start_row number 0-based range start
 ---@param end_row number 0-based range end (inclusive)
@@ -598,7 +565,9 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
   else
     -- normal mode, is current line a todo?
     local row = start_row
-    local todo_item = ctx.get_todo_by_row(row)
+    -- NOTE: only get a todo on this exact row.
+    -- I.e. if the row is a nested list item then it will return the parent todo unless we pass `root_only` = true
+    local todo_item = ctx.get_todo_by_row(row, true)
 
     if todo_item then
       local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)
@@ -1012,6 +981,110 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   end
 end
 
+---@param todo_item checkmate.TodoItem
+---@param meta_name string
+---@param bufnr integer
+---@return {row: integer, col: integer, insert_after_space: boolean}
+function M.find_metadata_insert_position(todo_item, meta_name, bufnr)
+  local config = require("checkmate.config")
+  local util = require("checkmate.util")
+  local meta_config = config.options.metadata[meta_name] or {}
+  local incoming_sort_order = meta_config.sort_order or 100
+
+  -- IMPORTANT: if there are no metadata entries for this todo, we find the end
+  -- of the todo's `first_inline_range` which is essentially the first line + continuation lines
+  if util.tbl_isempty_or_nil(todo_item.metadata.entries) then
+    local flr = todo_item.first_inline_range
+    local lines = vim.api.nvim_buf_get_lines(bufnr, flr.start.row, flr["end"].row + 1, false)
+
+    -- find last non-whitespace position
+    local best_row = flr.start.row
+    local best_col = 0
+    local needs_space = false
+
+    for i = #lines, 1, -1 do
+      local line = lines[i]
+      local row = flr.start.row + i - 1
+
+      local start_col = (i == 1) and flr.start.col or 0
+      local end_col = (i == #lines) and flr["end"].col or #line
+
+      -- get the relevant portion
+      local content = line:sub(start_col + 1, end_col)
+
+      -- get last non-whitespace in this portion
+      local trimmed = content:match("^(.-)%s*$")
+      if trimmed and #trimmed > 0 then
+        best_row = row
+        best_col = start_col + #trimmed
+        -- check if we need a space before our metadata
+        needs_space = content:sub(#trimmed, #trimmed) ~= " "
+        break
+      end
+    end
+
+    return {
+      row = best_row,
+      col = best_col,
+      insert_after_space = needs_space,
+    }
+  end
+  -- Existing metadata are present for this todo item, so we need to calculate where to put this new entry
+  -- according to sort_order
+
+  -- get metadata entry with the highest sort order that's still less than ours
+  local predecessor_entry = nil -- closest predecessor (its order ≤ this one)
+  local predecessor_order = -1 -- its sort_order
+
+  -- also get the entry with the lowest sort order that's greater than ours
+  local successor_entry = nil
+  local successor_order = math.huge
+
+  local meta_module = require("checkmate.metadata")
+
+  -- basically we loop through each metadata entry and calculate if it's
+  -- the closest predecessor and/or closest successor to the incoming metadata
+  for _, entry in ipairs(todo_item.metadata.entries) do
+    local entry_config = meta_module.get_meta_props(entry.tag) or {}
+    local entry_order = entry_config.sort_order or 100
+
+    if entry_order <= incoming_sort_order and entry_order > predecessor_order then
+      -- found a closer predecessor
+      predecessor_entry = entry
+      predecessor_order = entry_order
+    elseif entry_order > incoming_sort_order and entry_order < successor_order then
+      -- found a closer successor
+      successor_entry = entry
+      successor_order = entry_order
+    end
+  end
+
+  if predecessor_entry then
+    -- insert after the predecessor
+    return {
+      row = predecessor_entry.range["end"].row,
+      col = predecessor_entry.range["end"].col,
+      insert_after_space = true, -- always need space after existing metadata
+    }
+  elseif successor_entry then
+    -- or, insert before the successor
+    return {
+      row = successor_entry.range.start.row,
+      col = successor_entry.range.start.col,
+      insert_after_space = false, -- add space after our tag, not before
+    }
+  else
+    -- fallback
+    -- add after all existing metadata (find the last one)
+    local last_entry = todo_item.metadata.entries[#todo_item.metadata.entries]
+    return {
+      row = last_entry.range["end"].row,
+      col = last_entry.range["end"].col,
+      insert_after_space = true,
+    }
+  end
+end
+
 ---@param items checkmate.TodoItem[]
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value
@@ -1031,54 +1104,49 @@ function M.compute_diff_add_metadata(items, meta_name, meta_value)
   local changes = {} -- track for on_change callback
 
   for _, todo_item in ipairs(items) do
-    local row = todo_item.range.start.row
-    local original_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+    local value = meta_value
+    local existing_entry = todo_item.metadata.by_tag[meta_name]
 
-    if original_line and #original_line ~= 0 then
-      local value = meta_value
-
-      -- check if metadata already exists
-      local existing_entry = todo_item.metadata.by_tag[meta_name]
-
-      local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-      if existing_entry then
-        -- track for on_change callbacks
-        if existing_entry.value ~= value then
-          changes[todo_item.id] = {
-            old_value = existing_entry.value,
-            new_value = value,
-          }
-        end
-
-        for i, entry in ipairs(updated_metadata.entries) do
-          if entry.tag == existing_entry.tag then
-            updated_metadata.entries[i].value = value
-            break
-          end
-        end
-        updated_metadata.by_tag[meta_name].value = value
-      else
-        local new_entry = {
-          tag = meta_name,
-          value = value,
-          range = {
-            start = { row = row, col = #original_line },
-            ["end"] = { row = row, col = #original_line + #meta_name + #value + 3 },
-          },
-          position_in_line = #original_line + 1,
+    if existing_entry then
+      if existing_entry.value ~= value then
+        changes[todo_item.id] = {
+          old_value = existing_entry.value,
+          new_value = value,
         }
-        table.insert(updated_metadata.entries, new_entry)
-        updated_metadata.by_tag[meta_name] = new_entry
+
+        local line = vim.api.nvim_buf_get_lines(
+          bufnr,
+          existing_entry.range.start.row,
+          existing_entry.range.start.row + 1,
+          false
+        )[1]
+
+        if line then
+          local hunk_list = M.compute_diff_update_metadata(existing_entry, value)
+          vim.list_extend(hunks, hunk_list)
+        end
+      end
+    else
+      local insert_pos = M.find_metadata_insert_position(todo_item, meta_name, bufnr)
+
+      local metadata_text = "@" .. meta_name .. "(" .. value .. ")"
+      local insert_text
+
+      if insert_pos.insert_after_space then
+        insert_text = " " .. metadata_text
+      else
+        -- inserting before something, add space after
+        insert_text = metadata_text .. " "
       end
 
-      -- rebuild line with sorted metadata
-      local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
-
-      local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-      if hunk then
-        table.insert(hunks, hunk)
-      end
+      local hunk = {
+        start_row = insert_pos.row,
+        start_col = insert_pos.col,
+        end_row = insert_pos.row,
+        end_col = insert_pos.col,
+        insert = { insert_text },
+      }
+      table.insert(hunks, hunk)
     end
   end
   return hunks, changes
@@ -1167,186 +1235,209 @@ function M.add_metadata(ctx, operations)
   end
 
   if to_jump then
-    M._handle_metadata_cursor_jump(bufnr, to_jump.item, to_jump.meta_name, to_jump.meta_config)
+    ctx.add_cb(function(tx_ctx)
+      local updated_item = tx_ctx.get_todo_by_id(to_jump.item.id)
+      if updated_item then
+        M._handle_metadata_cursor_jump(bufnr, updated_item, to_jump.meta_name, to_jump.meta_config)
+      end
+    end)
   end
 
   return hunks
 end
 
---- Compute diff hunks for removing metadata from todo items
----@param items checkmate.TodoItem[]
----@param meta_name string Metadata tag name
+--- Compute diff hunks for removing specific metadata entries
+---@param bufnr integer
+---@param entries checkmate.MetadataEntry[]
 ---@return checkmate.TextDiffHunk[]
-function M.compute_diff_remove_metadata(items, meta_name)
-  local util = require("checkmate.util")
+function M.compute_diff_remove_metadata(bufnr, entries)
+  local hunks = {}
+
+  -- reverse order to avoid offset issues when removing
+  local sorted_entries = vim.deepcopy(entries)
+  table.sort(sorted_entries, function(a, b)
+    if a.range.start.row ~= b.range.start.row then
+      return a.range.start.row > b.range.start.row
+    end
+    return a.range.start.col > b.range.start.col
+  end)
+
+  for _, entry in ipairs(sorted_entries) do
+    local hunk = M.compute_metadata_removal_hunk(bufnr, entry)
+    table.insert(hunks, hunk)
+  end
+
+  return hunks
+end
+
+--- Helper to compute hunk for removing a single metadata entry
+--- It handles metadata that span multiple lines
+---@param bufnr integer
+---@param entry checkmate.MetadataEntry
+---@return checkmate.TextDiffHunk
+function M.compute_metadata_removal_hunk(bufnr, entry)
+  local start_row = entry.range.start.row
+  local start_col = entry.range.start.col
+  local end_row = entry.range["end"].row
+  local end_col = entry.range["end"].col
+
+  -- metadata spans a single line
+  if start_row == end_row then
+    local line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1]
+
+    -- fix surrounding whitespace
+    if start_col > 0 and line:sub(start_col, start_col) == " " then
+      start_col = start_col - 1
+    elseif end_col < #line and line:sub(end_col + 1, end_col + 1) == " " then
+      end_col = end_col + 1
+    end
+
+    return {
+      start_row = start_row,
+      start_col = start_col,
+      end_row = end_row,
+      end_col = end_col,
+      insert = { "" },
+    }
+  end
+
+  -- metadata breaks across more than 1 line
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
+  local new_lines = {}
+
+  for i, line in ipairs(lines) do
+    local row = start_row + i - 1
+
+    if row == start_row then
+      -- preserve everything up to the metadata start
+      local before = line:sub(1, start_col)
+      if before:match(" $") then
+        before = before:sub(1, -2)
+      end
+      table.insert(new_lines, before)
+    elseif row == end_row then
+      -- preserve everything after the metadata end
+      local after = line:sub(end_col + 1)
+      -- ensure it is set back to the original indent
+      local indent = line:match("^%s*") or ""
+      if after:match("^ ") then
+        after = after:sub(2)
+      end
+      table.insert(new_lines, indent .. after)
+    else
+      -- middle lines: remove entirely (they only contained metadata)
+    end
+  end
+
+  -- if the last line is now empty, remove it
+  if #new_lines > 1 and new_lines[#new_lines]:match("^%s*$") then
+    table.remove(new_lines)
+  end
+
+  return {
+    start_row = start_row,
+    start_col = 0, -- replace entire lines
+    end_row = end_row,
+    end_col = #lines[#lines], -- to end of last line
+    insert = new_lines,
+  }
+end
+
+--- Helper to collect metadata entries to remove based on meta_names
+---@private
+---@param item checkmate.TodoItem
+---@param meta_names string[]|boolean true means remove all
+---@return checkmate.MetadataEntry[]
+function M._collect_entries_to_remove(item, meta_names)
+  if not item.metadata or not item.metadata.entries or #item.metadata.entries == 0 then
+    return {}
+  end
+
+  -- remove all of them
+  if meta_names == true then
+    return vim.deepcopy(item.metadata.entries)
+  end
+  ---@cast meta_names string[]
+
+  -- remove specific metadata by name
+  local entries = {}
   local meta_module = require("checkmate.metadata")
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
+  for _, meta_name in ipairs(meta_names) do
+    local entry = item.metadata.by_tag[meta_name]
 
-  -- batch read all required lines
-  local rows = {}
-  for _, item in ipairs(items) do
-    table.insert(rows, item.todo_marker.position.row)
-  end
-  local lines = util.batch_get_lines(bufnr, rows)
-
-  for _, todo_item in ipairs(items) do
-    local row = todo_item.range.start.row
-    local original_line = lines[row]
-
-    if original_line and #original_line ~= 0 then
-      local entry = todo_item.metadata.by_tag[meta_name]
-      if not entry then
-        -- Check for aliases
-        local canonical = meta_module.get_canonical_name(meta_name)
-        if canonical then
-          entry = todo_item.metadata.by_tag[canonical]
-        end
+    -- if not found, try canonical name lookup
+    if not entry then
+      local canonical = meta_module.get_canonical_name(meta_name)
+      if canonical then
+        entry = item.metadata.by_tag[canonical]
       end
+    end
 
-      if entry then
-        local updated_metadata = vim.deepcopy(todo_item.metadata)
-
-        -- remove from entries
-        for i = #updated_metadata.entries, 1, -1 do
-          if updated_metadata.entries[i].tag == entry.tag then
-            table.remove(updated_metadata.entries, i)
-            break
-          end
-        end
-
-        -- remove from by_tag
-        updated_metadata.by_tag[entry.tag] = nil
-        if entry.alias_for then
-          updated_metadata.by_tag[entry.alias_for] = nil
-        end
-
-        local new_line = M.rebuild_line_with_sorted_metadata(original_line, updated_metadata)
-
-        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-        if hunk then
-          table.insert(hunks, hunk)
-        end
-      end
+    if entry then
+      table.insert(entries, entry)
     end
   end
 
-  return hunks
+  return entries
 end
 
---- Remove metadata from todo items
----@param ctx checkmate.TransactionContext Transaction context
----@param operations table[] Array of {id: integer, meta_name: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.remove_metadata(ctx, operations)
+--- Queue removal callbacks
+---@private
+---@param ctx checkmate.TransactionContext
+---@param callbacks {id: integer, canonical_name: string}[]
+function M._queue_removal_callbacks(ctx, callbacks)
   local config = require("checkmate.config")
-  local hunks = {}
-  local callbacks_by_meta = {}
 
-  for _, op in ipairs(operations) do
-    local item = ctx.get_todo_by_id(op.id)
-    if item and item.metadata.by_tag and item.metadata.by_tag[op.meta_name] then
-      local item_hunks = M.compute_diff_remove_metadata({ item }, op.meta_name)
-      vim.list_extend(hunks, item_hunks)
-
-      local meta_config = config.options.metadata[op.meta_name]
-      if meta_config and meta_config.on_remove then
-        callbacks_by_meta[op.meta_name] = callbacks_by_meta[op.meta_name] or {}
-        table.insert(callbacks_by_meta[op.meta_name], op.id)
-      end
-    end
-  end
-
-  for meta_name, ids in pairs(callbacks_by_meta) do
-    local meta_config = config.options.metadata[meta_name]
-    for _, id in ipairs(ids) do
+  for _, callback_info in ipairs(callbacks) do
+    local meta_config = config.options.metadata[callback_info.canonical_name]
+    if meta_config and meta_config.on_remove then
       ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_todo_by_id(id)
+        local updated_item = tx_ctx.get_todo_by_id(callback_info.id)
         if updated_item then
           meta_config.on_remove(updated_item)
         end
       end)
     end
   end
-
-  return hunks
 end
 
---- Compute diff hunks for removing all metadata from todo items
----@param items checkmate.TodoItem[]
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_remove_all_metadata(items)
-  local util = require("checkmate.util")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-
-  -- batch read all required lines
-  local rows = {}
-  for _, item in ipairs(items) do
-    table.insert(rows, item.todo_marker.position.row)
-  end
-  local lines = util.batch_get_lines(bufnr, rows)
-
-  for _, todo_item in ipairs(items) do
-    if todo_item.metadata and todo_item.metadata.entries and #todo_item.metadata.entries ~= 0 then
-      local row = todo_item.range.start.row
-      local original_line = lines[row]
-
-      if original_line and #original_line ~= 0 then
-        local empty_metadata = {
-          entries = {},
-          by_tag = {},
-        }
-
-        local new_line = M.rebuild_line_with_sorted_metadata(original_line, empty_metadata)
-
-        local hunk = make_post_marker_replacement_hunk(row, todo_item, original_line, new_line)
-        if hunk then
-          table.insert(hunks, hunk)
-        end
-      end
-    end
-  end
-
-  return hunks
-end
-
---- Remove all metadata from todo items
+--- Remove metadata from todo items
+--- `operations` is a table of todo_item id and metadata tag names to remove
 ---@param ctx checkmate.TransactionContext Transaction context
----@param todo_ids integer[] Array of extmark ids (or single id)
+---@param operations {id: integer, meta_names: string[]|boolean}
 ---@return checkmate.TextDiffHunk[] hunks
-function M.remove_all_metadata(ctx, todo_ids)
-  local config = require("checkmate.config")
-  local items = {}
-  local callbacks_to_queue = {} -- array of {meta_name, id}
+function M.remove_metadata(ctx, operations)
+  local hunks = {}
+  local pending_callbacks = {} -- Array of {id, canonical_name} for on_remove callbacks
 
-  for _, id in ipairs(todo_ids) do
-    local item = ctx.get_todo_by_id(id)
-    if item and item.metadata and item.metadata.entries and #item.metadata.entries > 0 then
-      table.insert(items, item)
+  for _, op in ipairs(operations) do
+    local item = ctx.get_todo_by_id(op.id)
+    if item then
+      local entries_to_remove = M._collect_entries_to_remove(item, op.meta_names)
 
-      for _, entry in ipairs(item.metadata.entries) do
-        local meta_config = config.options.metadata[entry.tag]
-        if meta_config and meta_config.on_remove then
-          table.insert(callbacks_to_queue, { meta_name = entry.tag, id = id })
+      -- make the diff hunks
+      if #entries_to_remove > 0 then
+        local item_hunks = M.compute_diff_remove_metadata(ctx.get_buf(), entries_to_remove)
+        vim.list_extend(hunks, item_hunks)
+
+        -- collect callbacks
+        for _, entry in ipairs(entries_to_remove) do
+          local canonical = entry.alias_for or entry.tag
+          local meta_config = require("checkmate.config").options.metadata[canonical]
+          if meta_config and meta_config.on_remove then
+            table.insert(pending_callbacks, {
+              id = op.id,
+              canonical_name = canonical,
+            })
+          end
         end
       end
     end
   end
 
-  local hunks = M.compute_diff_remove_all_metadata(items)
-
-  for _, cb_info in ipairs(callbacks_to_queue) do
-    local meta_config = config.options.metadata[cb_info.meta_name]
-    ctx.add_cb(function(tx_ctx)
-      local updated_item = tx_ctx.get_todo_by_id(cb_info.id)
-      if updated_item then
-        meta_config.on_remove(updated_item)
-      end
-    end)
-  end
+  -- queue the callbacks in the transaction
+  M._queue_removal_callbacks(ctx, pending_callbacks)
 
   return hunks
 end
@@ -1366,7 +1457,7 @@ function M.toggle_metadata(ctx, operations)
     if item then
       local has_metadata = item.metadata.by_tag and item.metadata.by_tag[op.meta_name]
       if has_metadata then
-        table.insert(to_remove, { id = op.id, meta_name = op.meta_name })
+        table.insert(to_remove, { id = op.id, meta_names = { op.meta_name } })
       else
         table.insert(to_add, { id = op.id, meta_name = op.meta_name, meta_value = op.custom_value })
       end
@@ -1418,33 +1509,23 @@ function M.set_metadata_value(ctx, metadata, new_value)
     end
   end
 
-  return M.compute_diff_update_metadata(line, metadata, new_value)
+  return M.compute_diff_update_metadata(metadata, new_value)
 end
 
-function M.compute_diff_update_metadata(line, metadata, value)
-  local row = metadata.range.start.row
-  -- 1-indexed for string operations
-  local tag_start_1indexed = metadata.range.start.col + 1
-  local tag_end_1indexed = metadata.range["end"].col -- end is exclusive, so no +1
+function M.compute_diff_update_metadata(metadata, value)
+  local value_range = metadata.value_range
 
-  local metadata_str = line:sub(tag_start_1indexed, tag_end_1indexed)
-
-  -- find the outer parentheses
-  local paren_open, paren_close = metadata_str:find("%b()")
-  if not paren_open then
-    return {}
-  end
-
-  -- need 0-indexed for the hunk
-  local value_start_0indexed = metadata.range.start.col + paren_open -- position after '('
-  local value_end_0indexed = metadata.range.start.col + paren_close - 1 -- position before ')'
+  -- For multi-line metadata, we need to handle newlines in the new value
+  -- Replace literal newlines with spaces to keep metadata on single line for now
+  -- (Future enhancement: support actual multi-line values)
+  local sanitized_value = value:gsub("\n", " ")
 
   local hunk = {
-    start_row = row,
-    start_col = value_start_0indexed,
-    end_row = row,
-    end_col = value_end_0indexed,
-    insert = { value },
+    start_row = value_range.start.row,
+    start_col = value_range.start.col,
+    end_row = value_range["end"].row,
+    end_col = value_range["end"].col,
+    insert = { sanitized_value },
   }
 
   return { hunk }
@@ -1468,106 +1549,77 @@ function M.move_cursor_to_metadata(bufnr, todo_item, backward)
   end
 
   local cur = vim.api.nvim_win_get_cursor(win)
+  local cur_row = cur[1] - 1 -- to 0-based
   local cur_col = cur[2]
 
-  local entries = vim.tbl_map(function(e)
-    return e
-  end, todo_item.metadata.entries)
+  local entries = vim.deepcopy(todo_item.metadata.entries)
+
+  -- sort by row, then column
   table.sort(entries, function(a, b)
+    if a.range.start.row ~= b.range.start.row then
+      return a.range.start.row < b.range.start.row
+    end
     return a.range.start.col < b.range.start.col
   end)
 
   local target
-  if backward then
-    for i = #entries, 1, -1 do
-      local e = entries[i]
-      local s = e.range.start.col
-      local fin = e.range["end"].col -- end-exclusive
-      -- only metadata that are fully left of cursor (skip if cursor is inside)
-      if s < cur_col and cur_col >= fin then
-        target = e
-        break
-      end
+  local current_idx = nil
+
+  for i, entry in ipairs(entries) do
+    local entry_row = entry.range.start.row
+    local entry_start_col = entry.range.start.col
+    local entry_end_col = entry.range["end"].col
+
+    -- is cursor within this entry
+    if cur_row == entry_row and cur_col >= entry_start_col and cur_col < entry_end_col then
+      current_idx = i
+      break
     end
-    -- wrap
-    if not target then
-      target = entries[#entries]
+  end
+
+  if backward then
+    if current_idx then
+      -- if on an entry, go to previous
+      target = entries[current_idx - 1] or entries[#entries]
+    else
+      -- find the last entry before cursor position
+      for i = #entries, 1, -1 do
+        local e = entries[i]
+        if e.range.start.row < cur_row or (e.range.start.row == cur_row and e.range["end"].col <= cur_col) then
+          target = e
+          break
+        end
+      end
+      -- wrap to last if none found
+      if not target then
+        target = entries[#entries]
+      end
     end
   else
-    for _, entry in ipairs(entries) do
-      if cur_col < entry.range.start.col then
-        target = entry
-        break
+    if current_idx then
+      -- if on an entry, go to next
+      target = entries[current_idx + 1] or entries[1]
+    else
+      -- find the first entry after cursor position
+      for _, entry in ipairs(entries) do
+        if
+          entry.range.start.row > cur_row
+          or (entry.range.start.row == cur_row and entry.range.start.col > cur_col)
+        then
+          target = entry
+          break
+        end
       end
-    end
-    -- wrap
-    if not target then
-      target = entries[1]
+      -- wrap to first if none found
+      if not target then
+        target = entries[1]
+      end
     end
   end
 
   if target then
-    vim.api.nvim_win_set_cursor(win, { todo_item.range.start.row + 1, target.range.start.col })
+    vim.api.nvim_win_set_cursor(win, { target.range.start.row + 1, target.range.start.col })
   end
-end
-
----Sorts metadata entries based on their configured sort_order
----@param entries checkmate.MetadataEntry[] The metadata entries to sort
----@return checkmate.MetadataEntry[] The sorted entries
-function M.sort_metadata_entries(entries)
-  local config = require("checkmate.config")
-
-  local sorted = vim.deepcopy(entries)
-
-  table.sort(sorted, function(a, b)
-    -- Get canonical names
-    local a_name = a.alias_for or a.tag
-    local b_name = b.alias_for or b.tag
-
-    local a_config = config.options.metadata[a_name] or {}
-    local b_config = config.options.metadata[b_name] or {}
-
-    local a_order = a_config.sort_order or 100
-    local b_order = b_config.sort_order or 100
-
-    if a_order == b_order then
-      return (a.position_in_line or 0) < (b.position_in_line or 0)
-    end
-
-    return a_order < b_order
-  end)
-
-  return sorted
-end
-
----Rebuilds a buffer line with sorted metadata tags
----@param line string The original buffer line
----@param metadata checkmate.TodoMetadata The metadata structure
----@return string: The rebuilt line with sorted metadata
-function M.rebuild_line_with_sorted_metadata(line, metadata)
-  local log = require("checkmate.log")
-
-  -- remove all metadata tags but preserve all other content including whitespace
-  local content_without_metadata = line:gsub("@[%a][%w_%-]*%b()", "")
-
-  -- remove trailing whitespace but keep all indentation
-  content_without_metadata = content_without_metadata:gsub("%s+$", "")
-
-  if not metadata or not metadata.entries or #metadata.entries == 0 then
-    return content_without_metadata
-  end
-
-  local sorted_entries = M.sort_metadata_entries(metadata.entries)
-
-  local result_line = content_without_metadata
-
-  -- add back each metadata tag in sorted order
-  for _, entry in ipairs(sorted_entries) do
-    result_line = result_line .. " @" .. entry.tag .. "(" .. entry.value .. ")"
-  end
-
-  log.debug("Rebuilt line with sorted metadata: " .. result_line, { module = "parser" })
-  return result_line
 end
 
 --- Count completed and total child todos for a todo item
@@ -1868,6 +1920,10 @@ function M.archive_todos(opts)
 end
 
 -- Helper function for handling cursor jumps after metadata operations
+---@param bufnr integer
+---@param todo_item checkmate.TodoItem
+---@param meta_name string
+---@param meta_config checkmate.MetadataProps
 function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config)
   local jump_to = meta_config.jump_to_on_insert
   if not jump_to or jump_to == false then
@@ -1879,7 +1935,7 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
       return
     end
 
-    local row = todo_item.range.start.row
+    local row = todo_item.metadata.by_tag[meta_name].range.start.row
     local updated_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
     if not updated_line then
       return
@@ -1922,7 +1978,6 @@ end
 ---@return table<integer, checkmate.TodoItem> todo_map
 function M.collect_todo_items_from_selection(is_visual)
   local parser = require("checkmate.parser")
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
   local profiler = require("checkmate.profiler")
 
@@ -1970,12 +2025,7 @@ function M.collect_todo_items_from_selection(is_visual)
     local cursor = util.Cursor.save()
     local row = cursor.cursor[1] - 1
     local col = cursor.cursor[2]
-    local todo = parser.get_todo_item_at_position(
-      bufnr,
-      row,
-      col,
-      { todo_map = full_map, max_depth = config.options.todo_action_depth }
-    )
+    local todo = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = full_map })
     util.Cursor.restore(cursor)
     if todo then
       table.insert(items, todo)

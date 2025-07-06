@@ -132,23 +132,6 @@ function M.setup_keymaps(bufnr)
 
   buffer_local_keys[bufnr] = {}
 
-  -- map legacy actions to commands
-  ---@deprecated TODO: Remove in v0.10
-  local action_to_command = {
-    toggle = { cmd = "Checkmate toggle", desc = "Toggle todo item" },
-    check = { cmd = "Checkmate check", desc = "Check todo item" },
-    uncheck = { cmd = "Checkmate uncheck", desc = "Uncheck todo item" },
-    create = { cmd = "Checkmate create", desc = "Create todo item" },
-    remove_all_metadata = { cmd = "Checkmate remove_all_metadata", desc = "Remove all metadata" },
-    archive = { cmd = "Checkmate archive", desc = "Archive completed todos" },
-    select_metadata_value = { cmd = "Checkmate metadata select_value", desc = "Select metadata value" },
-    jump_next_metadata = { cmd = "Checkmate metadata jump_next", desc = "Jump to next metadata" },
-    jump_previous_metadata = { cmd = "Checkmate metadata jump_previous", desc = "Jump to previous metadata" },
-  }
-
-  -- pre v0.9
-  local deprecated_actions = {}
-
   local DEFAULT_DESC = "Checkmate <unnamed>"
   local DEFAULT_MODES = { "n" }
 
@@ -157,20 +140,7 @@ function M.setup_keymaps(bufnr)
       ---@type checkmate.KeymapConfig
       local mapping_config = {}
 
-      -- backwards comptability
-      if type(value) == "string" then
-        table.insert(deprecated_actions, value)
-        local action_info = action_to_command[value]
-        if action_info then
-          mapping_config = {
-            rhs = "<cmd>" .. action_info.cmd .. "<CR>",
-            desc = action_info.desc,
-          }
-        else
-          log.warn(string.format("Unknown action '%s' for key '%s'", value, key), { module = "api" })
-        end
-        -- New table-based config
-      elseif type(value) == "table" then
+      if type(value) == "table" then
         -- sequence of {rhs, desc, modes}
         if value[1] ~= nil then
           local rhs, desc, modes = unpack(value)
@@ -202,14 +172,6 @@ function M.setup_keymaps(bufnr)
         end
       end
     end
-  end
-
-  -- show deprecation warning
-  if #deprecated_actions > 0 then
-    vim.notify(
-      string.format("Checkmate: deprecated config.keys entry for: %s", table.concat(deprecated_actions, ", ")),
-      vim.log.levels.WARN
-    )
   end
 
   -- Setup metadata keymaps
@@ -1181,7 +1143,7 @@ function M.add_metadata(ctx, operations)
 
     -- get value with fallback to get_value()
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
-    local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context) or ""
+    local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context)
 
     local item_hunks, item_changes = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
     vim.list_extend(hunks, item_hunks)

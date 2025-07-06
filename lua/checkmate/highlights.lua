@@ -405,18 +405,20 @@ function M.highlight_metadata(bufnr, config, todo_item)
         local context = meta_module.create_context(todo_item, canonical_name, value, bufnr)
         local style = meta_module.evaluate_style(meta_config, context)
 
-        local style_hash = hash_style(style)
+        if not vim.tbl_isempty(style) then
+          local style_hash = hash_style(style)
 
-        if M._style_cache[style_hash] then
-          highlight_group = M._style_cache[style_hash].highlight_group
-        else
-          highlight_group = "CheckmateMeta_" .. canonical_name .. "_" .. style_hash
-          vim.api.nvim_set_hl(0, highlight_group, style)
+          if M._style_cache[style_hash] then
+            highlight_group = M._style_cache[style_hash].highlight_group
+          else
+            highlight_group = "CheckmateMeta_" .. canonical_name .. "_" .. style_hash
+            vim.api.nvim_set_hl(0, highlight_group, style)
 
-          M._style_cache[style_hash] = {
-            highlight_group = highlight_group,
-            style = style,
-          }
+            M._style_cache[style_hash] = {
+              highlight_group = highlight_group,
+              style = style,
+            }
+          end
         end
       else
         -- static styles

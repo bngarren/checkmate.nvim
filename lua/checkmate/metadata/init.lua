@@ -20,45 +20,40 @@ function M.create_context(todo_item, meta_name, value, bufnr)
 end
 
 ---Evaluates a `metadata.style` (table or getter function) to return a highlight tbl
----Handles both legacy and new function signatures
---- TODO: remove legacy in v0.10+
 ---
 ---@param meta_props checkmate.MetadataProps Metadata properties, from the configuration
 ---@param context checkmate.MetadataContext
 ---@return vim.api.keyset.highlight hl The highlight table
 function M.evaluate_style(meta_props, context)
   local style = meta_props.style
-  if type(style) ~= "function" then
+
+  if type(style) == "table" then
     ---@cast style vim.api.keyset.highlight
     -- return static style as-is
     return style
-  end
-  ---@cast style checkmate.StyleFn
+  elseif type(style) == "function" then
+    ---@cast style checkmate.StyleFn
 
-  --we determine new vs. legacy by just trying it and seeing if new fails
-  local success, result = pcall(style, context)
+    local success, result = pcall(style, context)
 
-  if success then
-    return result
-  else
-    -- failed, try legacy signature
-    M.show_deprecation_msg()
-    success, result = pcall(style, context.value)
     if success then
       return result
     else
+      vim.notify(
+        string.format("Checkmate: error in `style` function for metadata '%s'", context.name),
+        vim.log.levels.ERROR
+      )
       return {}
     end
+  else
+    return {}
   end
 end
 
 ---Evaluates a metadata value getter function
----Handles both legacy and new signatures
----
---- TODO: remove legacy in v0.10+
 ---
 ---@param meta_props checkmate.MetadataProps Metadata properties, from the configuration
----@param context checkmate.MetadataContext?
+---@param context checkmate.MetadataContext
 ---@return string value value
 function M.evaluate_value(meta_props, context)
   local get_value = meta_props.get_value
@@ -67,20 +62,17 @@ function M.evaluate_value(meta_props, context)
   end
 
   local success, result = pcall(function()
-    local info = debug.getinfo(get_value, "u")
-
-    -- if no params, this is legacy
-    if info.nparams == 0 or not context then
-      return tostring(get_value() or "")
-    end
-
     return tostring(get_value(context) or "")
   end)
 
   if success then
     return result
   else
-    vim.notify("Checkmate: error calling get_value: " .. result, vim.log.levels.ERROR)
+    vim.notify(
+      string.format("Checkmate: error in get_value function for metadata '%s'.\n%s", context.name, tostring(result))
+        .. result,
+      vim.log.levels.ERROR
+    )
     return ""
   end
 end
@@ -353,21 +345,7 @@ function M.find_metadata_at_pos(todo_item, row, col)
   return nil
 end
 
-function M.show_deprecation_msg()
-  if not M._deprecation_msg_shown then
-    vim.schedule(function()
-      vim.notify(
-        "Checkmate: One or more metadata are using the deprecated `style` function. Please update to accept a `MetadataContext` object.",
-        vim.log.levels.WARN
-      )
-      M._deprecation_msg_shown = true
-    end)
-  end
-end
-
 ---Reset internal state
-function M.reset()
-  M._deprecation_msg_shown = false
-end
+function M.reset() end
 
 return M

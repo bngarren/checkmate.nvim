@@ -12,11 +12,11 @@
 
 </div><br/>
 
-A Markdown-based todo list plugin for Neovim with a nice UI and full customization options.
+A Markdown-based todo/task plugin for Neovim.
 
 ### Features
 - Saves files in plain Markdown format (compatible with other apps)
-- Customizable markers and colors
+- Customizable markers and styling
 - Visual mode support for toggling multiple items at once
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
@@ -25,10 +25,9 @@ A Markdown-based todo list plugin for Neovim with a nice UI and full customizati
 - Archive completed todos
 
 > [!NOTE]
-> Check out the **new** metadata features introduced in v0.9.0!
-> These include more powerful metadata definitions/customization, a metadata value picker, and jump commands. See the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Metadata) for in-depth guide and recipes!
->
-> Also, easily setup a per-project, low-friction todo buffer workflow with [snacks](https://github.com/folke/snacks.nvim) powered by checkmate! See the how-to [here](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim).
+> Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
+> - [Advanced metadata](https://github.com/bngarren/checkmate.nvim/wiki/Metadata)
+> - How to setup a per-project, low-friction `checkmate.nvim` buffer with [snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
 
 <br/>
 
@@ -85,7 +84,7 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 If you'd like _stable-ish_ version during pre-release, can add a minor version to the [lazy spec](https://lazy.folke.io/spec#spec-versioning):
 ```
 {
-  version = "~0.9.0" -- pins to minor 0.9.x
+  version = "~0.10.0" -- pins to minor 0.10.x
 }
 ```
 <a id="usage"><a/>
@@ -94,7 +93,7 @@ If you'd like _stable-ish_ version during pre-release, can add a minor version t
 
 ### 1. Open or Create a Todo File
 
-Checkmate automatically activates when you open a Markdown file that matches your configured patterns.
+Checkmate automatically activates when you open a Markdown file that matches your configured file name patterns.
 
 **Default patterns:**
 - `todo` or `TODO` (exact filename)
@@ -114,7 +113,7 @@ files = { "tasks", "*.plan", "project/**/todo.md" }
 ```
 Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
 
-### 2. Create Todo Items
+### 2. Create Todos
 
 - Use the **mapped key** (_recommended_, default: `<leader>Tn`) or the `:Checkmate create` command
 - Or manually using Markdown syntax:
@@ -141,8 +140,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 <a id="commands"><a/>
 
 # ☑️ Commands
-> [!WARNING]
-> The top-level commands such as `:CheckmateToggle`, `:CheckmateArchive`, etc. have been deprecated and will be removed in upcoming release. Use the subcommands or public API below.
 
 #### User commands
 `:Checkmate [subcommand]`
@@ -163,25 +160,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()` |
 | `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
 
-<br>
-<details>
-<summary>Legacy commands (deprecated)</summary>
-
-`CheckmateToggle` - Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
-
-`CheckmateCreate` - Convert the current line to a todo item
-
-`CheckmateCheck` - Mark todo item as checked (done/completed) in normal or visual mode
-
-`CheckmateUncheck` - Mark todo item as unchecked in normal or visual mode
-
-`CheckmateRemoveAllMetadata` - Removes all metadata from todo item under the cursor (normal mode) or all todo items within the selection (visual mode)
-
-`CheckmateArchive` - Reorganize checked/completed todo items to the bottom section
-
-`CheckmateLint` - Perform limited linting of Checkmate buffer to warn about syntax issues that could cause unexpected plugin behavior
-
-</details>
 <br>
 
 <a id="config"><a/>
@@ -694,8 +672,6 @@ local defaults = {
 
 ## Keymapping
 Default keymaps can be disabled by setting `keys = false`.
-
-As of version 0.9, the `checkmate.Action` string has been deprecated and will be removed in next release.
 
 Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?, modes?}`.
 

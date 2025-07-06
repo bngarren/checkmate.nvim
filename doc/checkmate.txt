@@ -272,11 +272,9 @@ Config definitions/annotations ~
     ---
     ---Keymappings (false to disable)
     ---
-    ---Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
-    ---
     ---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
     ---Note: mappings for metadata are set separately in the `metadata` table
-    ---@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
+    ---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
     ---
     ---Characters for todo markers (checked and unchecked)
     ---@field todo_markers checkmate.TodoMarkers
@@ -343,12 +341,6 @@ Config definitions/annotations ~
     ---Buffer local
     ---See `:h treesitter-highlight`
     ---@field disable_ts_highlights? boolean
-    
-    -----------------------------------------------------
-    
-    ---Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
-    ---@deprecated TODO: remove v0.10
-    ---@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
     
     -----------------------------------------------------
     
@@ -427,19 +419,6 @@ Config definitions/annotations ~
     
     --- Style
     
-    ---@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
-    ---
-    ---@alias checkmate.StyleKey
-    ---| "list_marker_unordered"
-    ---| "list_marker_ordered"
-    ---| "unchecked_marker"
-    ---| "unchecked_main_content"
-    ---| "unchecked_additional_content"
-    ---| "checked_marker"
-    ---| "checked_main_content"
-    ---| "checked_additional_content"
-    ---| "todo_count_indicator"
-    
     ---@alias checkmate.HighlightGroup
     ---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
     ---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
@@ -452,7 +431,7 @@ Config definitions/annotations ~
     ---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
     
     ---Customize the style of markers and content
-    ---@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
+    ---@alias checkmate.StyleSettings table<checkmate.HighlightGroup, vim.api.keyset.highlight>
     
     -----------------------------------------------------
     
@@ -470,9 +449,7 @@ Config definitions/annotations ~
     ---also be used and have the same styling/functionality
     ---@field aliases? string[]
     ---
-    ---@alias checkmate.StyleFn
-    ---| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
-    ---| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+    ---@alias checkmate.StyleFn fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
     ---
     ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
     ---@field style? vim.api.keyset.highlight|checkmate.StyleFn

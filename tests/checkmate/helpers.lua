@@ -13,7 +13,7 @@ M.DEFAULT_TEST_CONFIG = {
 --- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
 --- @return integer bufnr
 --- @return string file_path
-function M.setup_todo_buffer(content, opts)
+function M.setup_todo_file_buffer(content, opts)
   opts = opts or {}
 
   local content_str
@@ -110,7 +110,7 @@ end
 --- @param content string|string[]
 --- @param name string?
 --- @return integer bufnr
-function M.create_test_buffer(content, name)
+function M.setup_test_buffer(content, name)
   local filename = name or "todo.md"
 
   local bufnr = vim.api.nvim_create_buf(true, false)
@@ -131,6 +131,15 @@ function M.create_test_buffer(content, name)
   vim.bo[bufnr].filetype = "markdown"
 
   return bufnr
+end
+
+--- Asserts that x is not nil, or errors.
+---@generic T
+---@param x T?
+---@return T
+function M.exists(x)
+  assert(x ~= nil, "Unexpected nil")
+  return x
 end
 
 ---@param bufnr integer
@@ -187,10 +196,11 @@ function M.verify_content_lines(content, expected_lines, start_line)
 end
 
 --- Finds the first todo item in a todo_map whose `todo_text` matches the given Lua pattern.
---- @param todo_map table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
+--- @param todo_map? table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
 --- @param pattern string Lua pattern to match against each item's `todo_text`
 --- @return checkmate.TodoItem? todo The matching todo item, or `nil` if none found
 function M.find_todo_by_text(todo_map, pattern)
+  todo_map = todo_map or require("checkmate.parser").get_todo_map(0)
   for _, todo in pairs(todo_map) do
     if todo.todo_text:match(pattern) then
       return todo

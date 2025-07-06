@@ -335,17 +335,17 @@ end
 
 --- Find metadata entry at col position on todo line
 ---@param todo_item checkmate.TodoItem
+---@param row integer 0-based row position
 ---@param col integer 0-based column position
 ---@return checkmate.MetadataEntry?
-function M.find_metadata_at_col(todo_item, col)
+function M.find_metadata_at_pos(todo_item, row, col)
   local metadata = todo_item.metadata.entries
   if not metadata or #metadata == 0 then
     return nil
   end
 
   for _, entry in ipairs(metadata) do
-    -- range is end-exclusive so we check col < end_col
-    if col >= entry.range.start.col and col < entry.range["end"].col then
+    if entry.range:contains(row, col) then
       return entry
     end
   end

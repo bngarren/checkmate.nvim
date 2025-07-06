@@ -67,7 +67,7 @@ describe("Parser", function()
    + Child list item e.3
       ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local list_items = parser.get_all_list_items(bufnr)
 
       assert.equal(#list_items, 13)
@@ -166,7 +166,7 @@ describe("Parser", function()
   todo with
   two continuations]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local single_line = h.find_todo_by_text(todo_map, "Single line")
@@ -219,7 +219,7 @@ describe("Parser", function()
 - ]] .. unchecked .. [[ Todo with empty content after marker
 - ]] .. unchecked .. [[ ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local total_todos = 0
@@ -333,7 +333,7 @@ describe("Parser", function()
    * ]] .. unchecked .. [[ Unordered child with asterisk in ordered parent
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local parent_dash = h.find_todo_by_text(todo_map, "Parent with dash")
@@ -394,7 +394,7 @@ Line that should not affect parent-child relationship
   Not a todo but indented
 - ]] .. unchecked .. [[ Todo at document end]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
       local start_todo = h.find_todo_by_text(todo_map, "Todo at document start")
@@ -444,7 +444,7 @@ Line that should not affect parent-child relationship
 - ]] .. unchecked .. [[ Alpha
 - ]] .. checked .. [[ Beta
 ]]
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
       assert.equal(2, vim.tbl_count(todo_map))
@@ -465,253 +465,554 @@ Line that should not affect parent-child relationship
   end)
 
   describe("todo item detection", function()
-    it("should detect unchecked todo items with default marker", function()
-      local parser = require("checkmate.parser")
-      local unchecked_marker = h.get_unchecked_marker()
+    describe("get_todo_item_state", function()
+      it("should detect unchecked todo items with default marker", function()
+        local parser = require("checkmate.parser")
+        local unchecked_marker = h.get_unchecked_marker()
 
-      local cases = {
-        "- " .. unchecked_marker .. " This is an unchecked todo",
-        "- " .. unchecked_marker,
-      }
-      for _, case in ipairs(cases) do
-        local state = parser.get_todo_item_state(case)
-        assert.equal("unchecked", state)
-      end
-    end)
-
-    it("should detect checked todo items with default marker", function()
-      local parser = require("checkmate.parser")
-      local checked_marker = h.get_checked_marker()
-
-      local cases = {
-        "- " .. checked_marker .. " This is an checked todo",
-        "- " .. checked_marker,
-      }
-      for _, case in ipairs(cases) do
-        local state = parser.get_todo_item_state(case)
-        assert.equal("checked", state)
-      end
-    end)
-
-    it("should detect unchecked todo items with various list markers", function()
-      local parser = require("checkmate.parser")
-      local unchecked_marker = h.get_unchecked_marker()
-
-      -- test with different list markers
-      local list_markers = { "-", "+", "*" }
-      for _, marker in ipairs(list_markers) do
         local cases = {
-          marker .. " " .. unchecked_marker .. " This is an unchecked todo",
-          marker .. " " .. unchecked_marker,
+          "- " .. unchecked_marker .. " This is an unchecked todo",
+          "- " .. unchecked_marker,
         }
         for _, case in ipairs(cases) do
           local state = parser.get_todo_item_state(case)
           assert.equal("unchecked", state)
         end
-      end
-    end)
+      end)
 
-    it("should detect todo items with indentation", function()
-      local parser = require("checkmate.parser")
-      local unchecked_marker = h.get_unchecked_marker()
-      local line = "    - " .. unchecked_marker .. " Indented todo"
-      local state = parser.get_todo_item_state(line)
+      it("should detect checked todo items with default marker", function()
+        local parser = require("checkmate.parser")
+        local checked_marker = h.get_checked_marker()
 
-      assert.equal("unchecked", state)
-    end)
+        local cases = {
+          "- " .. checked_marker .. " This is an checked todo",
+          "- " .. checked_marker,
+        }
+        for _, case in ipairs(cases) do
+          local state = parser.get_todo_item_state(case)
+          assert.equal("checked", state)
+        end
+      end)
 
-    it("should detect todo items with ordered list markers", function()
-      local parser = require("checkmate.parser")
-      local unchecked_marker = h.get_unchecked_marker()
+      it("should detect unchecked todo items with various list markers", function()
+        local parser = require("checkmate.parser")
+        local unchecked_marker = h.get_unchecked_marker()
 
-      -- test with different numbered list formats
-      local formats = { "1. ", "1) ", "50. " }
-      for _, format in ipairs(formats) do
-        local line = format .. unchecked_marker .. " Numbered todo"
+        -- test with different list markers
+        local list_markers = { "-", "+", "*" }
+        for _, marker in ipairs(list_markers) do
+          local cases = {
+            marker .. " " .. unchecked_marker .. " This is an unchecked todo",
+            marker .. " " .. unchecked_marker,
+          }
+          for _, case in ipairs(cases) do
+            local state = parser.get_todo_item_state(case)
+            assert.equal("unchecked", state)
+          end
+        end
+      end)
+
+      it("should detect todo items with indentation", function()
+        local parser = require("checkmate.parser")
+        local unchecked_marker = h.get_unchecked_marker()
+        local line = "    - " .. unchecked_marker .. " Indented todo"
         local state = parser.get_todo_item_state(line)
+
         assert.equal("unchecked", state)
-      end
+      end)
+
+      it("should detect todo items with ordered list markers", function()
+        local parser = require("checkmate.parser")
+        local unchecked_marker = h.get_unchecked_marker()
+
+        -- test with different numbered list formats
+        local formats = { "1. ", "1) ", "50. " }
+        for _, format in ipairs(formats) do
+          local line = format .. unchecked_marker .. " Numbered todo"
+          local state = parser.get_todo_item_state(line)
+          assert.equal("unchecked", state)
+        end
+      end)
+
+      it("should return nil for non-todo items", function()
+        local parser = require("checkmate.parser")
+        local unchecked_marker = h.get_unchecked_marker()
+
+        local lines = {
+          "Regular text",
+          "- Just a list item",
+          "1. Numbered list item",
+          "* Another list item",
+          unchecked_marker .. " A todo marker but not a list item, therefore not a todo item",
+        }
+
+        for _, line in ipairs(lines) do
+          local state = parser.get_todo_item_state(line)
+          assert.is_nil(state)
+        end
+      end)
+
+      it("should handle multi-char todo markers from config", function()
+        local parser = require("checkmate.parser")
+
+        local config = require("checkmate.config")
+        local original_markers = vim.deepcopy(config.options.todo_markers)
+
+        config.options.todo_markers = {
+          unchecked = "[ ]",
+          checked = "[x]",
+        }
+
+        -- force clear the pre-compiled pattern cache
+        parser.clear_pattern_cache()
+
+        local lines = {
+          "- [ ] Custom unchecked",
+          "- [x] Custom checked",
+        }
+
+        local expected = {
+          "unchecked",
+          "checked",
+        }
+
+        for i, line in ipairs(lines) do
+          local state = parser.get_todo_item_state(line)
+          assert.equal(expected[i], state)
+        end
+
+        config.options.todo_markers = original_markers
+      end)
     end)
+    describe("get_todo_item_at_position", function()
+      it("should return todo item with cursor on todo marker line", function()
+        local parser = require("checkmate.parser")
 
-    it("should return nil for non-todo items", function()
-      local parser = require("checkmate.parser")
-      local unchecked_marker = h.get_unchecked_marker()
+        local content = [[
+- [ ] This is a todo line
+This is another line
+- [ ] Another todo line
+        ]]
 
-      local lines = {
-        "Regular text",
-        "- Just a list item",
-        "1. Numbered list item",
-        "* Another list item",
-        unchecked_marker .. " A todo marker but not a list item, therefore not a todo item",
-      }
+        local bufnr = h.setup_todo_file_buffer(content)
 
-      for _, line in ipairs(lines) do
-        local state = parser.get_todo_item_state(line)
-        assert.is_nil(state)
-      end
-    end)
+        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
 
-    it("should handle multi-char todo markers from config", function()
-      local parser = require("checkmate.parser")
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
 
-      local config = require("checkmate.config")
-      local original_markers = vim.deepcopy(config.options.todo_markers)
+        assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
 
-      -- although we advise against multi-char todo markers, we test them here...
-      config.options.todo_markers = {
-        unchecked = "[ ]",
-        checked = "[x]",
-      }
+        todo_item = parser.get_todo_item_at_position(bufnr, 2, 0)
 
-      -- force clear the pre-compiled pattern cache
-      parser.clear_pattern_cache()
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
 
-      local lines = {
-        "- [ ] Custom unchecked",
-        "- [x] Custom checked",
-      }
+        assert.is_truthy(todo_item.todo_text:match("Another todo line"))
 
-      local expected = {
-        "unchecked",
-        "checked",
-      }
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
 
-      for i, line in ipairs(lines) do
-        local state = parser.get_todo_item_state(line)
-        assert.equal(expected[i], state)
-      end
+      it("should return todo item with cursor on continuation line", function()
+        local parser = require("checkmate.parser")
 
-      config.options.todo_markers = original_markers
+        local content = [[
+- [ ] This is a todo line
+This is another line
+- [ ] Another todo line
+        ]]
+
+        local bufnr = h.setup_todo_file_buffer(content)
+
+        local todo_item1 = parser.get_todo_item_at_position(bufnr, 0, 0)
+        assert.is_not_nil(todo_item1)
+        ---@cast todo_item1 checkmate.TodoItem
+        assert.is_truthy(todo_item1.todo_text:match("This is a todo line"))
+
+        local todo_item2 = parser.get_todo_item_at_position(bufnr, 1, 0)
+        assert.is_not_nil(todo_item2)
+        ---@cast todo_item2 checkmate.TodoItem
+        assert.is_truthy(todo_item2.todo_text:match("This is a todo line"))
+
+        assert.equal(todo_item1.id, todo_item2.id)
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should return todo item with cursor on nested list item", function()
+        local parser = require("checkmate.parser")
+
+        local content = [[
+- [ ] This is a todo line
+  - Nested 1
+    - Nested 2
+      - Nested 3
+      - [ ] Separate todo
+- [ ] Another todo line
+        ]]
+
+        local bufnr = h.setup_todo_file_buffer(content)
+
+        for i = 1, 3 do
+          local todo_item = parser.get_todo_item_at_position(bufnr, i, 0)
+          assert.is_not_nil(todo_item)
+          ---@cast todo_item checkmate.TodoItem
+          assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
+        end
+
+        local todo_item = parser.get_todo_item_at_position(bufnr, 4, 0)
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
+        assert.is_truthy(todo_item.todo_text:match("Separate todo"))
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should handle deeply nested wrapped todos", function()
+        local parser = require("checkmate.parser")
+        local content = [[
+- [ ] Parent todo
+  - Regular nested item
+    - [ ] Deeply nested todo that has a very long line that wraps onto
+      the next line with proper indentation maintained
+      - Even deeper nesting
+- [ ] Another parent
+    ]]
+        local bufnr = h.setup_todo_file_buffer(content)
+
+        -- cursor on wrapped portion of nested todo
+        local todo_item = parser.get_todo_item_at_position(bufnr, 3, 10)
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
+        assert.is_truthy(todo_item.todo_text:match("Deeply nested todo"))
+
+        assert.is_falsy(todo_item.todo_text:match("Parent todo"))
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should return todo item with cursor within nested todo item", function()
+        local parser = require("checkmate.parser")
+
+        local content = [[
+- [ ] This is a todo line
+  - Nested 1
+    - [ ] Separate todo
+      - Nested 2
+- [ ] Another todo line
+        ]]
+
+        local bufnr = h.setup_todo_file_buffer(content)
+
+        local todo_item = parser.get_todo_item_at_position(bufnr, 3, 0)
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
+        assert.is_truthy(todo_item.todo_text:match("Separate todo"))
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
     end)
   end)
 
   describe("extract_metadata", function()
     it("should extract a single metadata tag", function()
       local parser = require("checkmate.parser")
-      local line = "- □ Task with @priority(high) tag"
-      local row = 0
+      local bufnr = h.setup_test_buffer("- □ Task with @priority(high) tag")
 
-      local metadata = parser.extract_metadata(line, row)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.is_table(metadata)
       assert.is_table(metadata.entries)
       assert.is_table(metadata.by_tag)
-
       assert.equal(1, #metadata.entries)
-      assert.equal("priority", metadata.entries[1].tag)
-      assert.equal("high", metadata.entries[1].value)
-      assert.same(metadata.entries[1], metadata.by_tag.priority)
 
-      assert.equal(0, metadata.entries[1].range.start.row)
-      assert.equal(16, metadata.entries[1].range.start.col)
-      assert.equal(0, metadata.entries[1].range["end"].row)
-      assert.equal(31, metadata.entries[1].range["end"].col)
+      local priority_tag = metadata.by_tag["priority"]
+
+      assert.equal("priority", priority_tag.tag)
+      assert.equal("high", priority_tag.value)
+
+      local prefix_length = #"- □ Task with "
+
+      assert.equal(0, priority_tag.range.start.row)
+      assert.equal(prefix_length, priority_tag.range.start.col)
+      assert.equal(0, priority_tag.range["end"].row)
+      -- length in bytes == 1 past the end in 0-based index
+      assert.equal(prefix_length + #"@priority(high)", priority_tag.range["end"].col) -- end exclusive
+
+      -- validate value_range
+      assert.equal(prefix_length + #"@priority(", priority_tag.value_range.start.col)
+      -- length in bytes == 1 past the end in 0-based index
+      -- this means that the value_range.end.col points to the `)`
+      assert.equal(prefix_length + #"@priority(high", priority_tag.value_range["end"].col) -- end exclusive
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should extract multiple metadata tags", function()
       local parser = require("checkmate.parser")
       local line = "- □ Task @priority(high) @due(2023-04-01) @tags(important,urgent)"
-      local row = 0
+      local bufnr = h.setup_test_buffer(line)
 
-      local metadata = parser.extract_metadata(line, row)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(3, #metadata.entries)
 
+      local prefix_length = #"- □ Task "
+
       -- first metadata tag
-      assert.equal("priority", metadata.entries[1].tag)
-      assert.equal("high", metadata.entries[1].value)
+      assert.equal("priority", metadata.by_tag["priority"].tag)
+      assert.equal("high", metadata.by_tag["priority"].value)
+      assert.equal(0, metadata.by_tag["priority"].range.start.row)
+      assert.equal(prefix_length, metadata.by_tag["priority"].range.start.col)
+      assert.equal(prefix_length + #"@priority(", metadata.by_tag["priority"].value_range.start.col)
+      assert.equal(prefix_length + #"@priority(" + #"high", metadata.by_tag["priority"].value_range["end"].col)
+
+      prefix_length = prefix_length + #"@priority(high) "
 
       -- second metadata tag
-      assert.equal("due", metadata.entries[2].tag)
-      assert.equal("2023-04-01", metadata.entries[2].value)
+      assert.equal("due", metadata.by_tag["due"].tag)
+      assert.equal("2023-04-01", metadata.by_tag["due"].value)
+      assert.equal(0, metadata.by_tag["due"].range.start.row)
+      assert.equal(prefix_length, metadata.by_tag["due"].range.start.col)
+      assert.equal(prefix_length + #"@due(", metadata.by_tag["due"].value_range.start.col)
+      assert.equal(prefix_length + #"@due(" + #"2023-04-01", metadata.by_tag["due"].value_range["end"].col)
+
+      prefix_length = prefix_length + #"@due(2023-04-01) "
 
       -- third metadata tag
-      assert.equal("tags", metadata.entries[3].tag)
-      assert.equal("important,urgent", metadata.entries[3].value)
+      assert.equal("tags", metadata.by_tag["tags"].tag)
+      assert.equal("important,urgent", metadata.by_tag["tags"].value)
+      assert.equal(0, metadata.by_tag["tags"].range.start.row)
+      assert.equal(prefix_length, metadata.by_tag["tags"].range.start.col)
+      assert.equal(prefix_length + #"@tags(", metadata.by_tag["tags"].value_range.start.col)
+      assert.equal(prefix_length + #"@tags(" + #"important,urgent", metadata.by_tag["tags"].value_range["end"].col)
 
       assert.same(metadata.entries[1], metadata.by_tag.priority)
       assert.same(metadata.entries[2], metadata.by_tag.due)
       assert.same(metadata.entries[3], metadata.by_tag.tags)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
-    it("should not malformed metadata", function()
+    it("should handle wrapped lines with metadata tags", function()
+      local cm = require("checkmate")
+      cm.setup()
+
+      local parser = require("checkmate.parser")
+      local content = [[
+- [ ] Todo with metadata @priority(high) @assignee(john) that continues with
+  more metadata @due(2024-12-31) on the wrapped line
+- [ ] Another todo
+    ]]
+      local bufnr = h.setup_test_buffer(content)
+
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 20))
+
+      local unchecked = h.get_unchecked_marker()
+      local prefix_length = #("- " .. unchecked .. " Todo with metadata ")
+
+      assert.is_not_nil(todo_item.metadata)
+
+      assert.is_not_nil(todo_item.metadata.by_tag.priority)
+      assert.equal("high", todo_item.metadata.by_tag.priority.value)
+      assert.equal(prefix_length, todo_item.metadata.by_tag["priority"].range.start.col)
+
+      assert.is_not_nil(todo_item.metadata.by_tag.due)
+      assert.equal("2024-12-31", todo_item.metadata.by_tag.due.value)
+      assert.equal(1, todo_item.metadata.by_tag["due"].range.start.row)
+      assert.equal(#"  more metadata ", todo_item.metadata.by_tag["due"].range.start.col)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should handle metadata split across wrapped lines", function()
+      local parser = require("checkmate.parser")
+      local content = [[
+- [ ] Todo with very long metadata value @description(This   is a very long
+  description that spans multiple lines) @status(pending)
+
+- [ ] This is a really big hahaha yes, that is funny todo thing that I am just
+      writing for the sake of writing @started(06/29/25 20:04) @test(06/29/25
+      20:05) @done(06/29/25 20:05)
+
+- [x] This is some extra content @started(06/30/25 20:21) @done(06/30/25 
+  20:21) @branch(fix/multi-line-todos)
+    ]]
+      local bufnr = h.setup_todo_file_buffer(content)
+
+      -- First todo
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local unchecked = h.get_unchecked_marker()
+      local prefix_length = #("- " .. unchecked .. " Todo with very long metadata value ")
+
+      local desc_tag = todo_item.metadata.by_tag.description
+      assert.is_not_nil(desc_tag)
+      local expected_value = "This   is a very long description that spans multiple lines"
+      assert.matches(expected_value, desc_tag.value)
+      assert.equal(0, desc_tag.range.start.row)
+      assert.equal(prefix_length, desc_tag.range.start.col)
+      assert.equal(1, desc_tag.range["end"].row)
+      assert.equal(#"  description that spans multiple lines)", desc_tag.range["end"].col) -- end col is end-exclusive
+
+      assert.is_not_nil(todo_item.metadata.by_tag.status)
+      assert.equal("pending", todo_item.metadata.by_tag.status.value)
+
+      -- Second todo
+      todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 4, 0))
+
+      local test_tag = todo_item.metadata.by_tag.test
+      assert.is_not_nil(test_tag)
+      assert.matches("06/29/25 20:05", test_tag.value)
+      assert.equal(4, test_tag.range.start.row)
+      assert.equal(5, test_tag.range["end"].row)
+      assert.equal(#"      20:05)", test_tag.range["end"].col) -- end col is end-exclusive
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should not extract malformed metadata", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
 
       -- space between @tag and ()
       local line = "- □ Task @tag (value)"
-      local row = 0
+      local bufnr = h.setup_test_buffer(line)
 
-      local metadata = parser.extract_metadata(line, row)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
       assert.equal(0, #metadata.entries)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
-    it("should handle metadata with spaces in values", function()
+    it("should preserve metadata with spaces in and around values", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
 
-      local line = "- □ Task @note(this is a note with spaces)"
-      local metadata = parser.extract_metadata(line, 0)
+      local content = [[
+- [ ] Task @note(this is a note  with   spaces)
+- [ ] Task @note( T )]]
+
+      local bufnr = h.setup_test_buffer(content)
+
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(1, #metadata.entries)
       assert.equal("note", metadata.entries[1].tag)
-      assert.equal("this is a note with spaces", metadata.entries[1].value)
+      assert.equal("this is a note  with   spaces", metadata.entries[1].value)
 
-      line = "- □ Task @note( T )"
-      metadata = parser.extract_metadata(line, 0)
+      todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
+      metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
-      -- will trim whitespace
+      -- will preserve whitespace
       assert.equal(1, #metadata.entries)
       assert.equal("note", metadata.entries[1].tag)
-      assert.equal("T", metadata.entries[1].value)
+      assert.equal(" T ", metadata.entries[1].value)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
-    it("should handle metadata with trailing and leading spaces in values", function()
-      local parser = require("checkmate.parser")
-      local line = "- □ Task @note(  spaced value  )"
-      local row = 0
+    it("should handle metadata with balanced parentheses in value", function()
+      local cm = require("checkmate")
+      cm.setup()
 
-      local metadata = parser.extract_metadata(line, row)
-
-      assert.equal(1, #metadata.entries)
-      assert.equal("note", metadata.entries[1].tag)
-      assert.equal("spaced value", metadata.entries[1].value)
-    end)
-
-    it("should handle metadata with parentheses in value", function()
       local parser = require("checkmate.parser")
       local line = "- □ Task @issue(fix(api))"
-      local row = 0
+      local bufnr = h.setup_test_buffer(line)
 
-      local metadata = parser.extract_metadata(line, row)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(1, #metadata.entries)
       assert.equal("issue", metadata.entries[1].tag)
       assert.equal("fix(api)", metadata.entries[1].value)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
-    it("should properly track position_in_line", function()
+    it("should handle metadata with special characters", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
-      local line = "- □ Task @first(1) text in between @second(2)"
-      local row = 0
+      local line = "- □ Task @issue(value %with $pecial ch@rs!)"
+      local bufnr = h.setup_test_buffer(line)
 
-      local metadata = parser.extract_metadata(line, row)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
-      assert.equal(2, #metadata.entries)
-      assert.is_true(metadata.entries[1].position_in_line < metadata.entries[2].position_in_line)
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
+
+      assert.equal(1, #metadata.entries)
+      assert.equal("issue", metadata.entries[1].tag)
+      assert.equal("value %with $pecial ch@rs!", metadata.entries[1].value)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should handle metadata aliases", function()
-      local parser = require("checkmate.parser")
-      local config = require("checkmate.config")
+      local cm = require("checkmate")
+      ---@diagnostic disable-next-line: missing-fields
+      cm.setup({
+        metadata = {
+          priority = {
+            aliases = { "p", "pri" },
+          },
+        },
+      })
 
-      -- add an alias to the config
-      config.options.metadata.priority = config.options.metadata.priority or {}
-      config.options.metadata.priority.aliases = { "p", "pri" }
+      local parser = require("checkmate.parser")
 
       local line = "- □ Task @pri(high) @p(medium)"
-      local row = 0
 
-      local metadata = parser.extract_metadata(line, row)
+      local bufnr = h.setup_test_buffer(line)
+
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(2, #metadata.entries)
 
@@ -723,43 +1024,76 @@ Line that should not affect parent-child relationship
 
       assert.same(metadata.entries[1], metadata.by_tag.pri)
       assert.same(metadata.entries[2], metadata.by_tag.p)
-      assert.same(metadata.entries[2], metadata.by_tag.priority) -- Last alias wins for canonical name
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should handle tag names with hyphens and underscores", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
       local line = "- □ Task @tag-with-hyphens(value) @tag_with_underscores(value)"
-      local row = 0
 
-      local metadata = parser.extract_metadata(line, row)
+      local bufnr = h.setup_test_buffer(line)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(2, #metadata.entries)
       assert.equal("tag-with-hyphens", metadata.entries[1].tag)
       assert.equal("tag_with_underscores", metadata.entries[2].tag)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
     it("should return empty structure when no metadata present", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
       local line = "- □ Task with no metadata"
-      local row = 0
+      local bufnr = h.setup_test_buffer(line)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
-      local metadata = parser.extract_metadata(line, row)
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(0, #metadata.entries)
       assert.same({}, metadata.by_tag)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
 
+    -- TODO: Need more robust test coverage here...
     it("should correctly handle multiple tag instances of the same type", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local parser = require("checkmate.parser")
       local line = "- □ Task @priority(low) Some text @priority(high)"
-      local row = 0
+      local bufnr = h.setup_test_buffer(line)
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
-      local metadata = parser.extract_metadata(line, row)
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
 
       assert.equal(2, #metadata.entries)
 
       -- last one should win in the by_tag lookup
       assert.equal("high", metadata.by_tag.priority.value)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
     end)
   end)
 
@@ -768,7 +1102,6 @@ Line that should not affect parent-child relationship
     describe("convert_markdown_to_unicode", function()
       it("should convert markdown checkboxes to unicode symbols", function()
         local parser = require("checkmate.parser")
-        local config = require("checkmate.config")
 
         local bufnr = vim.api.nvim_create_buf(false, true)
         local markdown_lines = {
@@ -832,7 +1165,7 @@ Line that should not affect parent-child relationship
 - [ ]   This is okay
 ]]
 
-        local bufnr = h.create_test_buffer(content)
+        local bufnr = h.setup_test_buffer(content)
 
         parser.convert_markdown_to_unicode(bufnr)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -1026,7 +1359,7 @@ Line that should not affect parent-child relationship
       end
 
       local content = table.concat(content_lines, "\n")
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- measure performance
       local start_time = vim.fn.reltime()

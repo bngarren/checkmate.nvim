@@ -9,13 +9,15 @@ local H = {}
 -- save initial user opts for later restarts
 local user_opts = {}
 
-local state = {
+M._state = {
   -- initialized is config setup
   initialized = false,
   -- core modules are setup (parser, highlights, linter) and autocmds registered
   running = false,
   active_buffers = {}, -- bufnr -> true
 }
+
+local state = M._state
 
 ---@param opts checkmate.Config?
 ---@return boolean success
@@ -83,9 +85,9 @@ function M.start()
       require("checkmate.linter").setup(config.options.linter)
     end
 
-    H.setup_autocommands()
-
     M.set_running(true)
+
+    H.setup_autocommands()
 
     H.setup_existing_markdown_buffers()
 
@@ -428,7 +430,7 @@ function M.remove_metadata(metadata_name)
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = { metadata_name } } })
     end
     return true
   end
@@ -447,7 +449,7 @@ function M.remove_metadata(metadata_name)
   for _, item in ipairs(todo_items) do
     table.insert(operations, {
       id = item.id,
-      meta_name = metadata_name,
+      meta_names = { metadata_name },
     })
   end
 
@@ -474,7 +476,7 @@ function M.remove_all_metadata()
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_all_metadata, { todo_item.id })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = true } })
     end
     return true
   end
@@ -489,12 +491,16 @@ function M.remove_all_metadata()
     return false
   end
 
-  local ids = vim.tbl_map(function(item)
-    return item.id
-  end, todo_items)
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_names = true, -- true means remove all
+    })
+  end
 
   transaction.run(bufnr, function(_ctx)
-    _ctx.add_op(api.remove_all_metadata, ids)
+    _ctx.add_op(api.remove_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -654,6 +660,8 @@ function M.archive(opts)
   return api.archive_todos(opts)
 end
 
+---------- DEBUGGING API ----------------
+
 --- Open debug log
 function M.debug_log()
   require("checkmate.log").open()
@@ -679,9 +687,7 @@ function M.debug_at_cursor()
   -- clear previous
   pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
 
-  local item = parser.get_todo_item_at_position(bufnr, row, col, {
-    search = { main_content = true },
-  })
+  local item = parser.get_todo_item_at_position(bufnr, row, col)
 
   if not item then
     util.notify("No todo item found at cursor", vim.log.levels.INFO)
@@ -718,13 +724,13 @@ function M.debug_at_cursor()
     end_row = item.range["end"].row,
     end_col = item.range["end"].col,
     hl_group = "CheckmateDebugHighlight",
-    priority = 9999, -- Ensure it draws on top
+    priority = 9999,
   })
 
-  -- Auto-remove highlight after 3 seconds
+  -- remove hl after x seconds
   vim.defer_fn(function()
     pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-  end, 3000)
+  end, 10000)
 end
 
 --- Print todo map

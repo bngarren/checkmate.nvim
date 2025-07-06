@@ -41,7 +41,7 @@ describe("API", function()
    - ]] .. unchecked .. [[ Research destinations
    - ]] .. checked .. [[ Check budget]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.cmd("write")
 
@@ -90,7 +90,7 @@ describe("API", function()
 - [x] Checked task
       ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -120,7 +120,7 @@ describe("API", function()
 - [ ] Task 3
       ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
       local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
@@ -156,8 +156,8 @@ describe("API", function()
 
     describe("BufWriteCmd behavior", function()
       it("should handle :wa (write all modified buffers)", function()
-        local bufnr1, file1 = h.setup_todo_buffer("- [ ] File 1 todo")
-        local bufnr2, file2 = h.setup_todo_buffer("- [ ] File 2 todo")
+        local bufnr1, file1 = h.setup_todo_file_buffer("- [ ] File 1 todo")
+        local bufnr2, file2 = h.setup_todo_file_buffer("- [ ] File 2 todo")
 
         vim.api.nvim_buf_set_lines(bufnr1, 0, -1, false, { "- [ ] File 1 new" })
         vim.api.nvim_buf_set_lines(bufnr2, 0, -1, false, { "- [ ] File 2 new", "" })
@@ -193,7 +193,7 @@ describe("API", function()
       end)
 
       it("should not trigger multiple writes on single save command", function()
-        local bufnr, file_path = h.setup_todo_buffer("- [ ] Test")
+        local bufnr, file_path = h.setup_todo_file_buffer("- [ ] Test")
 
         local write_attempts = 0
         local original_writefile = vim.fn.writefile
@@ -217,7 +217,7 @@ describe("API", function()
       end)
 
       it("should call BufWritePre and BufWritePost", function()
-        local bufnr = h.setup_todo_buffer("")
+        local bufnr = h.setup_todo_file_buffer("")
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Todo new" })
         assert.is_true(vim.bo[bufnr].modified)
 
@@ -256,6 +256,15 @@ describe("API", function()
   end)
 
   describe("todo collection", function()
+    local cm
+    before_each(function()
+      cm = require("checkmate")
+      cm.setup()
+    end)
+    after_each(function()
+      cm.stop()
+    end)
+
     it("should collect a single todo under cursor in normal mode", function()
       local unchecked = h.get_unchecked_marker()
 
@@ -263,7 +272,7 @@ describe("API", function()
 - ]] .. unchecked .. [[ Task A
 - ]] .. unchecked .. [[ Task B
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -273,20 +282,19 @@ describe("API", function()
       assert.matches("Task A", items[1].todo_text)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should collect multiple todos within a visual selection", function()
-      local unchecked = h.get_unchecked_marker()
-
       local content = [[
-- ]] .. unchecked .. [[ Task A
-- ]] .. unchecked .. [[ Task B
+- [ ] Task A
+- [ ] Task B
+  - [ ] Task C
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
-      -- linewise select both todo lines
+      -- linewise select top 2 todo lines
       h.make_selection(1, 0, 2, 0, "V")
 
       local items = require("checkmate.api").collect_todo_items_from_selection(true)
@@ -307,20 +315,33 @@ describe("API", function()
       assert.is_true(foundB)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)
 
   describe("todo creation", function()
+    local cm
+    before_each(function()
+      cm = require("checkmate")
+      cm.setup()
+    end)
+    after_each(function()
+      cm.stop()
+    end)
+
     it("should convert a regular line to a todo item", function()
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
-      local content = "# Todo List\n\nThis is a regular line\n"
+      local content = [[
+# Todo List
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+This is a regular line
+      ]]
+
+      local bufnr = h.setup_test_buffer(content)
 
       -- move cursor to the regular line
       vim.api.nvim_win_set_cursor(0, { 3, 0 })
@@ -332,7 +353,7 @@ describe("API", function()
       assert.matches(default_list_marker .. " " .. vim.pesc(unchecked) .. " This is a regular line", lines[3])
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -343,18 +364,20 @@ describe("API", function()
 - Regular list item
 * Another list item
 + Yet another
-1. Ordered item]]
+1. Ordered item
+  - Nested list item]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local expected = {
         "- " .. unchecked .. " Regular list item",
         "* " .. unchecked .. " Another list item",
         "+ " .. unchecked .. " Yet another",
         "1. " .. unchecked .. " Ordered item",
+        "  - " .. unchecked .. " Nested list item",
       }
 
-      for i = 1, 4 do
+      for i = 1, 5 do
         vim.api.nvim_win_set_cursor(0, { i, 0 })
         local success = require("checkmate").create()
         assert.is_true(success)
@@ -366,7 +389,7 @@ describe("API", function()
       end
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -377,9 +400,9 @@ describe("API", function()
 
       local content = [[
 - ]] .. unchecked .. [[ First todo
-Some other content
-]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+Some other content]]
+
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -393,7 +416,7 @@ Some other content
       assert.equal("Some other content", lines[3])
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -405,7 +428,8 @@ Some other content
       local content = [[
   - ]] .. unchecked .. [[ Indented todo
 Some other content ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -417,7 +441,7 @@ Some other content ]]
       assert.equal("  " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -428,7 +452,7 @@ Some other content ]]
 1. ]] .. unchecked .. [[ First item
 2. ]] .. unchecked .. [[ Second item
 ]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- insert after first item
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -441,7 +465,7 @@ Some other content ]]
       assert.equal("2. " .. unchecked .. " Second item", lines[3])
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -454,7 +478,7 @@ Some other content ]]
 - Todo1
 
   - Child1]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
       local success = require("checkmate").create()
@@ -466,7 +490,7 @@ Some other content ]]
       assert.equal("  - Child1", lines[3])
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -479,7 +503,8 @@ Some other content ]]
 Line 1
 Line 2
   ]] .. default_list_marker .. [[ Line 3]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+
+      local bufnr = h.setup_test_buffer(content)
 
       -- select all lines
       vim.cmd("normal! ggVG")
@@ -494,19 +519,206 @@ Line 2
       assert.equal(3, #lines) -- ensure no new line created
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should convert a list item nested in another todo", function()
+      local unchecked = h.get_unchecked_marker()
+
+      local content = [[
+- [ ] Parent todo
+  - Regular list item
+      ]]
+
+      local bufnr = h.setup_test_buffer(content)
+
+      vim.api.nvim_win_set_cursor(0, { 2, 0 }) -- on Regular List item
+
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      assert.equal("  - " .. unchecked .. " Regular list item", lines[2])
+      assert.matches("^%s*$", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)
 
   describe("todo manipulation", function()
     describe("metadata operations", function()
+      describe("find_metadata_insert_position", function()
+        local api = require("checkmate.api")
+        local parser = require("checkmate.parser")
+
+        -- find byte position after a pattern in a line
+        local function find_byte_pos_after(line, pattern)
+          local _, end_pos = line:find(pattern)
+          return end_pos -- returns 1-based, but we'll convert when needed
+        end
+
+        -- get the byte position at end of content (excluding trailing whitespace)
+        local function get_content_end_pos(line)
+          local trimmed = line:match("^(.-)%s*$")
+          return #trimmed
+        end
+
+        it("should find correct position when no metadata exists", function()
+          local cm = require("checkmate")
+          cm.setup()
+
+          local content = [[
+- [ ] Single line todo
+- [ ] 
+- [ ] Multi-line todo
+  that continues here
+- [ ] Another todo
+
+  With a separate paragraph
+- [ ] ⭐️ Unicode ✅]]
+
+          local bufnr = h.setup_test_buffer(content)
+          local todo_item, insert_pos, lines
+
+          -- Test 1: Single line todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          local expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(0, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+          assert.is_true(insert_pos.insert_after_space)
+
+          -- Test 2: Empty todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          -- after the unchecked marker
+          local unchecked = h.get_unchecked_marker()
+          expected_col = find_byte_pos_after(lines[1], unchecked)
+          assert.are.equal(1, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          -- Test 3: Multi-line todo
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 2, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 3, 4, false) -- get the continuation line
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(3, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          -- Test 4: Unicode content
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 7, 0))
+          lines = vim.api.nvim_buf_get_lines(bufnr, 7, 8, false)
+          insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
+
+          expected_col = get_content_end_pos(lines[1])
+          assert.are.equal(7, insert_pos.row)
+          assert.are.equal(expected_col, insert_pos.col)
+
+          finally(function()
+            cm.stop()
+            h.cleanup_buffer(bufnr)
+          end)
+        end)
+
+        it("should respect sort_order when metadata exists", function()
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              -- higher sort_order will be positioned to the right
+              low = { sort_order = 10 },
+              medium = { sort_order = 20 },
+              high = { sort_order = 30 },
+            },
+          })
+          local content = [[
+- [ ] Todo with metadata @low(1)
+- [ ] ⭐️ @high(3)
+- [ ] Mixed @high(3) @low(1)]]
+
+          local bufnr = h.setup_test_buffer(content)
+
+          local todo_item, insert_pos
+
+          -- NOTE: since a metadata entry's range col is end-exlusive (one after the last char), it should match the col pos
+          -- of the insert_pos
+
+          -- test 1: Insert medium after low
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          insert_pos = api.find_metadata_insert_position(todo_item, "medium", bufnr)
+
+          -- should be after @low(1)
+          local low_entry = todo_item.metadata.by_tag.low
+          assert.are.equal(low_entry.range["end"].row, insert_pos.row)
+          assert.are.equal(low_entry.range["end"].col, insert_pos.col)
+
+          -- test 2: Insert medium before high
+          todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
+          insert_pos = api.find_metadata_insert_position(todo_item, "medium", bufnr)
+
+          -- should be before @high(3)
+          local high_entry = todo_item.metadata.by_tag.high
+          assert.are.equal(high_entry.range.start.row, insert_pos.row)
+          assert.are.equal(high_entry.range.start.col, insert_pos.col)
+
+          finally(function()
+            cm.stop()
+            h.cleanup_buffer(bufnr)
+          end)
+        end)
+
+        it("should handle complex multi-line scenarios", function()
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              a = { sort_order = 10 },
+              b = { sort_order = 20 },
+              c = { sort_order = 30 },
+              d = { sort_order = 25 },
+            },
+          })
+          local content = [[
+- [ ] First line @a(1)
+  continuation @c(3)
+  more text @b(2)
+  final line]]
+
+          local bufnr = h.setup_test_buffer(content)
+
+          local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+          local insert_pos = api.find_metadata_insert_position(todo_item, "d", bufnr)
+
+          -- NOTE: since a metadata entry's range col is end-exlusive (one after the last char), it should match the col pos
+          -- of the insert_pos
+
+          -- should insert after @b(2) since d's sort_order is 25
+          local b_entry = todo_item.metadata.by_tag.b
+          assert.are.equal(b_entry.range["end"].row, insert_pos.row)
+          assert.are.equal(b_entry.range["end"].col, insert_pos.col)
+
+          finally(function()
+            cm.stop()
+            h.cleanup_buffer(bufnr)
+          end)
+        end)
+      end)
+
       it("should add metadata to todo items", function()
         local unchecked = h.get_unchecked_marker()
 
         local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr, file_path = h.setup_todo_file_buffer(content)
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
@@ -536,6 +748,9 @@ Line 2
       end)
 
       it("should add metadata to a nested todo item", function()
+        local cm = require("checkmate")
+        cm.setup()
+
         local unchecked = h.get_unchecked_marker()
 
         local content = [[
@@ -543,7 +758,7 @@ Line 2
   - [ ] Child todo A
   - [ ] Child todo B
 ]]
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr = h.setup_test_buffer(content)
 
         -- move cursor to the Child todo A on line 2 (1-indexed)
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -575,18 +790,130 @@ Line 2
         assert.matches("- " .. vim.pesc(unchecked) .. " Child todo", lines[2])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should add metadata to a multi-line todo", function()
+        -- NOTE: the expected behavior is that the metadata tag is inserted according to sort_order,
+        -- immediately following a lower sort_order tag or before a higher sort_order tag
+
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            test1 = {
+              sort_order = 1,
+            },
+            test2 = {
+              sort_order = 2,
+            },
+            test3 = {
+              sort_order = 3,
+            },
+            test4 = {
+              sort_order = 4,
+            },
+          },
+        })
+
+        local content = [[
+- [ ] Todo item @test1(foo)
+      @test3(baz)
+        ]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+        assert.is_not_nil(todo_item)
+        ---@cast todo_item checkmate.TodoItem
+
+        local success = require("checkmate").add_metadata("test2", "bar")
+        assert.is_true(success)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("Todo item @test1%(foo%) @test2%(bar%)$", lines[1])
+
+        success = require("checkmate").add_metadata("test4", "gah")
+        assert.is_true(success)
+
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("     @test3%(baz%) @test4%(gah%)$", lines[2])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should remove metadata from todo with wrapped metadata", function()
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            test1 = {
+              sort_order = 1,
+            },
+            test2 = {
+              sort_order = 2,
+            },
+          },
+        })
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+- [ ] Task @test1(foo) @test2(metadata with
+      broken value)
+      ]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        -- Todo 1
+        -- remove @test1
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("test1")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("- " .. unchecked .. " Task @test2(metadata with", lines[1])
+        assert.matches("^%s*broken value%)", lines[2])
+
+        content = [[
+- ]] .. unchecked .. [[ This is some extra content @started(06/30/25 20:21) @done(06/30/25 
+  20:21) @branch(fix/multi-line-todos)
+        ]]
+
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
+
+        -- Todo 2
+        -- remove @done
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("done")
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("- " .. unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
+        assert.equal("  @branch(fix/multi-line-todos)", lines[2])
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should remove metadata with complex value", function()
+        local cm = require("checkmate")
+        cm.setup()
+
         local unchecked = h.get_unchecked_marker()
 
         local content = [[
 - [ ] Task @issue(issue #1 - fix(api): broken! @author)
       ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content)
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_map = require("checkmate.parser").discover_todos(bufnr)
         local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
@@ -601,21 +928,34 @@ Line 2
         vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
         require("checkmate").remove_metadata("issue")
 
-        vim.cmd("sleep 10m")
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@issue", lines[1])
         assert.matches("- " .. vim.pesc(unchecked) .. " Task", lines[1])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should remove all metadata from todo items", function()
-        local unchecked = h.get_unchecked_marker()
-
         local tags_on_removed_called = false
+
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            ---@diagnostic disable-next-line: missing-fields
+            tags = {
+              on_remove = function()
+                tags_on_removed_called = true
+              end,
+            },
+          },
+        })
+
+        local unchecked = h.get_unchecked_marker()
 
         -- content with todos that have multiple metadata tags
         local content = [[
@@ -623,21 +963,11 @@ Line 2
 
 - ]] .. unchecked .. [[ Task with @priority(high) @due(2023-05-15) @tags(important,urgent)
 - ]] .. unchecked .. [[ Another task @priority(medium) @assigned(john)
+  @issue(2)
 - ]] .. unchecked .. [[ A todo without metadata
 ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
-          config = {
-            metadata = {
-              ---@diagnostic disable-next-line: missing-fields
-              tags = {
-                on_remove = function()
-                  tags_on_removed_called = true
-                end,
-              },
-            },
-          },
-        })
+        local bufnr = h.setup_test_buffer(content)
 
         -- get 1st todo
         local todo_map = require("checkmate.parser").discover_todos(bufnr)
@@ -653,7 +983,8 @@ Line 2
         vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
         require("checkmate").remove_all_metadata()
 
-        vim.cmd("sleep 10m")
+        vim.wait(20)
+
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@priority", lines[3])
@@ -674,38 +1005,66 @@ Line 2
 
         h.make_selection(first_todo.range.start.row + 1, 0, third_todo.range.start.row + 1, 0, "V")
 
-        require("checkmate").remove_all_metadata()
+        cm.remove_all_metadata()
 
-        vim.cmd("sleep 10m")
+        vim.wait(20)
+
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         -- second todo's metadata was removed
         assert.no.matches("@priority", lines[4])
         assert.no.matches("@assigned", lines[4])
+        assert.no.matches("@issue", lines[5])
 
         -- third todo's line text wasn't changed
-        assert.matches("A todo without metadata", lines[5])
+        assert.matches("A todo without metadata", lines[6])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should handle metadata removal at end of buffer", function()
+        local cm = require("checkmate")
+        cm.setup()
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = "- " .. unchecked .. " Task @meta(value\n  continues)"
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("meta")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(1, #lines)
+        assert.equal("- " .. unchecked .. " Task", lines[1])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should provide static choices", function()
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            status = {
+              choices = { "todo", "in-progress", "done", "blocked" },
+            },
+          },
+        })
+
         local meta_module = require("checkmate.metadata")
 
         local unchecked = h.get_unchecked_marker()
         local content = [[- ]] .. unchecked .. [[ Task with metadata @status()]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
-          config = {
-            metadata = {
-              status = {
-                choices = { "todo", "in-progress", "done", "blocked" },
-              },
-            },
-          },
-        })
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
         assert.is_not_nil(todo_item)
@@ -718,33 +1077,36 @@ Line 2
         assert.same({ "todo", "in-progress", "done", "blocked" }, results)
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should support synchronous 'choices' functions", function()
+        local choices_fn_called = false
+        local received_context = nil
+
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            assignee = {
+              choices = function(context)
+                choices_fn_called = true
+                received_context = context
+                return { "john", "jane", "jack", "jill", "bob", "alice" }
+              end,
+            },
+          },
+        })
+
         local meta_module = require("checkmate.metadata")
 
         local unchecked = h.get_unchecked_marker()
 
         local content = [[- ]] .. unchecked .. [[ Task @assignee(john)]]
 
-        local choices_fn_called = false
-        local received_context = nil
-
-        local bufnr, file_path = h.setup_todo_buffer(content, {
-          config = {
-            metadata = {
-              assignee = {
-                choices = function(context)
-                  choices_fn_called = true
-                  received_context = context
-                  return { "john", "jane", "jack", "jill", "bob", "alice" }
-                end,
-              },
-            },
-          },
-        })
+        local bufnr = h.setup_test_buffer(content)
 
         local parser = require("checkmate.parser")
         local todo_map = parser.discover_todos(bufnr)
@@ -767,36 +1129,38 @@ Line 2
         assert.same({ "john", "jane", "jack", "jill", "bob", "alice" }, results)
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should support asynchronous 'choices' functions", function()
-        local meta_module = require("checkmate.metadata")
-
-        local unchecked = h.get_unchecked_marker()
-        local content = [[- ]] .. unchecked .. [[ Task needing data @project()]]
-
         local choices_fn_called = false
         local received_context = nil
 
-        local bufnr, file_path = h.setup_todo_buffer(content, {
-          config = {
-            metadata = {
-              project = {
-                choices = function(context, callback)
-                  choices_fn_called = true
-                  received_context = context
-                  -- async operation
-                  vim.defer_fn(function()
-                    local projects = { "project-a", "project-b", "project-c" }
-                    callback(projects)
-                  end, 10)
-                end,
-              },
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            project = {
+              choices = function(context, callback)
+                choices_fn_called = true
+                received_context = context
+                -- async operation
+                vim.defer_fn(function()
+                  local projects = { "project-a", "project-b", "project-c" }
+                  callback(projects)
+                end, 10)
+              end,
             },
           },
         })
+
+        local meta_module = require("checkmate.metadata")
+
+        local content = [[- [ ] Task needing data @project()]]
+
+        local bufnr = h.setup_test_buffer(content)
 
         local parser = require("checkmate.parser")
         local todo_map = parser.discover_todos(bufnr)
@@ -823,12 +1187,32 @@ Line 2
         assert.same({ "project-a", "project-b", "project-c" }, results)
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       describe("metadata callbacks", function()
         it("should call on_add only when metadata is successfully added", function()
+          -- spy to track callback execution
+          local on_add_called = false
+          local test_todo_item = nil
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              test = {
+                on_add = function(todo_item)
+                  on_add_called = true
+                  test_todo_item = todo_item
+                end,
+                select_on_insert = false,
+              },
+            },
+          })
+
           local unchecked = h.get_unchecked_marker()
 
           local content = [[
@@ -836,24 +1220,7 @@ Line 2
 
 - ]] .. unchecked .. [[ A test todo]]
 
-          -- spy to track callback execution
-          local on_add_called = false
-          local test_todo_item = nil
-
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                test = {
-                  on_add = function(todo_item)
-                    on_add_called = true
-                    test_todo_item = todo_item
-                  end,
-                  select_on_insert = false,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           -- todo item at row 2 (0-indexed)
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
@@ -876,11 +1243,30 @@ Line 2
           assert.matches("@test%(test_value%)", lines[3])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_remove only when metadata is successfully removed", function()
+          -- spy to track callback execution
+          local on_remove_called = false
+          local test_todo_item = nil
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              test = {
+                on_remove = function(todo_item)
+                  on_remove_called = true
+                  test_todo_item = todo_item
+                end,
+              },
+            },
+          })
+
           local unchecked = h.get_unchecked_marker()
 
           local content = [[
@@ -888,23 +1274,7 @@ Line 2
 
 - ]] .. unchecked .. [[ A test todo @test(test_value)]]
 
-          -- spy to track callback execution
-          local on_remove_called = false
-          local test_todo_item = nil
-
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                test = {
-                  on_remove = function(todo_item)
-                    on_remove_called = true
-                    test_todo_item = todo_item
-                  end,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "A test todo")
@@ -926,12 +1296,29 @@ Line 2
           assert.no.matches("@test", lines[3])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_add callback for all todos in bulk (normal and visual mode)", function()
           local unchecked = h.get_unchecked_marker()
+          local on_add_calls = {}
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              bulk = {
+                on_add = function(todo_item)
+                  -- record the todo's line (1-based)
+                  table.insert(on_add_calls, todo_item.range.start.row + 1)
+                end,
+                select_on_insert = false,
+              },
+            },
+          })
 
           -- todo file with many todos
           local total_todos = 30
@@ -943,23 +1330,8 @@ Line 2
           end
           local content = "# Bulk Metadata Test\n\n" .. table.concat(todo_lines, "\n")
 
-          local on_add_calls = {}
-
           -- register the metadata tag with a callback that tracks which todos are affected
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                bulk = {
-                  on_add = function(todo_item)
-                    -- record the todo's line (1-based)
-                    table.insert(on_add_calls, todo_item.range.start.row + 1)
-                  end,
-                  select_on_insert = false,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           -- Normal mode first
           vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- first todo line (after 2 header lines)
@@ -1001,34 +1373,36 @@ Line 2
           end
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should not call on_add when updating existing metadata value", function()
           local unchecked = h.get_unchecked_marker()
+          local on_add_called = false
+          local on_change_called = false
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              test = {
+                on_add = function()
+                  on_add_called = true
+                end,
+                on_change = function()
+                  on_change_called = true
+                end,
+              },
+            },
+          })
 
           local content = [[
 - ]] .. unchecked .. [[ Task with existing metadata @test(old_value)]]
 
-          local on_add_called = false
-          local on_change_called = false
-
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                test = {
-                  on_add = function()
-                    on_add_called = true
-                  end,
-                  on_change = function()
-                    on_change_called = true
-                  end,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task with existing")
@@ -1048,36 +1422,38 @@ Line 2
           assert.matches("@test%(new_value%)", lines[1])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change when metadata value is updated", function()
           local unchecked = h.get_unchecked_marker()
-
-          local content = [[
-- ]] .. unchecked .. [[ Task with metadata @priority(low)]]
-
           local on_change_called = false
           local received_todo = nil
           local received_old_value = nil
           local received_new_value = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                priority = {
-                  on_change = function(todo_item, old_value, new_value)
-                    on_change_called = true
-                    received_todo = todo_item
-                    received_old_value = old_value
-                    received_new_value = new_value
-                  end,
-                },
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              priority = {
+                on_change = function(todo_item, old_value, new_value)
+                  on_change_called = true
+                  received_todo = todo_item
+                  received_old_value = old_value
+                  received_new_value = new_value
+                end,
               },
             },
           })
+
+          local content = [[
+- ]] .. unchecked .. [[ Task with metadata @priority(low)]]
+
+          local bufnr = h.setup_test_buffer(content)
 
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task with metadata")
@@ -1107,35 +1483,37 @@ Line 2
           assert.is_false(on_change_called)
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change via metadata picker selection", function()
           local unchecked = h.get_unchecked_marker()
-
-          local content = [[
-- ]] .. unchecked .. [[ Task @priority(medium)]]
-
           local on_change_called = false
           local received_old_value = nil
           local received_new_value = nil
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                priority = {
-                  choices = { "low", "medium", "high" },
-                  on_change = function(_, old_value, new_value)
-                    on_change_called = true
-                    received_old_value = old_value
-                    received_new_value = new_value
-                  end,
-                },
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              priority = {
+                choices = { "low", "medium", "high" },
+                on_change = function(_, old_value, new_value)
+                  on_change_called = true
+                  received_old_value = old_value
+                  received_new_value = new_value
+                end,
               },
             },
           })
+
+          local content = [[
+- ]] .. unchecked .. [[ Task @priority(medium)]]
+
+          local bufnr = h.setup_test_buffer(content)
 
           local parser = require("checkmate.parser")
           local api = require("checkmate.api")
@@ -1165,40 +1543,42 @@ Line 2
           assert.matches("@priority%(high%)", lines[1])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should handle on_change callbacks that trigger other metadata operations", function()
           local unchecked = h.get_unchecked_marker()
+          local on_change_called = false
+          local on_add_called = false
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              status = {
+                on_change = function(_, _, new_value)
+                  on_change_called = true
+                  if new_value == "done" then
+                    require("checkmate").add_metadata("completed", "today")
+                  end
+                end,
+              },
+              ---@diagnostic disable-next-line: missing-fields
+              completed = {
+                on_add = function()
+                  on_add_called = true
+                end,
+              },
+            },
+          })
 
           local content = [[
 - ]] .. unchecked .. [[ Task @status(in-progress)]]
 
-          local on_change_called = false
-          local on_add_called = false
-
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                status = {
-                  on_change = function(_, _, new_value)
-                    on_change_called = true
-                    if new_value == "done" then
-                      require("checkmate").add_metadata("completed", "today")
-                    end
-                  end,
-                },
-                ---@diagnostic disable-next-line: missing-fields
-                completed = {
-                  on_add = function()
-                    on_add_called = true
-                  end,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task @status")
@@ -1218,38 +1598,40 @@ Line 2
           assert.matches("@completed%(today%)", lines[1])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change for bulk operations in visual mode", function()
           local unchecked = h.get_unchecked_marker()
+          local change_count = 0
+          local changes = {}
+
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              priority = {
+                on_change = function(todo_item, old_value, new_value)
+                  change_count = change_count + 1
+                  table.insert(changes, {
+                    text = todo_item.todo_text,
+                    old = old_value,
+                    new = new_value,
+                  })
+                end,
+              },
+            },
+          })
 
           local content = [[
 - ]] .. unchecked .. [[ Task 1 @priority(low)
 - ]] .. unchecked .. [[ Task 2 @priority(medium)
 - ]] .. unchecked .. [[ Task 3 @priority(high)]]
 
-          local change_count = 0
-          local changes = {}
-
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                priority = {
-                  on_change = function(todo_item, old_value, new_value)
-                    change_count = change_count + 1
-                    table.insert(changes, {
-                      text = todo_item.todo_text,
-                      old = old_value,
-                      new = new_value,
-                    })
-                  end,
-                },
-              },
-            },
-          })
+          local bufnr = h.setup_test_buffer(content)
 
           h.make_selection(1, 0, 3, 0, "V")
 
@@ -1274,41 +1656,43 @@ Line 2
           end
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should handle errors in metadata callbacks gracefully", function()
           local unchecked = h.get_unchecked_marker()
-
-          local content = [[
-- ]] .. unchecked .. [[ Task for testing callback errors]]
-
           local on_add_called = false
           local on_change_called = false
           local on_remove_called = false
 
-          local bufnr, file_path = h.setup_todo_buffer(content, {
-            config = {
-              metadata = {
-                ---@diagnostic disable-next-line: missing-fields
-                errortest = {
-                  on_add = function()
-                    on_add_called = true
-                    error("error in on_add callback")
-                  end,
-                  on_change = function()
-                    on_change_called = true
-                    error("error in on_change callback")
-                  end,
-                  on_remove = function()
-                    on_remove_called = true
-                    error("error in on_remove callback")
-                  end,
-                },
+          local cm = require("checkmate")
+          ---@diagnostic disable-next-line: missing-fields
+          cm.setup({
+            metadata = {
+              ---@diagnostic disable-next-line: missing-fields
+              errortest = {
+                on_add = function()
+                  on_add_called = true
+                  error("error in on_add callback")
+                end,
+                on_change = function()
+                  on_change_called = true
+                  error("error in on_change callback")
+                end,
+                on_remove = function()
+                  on_remove_called = true
+                  error("error in on_remove callback")
+                end,
               },
             },
           })
+
+          local content = [[
+- ]] .. unchecked .. [[ Task for testing callback errors]]
+
+          local bufnr = h.setup_test_buffer(content)
 
           local todo_map = require("checkmate.parser").discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task for testing")
@@ -1364,13 +1748,14 @@ Line 2
           assert.matches("- " .. vim.pesc(checked) .. " Task for testing", lines[1])
 
           finally(function()
-            h.cleanup_buffer(bufnr, file_path)
+            cm.stop()
+            h.cleanup_buffer(bufnr)
           end)
         end)
       end)
     end)
 
-    it("should work with todo hierarchies", function()
+    it("should handle todo hierarchies with correct write to file", function()
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
@@ -1385,7 +1770,7 @@ Line 2
 - [ ] Another parent
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
 
@@ -1441,7 +1826,7 @@ Line 2
 - [ ] Task 3
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       -- toggle task 1, add metadata to task 2, check task 3
 
@@ -1489,12 +1874,21 @@ Line 2
   end)
 
   describe("movement", function()
+    local cm
+    before_each(function()
+      cm = require("checkmate")
+      cm.setup()
+    end)
+    after_each(function()
+      cm.stop()
+    end)
+
     it("should move cursor to next metadata entry and wrap around", function()
       local parser = require("checkmate.parser")
       local api = require("checkmate.api")
 
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
       assert.is_not_nil(todo_item)
@@ -1522,7 +1916,7 @@ Line 2
       assert.equal(todo_item.metadata.entries[1].range.start.col, col4)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -1531,7 +1925,7 @@ Line 2
       local api = require("checkmate.api")
 
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
       assert.is_not_nil(todo_item)
@@ -1554,7 +1948,7 @@ Line 2
       assert.equal(todo_item.metadata.entries[3].range.start.col, col2)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)
@@ -1572,7 +1966,7 @@ Line 2
         }, smart_toggle_config or {}),
       }
 
-      return h.setup_todo_buffer(content, { config = config_override })
+      return h.setup_todo_file_buffer(content, { config = config_override })
     end
 
     describe("downward propagation", function()
@@ -1973,6 +2367,9 @@ Line 2
 
   describe("archive system", function()
     it("should not create archive section when no checked todos exist", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
 
@@ -1983,7 +2380,7 @@ Line 2
   - ]] .. unchecked .. [[ Subtask 2.1
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local success = require("checkmate").archive()
       assert.is_false(success) -- should return false when nothing to archive
@@ -2010,11 +2407,15 @@ Line 2
       assert.equal(result, true, err)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should archive completed todo items to specified section", function()
+      local cm = require("checkmate")
+      cm.setup()
+
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -2034,12 +2435,12 @@ Line 2
 Some content here
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local heading_title = "Completed Todos"
       local success = require("checkmate").archive({ heading = { title = heading_title } })
 
-      vim.wait(20)
+      vim.wait(10)
       vim.cmd("redraw")
 
       assert.is_true(success)
@@ -2085,13 +2486,24 @@ Some content here
       assert.matches("Some content here", buffer_content)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should work with custom archive heading", function()
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+
+      -- setup with custom archive heading
+      local heading_title = "Completed Items"
+      local heading_level = 4 -- ####
+
+      local cm = require("checkmate")
+      ---@diagnostic disable-next-line: missing-fields
+      cm.setup({
+        archive = { heading = { title = heading_title, level = heading_level } },
+      })
 
       local content = [[
 # Custom Archive Heading Test
@@ -2100,18 +2512,10 @@ Some content here
 - ]] .. checked .. [[ Checked task
 ]]
 
-      -- setup with custom archive heading
-      local heading_title = "Completed Items"
-      local heading_level = 4 -- ####
-      local bufnr, file_path = h.setup_todo_buffer(
-        content,
-        { config = {
-          archive = { heading = { title = heading_title, level = heading_level } },
-        } }
-      )
+      local bufnr = h.setup_test_buffer(content)
 
       local success = require("checkmate").archive()
-      vim.wait(20)
+      vim.wait(10)
       vim.cmd("redraw")
 
       assert.is_true(success)
@@ -2130,7 +2534,8 @@ Some content here
       assert.matches("- " .. vim.pesc(checked) .. " Checked task", archive_section)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -2138,6 +2543,15 @@ Some content here
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+
+      local cm = require("checkmate")
+      ---@diagnostic disable-next-line: missing-fields
+      cm.setup({
+        ---@diagnostic disable-next-line: missing-fields
+        archive = {
+          newest_first = false, -- ensure newly added todos end up at top of archive section
+        },
+      })
 
       local archive_heading_string = require("checkmate.util").get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
@@ -2155,13 +2569,7 @@ Some content here
 - ]] .. checked .. [[ Previously archived task
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content, {
-        config = {
-          archive = {
-            newest_first = false, -- ensure newly added todos end up at top of archive section
-          },
-        },
-      })
+      local bufnr = h.setup_test_buffer(content)
 
       local success = require("checkmate").archive()
       assert.is_true(success)
@@ -2200,7 +2608,8 @@ Some content here
       end
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -2210,6 +2619,9 @@ Some content here
       local checked = h.get_checked_marker()
 
       for _, spacing in ipairs({ 0, 1, 2 }) do
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({ archive = { parent_spacing = spacing } })
         local content = [[
 # Tasks
 - ]] .. unchecked .. [[ Active task
@@ -2218,7 +2630,7 @@ Some content here
 - ]] .. checked .. [[ Done task B
 ]]
 
-        local bufnr, file_path = h.setup_todo_buffer(content, { config = { archive = { parent_spacing = spacing } } })
+        local bufnr = h.setup_test_buffer(content)
 
         local success = require("checkmate").archive()
         vim.wait(20)
@@ -2283,7 +2695,8 @@ Some content here
           )
         )
 
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end
     end)
 
@@ -2291,6 +2704,9 @@ Some content here
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+
+      local cm = require("checkmate")
+      cm.setup()
 
       local content = [[
 # Todo List
@@ -2302,7 +2718,8 @@ Some content here
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
+
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2329,7 +2746,8 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -2337,6 +2755,9 @@ Some content here
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+
+      local cm = require("checkmate")
+      cm.setup()
 
       local content = [[
 - ]] .. unchecked .. [[ Task A
@@ -2347,7 +2768,8 @@ Some content here
 - ]] .. unchecked .. [[ Task D
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
+
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2372,7 +2794,8 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -2381,13 +2804,17 @@ Some content here
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
+      local cm = require("checkmate")
+      cm.setup()
+
       local content = [[
 - ]] .. unchecked .. [[ Task A
 - ]] .. checked .. [[ Task B (to archive)
 - ]] .. unchecked .. [[ Task C
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
+
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2411,7 +2838,8 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -2419,6 +2847,9 @@ Some content here
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+
+      local cm = require("checkmate")
+      cm.setup()
 
       local content = [[
 # Project
@@ -2445,7 +2876,8 @@ More content.
 Final content.
 ]]
 
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
+
       local arch_success = require("checkmate").archive()
       assert.is_true(arch_success)
 
@@ -2484,7 +2916,8 @@ Final content.
       assert.equal(success, true, err)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)
@@ -2494,10 +2927,13 @@ Final content.
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
+      local cm = require("checkmate")
+      cm.setup()
+
       -- create a one-line todo
       local content = [[
 - ]] .. unchecked .. [[ MyTask]]
-      local bufnr, file_path = h.setup_todo_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       local parser = require("checkmate.parser")
       local api = require("checkmate.api")
@@ -2523,7 +2959,8 @@ Final content.
       assert.same({ checked }, hunk.insert)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        cm.stop()
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)

@@ -57,7 +57,6 @@ describe("Config", function()
       local bufnr, file_path = h.setup_todo_file_buffer("", {
         config = {
           keys = {
-            ["<leader>Tt"] = "toggle", -- legacy
             ["<leader>Ta"] = { -- cmd
               rhs = "<cmd>Checkmate archive<CR>",
               desc = "Archive todos",
@@ -80,15 +79,12 @@ describe("Config", function()
       -- keymaps were created
       local keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
 
-      local found_toggle = false
       local found_archive = false
       local found_check = false
       local found_uncheck = false
 
       for _, keymap in ipairs(keymaps) do
-        if keymap.lhs == " Tt" then
-          found_toggle = true
-        elseif keymap.lhs == " Ta" then
+        if keymap.lhs == " Ta" then
           found_archive = true
         elseif keymap.lhs == " Tc" then
           found_check = true
@@ -97,14 +93,9 @@ describe("Config", function()
         end
       end
 
-      assert.is_true(found_toggle)
       assert.is_true(found_archive)
       assert.is_true(found_check)
       assert.is_true(found_uncheck)
-
-      local toggle_stub = stub(checkmate, "toggle")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tt", true, false, true), "x", false)
-      assert.stub(toggle_stub).called(1)
 
       local archive_stub = stub(checkmate, "archive")
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Ta", true, false, true), "x", false)
@@ -121,7 +112,6 @@ describe("Config", function()
       finally(function()
         checkmate.stop()
         h.cleanup_buffer(bufnr, file_path)
-        toggle_stub:revert()
         archive_stub:revert()
         check_stub:revert()
         uncheck_stub:revert()

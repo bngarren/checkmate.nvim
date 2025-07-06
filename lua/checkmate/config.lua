@@ -53,11 +53,9 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---Keymappings (false to disable)
 ---
----Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
----
 ---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
 ---Note: mappings for metadata are set separately in the `metadata` table
----@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
+---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
 ---@field todo_markers checkmate.TodoMarkers
@@ -124,12 +122,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Buffer local
 ---See `:h treesitter-highlight`
 ---@field disable_ts_highlights? boolean
-
------------------------------------------------------
-
----Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@deprecated TODO: remove v0.10
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
 
 -----------------------------------------------------
 
@@ -208,19 +200,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 --- Style
 
----@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
----
----@alias checkmate.StyleKey
----| "list_marker_unordered"
----| "list_marker_ordered"
----| "unchecked_marker"
----| "unchecked_main_content"
----| "unchecked_additional_content"
----| "checked_marker"
----| "checked_main_content"
----| "checked_additional_content"
----| "todo_count_indicator"
-
 ---@alias checkmate.HighlightGroup
 ---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
 ---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
@@ -233,7 +212,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
 
 ---Customize the style of markers and content
----@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
+---@alias checkmate.StyleSettings table<checkmate.HighlightGroup, vim.api.keyset.highlight>
 
 -----------------------------------------------------
 
@@ -251,9 +230,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---also be used and have the same styling/functionality
 ---@field aliases? string[]
 ---
----@alias checkmate.StyleFn
----| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
----| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+---@alias checkmate.StyleFn fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
 ---
 ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
 ---@field style? vim.api.keyset.highlight|checkmate.StyleFn
@@ -962,19 +939,6 @@ function M.validate_options(opts)
   return true
 end
 
---- TODO: legacy, remove in next release v0.10
-M.style_key_to_highlight_group = {
-  list_marker_unordered = "CheckmateListMarkerUnordered",
-  list_marker_ordered = "CheckmateListMarkerOrdered",
-  unchecked_marker = "CheckmateUncheckedMarker",
-  unchecked_main_content = "CheckmateUncheckedMainContent",
-  unchecked_additional_content = "CheckmateUncheckedAdditionalContent",
-  checked_marker = "CheckmateCheckedMarker",
-  checked_main_content = "CheckmateCheckedMainContent",
-  checked_additional_content = "CheckmateCheckedAdditionalContent",
-  todo_count_indicator = "CheckmateTodoCountIndicator",
-}
-
 --- Setup function
 ---@param opts? checkmate.Config
 ---@return checkmate.Config config
@@ -1003,22 +967,6 @@ function M.setup(opts)
           config.metadata[meta_name] = vim.deepcopy(meta_props)
         end
       end
-    end
-
-    -- normalize style settings: convert legacy keys to highlight group names
-    if config.style then
-      local normalized_style = {}
-
-      for key, settings in pairs(config.style) do
-        local highlight_group = M.style_key_to_highlight_group[key]
-        if highlight_group then
-          normalized_style[highlight_group] = settings
-        else
-          normalized_style[key] = settings
-        end
-      end
-
-      config.style = normalized_style
     end
 
     -- save user style for colorscheme updates

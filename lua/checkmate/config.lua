@@ -597,10 +597,8 @@ function M.validate_options(opts)
           if rt ~= "string" and rt ~= "function" then
             return false, ("keys.%s: rhs must be a string or function"):format(lhs)
           end
-        elseif mt == "string" then
-        -- legacy action-name
         else
-          return false, ("keys.%s: must be false, string, or table"):format(lhs)
+          return false, ("keys.%s: must be false, or a table"):format(lhs)
         end
       end
     end
@@ -703,19 +701,7 @@ function M.validate_options(opts)
       return false, err
     end
 
-    -- TODO: remove legacy with v0.10
     local valid_style_keys = {
-      -- Legacy style keys
-      "list_marker_unordered",
-      "list_marker_ordered",
-      "unchecked_marker",
-      "unchecked_main_content",
-      "unchecked_additional_content",
-      "checked_marker",
-      "checked_main_content",
-      "checked_additional_content",
-      "todo_count_indicator",
-      -- Highlight group names
       "CheckmateListMarkerUnordered",
       "CheckmateListMarkerOrdered",
       "CheckmateUncheckedMarker",

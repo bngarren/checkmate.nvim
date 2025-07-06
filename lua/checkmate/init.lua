@@ -954,9 +954,7 @@ function H.setup_autocommands()
       end
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
-        --  TODO: remove legacy in v0.10+
-        require("checkmate.commands").setup(event.buf) -- legacy commands
-        require("checkmate.commands_new").setup(event.buf)
+        require("checkmate.commands").setup(event.buf)
         require("checkmate.api").setup_buffer(event.buf)
       end
     end,
@@ -970,9 +968,7 @@ function H.setup_autocommands()
 
         if bufs[event.buf] then
           local buf = event.buf
-          --  TODO: remove legacy in v0.10+
-          require("checkmate.commands").dispose(buf) -- legacy
-          require("checkmate.commands_new").dispose(buf)
+          require("checkmate.commands").dispose(buf)
           require("checkmate.api").shutdown(buf)
           M.unregister_buffer(buf)
         end

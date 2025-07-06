@@ -910,6 +910,7 @@ This is another line
       assert.equal(0, #metadata.entries)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -943,6 +944,7 @@ This is another line
       assert.equal(" T ", metadata.entries[1].value)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -964,6 +966,29 @@ This is another line
       assert.equal("fix(api)", metadata.entries[1].value)
 
       finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should handle metadata with special characters", function()
+      local cm = require("checkmate")
+      cm.setup()
+
+      local parser = require("checkmate.parser")
+      local line = "- □ Task @issue(value %with $pecial ch@rs!)"
+      local bufnr = h.setup_test_buffer(line)
+
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
+
+      local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
+
+      assert.equal(1, #metadata.entries)
+      assert.equal("issue", metadata.entries[1].tag)
+      assert.equal("value %with $pecial ch@rs!", metadata.entries[1].value)
+
+      finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -1001,6 +1026,7 @@ This is another line
       assert.same(metadata.entries[2], metadata.by_tag.p)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -1022,6 +1048,7 @@ This is another line
       assert.equal("tag_with_underscores", metadata.entries[2].tag)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -1041,6 +1068,7 @@ This is another line
       assert.same({}, metadata.by_tag)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -1063,6 +1091,7 @@ This is another line
       assert.equal("high", metadata.by_tag.priority.value)
 
       finally(function()
+        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)

@@ -552,7 +552,6 @@ describe("checkmate init and lifecycle", function()
 
   pending("should handle configuration changes while running", function()
     local checkmate = require("checkmate")
-    local config = require("checkmate.config")
     local file_matcher = require("checkmate.file_matcher")
 
     -- Initial setup

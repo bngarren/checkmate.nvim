@@ -1025,6 +1025,29 @@ Line 2
         end)
       end)
 
+      it("should handle metadata removal at end of buffer", function()
+        local cm = require("checkmate")
+        cm.setup()
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = "- " .. unchecked .. " Task @meta(value\n  continues)"
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("meta")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(1, #lines)
+        assert.equal("- " .. unchecked .. " Task", lines[1])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
       it("should provide static choices", function()
         local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields

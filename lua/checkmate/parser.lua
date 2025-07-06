@@ -20,17 +20,12 @@ local M = {}
 ---@field tag string The tag name
 ---@field value string The value
 ---@field range checkmate.Range Position range (0-indexed), end_col is end_exclusive
----@field value_col integer Start col (0-indexed) of value
+---@field value_range checkmate.Range Position range (0-indexed), end_col is end exclusive
 ---@field alias_for? string The canonical tag name if this is an alias
----@field position_in_line integer (1-indexed)
 
 ---@class checkmate.TodoMetadata
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
 ---@field by_tag table<string, checkmate.MetadataEntry> Quick access by tag name
-
----@class checkmate.Range
----@field start {row: integer, col: integer}
----@field ["end"] {row: integer, col: integer}
 
 --- @class checkmate.TodoItem
 --- Stable key. Uses extmark id positioned just prior to the todo marker.
@@ -44,7 +39,10 @@ local M = {}
 ---   - The end col is adjusted so that it accurately reflects the end of the content
 --- @field range checkmate.Range
 --- @field ts_range checkmate.Range
---- @field content_nodes ContentNodeInfo[] List of content nodes
+--- This is the range of the first inline node of the first paragraph which is (currently) the best representation
+--- of the todo item's main content. This allows the first todo line to be hard-wrapped but still
+--- allow the broken subsequent lines to work, e.g. have metadata extracted.
+--- @field first_inline_range checkmate.Range
 --- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
 --- @field list_marker checkmate.ListMarkerInfo Information about the list marker (0-indexed position)
 --- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
@@ -418,8 +416,8 @@ function M.convert_unicode_to_markdown(bufnr)
 end
 
 ---@class GetTodoItemAtPositionOpts
----@field todo_map table<integer, checkmate.TodoItem>? Pre-parsed todo item map to use instead of performing within function
----@field max_depth integer? What depth should still register as a parent todo item (0 = only direct, 1 = include children, etc.)
+---@field todo_map? table<integer, checkmate.TodoItem> Pre-parsed todo item map to use instead of performing within function
+---@field root_only? boolean If true, only matches to the todo item's first line
 
 -- Function to find a todo item at a given buffer position
 --  - If on a blank line, will return nil
@@ -439,19 +437,11 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   row = row or vim.api.nvim_win_get_cursor(0)[1] - 1
   col = col or vim.api.nvim_win_get_cursor(0)[2]
 
-  -- Check if the current line is blank - if so, don't return any todo item
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-  if line:match("^%s*$") then
-    log.debug("Line is blank, not returning any todo item", { module = "parser" })
-    return nil
-  end
-
   opts = opts or {}
-  local max_depth = opts.max_depth or 0
 
   local todo_map = opts.todo_map or M.get_todo_map(bufnr)
 
-  -- First check: exact position match via extmarks
+  -- first check: exact position match via extmarks
   local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns_todos, { row, 0 }, { row, -1 }, {})
 
   for _, extmark in ipairs(extmarks) do
@@ -463,73 +453,32 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   end
 
   -- we are here because the row did not match a todo's first row (tracked by the extmark)...but we could still be within a todo's scope
-  -- now use Treesitter-based logic
-
+  -- use TS to find the smallest list_item containing this position
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)
 
-  -- First, check if any todo items exist on this row
-  -- This handles the case where the cursor is not in the todo item's Treesitter node's range, but
-  -- should still act as if this todo item was selected (same row)
+  -- reverse lookup: node -> todo_item
+  local node_to_todo = {}
   for _, todo_item in pairs(todo_map) do
-    if todo_item.range.start.row == row then
-      log.debug("Found todo item starting on current row", { module = "parser" })
-      return todo_item
-    end
+    node_to_todo[todo_item.node:id()] = todo_item
   end
 
-  -- Otherwise, we see if this row position is within a list_item node (potential todo item hierarchy)
-  -- Find the list_item node at or containing our position (if any)
-  local list_item_node = nil
+  -- walk up from the current node to find the closest list_item that's a todo
   while node do
     if node:type() == "list_item" then
-      list_item_node = node
-      break
-    end
-    node = node:parent()
-  end
-
-  if list_item_node then
-    local function find_todo_by_node(target_node)
-      for _, todo_item in pairs(todo_map) do
-        if todo_item.node == target_node then
+      local todo_item = node_to_todo[node:id()]
+      -- limit to the semantic end row (TS range's will include a blank line at the end of the node as part of the node)
+      if todo_item and row <= todo_item.range["end"].row then
+        if opts.root_only ~= true then
+          return todo_item
+        end
+        -- if root_only, we only match if on the exact first row
+        if todo_item.range.start.row == row then
           return todo_item
         end
       end
-      return nil
     end
-
-    -- Check if this list_item is itself a todo item
-    local todo_item = find_todo_by_node(list_item_node)
-
-    if todo_item then
-      -- It's a todo item - check if we're on its first line
-      if row == todo_item.range.start.row then
-        log.debug("Matched todo item directly on its first line", { module = "parser" })
-        return todo_item
-      elseif max_depth >= 1 then
-        -- Within the todo item but not on first line - return if depth allows
-        log.debug("Matched todo item via inner content (not first line) with depth=1", { module = "parser" })
-        return todo_item
-      end
-    else
-      -- It's a regular list item - check if it's a child of any todo item
-      local current = list_item_node:parent()
-      local depth = 1
-
-      -- max_depth: how many levels we are allowed to look up for a todo item parent
-      while current and depth <= max_depth do
-        if current:type() == "list_item" then
-          local parent_todo = find_todo_by_node(current)
-          if parent_todo then
-            log.debug(string.format("Matched parent todo item at depth=%d", depth), { module = "parser" })
-            return parent_todo
-          end
-          depth = depth + 1
-        end
-        current = current:parent()
-      end
-    end
+    node = node:parent()
   end
 
   log.debug("No matching todo item found at position", { module = "parser" })
@@ -668,14 +617,20 @@ function M.discover_todos(bufnr)
         }
       end
 
-      local content_nodes = {}
+      local first_inline_range = nil
       local paragraphs = node_info.paragraphs_by_parent[node_id]
-      if paragraphs then
-        for _, p_node in ipairs(paragraphs) do
-          table.insert(content_nodes, {
-            node = p_node,
-            type = "paragraph",
-          })
+      if paragraphs and #paragraphs > 0 then
+        local first_paragraph = paragraphs[1]
+        -- 1st inline child of the paragraph
+        for child in first_paragraph:iter_children() do
+          if child:type() == "inline" then
+            local inline_start_row, inline_start_col, inline_end_row, inline_end_col = child:range()
+            first_inline_range = {
+              start = { row = inline_start_row, col = inline_start_col },
+              ["end"] = { row = inline_end_row, col = inline_end_col },
+            }
+            break
+          end
         end
       end
 
@@ -685,18 +640,23 @@ function M.discover_todos(bufnr)
         node = item.node,
         range = semantic_range,
         ts_range = raw_range,
+        first_inline_range = first_inline_range,
         todo_text = first_line,
-        content_nodes = content_nodes,
         todo_marker = {
           position = { row = start_row, col = marker_col },
           text = todo_marker,
         },
         list_marker = list_marker,
-        metadata = M.extract_metadata(first_line, start_row),
+        metadata = {},
         children = {},
         parent_id = nil,
       }
     end
+  end
+
+  -- extract metadata using the inline range
+  for _, todo_item in pairs(todo_map) do
+    todo_item.metadata = M.extract_metadata(bufnr, todo_item.first_inline_range)
   end
 
   -- Clean up orphaned extmarks
@@ -716,27 +676,6 @@ end
 function M.get_marker_type_from_capture_name(capture_name)
   local is_ordered = capture_name:match("ordered") ~= nil
   return is_ordered and "ordered" or "unordered"
-end
-
--- Find content nodes (paragraphs, etc.)
-function M.update_content_nodes(node, bufnr, todo_item)
-  local content_query = vim.treesitter.query.parse(
-    "markdown",
-    [[
-    (list_item (paragraph) @paragraph)
-  ]]
-  )
-
-  for _, content_node, _ in content_query:iter_captures(node, bufnr, 0, -1) do
-    -- verify this paragraph is a direct child of this list_item
-    local parent = content_node:parent()
-    if parent == node then
-      table.insert(todo_item.content_nodes, {
-        node = content_node,
-        type = "paragraph",
-      })
-    end
-  end
 end
 
 ---Build the hierarchy of todo items based on Treesitter's parsing of markdown structure
@@ -793,88 +732,98 @@ function M.get_markdown_tree_root(bufnr)
   return root
 end
 
----Extracts metadata from a line and returns structured information
----@param line string The line to extract metadata from
----@param row integer The row number (0-indexed)
----@return checkmate.TodoMetadata
-function M.extract_metadata(line, row)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-  local meta_module = require("checkmate.metadata")
+--- Extract all @tag(value) metadata from the first‐inline range of a todo.
+--- @param bufnr number
+--- @param range checkmate.Range
+--- @return table{entries:checkmate.MetadataEntry[], by_tag:table<string,checkmate.MetadataEntry>}
+function M.extract_metadata(bufnr, range)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range["end"].row + 1, false)
+  local raw = table.concat(lines, "\n")
 
-  ---@type checkmate.TodoMetadata
-  local metadata = {
-    entries = {},
-    by_tag = {},
-  }
-
-  ---@param _line string String to search
-  ---@param from_byte_pos integer start looking at this byte position
-  ---@return string? tag, string? value, integer? start_byte, integer? end_byte
-  local function find_metadata(_line, from_byte_pos)
-    local s, e, tag, raw = _line:find(METADATA_PATTERN, from_byte_pos)
-    if not s or not e then
-      return nil
+  -- map a byte‐offset of the joined string back to (row,col) in the original lines
+  -- precompute cumulative byte‐lengths for each line
+  -- i.e. each line contributes `#ln + 1` bytes to the offset
+  local cum = { 0 }
+  for i, ln in ipairs(lines) do
+    cum[i + 1] = cum[i] + #ln + 1 -- +1 for the "\n"
+  end
+  -- convert a 1-based raw byte-offset → 0-based {row, col}
+  local offset_to_pos = function(off)
+    for i = 1, #lines do
+      if off <= cum[i + 1] then
+        return {
+          row = range.start.row + i - 1,
+          col = off - cum[i] - 1,
+        }
+      end
     end
-
-    -- raw is "( ... )", so we gotta strip outer parens
-    local inner = raw:sub(2, -2)
-
-    -- trim whitespace
-    local value = inner:match("^%s*(.-)%s*$")
-
-    return tag, value, s, e
+    -- fallback to the end of the range
+    return { row = range["end"].row, col = range["end"].col }
   end
 
-  -- find all @tag(value) patterns and their positions
-  local byte_pos = 1
+  local entries = {}
+  local by_tag = {}
+
+  -- iterate all "@tag(...)" matches
+  local idx = 1
   while true do
-    local tag, value, start_byte, end_byte = find_metadata(line, byte_pos)
-    if not tag or not start_byte or not end_byte then
+    -- s,e are the 1-based INCLUSIVE byte‐offsets of the entire "@tag(...)" substring
+    -- tag is the name; group is "(...)" including parens
+    local s, e, tag, group = raw:find(METADATA_PATTERN, idx)
+    if not s then
       break
     end
 
-    ---@type checkmate.MetadataEntry
+    -- i hate Lua string indexing + Neovim...seriously wtf
+
+    -- find the "(" and ")" -- these are both 1-based, inclusive
+    local open_off = e - #group + 1 -- byte of "("
+    local close_off = e -- byte of ")"
+
+    -- get 1-based range of the value inside
+    local val_start_off = open_off + 1 -- first byte of value
+    local val_end_off = close_off - 1 -- last byte of value
+
+    -- extract and normalize the text
+    local raw_value = raw:sub(val_start_off, val_end_off)
+    local clean_value = raw_value:gsub("\n%s*", " ")
+
+    -- full "@tag(value)" range:
+    local tag_start_pos = offset_to_pos(s) -- at "@"
+    local tag_end_incl = offset_to_pos(e) -- at ")"
+    local tag_end_excl = {
+      row = tag_end_incl.row,
+      col = tag_end_incl.col + 1, -- one past ")"
+    }
+
+    local val_start_pos = offset_to_pos(val_start_off) -- at first byte of value
+    local val_end_excl = offset_to_pos(val_end_off + 1) -- maps to the ")" byte
+
     local entry = {
       tag = tag,
-      value = value or "",
-      range = {
-        start = { row = row, col = start_byte - 1 }, -- 0-indexed column
-        -- For the end col, we need 0 indexed (subtract 1) and since it is end-exclusive we add 1, cancelling out
-        -- end-exclusive means the end col points to the pos after the last char
-        ["end"] = { row = row, col = end_byte },
+      value = clean_value,
+      range = require("checkmate.lib.range").new(tag_start_pos, tag_end_excl),
+      value_range = {
+        start = val_start_pos,
+        ["end"] = val_end_excl,
       },
-      value_col = line:find("%b()", start_byte) or start_byte + #tag + 1,
-      alias_for = nil, -- Will be set later if it's an alias
-      position_in_line = start_byte, -- track original position in the line, use byte pos for sorting
+      alias_for = nil, -- will be set later
     }
 
     -- check if this is an alias and map to canonical name
+    local meta_module = require("checkmate.metadata")
     local canonical_name = meta_module.get_canonical_name(tag)
     if canonical_name and canonical_name ~= tag then
       entry.alias_for = canonical_name
     end
 
-    table.insert(metadata.entries, entry)
+    table.insert(entries, entry)
+    by_tag[tag] = entry
 
-    -- store in by_tag lookup (last one wins if multiple with same tag)
-    metadata.by_tag[tag] = entry
-
-    -- if this is an alias, also store under canonical name
-    if entry.alias_for then
-      metadata.by_tag[entry.alias_for] = entry
-    end
-
-    -- move position for next search
-    byte_pos = end_byte + 1
-
-    log.debug(
-      string.format("Metadata found: %s=%s at [%d,%d]-[%d,%d]", tag, value, row, start_byte - 1, row, end_byte),
-      { module = "parser" }
-    )
+    idx = e + 1
   end
 
-  return metadata
+  return { entries = entries, by_tag = by_tag }
 end
 
 -- Helper function to find the parent list_item node of a given list_item node

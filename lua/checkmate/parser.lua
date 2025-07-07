@@ -485,6 +485,48 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
   return nil
 end
 
+--- Finds the first inline node within a list_item
+---
+--- This is more robust than simply finding the first paragraph node and its inline node.
+--- For example, when a list item's content is converted to a sextext heading due to a bare `-` on the next line,
+--- the first inline node is actually within sextext_heading -> paragraph -> inline.
+---
+--- PERFORMANCE: I don't think this should be too performance heavy unless todo items very deeply nested or
+--- in really big documents.
+---
+---@param list_item_node TSNode list_item node to search within
+---@return TSNode|nil result the first inline node found, or nil
+function M.find_first_inline_in_list_item(list_item_node)
+  -- BFS to find the first paragraph --> first inline child
+  local queue = { list_item_node }
+  local first_paragraph = nil
+
+  while #queue > 0 do
+    local node = table.remove(queue, 1)
+
+    if node:type() == "paragraph" then
+      first_paragraph = node
+      break
+    end
+
+    for child in node:iter_children() do
+      if child:type() ~= "list_item" then
+        table.insert(queue, child)
+      end
+    end
+  end
+
+  if first_paragraph then
+    for child in first_paragraph:iter_children() do
+      if child:type() == "inline" then
+        return child
+      end
+    end
+  end
+
+  return nil
+end
+
 --- Discovers all todo items in a buffer and builds a node map
 ---@param bufnr number Buffer number
 ---@return table<integer, checkmate.TodoItem>  Map of all todo items with their relationships
@@ -526,7 +568,6 @@ function M.discover_todos(bufnr)
   local node_info = {
     list_items = {},
     markers_by_parent = {}, -- parent node id -> marker nodes
-    paragraphs_by_parent = {}, -- parent node id -> paragraph nodes
   }
 
   for id, node, _ in M.FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
@@ -550,13 +591,6 @@ function M.discover_todos(bufnr)
           node = node,
           type = M.get_marker_type_from_capture_name(capture_name),
         })
-      end
-    elseif capture_name == "paragraph" then
-      local parent = node:parent()
-      if parent then
-        local parent_id = parent:id()
-        node_info.paragraphs_by_parent[parent_id] = node_info.paragraphs_by_parent[parent_id] or {}
-        table.insert(node_info.paragraphs_by_parent[parent_id], node)
       end
     end
   end
@@ -618,20 +652,16 @@ function M.discover_todos(bufnr)
       end
 
       local first_inline_range = nil
-      local paragraphs = node_info.paragraphs_by_parent[node_id]
-      if paragraphs and #paragraphs > 0 then
-        local first_paragraph = paragraphs[1]
-        -- 1st inline child of the paragraph
-        for child in first_paragraph:iter_children() do
-          if child:type() == "inline" then
-            local inline_start_row, inline_start_col, inline_end_row, inline_end_col = child:range()
-            first_inline_range = {
-              start = { row = inline_start_row, col = inline_start_col },
-              ["end"] = { row = inline_end_row, col = inline_end_col },
-            }
-            break
-          end
-        end
+      local first_inline_node = M.find_first_inline_in_list_item(item.node)
+      if first_inline_node then
+        local inline_start_row, inline_start_col, inline_end_row, inline_end_col = first_inline_node:range()
+        first_inline_range = {
+          start = { row = inline_start_row, col = inline_start_col },
+          ["end"] = { row = inline_end_row, col = inline_end_col },
+        }
+      else
+        -- fallback if no inline found, use the semantic range
+        first_inline_range = semantic_range
       end
 
       todo_map[extmark_id] = {

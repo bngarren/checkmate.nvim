@@ -392,7 +392,10 @@ Some non-todo content in between
   - ]] .. unchecked .. [[ Unchecked child
 Line that should not affect parent-child relationship
   Not a todo but indented
-- ]] .. unchecked .. [[ Todo at document end]]
+- ]] .. unchecked .. [[ Todo at document end
+- ]] .. unchecked .. [[ Todo as setext
+  @priority(high)
+  -]]
 
       local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
@@ -402,6 +405,7 @@ Line that should not affect parent-child relationship
       local checked_child = h.find_todo_by_text(todo_map, "Checked child")
       local unchecked_child = h.find_todo_by_text(todo_map, "Unchecked child")
       local end_todo = h.find_todo_by_text(todo_map, "Todo at document end")
+      local setext_todo = h.find_todo_by_text(todo_map, "Todo as setext")
 
       assert.is_not_nil(start_todo)
       ---@cast start_todo checkmate.TodoItem
@@ -413,6 +417,8 @@ Line that should not affect parent-child relationship
       ---@cast unchecked_child checkmate.TodoItem
       assert.is_not_nil(end_todo)
       ---@cast end_todo checkmate.TodoItem
+      assert.is_not_nil(setext_todo)
+      ---@cast setext_todo checkmate.TodoItem
 
       -- edge position todos
       assert.is_nil(start_todo.parent_id)
@@ -427,6 +433,11 @@ Line that should not affect parent-child relationship
       assert.equal("unchecked", parent_todo.state)
       assert.equal("checked", checked_child.state)
       assert.equal("unchecked", unchecked_child.state)
+
+      -- check that setext_heading todo has metadata parsed correctly
+      assert.is_true(require("checkmate.metadata").has_metadata(setext_todo, "priority", function(val)
+        return val == "high"
+      end))
 
       finally(function()
         h.cleanup_buffer(bufnr)

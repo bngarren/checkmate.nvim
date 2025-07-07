@@ -39,7 +39,6 @@ end
 ---@class checkmate.SnippetOpts
 ---@field desc? string Description for the snippet
 ---@field metadata? table<string, MetadataSnippetType> Metadata to include
----@field indent? boolean|integer Automatically indent based on context or indent to a specific number of spaces
 ---@field ls_context? table LuaSnip snippet context (e.g. priority, hidden, snippetType, wordTrig, etc.)
 ---@field ls_opts? table LuaSnip 'opts'
 
@@ -52,96 +51,89 @@ function M.todo(trigger, opts)
     return
   end
 
-  opts = opts or {}
-  local ls_opts = opts.ls_context or {}
-
-  local util = require("checkmate.util")
   local parser = require("checkmate.parser")
+  local ph = require("checkmate.parser.helpers")
 
-  local list_marker_patterns = util.build_empty_list_patterns()
+  opts = opts or {}
+  local ctx = opts.ls_context or {}
+  local snip_opts = opts.ls_opts or {}
 
-  local nodes = {
-    ls.f(function()
-      local bufnr = vim.api.nvim_get_current_buf()
-      local cursor = vim.api.nvim_win_get_cursor(0)
-      local cursor_row = cursor[1] - 1 -- 0-indexed
-      local line = vim.api.nvim_buf_get_lines(bufnr, cursor_row, cursor_row + 1, false)[1]
-
-      local on_todo_item = parser.get_todo_item_state(line) ~= nil
-      if not on_todo_item then
-        local indent
-        if opts.indent then
-          if type(opts.indent) == "number" then
-            -- user specified number of spaces
-            indent = opts.indent
-          else
-            -- auto detect from previous todo
-            local prev_row = math.max(cursor_row - 1, 0)
-            local prev_todo_item = parser.get_todo_item_at_position(bufnr, prev_row, 0)
-            if prev_todo_item then
-              indent = prev_todo_item.range.start.col
-            end
-          end
-        end
-        ---@cast indent integer?
-
-        -- does the line already already have a list marker
-        local list_marker = util.match_first(list_marker_patterns, line)
-
-        if list_marker ~= nil then
-          local todo_line = make_todo_node({ indent = indent, with_list_marker = false })
-          return todo_line
-        else
-          return make_todo_node({ indent = indent })
-        end
-      else
-        return ""
-      end
-    end, {}),
-    ls.i(1, opts.desc or ""),
-  }
-
-  if opts.metadata then
-    for tag, value in pairs(opts.metadata) do
-      local meta = meta_module.get_meta_props(tag)
-
-      table.insert(nodes, ls.t(" "))
-      table.insert(nodes, ls.t("@" .. tag .. "("))
-
-      if type(value) == "boolean" and value then
-        table.insert(
-          nodes,
-          ls.f(function()
-            return meta and meta.get_value and meta.get_value() or ""
-          end, {})
-        )
-      elseif type(value) == "string" then
-        -- a text node
-        table.insert(nodes, ls.t(value))
-      elseif type(value) == "number" then
-        -- an insert node
-        table.insert(nodes, ls.i(value, ""))
-      elseif type(value) == "function" then
-        -- a text node generated from a function
-        table.insert(
-          nodes,
-          ls.f(function(_, snip)
-            local captures = snip.captures or {}
-            return tostring(value(captures) or "")
-          end, {})
-        )
-      end
-
-      table.insert(nodes, ls.t(")"))
-    end
-  end
-
-  local context = vim.tbl_extend("force", { trig = trigger, wordTrig = true, priority = 1000 }, ls_opts)
-  if opts.desc and not context.desc and not context.dscr then
+  local context = vim.tbl_extend("force", {
+    trig = trigger,
+    wordTrig = true,
+    priority = 1000,
+  }, ctx)
+  if opts.desc and not (context.desc or context.dscr) then
     context.desc = opts.desc
   end
 
-  return ls.s(context, nodes, opts.ls_opts)
+  -- 1) compute the todo-prefix (indent + list-marker + unchecked + prefix)
+  local todo_prefix = ls.f(function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    local col = vim.api.nvim_win_get_cursor(0)[2]
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+
+    if parser.is_todo_item(line) or ph.match_markdown_checkbox(line) then
+      return ""
+    end
+
+    -- figure out indent
+    local indent = 0
+    local prev = math.max(row - 1, 0)
+    local prev_item = parser.get_todo_item_at_position(bufnr, prev, 0)
+    if prev_item then
+      indent = math.max(0, prev_item.range.start.col - col)
+    end
+
+    -- detect existing list marker
+    local list_item = require("checkmate.parser.helpers").match_list_item(line)
+    local node_opts = { indent = indent }
+    if list_item and list_item.marker then
+      node_opts.with_list_marker = false
+    end
+
+    -- make_todo_node must return a plain string
+    return make_todo_node(node_opts)
+  end, {})
+
+  -- 2) the description insert
+  local desc_node = ls.i(1, opts.desc or "")
+
+  -- 3) metadata blob as one function_node
+  local meta_mod = require("checkmate.metadata")
+  local meta_blob = ls.f(function(_, snip)
+    local parts = {}
+    for tag, value in pairs(opts.metadata or {}) do
+      local meta = meta_mod.get_meta_props(tag)
+      local val = ""
+      if type(value) == "boolean" and value then
+        val = meta and meta.get_value and meta.get_value() or ""
+      elseif type(value) == "string" then
+        val = value
+      elseif type(value) == "number" then
+        val = tostring(value)
+      elseif type(value) == "function" then
+        val = tostring(value(snip.captures) or "")
+      end
+      table.insert(parts, " @" .. tag .. "(" .. val .. ")")
+    end
+    return table.concat(parts)
+  end, {})
+
+  -- build snippet with fmt + dedent
+  local fmt = require("luasnip.extras.fmt").fmt
+  return ls.s(
+    context,
+    fmt([[{}{}{}]], {
+      todo_prefix,
+      desc_node,
+      meta_blob,
+    }, {
+      dedent = true,
+    }),
+    snip_opts
+  )
 end
 
 ---Create snippet that adds metadata to existing todo

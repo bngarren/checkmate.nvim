@@ -199,4 +199,54 @@ function M.create_markdown_checkbox_patterns(checkbox_pattern)
   return patterns
 end
 
+--- Attempts to match a GitHub-style task list checkbox (e.g. "- [ ] foo" or "1. [x] bar")
+--- @param line string
+--- @param state? checkmate.TodoItemState
+--- @return { indent: integer, marker: string, checked: boolean, content: string, raw_checkbox: string }? result
+function M.match_markdown_checkbox(line, state)
+  line = line or ""
+  local parser = require("checkmate.parser")
+  local patterns = {}
+
+  if state == nil or state == "checked" then
+    for _, p in ipairs(parser.get_markdown_checked_checkbox_patterns()) do
+      table.insert(patterns, p)
+    end
+  end
+  if state == nil or state == "unchecked" then
+    for _, p in ipairs(parser.get_markdown_unchecked_checkbox_patterns()) do
+      table.insert(patterns, p)
+    end
+  end
+
+  local result = M.match_first(patterns, line)
+  if not result.matched then
+    return nil
+  end
+
+  -- captures are:
+  --   1) indent, 2) raw list-marker + first whitespace, 3) the "[ ]" or "[x]" token
+  local indent = #result.captures[1]
+  local lm_raw = result.captures[2]
+  local lm = vim.trim(lm_raw)
+  local raw_box = result.captures[3]
+
+  local mark_char = raw_box:match("%[([xX ])%]")
+  local checked = (mark_char or ""):lower() == "x"
+
+  local prefix_len = #result.captures[1] + #lm_raw + #raw_box
+  local next_char = line:sub(prefix_len + 1, prefix_len + 1)
+  local content = (next_char == " ") and line:sub(prefix_len + 2) or line:sub(prefix_len + 1)
+
+  content = require("checkmate.util").trim_trailing(content)
+
+  return {
+    indent = indent,
+    marker = lm,
+    checked = checked,
+    content = content,
+    raw_checkbox = raw_box,
+  }
+end
+
 return M

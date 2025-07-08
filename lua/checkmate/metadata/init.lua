@@ -345,6 +345,27 @@ function M.find_metadata_at_pos(todo_item, row, col)
   return nil
 end
 
+---Sorts array of metadata entries and returns a copy
+---Default behavior is to sort by increasing `sort_order`
+---@param entries checkmate.MetadataEntry[]
+---@param reverse? boolean If true (default false), will sort in descending order
+function M.sort(entries, reverse)
+  reverse = not not reverse
+
+  local sorted_entries = vim.deepcopy(entries)
+  table.sort(sorted_entries, function(a, b)
+    local arow, brow = a.range.start.row, b.range.start.row
+    if arow ~= brow then
+      -- XOR
+      return (arow < brow) ~= reverse
+    end
+    -- rows equal, compare cols
+    local acol, bcol = a.range.start.col, b.range.start.col
+    return (acol < bcol) ~= reverse
+  end)
+  return sorted_entries
+end
+
 ---Reset internal state
 function M.reset() end
 

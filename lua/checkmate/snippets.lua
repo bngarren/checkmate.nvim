@@ -3,6 +3,19 @@ local M = {}
 local config = require("checkmate.config")
 local meta_module = require("checkmate.metadata")
 
+---Options passed to the checkmate.snippets API functions
+---@class checkmate.SnippetOpts
+---@field desc? string Description for the snippet
+---@field metadata? table<string, MetadataSnippetType> Metadata to include
+---@field ls_context? table LuaSnip snippet context (e.g. priority, hidden, snippetType, wordTrig, etc.)
+---@field ls_opts? table LuaSnip 'opts'
+
+---@alias MetadataSnippetType
+---| boolean Place a text node with the metadata's get_value()
+---| string Place a text node with this string as the node text
+---| number Place an insert node at this position
+---| function(captures: any): string Place a text node based on the return of this function
+
 local shown_missing_luasnip_warning = false
 local ls
 local has_luasnip = function()
@@ -30,27 +43,19 @@ local function make_todo_node(opts)
   return indent .. list_marker .. " " .. unchecked .. prefix .. " "
 end
 
----@alias MetadataSnippetType
----| boolean Place a text node with the metadata's get_value()
----| string Place a text node with this string as the node text
----| number Place an insert node at this position
----| function(captures: any): string Place a text node based on the return of this function
-
----@class checkmate.SnippetOpts
----@field desc? string Description for the snippet
----@field metadata? table<string, MetadataSnippetType> Metadata to include
----@field ls_context? table LuaSnip snippet context (e.g. priority, hidden, snippetType, wordTrig, etc.)
----@field ls_opts? table LuaSnip 'opts'
+-------- PUBLIC API ---------
 
 ---Create a basic todo snippet
 ---@param trigger string The snippet trigger
+---@param text? string Default string to add (before any metadata)
 ---@param opts? checkmate.SnippetOpts
 ---@return table? LuaSnip snippet
-function M.todo(trigger, opts)
+function M.todo(trigger, text, opts)
   if not has_luasnip() then
     return
   end
 
+  local util = require("checkmate.util")
   local parser = require("checkmate.parser")
   local ph = require("checkmate.parser.helpers")
 
@@ -67,7 +72,7 @@ function M.todo(trigger, opts)
     context.desc = opts.desc
   end
 
-  -- 1) compute the todo-prefix (indent + list-marker + unchecked + prefix)
+  -- todo-prefix (indent + list-marker + todo-marker + prefix)
   local todo_prefix = ls.f(function()
     local bufnr = vim.api.nvim_get_current_buf()
     local row = vim.api.nvim_win_get_cursor(0)[1] - 1
@@ -78,7 +83,7 @@ function M.todo(trigger, opts)
       return ""
     end
 
-    -- figure out indent
+    -- we auto-indent at least up to the previous todo line's indentation, if exists
     local indent = 0
     local prev = math.max(row - 1, 0)
     local prev_item = parser.get_todo_item_at_position(bufnr, prev, 0)
@@ -86,48 +91,59 @@ function M.todo(trigger, opts)
       indent = math.max(0, prev_item.range.start.col - col)
     end
 
-    -- detect existing list marker
     local list_item = require("checkmate.parser.helpers").match_list_item(line)
     local node_opts = { indent = indent }
     if list_item and list_item.marker then
       node_opts.with_list_marker = false
     end
 
-    -- make_todo_node must return a plain string
     return make_todo_node(node_opts)
   end, {})
 
-  -- 2) the description insert
-  local desc_node = ls.i(1, opts.desc or "")
+  -- the value to insert
+  local default_value_node = ls.i(1, text or opts.desc or "")
 
-  -- 3) metadata blob as one function_node
-  local meta_mod = require("checkmate.metadata")
-  local meta_blob = ls.f(function(_, snip)
-    local parts = {}
-    for tag, value in pairs(opts.metadata or {}) do
-      local meta = meta_mod.get_meta_props(tag)
-      local val = ""
-      if type(value) == "boolean" and value then
-        val = meta and meta.get_value and meta.get_value() or ""
-      elseif type(value) == "string" then
-        val = value
-      elseif type(value) == "number" then
-        val = tostring(value)
-      elseif type(value) == "function" then
-        val = tostring(value(snip.captures) or "")
-      end
-      table.insert(parts, " @" .. tag .. "(" .. val .. ")")
+  local meta_blob = ""
+  if not util.tbl_isempty_or_nil(opts.metadata) then
+    local meta_mod = require("checkmate.metadata")
+    local sorted = {}
+    for tag, value in pairs(opts.metadata) do
+      table.insert(sorted, { name = tag, props = meta_mod.get_meta_props(tag), snip_type = value })
     end
-    return table.concat(parts)
-  end, {})
+    -- sort by increasing sort_order
+    table.sort(sorted, function(a, b)
+      return a.props.sort_order < b.props.sort_order
+    end)
 
-  -- build snippet with fmt + dedent
+    meta_blob = ls.f(function(_, snip)
+      local parts = {}
+      for _, m in ipairs(sorted) do
+        ---@type checkmate.MetadataProps
+        local meta = m.props
+        local tag = m.name
+        local value = m.snip_type
+        local val = ""
+        if type(value) == "boolean" and value then
+          val = meta and meta.get_value and meta.get_value() or ""
+        elseif type(value) == "string" then
+          val = value
+        elseif type(value) == "number" then
+          val = tostring(value)
+        elseif type(value) == "function" then
+          val = tostring(value(snip.captures) or "")
+        end
+        table.insert(parts, " @" .. tag .. "(" .. val .. ")")
+      end
+      return table.concat(parts)
+    end, {})
+  end
+
   local fmt = require("luasnip.extras.fmt").fmt
   return ls.s(
     context,
     fmt([[{}{}{}]], {
       todo_prefix,
-      desc_node,
+      default_value_node,
       meta_blob,
     }, {
       dedent = true,

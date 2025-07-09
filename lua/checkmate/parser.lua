@@ -59,7 +59,8 @@ M.FULL_TODO_QUERY = vim.treesitter.query.parse(
   (list_marker_star) @list_marker
   (list_marker_dot) @list_marker_ordered
   (list_marker_parenthesis) @list_marker_ordered
-  (paragraph) @paragraph
+  (paragraph
+    (inline) @first_inline) @paragraph
 ]]
 )
 
@@ -554,7 +555,6 @@ function M.discover_todos(bufnr)
     return todo_map
   end
 
-  -- Get existing extmarks
   local existing_extmarks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns_todos, 0, -1, {})
   local extmark_by_pos = {}
   for _, extmark in ipairs(existing_extmarks) do
@@ -564,16 +564,21 @@ function M.discover_todos(bufnr)
 
   local root = tree:root()
 
-  -- collect all nodes in a single pass
+  -- grab all nodes we need in a single pass
   local node_info = {
     list_items = {},
-    markers_by_parent = {}, -- parent node id -> marker nodes
+    markers_by_list_item = {}, -- list_item node id -> marker node
+    first_inlines_by_list_item = {}, -- list_item node id -> first inline node
   }
+
+  local current_list_item = nil
 
   for id, node, _ in M.FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
     local capture_name = M.FULL_TODO_QUERY.captures[id]
 
     if capture_name == "list_item" then
+      current_list_item = node
+
       local start_row, start_col, end_row, end_col = node:range()
       table.insert(node_info.list_items, {
         node = node,
@@ -586,11 +591,32 @@ function M.discover_todos(bufnr)
       local parent = node:parent()
       if parent then
         local parent_id = parent:id()
-        node_info.markers_by_parent[parent_id] = node_info.markers_by_parent[parent_id] or {}
-        table.insert(node_info.markers_by_parent[parent_id], {
+        node_info.markers_by_list_item[parent_id] = node_info.markers_by_list_item[parent_id] or {}
+        table.insert(node_info.markers_by_list_item[parent_id], {
           node = node,
           type = M.get_marker_type_from_capture_name(capture_name),
         })
+      end
+    elseif capture_name == "first_inline" and current_list_item then
+      -- The "first inline" node of a list item node is almost always within a enclosing paragraph node
+      -- There are some non-paragraph nodes that will break this assumption, such as ATX headings, thematic breaks, HTML blocks, etc
+      -- However, since we only care about inline nodes on lines with todo markers, these are always parsed as paragraph and inline nodes
+      -- because the todo marker (or GFM task marker) after the list marker makes the list item content parse as a paragraph
+      local parent = node:parent() -- should be paragraph
+      if parent then
+        parent = parent:parent() -- should be list_item or something between
+        -- walk up to find the containing list_item
+        local enclosing_list_item = parent
+        while enclosing_list_item and enclosing_list_item:type() ~= "list_item" do
+          enclosing_list_item = enclosing_list_item:parent()
+        end
+
+        if enclosing_list_item == current_list_item then
+          local list_item_id = current_list_item:id()
+          if not node_info.first_inlines_by_list_item[list_item_id] then
+            node_info.first_inlines_by_list_item[list_item_id] = node
+          end
+        end
       end
     end
   end
@@ -639,7 +665,7 @@ function M.discover_todos(bufnr)
       local list_marker = nil
       local node_id = item.node:id()
       -- TODO: verify this is the list mark for the todo item?
-      local markers = node_info.markers_by_parent[node_id]
+      local markers = node_info.markers_by_list_item[node_id]
 
       if markers and #markers > 0 then
         local line_from_marker = first_line:gsub("^%s+", "")
@@ -651,8 +677,9 @@ function M.discover_todos(bufnr)
         }
       end
 
+      local first_inline_node = node_info.first_inlines_by_list_item[item.node:id()]
       local first_inline_range = nil
-      local first_inline_node = M.find_first_inline_in_list_item(item.node)
+
       if first_inline_node then
         local inline_start_row, inline_start_col, inline_end_row, inline_end_col = first_inline_node:range()
         first_inline_range = {
@@ -660,7 +687,7 @@ function M.discover_todos(bufnr)
           ["end"] = { row = inline_end_row, col = inline_end_col },
         }
       else
-        -- fallback if no inline found, use the semantic range
+        -- fallback to semantic range
         first_inline_range = semantic_range
       end
 

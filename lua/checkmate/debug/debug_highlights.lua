@@ -1,0 +1,84 @@
+local config = require("checkmate.config")
+
+local M = {}
+
+M._active = {}
+M._color_idx = 1
+
+local palette = {
+  "#3b3b3b",
+  "#5b5b5b",
+  "#7b7b7b",
+  "#9b9b9b",
+}
+
+for i, color in ipairs(palette) do
+  vim.api.nvim_set_hl(0, ("CheckmateDebugHl%d"):format(i), { bg = color })
+end
+
+local function next_hl_group()
+  local name = ("CheckmateDebugHl%d"):format(M._color_idx)
+  M._color_idx = (M._color_idx % #palette) + 1
+  return name
+end
+
+--- Highlight a single range.
+---@param range checkmate.Range
+---@param opts? { bufnr?: integer, timeout?: integer, persistent?: boolean }
+---@return integer extmark_id
+function M.add(range, opts)
+  opts = vim.tbl_extend("force", {
+    bufnr = vim.api.nvim_get_current_buf(),
+    timeout = 10000,
+    persistent = false,
+  }, opts or {})
+
+  local ns = config.ns
+  local hl_group = next_hl_group()
+
+  local ext_id = vim.api.nvim_buf_set_extmark(opts.bufnr, ns, range.start.row, range.start.col, {
+    end_row = range["end"].row,
+    end_col = range["end"].col,
+    hl_group = hl_group,
+    priority = 9999,
+  })
+
+  table.insert(M._active, { bufnr = opts.bufnr, id = ext_id })
+
+  if not opts.persistent then
+    vim.defer_fn(function()
+      M.clear(ext_id)
+    end, opts.timeout)
+  end
+
+  return ext_id
+end
+
+---Clear one highlight by extmark id
+---@param ext_id number
+function M.clear(ext_id)
+  for i, h in ipairs(M._active) do
+    if h.id == ext_id then
+      pcall(vim.api.nvim_buf_del_extmark, h.bufnr, config.ns, ext_id)
+      table.remove(M._active, i)
+      return true
+    end
+  end
+  return false
+end
+
+---Clear *all* debug highlights
+function M.clear_all()
+  for _, h in ipairs(M._active) do
+    pcall(vim.api.nvim_buf_del_extmark, h.bufnr, config.ns, h.id)
+  end
+  M._active = {}
+end
+
+---List active extmark IDs
+---@return table -- { bufnr, id }
+function M.list()
+  return vim.tbl_deep_extend("force", {}, M._active)
+end
+
+return M

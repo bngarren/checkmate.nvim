@@ -662,30 +662,41 @@ end
 
 ---------- DEBUGGING API ----------------
 
---- Open debug log
-function M.debug_log()
-  require("checkmate.log").open()
-end
-
---- Clear debug log
-function M.debug_clear()
-  require("checkmate.log").clear()
-end
+local debug_hl = require("checkmate.debug.debug_highlights")
+M.debug = {
+  ---Add a new highlight
+  ---@param range checkmate.Range
+  ---@param opts? {timeout?: integer, permanent?: boolean}
+  ---@return integer id extmark id
+  highlight = function(range, opts)
+    return debug_hl.add(range, opts)
+  end,
+  clear_highlight = function(id)
+    return debug_hl.clear(id)
+  end,
+  clear_all_highlights = function()
+    debug_hl.clear_all()
+  end,
+  list_highlights = function()
+    return debug_hl.list()
+  end,
+  log = function()
+    require("checkmate.log").open()
+  end,
+  clear_log = function()
+    require("checkmate.log").clear()
+  end,
+}
 
 --- Inspect todo item at cursor
-function M.debug_at_cursor()
+function M.debug.at_cursor()
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
   local util = require("checkmate.util")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  row = row - 1 -- normalize
-
-  local extmark_id = 9001 -- arbitrary unique ID for debug highlight
-
-  -- clear previous
-  pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
+  row = row - 1
 
   local item = parser.get_todo_item_at_position(bufnr, row, col)
 
@@ -714,57 +725,23 @@ function M.debug_at_cursor()
     ("  Metadata: %s"):format(vim.inspect(item.metadata)),
   }
 
-  -- Use native vim.notify here as we want to show this regardless of config.options.notify
   vim.notify(table.concat(msg, "\n"), vim.log.levels.DEBUG)
 
-  vim.api.nvim_set_hl(0, "CheckmateDebugHighlight", { bg = "#3b3b3b" })
-
-  vim.api.nvim_buf_set_extmark(bufnr, config.ns, item.range.start.row, item.range.start.col, {
-    id = extmark_id,
-    end_row = item.range["end"].row,
-    end_col = item.range["end"].col,
-    hl_group = "CheckmateDebugHighlight",
-    priority = 9999,
-  })
-
-  -- remove hl after x seconds
-  vim.defer_fn(function()
-    pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-  end, 10000)
+  M.debug.highlight(item.range)
 end
 
 --- Print todo map (in Snacks scratch buffer or vim.print)
-function M.debug_print_todo_map()
+function M.debug.print_todo_map()
   local parser = require("checkmate.parser")
   local todo_map = parser.discover_todos(vim.api.nvim_get_current_buf())
   local sorted_list = require("checkmate.util").get_sorted_todo_list(todo_map)
-
   require("checkmate.util").scratch_buf_or_print(sorted_list, { name = "checkmate.nvim todo_map" })
 end
 
 -- Print current config (in Snacks scratch buffer or vim.print)
-function M.debug_print_config()
+function M.debug.print_config()
   local config = require("checkmate.config")
-
   require("checkmate.util").scratch_buf_or_print(config.options, { name = "checkmate.nvim config" })
-end
-
-function M.debug_highlight_range(range)
-  local config = require("checkmate.config")
-  local bufnr = vim.api.nvim_win_get_buf(0)
-  local extmark_id = 9002
-  vim.api.nvim_set_hl(0, "CheckmateDebugHighlight", { bg = "#3b3b3b" })
-  vim.api.nvim_buf_set_extmark(bufnr, config.ns, range.start.row, range.start.col, {
-    id = extmark_id,
-    end_row = range["end"].row,
-    end_col = range["end"].col,
-    hl_group = "CheckmateDebugHighlight",
-    priority = 9999,
-  })
-  -- remove hl after x seconds
-  vim.defer_fn(function()
-    pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-  end, 10000)
 end
 
 ----- END API -----

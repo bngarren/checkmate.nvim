@@ -149,59 +149,124 @@ local top_commands = {
         desc = "Open debug log",
         nargs = "0",
         handler = function()
-          require("checkmate").debug_log()
+          require("checkmate").debug.log()
         end,
       },
-      clear = {
+      clear_log = {
         desc = "Clear debug log",
         nargs = "0",
         handler = function()
-          require("checkmate").debug_clear()
+          require("checkmate").debug.clear_log()
         end,
       },
-      at = {
+      here = {
         desc = "Inspect todo at cursor",
         nargs = "0",
         handler = function()
-          require("checkmate").debug_at_cursor()
+          require("checkmate").debug.at_cursor()
         end,
       },
       print_map = {
         desc = "Print todo map",
         nargs = "0",
         handler = function()
-          require("checkmate").debug_print_todo_map()
+          require("checkmate").debug.print_todo_map()
         end,
       },
       print_config = {
         desc = "Print config",
         nargs = "0",
         handler = function()
-          require("checkmate").debug_print_config()
+          require("checkmate").debug.print_config()
         end,
       },
       hl = {
-        desc = "Temp highlight a range",
-        nargs = "1",
-        handler = function(opts)
-          local kind = opts.fargs[2]
-          local parser = require("checkmate.parser")
-          local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-          local todo = parser.get_todo_item_at_position(0, row - 1, col)
-          if todo then
-            local range
-            if kind == "fir" or kind == "inline" then
-              range = todo.first_inline_range
-            elseif kind == "ts" then
-              range = todo.ts_range
-            elseif kind == "semantic" then
-              range = todo.range
-            else
-              range = todo.range
-            end
-            require("checkmate").debug_highlight_range(range)
-          end
-        end,
+        desc = "Highlight subcommands",
+        subcommands = {
+          todo = {
+            desc = "Add a temporary highlight to various Todo ranges",
+            nargs = "+", -- kind [persistent|timeout]
+            handler = function(opts)
+              local kind = opts.fargs[2]
+              local parser = require("checkmate.parser")
+              local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+              local todo = parser.get_todo_item_at_position(0, row - 1, col)
+              if not todo then
+                return
+              end
+
+              local arg3 = opts.fargs[3]
+              local persistent, timeout
+              if arg3 == "true" or arg3 == "false" then
+                persistent = (arg3 == "true")
+              elseif tonumber(arg3) then
+                timeout = tonumber(arg3)
+                persistent = false
+              else
+                persistent = false
+              end
+
+              if not persistent and not timeout then
+                timeout = 10000 -- default timeout
+              end
+
+              if kind == "metadata" then
+                for _, entry in ipairs(todo.metadata.entries) do
+                  require("checkmate").debug.highlight(entry.range, {
+                    timeout = timeout,
+                    persistent = persistent,
+                  })
+                end
+              else
+                local range = ({
+                  fir = todo.first_inline_range,
+                  inline = todo.first_inline_range,
+                  ts = todo.ts_range,
+                  semantic = todo.range,
+                })[kind] or todo.range
+
+                require("checkmate").debug.highlight(range, {
+                  timeout = timeout,
+                  persistent = persistent,
+                })
+              end
+            end,
+            complete = { "fir", "inline", "ts", "semantic", "metadata" },
+          },
+
+          clear = {
+            desc = "Clear a highlight by id",
+            nargs = "1",
+            handler = function(opts)
+              local id = tonumber(opts.fargs[2])
+              if require("checkmate").debug.clear_highlight(id) then
+                vim.notify("Checkmate: cleared highlight " .. id, vim.log.levels.INFO)
+              else
+                vim.notify("Checkmate: no such highlight " .. id, vim.log.levels.WARN)
+              end
+            end,
+          },
+
+          clear_all = {
+            desc = "Clear all debug highlights",
+            nargs = "0",
+            handler = function()
+              require("checkmate").debug.clear_all_highlights()
+              vim.notify("Checkmate: cleared all debug highlights", vim.log.levels.INFO)
+            end,
+          },
+
+          list = {
+            desc = "List active debug highlights",
+            nargs = "0",
+            handler = function()
+              local items = require("checkmate").debug.list_highlights()
+              for _, h in ipairs(items) do
+                print(string.format("buf=%d  id=%d", h.bufnr, h.id))
+              end
+            end,
+          },
+        },
       },
       profiler_on = {
         desc = "Start profiler",
@@ -230,76 +295,58 @@ local top_commands = {
 
 function commands.dispatch(opts)
   local args = opts.fargs
-  local first = args[1]
-  if not first or not top_commands[first] then
-    return vim.notify("Checkmate: Unknown subcommand: " .. (first or "<none>"), vim.log.levels.WARN)
-  end
+  local entry = { subcommands = top_commands }
+  local depth = 0
 
-  local entry = top_commands[first]
-
-  if entry.subcommands then
-    -- nested dispatch
-    local second = args[2]
-    if not second or not entry.subcommands[second] then
-      return vim.notify(
-        ("Usage: Checkmate %s <%s>"):format(first, table.concat(vim.tbl_keys(entry.subcommands), "|")),
+  while entry.subcommands do
+    depth = depth + 1
+    local name = args[depth]
+    if not name or not entry.subcommands[name] then
+      local path = table.concat(vim.list_slice(args, 1, depth - 1), " ")
+      vim.notify(
+        ("Usage: Checkmate %s <%s>"):format(path, table.concat(vim.tbl_keys(entry.subcommands), "|")),
         vim.log.levels.INFO
       )
+      return
     end
-    local sub = entry.subcommands[second]
-    -- pass only arguments after the nested key
-    local nested_opts = {
-      fargs = vim.list_slice(args, 2),
-      bang = opts.bang,
-    }
-    return sub.handler(nested_opts)
-  else
-    -- direct dispatch
-    return entry.handler(opts)
+    entry = entry.subcommands[name]
   end
+
+  -- entry has no more subcommands ⇒ call its handler
+  local handler_args = vim.list_slice(args, depth)
+  return entry.handler({ fargs = handler_args, bang = opts.bang, line = opts.line })
 end
 
 local function complete_fn(arglead, cmdline, cursorpos)
-  -- split "Checkmate metadata add foo" ⇒ { "Checkmate", "metadata", "add", "foo" }
   local parts = vim.split(cmdline, "%s+")
-  -- drop "Checkmate"
-  table.remove(parts, 1)
+  table.remove(parts, 1) -- drop "Checkmate"
 
-  -- top level commands
-  if #parts <= 1 then
-    return vim.tbl_filter(function(k)
-      return vim.startswith(k, arglead)
-    end, vim.tbl_keys(top_commands))
-  end
-
-  -- top level SUB command
-  local first = parts[1]
-  local entry = top_commands[first]
-  if not entry or not entry.subcommands then
-    return {}
-  end
-
-  -- SUB commands for the sub command
-  if #parts == 2 then
-    return vim.tbl_filter(function(k)
-      return vim.startswith(k, arglead)
-    end, vim.tbl_keys(entry.subcommands))
-  end
-
-  -- use the entry's own 'complete' function
-  local nested = entry.subcommands[parts[2]]
-  if nested and nested.complete then
-    local candidates
-    if type(nested.complete) == "function" then
-      candidates = nested.complete(arglead, cmdline, cursorpos)
-      ---@cast candidates string[]
-    else
-      candidates = nested.complete
-      ---@cast candidates string[]
+  local entry = { subcommands = top_commands }
+  for i, part in ipairs(parts) do
+    if i == #parts then
+      -- at the slot we’re completing
+      if entry.subcommands then
+        -- suggest subcommand names
+        return vim.tbl_filter(function(k)
+          return vim.startswith(k, arglead)
+        end, vim.tbl_keys(entry.subcommands))
+      elseif entry.complete then
+        -- suggest via `.complete`
+        local c = entry.complete
+        local candidates = type(c) == "function" and c(arglead, cmdline, cursorpos) or c
+        ---@cast candidates table
+        return vim.tbl_filter(function(k)
+          return vim.startswith(k, arglead)
+        end, candidates or {})
+      end
+      return {}
     end
-    return vim.tbl_filter(function(k)
-      return vim.startswith(k, arglead)
-    end, candidates or {})
+
+    if entry.subcommands and entry.subcommands[part] then
+      entry = entry.subcommands[part]
+    else
+      return {}
+    end
   end
 
   return {}

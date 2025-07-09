@@ -435,6 +435,35 @@ function M.byte_to_char_col(line, byte_col)
   return char_idx
 end
 
+---Opens in the content in a scratch buffer or uses vim.print
+---Currently only supports Snacks.scratch
+---@param content any Will use `vim.inspect()` internally to stringify
+---@param scratch_opts table
+function M.scratch_buf_or_print(content, scratch_opts)
+  local has_snacks, snacks = pcall(require, "snacks.scratch")
+  if has_snacks then
+    local opts = vim.tbl_deep_extend("force", {
+      name = scratch_opts.name or "checkmate.nvim",
+      autowrite = false,
+      ft = "lua",
+      template = vim.inspect(content),
+      win = {
+        width = 140,
+        height = 40,
+        keys = {
+          ["source"] = false,
+        },
+      },
+    }, scratch_opts)
+    local win = snacks.open(opts)
+    if win and win.buf then
+      vim.bo[win.buf].ro = true
+    end
+  else
+    vim.print(content)
+  end
+end
+
 ---Creates a public facing checkmate.Todo from the internal checkmate.TodoItem representation
 ---
 ---exposes a public api while still providing access to the underlying todo_item

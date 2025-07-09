@@ -173,6 +173,36 @@ local top_commands = {
           require("checkmate").debug_print_todo_map()
         end,
       },
+      print_config = {
+        desc = "Print config",
+        nargs = "0",
+        handler = function()
+          require("checkmate").debug_print_config()
+        end,
+      },
+      hl = {
+        desc = "Temp highlight a range",
+        nargs = "1",
+        handler = function(opts)
+          local kind = opts.fargs[2]
+          local parser = require("checkmate.parser")
+          local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+          local todo = parser.get_todo_item_at_position(0, row - 1, col)
+          if todo then
+            local range
+            if kind == "fir" or kind == "inline" then
+              range = todo.first_inline_range
+            elseif kind == "ts" then
+              range = todo.ts_range
+            elseif kind == "semantic" then
+              range = todo.range
+            else
+              range = todo.range
+            end
+            require("checkmate").debug_highlight_range(range)
+          end
+        end,
+      },
       profiler_on = {
         desc = "Start profiler",
         nargs = "0",

@@ -686,6 +686,7 @@ M.debug = {
   end,
 }
 
+-- Clears a debug highlight under the cursor
 function M.debug.clear_highlight()
   local config = require("checkmate.config")
   local bufnr = vim.api.nvim_get_current_buf()

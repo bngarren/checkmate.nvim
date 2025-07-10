@@ -1,5 +1,6 @@
 local M = {}
 
+-- `https://github.com/nvzone/menu`
 local menu_plugin
 local has_menu_plugin = function()
   if not menu_plugin then

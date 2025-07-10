@@ -54,26 +54,29 @@ function M.add(range, opts)
 
   if not opts.persistent then
     vim.defer_fn(function()
-      M.clear(ext_id)
+      M.clear(opts.bufnr, ext_id)
     end, opts.timeout)
   end
 
   return ext_id
 end
 
----Clear one highlight by extmark id
+---Clear one highlight by extmark id in a given buffer
+---@param bufnr number
 ---@param ext_id number
-function M.clear(ext_id)
-  for bufnr, ids in pairs(M._active) do
-    for i, id in ipairs(ids) do
-      if id == ext_id then
-        pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, id)
-        table.remove(ids, i)
-        if #ids == 0 then
-          M._active[bufnr] = nil
-        end
-        return true
+function M.clear(bufnr, ext_id)
+  local ids = M._active[bufnr]
+  if not ids then
+    return false
+  end
+  for i, id in ipairs(ids) do
+    if id == ext_id then
+      pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, id)
+      table.remove(ids, i)
+      if #ids == 0 then
+        M._active[bufnr] = nil
       end
+      return true
     end
   end
   return false

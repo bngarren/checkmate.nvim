@@ -243,15 +243,10 @@ local top_commands = {
           },
 
           clear = {
-            desc = "Clear a highlight by id",
-            nargs = "1",
-            handler = function(opts)
-              local id = tonumber(opts.fargs[2])
-              if require("checkmate").debug.clear_highlight(id) then
-                vim.notify("Checkmate: cleared highlight " .. id, vim.log.levels.INFO)
-              else
-                vim.notify("Checkmate: no such highlight " .. id, vim.log.levels.WARN)
-              end
+            desc = "Clear a debug highlight under the cursor",
+            nargs = "0",
+            handler = function()
+              require("checkmate").debug.clear_highlight()
             end,
           },
 

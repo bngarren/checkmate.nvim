@@ -672,9 +672,6 @@ M.debug = {
   highlight = function(range, opts)
     return debug_hl.add(range, opts)
   end,
-  clear_highlight = function(id)
-    return debug_hl.clear(id)
-  end,
   clear_all_highlights = function()
     debug_hl.clear_all()
   end,
@@ -688,6 +685,23 @@ M.debug = {
     require("checkmate.log").clear()
   end,
 }
+
+function M.debug.clear_highlight()
+  local config = require("checkmate.config")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  local marks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns, { row - 1, 0 }, { row - 1, -1 }, { details = true })
+  for _, m in ipairs(marks) do
+    local id, _, start_col, details = m[1], m[2], m[3], m[4]
+    local end_col = details and details.end_col or start_col
+    if col - 1 >= start_col and col - 1 < end_col then
+      debug_hl.clear(bufnr, id)
+      vim.notify("Cleared debug highlight " .. id, vim.log.levels.INFO)
+      return
+    end
+  end
+  vim.notify("No debug highlight under cursor", vim.log.levels.WARN)
+end
 
 --- Inspect todo item at cursor
 function M.debug.at_cursor()

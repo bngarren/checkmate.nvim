@@ -2,7 +2,7 @@ local config = require("checkmate.config")
 
 local M = {}
 
-M._active = {}
+M._active = {} -- maps bufnr -> list of extmark ids
 M._color_idx = 1
 
 local palette = {
@@ -12,8 +12,15 @@ local palette = {
   "#9b9b9b",
 }
 
-for i, color in ipairs(palette) do
-  vim.api.nvim_set_hl(0, ("CheckmateDebugHl%d"):format(i), { bg = color })
+function M.setup()
+  for i, color in ipairs(palette) do
+    vim.api.nvim_set_hl(0, ("CheckmateDebugHl%d"):format(i), { bg = color })
+  end
+end
+
+---@param bufnr integer
+function M.dispose(bufnr)
+  M.clear_all(bufnr)
 end
 
 local function next_hl_group()
@@ -33,17 +40,17 @@ function M.add(range, opts)
     persistent = false,
   }, opts or {})
 
-  local ns = config.ns
   local hl_group = next_hl_group()
 
-  local ext_id = vim.api.nvim_buf_set_extmark(opts.bufnr, ns, range.start.row, range.start.col, {
+  local ext_id = vim.api.nvim_buf_set_extmark(opts.bufnr, config.ns, range.start.row, range.start.col, {
     end_row = range["end"].row,
     end_col = range["end"].col,
     hl_group = hl_group,
     priority = 9999,
   })
 
-  table.insert(M._active, { bufnr = opts.bufnr, id = ext_id })
+  M._active[opts.bufnr] = M._active[opts.bufnr] or {}
+  table.insert(M._active[opts.bufnr], ext_id)
 
   if not opts.persistent then
     vim.defer_fn(function()
@@ -57,22 +64,44 @@ end
 ---Clear one highlight by extmark id
 ---@param ext_id number
 function M.clear(ext_id)
-  for i, h in ipairs(M._active) do
-    if h.id == ext_id then
-      pcall(vim.api.nvim_buf_del_extmark, h.bufnr, config.ns, ext_id)
-      table.remove(M._active, i)
-      return true
+  for bufnr, ids in pairs(M._active) do
+    for i, id in ipairs(ids) do
+      if id == ext_id then
+        pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, id)
+        table.remove(ids, i)
+        if #ids == 0 then
+          M._active[bufnr] = nil
+        end
+        return true
+      end
     end
   end
   return false
 end
 
----Clear *all* debug highlights
-function M.clear_all()
-  for _, h in ipairs(M._active) do
-    pcall(vim.api.nvim_buf_del_extmark, h.bufnr, config.ns, h.id)
+---Clear *all* highlights in a specific buffer
+---@param bufnr integer
+function M.clear_buffer(bufnr)
+  local ids = M._active[bufnr]
+  if not ids then
+    return
   end
-  M._active = {}
+  for _, id in ipairs(ids) do
+    pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, id)
+  end
+  M._active[bufnr] = nil
+end
+
+---Clear *all* highlights (or only one buffer if you pass bufnr)
+---@param bufnr? integer
+function M.clear_all(bufnr)
+  if bufnr then
+    M.clear_buffer(bufnr)
+  else
+    for b in pairs(M._active) do
+      M.clear_buffer(b)
+    end
+  end
 end
 
 ---List active extmark IDs

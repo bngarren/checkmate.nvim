@@ -1,4 +1,4 @@
-local commands = {}
+local Commands = {}
 
 ---@class checkmate.CommandDefinition
 ---@field desc string description shown in help
@@ -145,6 +145,13 @@ local top_commands = {
   debug = {
     desc = "Debug helpers",
     subcommands = {
+      menu = {
+        desc = "Open debug menu (requires 'nvzone/menu')",
+        nargs = "0",
+        handler = function()
+          require("checkmate.debug.debug_menu").open()
+        end,
+      },
       log = {
         desc = "Open debug log",
         nargs = "0",
@@ -195,6 +202,7 @@ local top_commands = {
                 return
               end
 
+              -- this arg can be a boolean string or parsed to a numeric timeout in ms
               local arg3 = opts.fargs[3]
               local persistent, timeout
               if arg3 == "true" or arg3 == "false" then
@@ -293,7 +301,7 @@ local top_commands = {
   },
 }
 
-function commands.dispatch(opts)
+function Commands.dispatch(opts)
   local args = opts.fargs
   local entry = { subcommands = top_commands }
   local depth = 0
@@ -353,9 +361,9 @@ local function complete_fn(arglead, cmdline, cursorpos)
 end
 
 -- called from init.lua when setting up a buffer
-function commands.setup(bufnr)
+function Commands.setup(bufnr)
   vim.api.nvim_buf_create_user_command(bufnr, "Checkmate", function(opts)
-    commands.dispatch(opts)
+    Commands.dispatch(opts)
   end, {
     nargs = "*",
     complete = complete_fn,
@@ -363,8 +371,8 @@ function commands.setup(bufnr)
   })
 end
 
-function commands.dispose(bufnr)
+function Commands.dispose(bufnr)
   pcall(vim.api.nvim_buf_del_user_command, bufnr, "Checkmate")
 end
 
-return commands
+return Commands

@@ -81,6 +81,7 @@ function M.start()
     -- each of these should clear any caches they own
     require("checkmate.parser").setup()
     require("checkmate.highlights").setup_highlights()
+
     if config.options.linter and config.options.linter.enabled ~= false then
       require("checkmate.linter").setup(config.options.linter)
     end

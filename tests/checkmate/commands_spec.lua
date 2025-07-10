@@ -8,13 +8,8 @@ describe("Commands", function()
 
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup()
-    temp_file = h.create_temp_file()
-    bufnr = vim.api.nvim_create_buf(false, false)
-    vim.api.nvim_buf_set_name(bufnr, temp_file)
-    vim.api.nvim_win_set_buf(0, bufnr)
-    vim.cmd("edit!")
-    vim.bo[bufnr].filetype = "markdown"
-    vim.wait(20)
+    bufnr, temp_file = h.setup_todo_file_buffer("")
+    vim.wait(10)
   end)
 
   lazy_teardown(function()

@@ -97,6 +97,8 @@ function M.register_highlight_groups()
     vim.api.nvim_set_hl(0, group_name, group_settings)
     log.debug("Applied highlight group: " .. group_name, { module = "parser" })
   end
+
+  require("checkmate.debug.debug_highlights").setup()
 end
 
 function M.setup_highlights()

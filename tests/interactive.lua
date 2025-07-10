@@ -41,6 +41,9 @@ local spec = {
     "mason-org/mason.nvim",
     opts = {},
   },
+  -- Menu
+  { "nvzone/volt", lazy = true },
+  { "nvzone/menu", lazy = true },
 }
 
 -- environment-specific specs

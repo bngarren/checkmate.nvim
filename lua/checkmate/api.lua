@@ -460,6 +460,8 @@ function M.shutdown(bufnr)
 
     M.clear_keymaps(bufnr)
 
+    require("checkmate.debug.debug_highlights").dispose(bufnr)
+
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 

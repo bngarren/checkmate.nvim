@@ -19,6 +19,7 @@ local fmt = require("luasnip.extras.fmt").fmt
 ---@class checkmate.MetadataSnippetOpts : checkmate.SnippetOpts
 ---@field tag string Metadata tag name
 ---@field value? string Metadata value to insert. If nil, will use the metadata's `get_value` function
+---@field auto_select? boolean Selects the metadata's value on insert. Otherwise, moves cursor to the end. Default: false.
 
 ---@alias MetadataSnippetType
 ---| boolean Place a text node with the metadata's get_value()
@@ -52,11 +53,58 @@ local function make_todo_string(opts)
   return indent .. list_marker .. " " .. unchecked .. " "
 end
 
+local function make_error_snippet(trigger, msg)
+  return ls.s(trigger, {
+    ls.t("ERROR: " .. msg),
+  })
+end
+
 -------- PUBLIC API ---------
 
----Create a basic todo snippet
+---Create a `checkmate.nvim` todo snippet
+---
+---# Basic usage
+---```lua
+---local cms = require("checkmate.snippets")
+---require("luasnip").add_snippets("markdown", {
+---  cms.todo({
+---    trigger = ".bug",
+---    text = "New BUG",
+---    metadata = {
+---      bug = true, -- use the metadata's `get_value`
+---      priority = true,
+---    },
+---    ls_context = {
+---      snippetType = "autosnippet",
+---    },
+---  })
+---})
+---```
+--- - `opts.desc` can also be used to set the default text as well as the snippet description
+---
+---# Advanced usage
+---```lua
+---local cms = require("checkmate.snippets")
+---require("luasnip").add_snippets("markdown", {
+---  cms.todo({
+---    trigger = "%.i(%d+)",
+---    desc = "New ISSUE",
+---    metadata = {
+---      issue = function(captures)
+---        local issue_num = captures[1] or ""
+---        return "#" .. issue_num
+---      end
+---    },
+---    ls_context = {
+---      snippetType = "snippet",
+---      regTrig = true -- important! (parse trigger as pattern)
+---    },
+---  })
+---})
+---```
+---
 ---@param opts checkmate.TodoSnippetOpts
----@return table? snippet LuaSnip snippet
+---@return LuaSnip.Addable? snippet LuaSnip snippet
 function M.todo(opts)
   if not has_luasnip() then
     return
@@ -160,10 +208,21 @@ function M.todo(opts)
   )
 end
 
----Create snippet that adds metadata to existing todo
+---Create a snippet that adds metadata `@tag(value)` to existing `checkmate.nvim` todo
+---
+---It will attempt to use the metadata's `get_value` function, if defined in the config opts
+---
+---# Example
+---```lua
+---local cms = require("checkmate.snippets")
+---require("luasnip").add_snippets("markdown", {
+---  cms.add_metadata({ trigger = "@s", tag = "started", desc = "@started" })
+---})
+---```
+---
 ---@param opts checkmate.MetadataSnippetOpts
----@return table? snippet LuaSnip snippet
-function M.add_metadata(opts)
+---@return LuaSnip.Addable? snippet LuaSnip snippet
+function M.metadata(opts)
   if not has_luasnip() then
     return
   end
@@ -172,18 +231,15 @@ function M.add_metadata(opts)
   local meta_name = opts.tag
   local meta_value = opts.value
   local trigger = opts.trigger
+  local auto_select = opts.auto_select == true -- default false
   local usr_ls_ctx = opts.ls_context or {}
   local usr_ls_opts = opts.ls_opts or {}
 
   if not meta_name then
-    return
+    return make_error_snippet(trigger, string.format("missing tag name"))
   end
 
   local meta_props = meta_module.get_meta_props(meta_name)
-  if not meta_props then
-    vim.notify("Checkmate: Unknown metadata tag: " .. meta_name, vim.log.levels.WARN)
-    return
-  end
 
   local context = vim.tbl_extend("force", {
     trig = trigger,
@@ -195,10 +251,9 @@ function M.add_metadata(opts)
   end
 
   local default_value = ""
-  if meta_value then
+  if meta_value ~= nil then
     default_value = tostring(meta_value)
-  end
-  if meta_props.get_value then
+  elseif meta_props and meta_props.get_value then
     local success, value = pcall(meta_props.get_value)
     if success then
       default_value = tostring(value or "")
@@ -208,13 +263,18 @@ function M.add_metadata(opts)
   local nodes = {
     ls.t("@" .. meta_name .. "("),
     ls.c(1, {
-      ls.i(nil, default_value),
+      auto_select and ls.i(nil, default_value) or ls.sn(nil, {
+        ls.t(default_value),
+        ls.i(nil, ""),
+      }),
       ls.i(nil, ""),
     }),
     ls.t(")"),
   }
 
-  return ls.s(context, nodes, usr_ls_opts)
+  local snippet = ls.s(context, nodes, usr_ls_opts)
+
+  return snippet
 end
 
 return M

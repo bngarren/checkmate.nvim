@@ -4,6 +4,7 @@ local config = require("checkmate.config")
 local meta_module = require("checkmate.metadata")
 local util = require("checkmate.util")
 local fmt = require("luasnip.extras.fmt").fmt
+local events = require("luasnip.util.events")
 
 ---Base options passed to the checkmate.snippets API functions
 ---@class checkmate.SnippetOpts
@@ -13,19 +14,20 @@ local fmt = require("luasnip.extras.fmt").fmt
 ---@field ls_opts? table LuaSnip 'opts'
 
 ---@class checkmate.TodoSnippetOpts : checkmate.SnippetOpts
----@field text? string Default string to add (before any metadata)
----@field metadata? table<string, MetadataSnippetType> Metadata to include
+---@field text? string Default string to add (before any metadata). Will fallback to use `desc` if nil.
+---@field metadata? table<string, MetadataSnippetType> Metadata to include, with `MetadataSnippetType` defining how the metadata value is obtained
+
+---Dictates how a metadata's value is calculated when being expanded into a snippet
+---@alias MetadataSnippetType
+---| boolean Place a text node with the metadata's `get_value()` returning the string
+---| string Place a text node with this string as the node text
+---| number Place an insert node at this position
+---| function(captures: any): string Place a text node based on the return of this function. Captures are returned when the trigger is interpreted as a Lua pattern with capture groups. See `trigEngine` in LuaSnip documentation.
 
 ---@class checkmate.MetadataSnippetOpts : checkmate.SnippetOpts
 ---@field tag string Metadata tag name
 ---@field value? string Metadata value to insert. If nil, will use the metadata's `get_value` function
 ---@field auto_select? boolean Selects the metadata's value on insert. Otherwise, moves cursor to the end. Default: false.
-
----@alias MetadataSnippetType
----| boolean Place a text node with the metadata's get_value()
----| string Place a text node with this string as the node text
----| number Place an insert node at this position
----| function(captures: any): string Place a text node based on the return of this function
 
 local shown_missing_luasnip_warning = false
 local ls
@@ -132,6 +134,7 @@ function M.todo(opts)
     local bufnr = vim.api.nvim_get_current_buf()
     local row = vim.api.nvim_win_get_cursor(0)[1] - 1
     local col = vim.api.nvim_win_get_cursor(0)[2]
+
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 
     if parser.is_todo_item(line) or ph.match_markdown_checkbox(line) then
@@ -164,8 +167,14 @@ function M.todo(opts)
   local meta_blob = ""
   if not util.tbl_isempty_or_nil(opts.metadata) then
     local sorted = {}
+    local callbacks = {}
     for tag, value in pairs(opts.metadata) do
-      table.insert(sorted, { name = tag, props = meta_module.get_meta_props(tag), snip_type = value })
+      local meta_props = meta_module.get_meta_props(tag)
+      table.insert(sorted, { name = tag, props = meta_props, snip_type = value })
+
+      if meta_props and meta_props.on_add then
+        table.insert(callbacks, meta_props.on_add)
+      end
     end
     -- sort by increasing sort_order
     table.sort(sorted, function(a, b)
@@ -193,6 +202,25 @@ function M.todo(opts)
       end
       return table.concat(parts)
     end, {})
+
+    usr_ls_opts.callbacks = usr_ls_opts.callbacks or {}
+    -- see https://github.com/L3MON4D3/LuaSnip/blob/master/DOC.md#snippets in the `opts.callbacks` section
+    usr_ls_opts.callbacks[-1] = {
+      [events.pre_expand] = function()
+        local bufnr = vim.api.nvim_get_current_buf()
+        local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+        local col = vim.api.nvim_win_get_cursor(0)[2]
+
+        vim.schedule(function()
+          local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, col)
+          if todo then
+            for _, cb in ipairs(callbacks) do
+              cb(todo)
+            end
+          end
+        end)
+      end,
+    }
   end
 
   return ls.s(
@@ -271,6 +299,24 @@ function M.metadata(opts)
     }),
     ls.t(")"),
   }
+
+  if meta_props and meta_props.on_add then
+    usr_ls_opts.callbacks = usr_ls_opts.callbacks or {}
+    usr_ls_opts.callbacks[-1] = {
+      [events.pre_expand] = function()
+        local bufnr = vim.api.nvim_get_current_buf()
+        local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+        local col = vim.api.nvim_win_get_cursor(0)[2]
+
+        vim.schedule(function()
+          local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, col)
+          if todo then
+            meta_props.on_add(todo)
+          end
+        end)
+      end,
+    }
+  end
 
   local snippet = ls.s(context, nodes, usr_ls_opts)
 

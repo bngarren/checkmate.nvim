@@ -178,7 +178,9 @@ function M.todo(opts)
     end
     -- sort by increasing sort_order
     table.sort(sorted, function(a, b)
-      return a.props.sort_order < b.props.sort_order
+      local a_so = a.props and a.props.sort_order or math.huge - 1
+      local b_so = b.props and b.props.sort_order or math.huge
+      return a_so < b_so
     end)
 
     meta_blob = ls.f(function(_, snip)

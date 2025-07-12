@@ -471,9 +471,15 @@ end
 ---@param todo_item checkmate.TodoItem
 ---@return checkmate.Todo
 function M.build_todo(todo_item)
+  local parser = require("checkmate.parser")
+
   local metadata_array = {}
   for _, entry in ipairs(todo_item.metadata.entries) do
     table.insert(metadata_array, { entry.tag, entry.value })
+  end
+
+  local function is_checked()
+    return todo_item.state == "checked"
   end
 
   local function get_metadata(name)
@@ -488,8 +494,13 @@ function M.build_todo(todo_item)
     return result[1], result[2]
   end
 
-  local function is_checked()
-    return todo_item.state == "checked"
+  local function get_parent()
+    if not todo_item.parent_id then
+      return nil
+    end
+    local bufnr = vim.api.nvim_get_current_buf()
+    local parent_item = parser.get_todo_map(bufnr)[todo_item.parent_id]
+    return parent_item and M.build_todo(parent_item) or nil
   end
 
   ---@type checkmate.Todo
@@ -497,9 +508,13 @@ function M.build_todo(todo_item)
     _todo_item = todo_item,
     state = todo_item.state,
     text = todo_item.todo_text,
+    indent = todo_item.range.start.col,
+    list_marker = todo_item.list_marker.text,
+    todo_marker = todo_item.todo_marker.text,
     metadata = metadata_array,
     is_checked = is_checked,
     get_metadata = get_metadata,
+    get_parent = get_parent,
   }
 end
 

@@ -1873,6 +1873,46 @@ Line 2
     end)
   end)
 
+  describe("get todo", function()
+    it("should return a Todo", function()
+      local cm = require("checkmate")
+      cm.setup()
+
+      local content = [[
+# Todos
+- [ ] Test todo @priority(high) @issue(#10)
+  Continuation text
+  - [ ] Sub todo
+    ]]
+
+      local bufnr = h.setup_test_buffer(content)
+
+      local todo1 = h.exists(cm.get_todo({ bufnr = bufnr, row = 1 }))
+
+      assert.equal("unchecked", todo1.state)
+      assert.equal("-", todo1.list_marker)
+      assert.equal(h.get_unchecked_marker(), todo1.todo_marker)
+      assert.equal(0, todo1.indent)
+      assert.is_false(todo1.is_checked())
+      assert.equal(2, #todo1.metadata)
+      local p_tag, p_value = todo1.get_metadata("priority")
+      assert.equal("priority", p_tag)
+      assert.equal("high", p_value)
+      local i_tag, i_value = todo1.get_metadata("issue")
+      assert.equal("issue", i_tag)
+      assert.equal("#10", i_value)
+
+      local todo2 = h.exists(cm.get_todo({ bufnr = bufnr, row = 3 }))
+
+      assert.same(todo1._todo_item, todo2.get_parent()._todo_item)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+  end)
+
   describe("movement", function()
     local cm
     before_each(function()

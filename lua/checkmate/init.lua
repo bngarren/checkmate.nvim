@@ -136,9 +136,13 @@ end
 ---@field _todo_item checkmate.TodoItem internal representation
 ---@field state checkmate.TodoItemState
 ---@field text string First line of the todo
----@field metadata string[][] Table of {tag, value} tuples
+---@field indent number Number of spaces before the list marker
+---@field list_marker string List item marker, e.g. `-`, `*`, `+`
+---@field todo_marker string Todo marker, e.g. `□`, `✔`
 ---@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
+---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
 
 ---@class checkmate.MetadataContext
 ---@field name string Metadata tag name
@@ -604,6 +608,23 @@ function M.jump_previous_metadata()
   local todo_items = api.collect_todo_items_from_selection(false)
 
   api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+end
+
+---Returns a `checkmate.Todo` or nil
+---Will use the current buffer and cursor pos unless overriden in `opts`
+--- - `row` is 0-based
+---@param opts? {bufnr?: integer, row?: integer}
+---@return checkmate.Todo? todo
+function M.get_todo(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
+
+  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, 0)
+  if not todo then
+    return nil
+  end
+  return require("checkmate.util").build_todo(todo)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

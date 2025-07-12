@@ -20,13 +20,15 @@ A Markdown-based todo/task plugin for Neovim.
 - Visual mode support for toggling multiple items at once
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
-- Todo completion counts
+- Todo completion counts/percentage
 - Smart toggling behavior
 - Archive completed todos
+- Todo templates with LuaSnip snippet integration
 
 > [!NOTE]
 > Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
 > - [Advanced metadata](https://github.com/bngarren/checkmate.nvim/wiki/Metadata)
+> - [Snippets](https://github.com/bngarren/checkmate.nvim/wiki/Snippets)
 > - How to setup a per-project, low-friction `checkmate.nvim` buffer with [snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
 
 <br/>
@@ -858,9 +860,10 @@ E.g. `parent_spacing = 1`
 
 Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
 
-| integration | capable? |
+| Integration | Capable? |
 |----------------|----------|
 | [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#render-markdownnvim)|
+| [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki/Snippets) |
 | scratch buffer/floating window for quick todos, e.g. [snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
 
 

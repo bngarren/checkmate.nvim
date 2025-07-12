@@ -58,6 +58,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
+---@deprecated use TodoState
 ---@field todo_markers checkmate.TodoMarkers
 ---
 ---Default list item marker to be used when creating new Todo items
@@ -144,6 +145,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
+---@deprecated use TodoState
 ---@class checkmate.TodoMarkers
 ---
 ---Character used for unchecked items

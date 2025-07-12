@@ -1,5 +1,6 @@
 local M = {}
 
+---@deprecated use checkmate.TodoState
 ---@alias checkmate.TodoItemState "checked" | "unchecked"
 --@alias checkmate.TodoItemState "checked" | "unchecked"
 

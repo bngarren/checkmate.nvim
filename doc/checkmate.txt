@@ -1,4 +1,4 @@
-*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 July 06
+*checkmate.txt*         For Neovim >= 0.10.0         Last change: 2025 July 12
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -33,14 +33,16 @@ FEATURES ~
 - Visual mode support for toggling multiple items at once
 - Metadata e.g. `@tag(value)` annotations with extensive customization
     - e.g. @started, @done, @priority, @your-custom-tag
-- Todo completion counts
+- Todo completion counts/percentage
 - Smart toggling behavior
 - Archive completed todos
+- Todo templates with LuaSnip snippet integration
 
 
   [!NOTE] Check out the Wiki <https://github.com/bngarren/checkmate.nvim/wiki>
   for additional documentation and recipes, including: - Advanced metadata
-  <https://github.com/bngarren/checkmate.nvim/wiki/Metadata> - How to setup a
+  <https://github.com/bngarren/checkmate.nvim/wiki/Metadata> - Snippets
+  <https://github.com/bngarren/checkmate.nvim/wiki/Snippets> - How to setup a
   per-project, low-friction `checkmate.nvim` buffer with snacks.nvim
   <https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim>
 
@@ -966,9 +968,11 @@ Please see Wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
 additional details/recipes.
 
   -----------------------------------------------------------------------
-  integration                                 capable?
+  Integration                                 Capable?
   ------------------------------------------- ---------------------------
   render-markdown                             wiki
+
+  LuaSnip                                     wiki
 
   scratch buffer/floating window for quick    wiki
   todos, e.g. snacks.nvim                     

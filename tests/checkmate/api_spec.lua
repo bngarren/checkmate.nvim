@@ -1848,8 +1848,8 @@ Line 2
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local checked = config.get_defaults().todo_markers.checked
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local checked = h.get_checked_marker()
+      local unchecked = h.get_unchecked_marker()
 
       assert.matches("- " .. vim.pesc(checked) .. " Task 1", lines[3])
       assert.matches("- " .. vim.pesc(unchecked) .. " Task 2 @priority%(high%)", lines[4])

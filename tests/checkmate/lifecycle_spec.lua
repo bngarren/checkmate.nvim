@@ -26,6 +26,7 @@ describe("checkmate init and lifecycle", function()
       assert.is_true(checkmate.is_running())
       local actual = vim.deepcopy(config.options)
       actual.style = {} -- to match expected because default has style = {}
+      actual.todo_markers = nil -- TODO: remove once @deprecated todo_markers is removed
       local expected = config.get_defaults()
       assert.same(expected, actual)
       checkmate.stop()

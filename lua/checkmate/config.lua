@@ -58,8 +58,14 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
----@deprecated use TodoState
----@field todo_markers checkmate.TodoMarkers
+---@deprecated use todo_states
+---@field todo_markers? checkmate.TodoMarkers
+---
+---The states that a todo item may have
+---Default: "unchecked" and "checked"
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked". If you add additional states here, they may not work
+---in other Markdown apps without special configuration
+---@field todo_states table<string, checkmate.TodoStateDefinition>
 ---
 ---Default list item marker to be used when creating new Todo items
 ---@field default_list_marker "-" | "*" | "+"
@@ -143,9 +149,21 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+---@class checkmate.TodoStateDefinition
+---
+--- The text string used for a todo marker is expected to be 1 character length.
+--- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
+---@field marker string
+---
+--- The order in which this state is cycled (lower = first)
+---@field order? number
+
+-----------------------------------------------------
+
+--- DEPRECATED v0.10
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
----@deprecated use TodoState
+---@deprecated use `todo_states`
 ---@class checkmate.TodoMarkers
 ---
 ---Character used for unchecked items
@@ -396,10 +414,20 @@ local defaults = {
     },
   },
   default_list_marker = "-",
-  todo_markers = {
+  todo_states = {
+    unchecked = {
+      marker = "□",
+      order = 1,
+    },
+    checked = {
+      marker = "✔",
+      order = 2,
+    },
+  },
+  --[[ todo_markers = {
     unchecked = "□",
     checked = "✔",
-  },
+  }, ]]
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
@@ -927,6 +955,42 @@ function M.validate_options(opts)
   return true
 end
 
+---Handles merging of deprecated config opts into current config to maintain backwards compatibility
+---@param current_opts checkmate.Config
+---@param user_opts? checkmate.Config
+local function merge_deprecated_opts(current_opts, user_opts)
+  -----------------------
+  ---@deprecated v0.10
+
+  user_opts = user_opts or {}
+
+  -- if the user set todo_markers but did not explicitly override todo_states,
+  -- build a new todo_states table from their markers, preserving the default order.
+  if user_opts.todo_markers and not user_opts.todo_states then
+    local default_states = require("checkmate.config").get_defaults().todo_states
+    current_opts.todo_states = {
+      unchecked = {
+        marker = user_opts.todo_markers.unchecked,
+        order = default_states.unchecked.order,
+      },
+      checked = {
+        marker = user_opts.todo_markers.checked,
+        order = default_states.checked.order,
+      },
+    }
+  elseif user_opts.todo_markers and user_opts.todo_states then
+    vim.notify("Checkmate: deprecated `todo_markers` ignored because `todo_states` is set", vim.log.levels.WARN)
+  end
+
+  ---@diagnostic disable-next-line: deprecated
+  current_opts.todo_markers = {
+    unchecked = current_opts.todo_states.unchecked.marker,
+    checked = current_opts.todo_states.checked.marker,
+  }
+
+  -----------------------
+end
+
 --- Setup function
 ---@param opts? checkmate.Config
 ---@return checkmate.Config config
@@ -956,6 +1020,8 @@ function M.setup(opts)
         end
       end
     end
+
+    merge_deprecated_opts(config, opts)
 
     -- save user style for colorscheme updates
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}

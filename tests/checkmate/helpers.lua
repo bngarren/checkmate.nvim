@@ -243,14 +243,14 @@ end
 ---@return string marker
 function M.get_unchecked_marker()
   local config = require("checkmate.config")
-  return config.get_defaults().todo_markers.unchecked
+  return config.get_defaults().todo_states.unchecked.marker
 end
 
 ---Get the default checked marker from config
 ---@return string marker
 function M.get_checked_marker()
   local config = require("checkmate.config")
-  return config.get_defaults().todo_markers.checked
+  return config.get_defaults().todo_states.checked.marker
 end
 
 return M

@@ -81,6 +81,10 @@ local PATTERN_CACHE = {
   unicode_unchecked_todo_without_captures = nil,
   markdown_checked_checkbox_with_captures = nil,
   markdown_unchecked_checkbox_with_captures = nil,
+  -- new
+  checkmate_todo_patterns_by_state_with_captures = {},
+  checkmate_todo_patterns_by_state_without_captures = {},
+  markdown_checkbox_patterns_by_state = {},
 }
 
 function M.clear_pattern_cache()
@@ -93,6 +97,10 @@ function M.clear_pattern_cache()
     unicode_unchecked_todo_without_captures = nil,
     markdown_checked_checkbox_with_captures = nil,
     markdown_unchecked_checkbox_with_captures = nil,
+    -- new
+    checkmate_todo_patterns_by_state_with_captures = {},
+    checkmate_todo_patterns_by_state_without_captures = {},
+    markdown_checkbox_patterns_by_state = {},
   }
 end
 
@@ -113,6 +121,42 @@ function M.get_list_item_patterns(with_captures)
   else
     return PATTERN_CACHE.list_item_without_captures
   end
+end
+
+function M.get_checkmate_todo_patterns_by_state(todo_state, with_captures)
+  local config = require("checkmate.config")
+  local state = config.options.todo_states[todo_state]
+  if not state then
+    return {}
+  end
+
+  local cache_key = with_captures and "checkmate_todo_patterns_by_state_with_captures"
+    or "checkmate_todo_patterns_by_state_without_captures"
+
+  if not PATTERN_CACHE[cache_key][state] then
+    PATTERN_CACHE[cache_key][state] =
+      require("checkmate.parser.helpers").create_unicode_todo_patterns(state.marker, { with_captures = with_captures })
+  end
+
+  return PATTERN_CACHE[cache_key][state]
+end
+
+-- Get all checkmate todo patterns (for all configured states)
+---@param with_captures? boolean (default false) Whether to include capture groups
+---@return string[] patterns Array of patterns for all configured states
+function M.get_all_checkmate_todo_patterns(with_captures)
+  local config = require("checkmate.config")
+
+  local cache_key = with_captures and "checkmate_todo_patterns_by_state_with_captures"
+    or "checkmate_todo_patterns_by_state_without_captures"
+
+  local patterns = {}
+
+  for state_name, _ in pairs(config.options.todo_states) do
+    table.insert(patterns, M.get_checkmate_todo_patterns_by_state(state_name, with_captures))
+  end
+
+  return vim.iter(patterns):flatten():totable()
 end
 
 ---@param with_captures? boolean (default false) Whether to include capture groups in the pattern. See `create_unicode_todo_patterns`
@@ -159,7 +203,7 @@ end
 function M.get_markdown_checked_checkbox_patterns()
   if not PATTERN_CACHE.markdown_checked_checkbox_with_captures then
     PATTERN_CACHE.markdown_checked_checkbox_with_captures =
-      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(M.markdown_checked_checkbox)
+      require("checkmate.parser.helpers").create_markdown_checkbox_patterns({ "x", "X" })
   end
   return PATTERN_CACHE.markdown_checked_checkbox_with_captures
 end
@@ -168,9 +212,29 @@ end
 function M.get_markdown_unchecked_checkbox_patterns()
   if not PATTERN_CACHE.markdown_unchecked_checkbox_with_captures then
     PATTERN_CACHE.markdown_unchecked_checkbox_with_captures =
-      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(M.markdown_unchecked_checkbox)
+      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(" ")
   end
   return PATTERN_CACHE.markdown_unchecked_checkbox_with_captures
+end
+
+function M.get_markdown_checkbox_patterns_by_state(todo_state)
+  local config = require("checkmate.config")
+  local state_def = config.options.todo_states[todo_state]
+  if not state_def then
+    return {}
+  end
+
+  local cache_key = "markdown_checkbox_patterns_by_state"
+  if not PATTERN_CACHE[cache_key] then
+    PATTERN_CACHE[cache_key] = {}
+  end
+
+  if not PATTERN_CACHE[cache_key][todo_state] then
+    PATTERN_CACHE[cache_key][todo_state] =
+      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(state_def.markdown)
+  end
+
+  return PATTERN_CACHE[cache_key][todo_state]
 end
 
 -- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
@@ -205,24 +269,34 @@ function M.get_todo_map(bufnr)
   return fresh_todo_map
 end
 
---- Given a line (string), returns the todo item type either "checked" or "unchecked"
----@param line string Line to extract Todo item state
----@return checkmate.TodoItemState? state Todo item state, or nil if todo item wasn't found
+--- Given a line (string), returns the todo state, e.g. "checked" or "unchecked"
+---@param line string Line to extract todo item state
+---@return string? state Todo item state, or nil if todo item wasn't found
 function M.get_todo_item_state(line)
   local ph = require("checkmate.parser.helpers")
+  local config = require("checkmate.config")
 
-  ---@type checkmate.TodoItemState
-  local todo_state = nil
-  local unchecked_patterns = M.get_unicode_unchecked_todo_patterns(false)
-  local checked_patterns = M.get_unicode_checked_todo_patterns(false)
+  local patterns = M.get_all_checkmate_todo_patterns(true)
 
-  if ph.match_any(unchecked_patterns, line) then
-    todo_state = "unchecked"
-  elseif ph.match_any(checked_patterns, line) then
-    todo_state = "checked"
+  local result = ph.match_first(patterns, line)
+  if not result.matched then
+    return nil
   end
 
-  return todo_state
+  -- based on create_unicode_todo_patterns, captures[2] is the todo marker
+  local captured_marker = result.captures[2]
+
+  if not captured_marker then
+    return nil
+  end
+
+  for state_name, state in pairs(config.options.todo_states) do
+    if state.marker == captured_marker then
+      return state_name
+    end
+  end
+
+  return nil
 end
 
 --- Returns true if the given line is a Checkmate todo item
@@ -244,9 +318,6 @@ function M.setup()
 
   M.todo_map_cache = {}
 
-  log.debug("Checked pattern is: " .. table.concat(M.get_unicode_checked_todo_patterns(false) or {}, " , "))
-  log.debug("Unchecked pattern is: " .. table.concat(M.get_unicode_unchecked_todo_patterns(false) or {}, " , "))
-
   highlights.setup_highlights()
 end
 
@@ -261,10 +332,15 @@ function M.convert_markdown_to_unicode(bufnr)
   local modified = false
   local original_modified = vim.bo[bufnr].modified
 
-  local md_unchecked_patterns = M.get_markdown_unchecked_checkbox_patterns()
-  local md_checked_patterns = M.get_markdown_checked_checkbox_patterns()
-  local unchecked = config.options.todo_markers.unchecked
-  local checked = config.options.todo_markers.checked
+  local state_to_patterns = {}
+  for state_name, state_def in pairs(config.options.todo_states) do
+    if state_def.markdown then
+      state_to_patterns[state_name] = {
+        patterns = M.get_markdown_checkbox_patterns_by_state(state_name),
+        unicode = state_def.marker,
+      }
+    end
+  end
 
   local new_lines = {}
 
@@ -286,24 +362,17 @@ function M.convert_markdown_to_unicode(bufnr)
 
     -- capture groups: 1. indent 2. list marker + 1st whitespace 3. checkbox
 
-    -- unchecked replacements
-    for _, pat in ipairs(md_unchecked_patterns) do
-      if pat:sub(-1) == " " then
-        -- pattern ends with space (variant 2), so add it back in replacement
-        new_line = new_line:gsub(pat, "%1%2" .. unchecked .. " ")
-      else
-        -- pattern ends with $, no space needed
-        new_line = new_line:gsub(pat, "%1%2" .. unchecked)
-      end
-    end
+    -- replace markdown checkboxes with unicode markers
+    for _, data in pairs(state_to_patterns) do
+      local patterns = data.patterns
+      local unicode_marker = data.unicode
 
-    -- checked replacements
-    for _, pat in ipairs(md_checked_patterns) do
-      if pat:sub(-1) == " " then
-        -- same as unchecked, above
-        new_line = new_line:gsub(pat, "%1%2" .. checked .. " ")
-      else
-        new_line = new_line:gsub(pat, "%1%2" .. checked)
+      for _, pat in ipairs(patterns) do
+        if pat:sub(-1) == " " then
+          new_line = new_line:gsub(pat, "%1%2" .. unicode_marker .. " ")
+        else
+          new_line = new_line:gsub(pat, "%1%2" .. unicode_marker)
+        end
       end
     end
 
@@ -332,58 +401,48 @@ end
 -- Convert Unicode symbols back to standard markdown 'task list marker' syntax
 function M.convert_unicode_to_markdown(bufnr)
   local log = require("checkmate.log")
+  local config = require("checkmate.config")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local modified = false
 
-  local unchecked_patterns, checked_patterns
-  local ok, err = pcall(function()
-    -- capture groups: 1=list prefix, 2=todo marker, 3=content
-    unchecked_patterns = M.get_unicode_unchecked_todo_patterns(true)
-    checked_patterns = M.get_unicode_checked_todo_patterns(true)
-    return true
-  end)
-
-  if not ok then
-    log.error("Error building patterns: " .. tostring(err), { module = "parser" })
-    return false
-  end
-
   local new_lines = {}
 
-  -- Replace Unicode with markdown syntax
   for i, line in ipairs(lines) do
     local new_line = line
     local had_error = false
+    local did_replace = false
 
-    for _, pattern in ipairs(unchecked_patterns) do
-      ok, err = pcall(function()
-        new_line = new_line:gsub(pattern, "%1[ ]%3")
-        return true
-      end)
+    for state_name, state_def in pairs(config.options.todo_states) do
+      local patterns = M.get_checkmate_todo_patterns_by_state(state_name, true)
 
-      if not ok then
-        log.error(string.format("Error on line %d with unchecked pattern: %s", i, tostring(err)), { module = "parser" })
-        had_error = true
-        break
+      local markdown_symbol = type(state_def.markdown) == "table" and state_def.markdown[1] or state_def.markdown
+      local markdown_repr = "[" .. markdown_symbol .. "]"
+
+      for _, pattern in ipairs(patterns) do
+        local ok, r, count = pcall(function()
+          return new_line:gsub(pattern, "%1" .. markdown_repr .. "%3")
+        end)
+
+        if not ok then
+          log.error(
+            string.format("Error on line %d with pattern for state %s: %s", i, state_name, tostring(r)),
+            { module = "parser" }
+          )
+          had_error = true
+          break
+        end
+
+        if count > 0 then
+          new_line = r
+          did_replace = true
+          break
+        end
       end
-    end
 
-    if had_error then
-      break
-    end
-
-    for _, pattern in ipairs(checked_patterns) do
-      ok, err = pcall(function()
-        new_line = new_line:gsub(pattern, "%1[x]%3")
-        return true
-      end)
-
-      if not ok then
-        log.error(string.format("Error on line %d with checked pattern: %s", i, tostring(err)), { module = "parser" })
-        had_error = true
+      if had_error or did_replace then
         break
       end
     end
@@ -400,7 +459,7 @@ function M.convert_unicode_to_markdown(bufnr)
   end
 
   if modified then
-    ok, err = pcall(function()
+    local ok, err = pcall(function()
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
       return true
     end)

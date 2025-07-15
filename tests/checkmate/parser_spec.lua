@@ -476,6 +476,13 @@ Line that should not affect parent-child relationship
   end)
 
   describe("todo item detection", function()
+    --[[ it("should return checkmate_todo_patterns", function()
+      local config = require("checkmate.config")
+      local parser = require("checkmate.parser")
+      local patterns = parser.get_checkmate_todo_patterns()
+      vim.print(config.options.todo_states)
+      vim.print(patterns)
+    end) ]]
     describe("get_todo_item_state", function()
       it("should detect unchecked todo items with default marker", function()
         local parser = require("checkmate.parser")
@@ -501,6 +508,7 @@ Line that should not affect parent-child relationship
         }
         for _, case in ipairs(cases) do
           local state = parser.get_todo_item_state(case)
+          vim.print({ case = case, state = state })
           assert.equal("checked", state)
         end
       end)

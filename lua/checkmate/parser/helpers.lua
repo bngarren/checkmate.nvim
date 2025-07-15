@@ -168,35 +168,38 @@ end
 --- - Space patterns (variant 2): Match list prefix + checkbox + space, but only capture prefix in group 1
 ---   The trailing space is matched but NOT captured, requiring special handling in gsub replacements
 ---
----@param checkbox_pattern string Must be a Lua pattern, e.g. "%[[xX]%]" or "%[ %]"
----@return string[] patterns List of full Lua patterns with capture group for:
----  - 1. indentation
----  - 2. list marker + first trailing whitespace
----  - 3. checkbox
-function M.create_markdown_checkbox_patterns(checkbox_pattern)
-  if not checkbox_pattern or checkbox_pattern == "" then
-    error("checkbox_pattern cannot be nil or empty")
-  end
-
-  local patterns = {}
-
-  local list_patterns = M.create_list_item_patterns({
-    with_captures = true,
+--- @param chars string | string[]  A single character or list of characters to allow inside the brackets
+--- @return string[] patterns  List of full Lua patterns with capture groups:
+---   1. indentation
+---   2. list marker + first trailing whitespace
+---   3. the checkbox token itself
+function M.create_markdown_checkbox_patterns(chars)
+  vim.validate({
+    chars = { chars, { "string", "table" }, false },
   })
+  local arr = type(chars) == "string" and { chars } or chars
+  ---@cast arr string[]
 
-  for _, list_pattern in ipairs(list_patterns) do
-    -- original: "^(%s*)([%-+*]%s)(.*)"
-    -- we need: "^(%s*[%-+*]%s+)" for the list prefix
-    local prefix_pattern = list_pattern:gsub("%(%.%*%)$", "") -- Remove content capture
-
-    -- variant 1: checkbox at EOL
-    table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. "$")
-
-    -- variant 2: checkbox followed by space (space not captured)
-    table.insert(patterns, prefix_pattern .. "(" .. checkbox_pattern .. ")" .. " ")
+  for i, c in ipairs(arr) do
+    assert(
+      type(c) == "string" and #c == 1,
+      ("create_markdown_checkbox_patterns: element #%d must be a 1-char string, got %q"):format(i, c)
+    )
   end
 
-  return patterns
+  local esc = vim.tbl_map(vim.pesc, arr)
+  local inner = (#esc == 1) and esc[1] or ("[" .. table.concat(esc) .. "]")
+
+  local checkbox = "%[" .. inner .. "%]"
+
+  local pats = {}
+  for _, lp in ipairs(M.create_list_item_patterns({ with_captures = true })) do
+    local prefix = lp:gsub("%(%.%*%)$", "")
+    pats[#pats + 1] = prefix .. "(" .. checkbox .. ")" .. "$"
+    pats[#pats + 1] = prefix .. "(" .. checkbox .. ")" .. " "
+  end
+
+  return pats
 end
 
 --- Attempts to match a GitHub-style task list checkbox (e.g. "- [ ] foo" or "1. [x] bar")

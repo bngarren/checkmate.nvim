@@ -157,6 +157,11 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 --- The order in which this state is cycled (lower = first)
 ---@field order? number
+---
+--- Optional markdown checkbox representation
+--- This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
+--- Markdown spec
+---@field markdown? string | string[]
 
 -----------------------------------------------------
 
@@ -1022,6 +1027,10 @@ function M.setup(opts)
     end
 
     merge_deprecated_opts(config, opts)
+
+    -- ensure that checked and unchecked todo states always have GFM representation
+    config.todo_states.checked.markdown = { "x", "X" }
+    config.todo_states.unchecked.markdown = " "
 
     -- save user style for colorscheme updates
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}

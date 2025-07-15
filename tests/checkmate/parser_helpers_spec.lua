@@ -375,8 +375,7 @@ describe("Parser Helpers", function()
     -- the "variants" are described in parser.convert_markdown_to_unicode() but, briefly, are used
     -- to match a checkbox at EOL like - [ ], as well as ensure a space after the checkbox when it isn't EOL
     it("should create unchecked checkbox with both variants", function()
-      local parser = require("checkmate.parser")
-      local unchecked_box = ph.create_markdown_checkbox_patterns(parser.markdown_unchecked_checkbox)
+      local unchecked_box = ph.create_markdown_checkbox_patterns(" ")
 
       local cases = {
         {
@@ -430,8 +429,7 @@ describe("Parser Helpers", function()
     end)
 
     it("should create checked checkbox with both variants", function()
-      local parser = require("checkmate.parser")
-      local checked_box = ph.create_markdown_checkbox_patterns(parser.markdown_checked_checkbox)
+      local checked_box = ph.create_markdown_checkbox_patterns({ "x", "X" })
 
       local cases = {
         {

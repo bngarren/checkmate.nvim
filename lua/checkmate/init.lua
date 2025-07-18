@@ -196,7 +196,7 @@ function M.toggle(target_state)
         ctx.add_op(api.toggle_state, {
           {
             id = todo_item.id,
-            target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked"),
+            target_state = target_state or (todo_item.state ~= "checked" and "checked" or "unchecked"),
           },
         })
       end
@@ -218,7 +218,7 @@ function M.toggle(target_state)
       for _, item in ipairs(todo_items) do
         table.insert(operations, {
           id = item.id,
-          target_state = target_state or (item.state == "unchecked" and "checked" or "unchecked"),
+          target_state = target_state or (item.state ~= "checked" and "checked" or "unchecked"),
         })
       end
 

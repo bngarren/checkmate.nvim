@@ -696,8 +696,7 @@ function M.discover_todos(bufnr)
       local start_row = item.start_row
 
       -- get marker position
-      local todo_marker = todo_state == "checked" and config.options.todo_markers.checked
-        or config.options.todo_markers.unchecked
+      local todo_marker = config.options.todo_states[todo_state].marker
       local marker_col = 0
       local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
       if todo_marker_byte_pos then

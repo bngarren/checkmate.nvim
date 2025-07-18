@@ -677,8 +677,7 @@ function M.compute_diff_toggle(items_with_states)
     local target_state = entry.target_state
     local row = todo_item.todo_marker.position.row
 
-    local new_marker = target_state == "checked" and config.options.todo_markers.checked
-      or config.options.todo_markers.unchecked
+    local new_marker = config.options.todo_states[target_state].marker
 
     local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
     table.insert(hunks, hunk)
@@ -718,6 +717,9 @@ end
 
 ---Toggle a batch of todo items with proper parent/child propagation
 ---i.e. 'smart toggle'
+---In checkmate.nvim, `toggle` functionality cycles the todo's state between "checked" and "unchecked" only.
+---Non-standard (user defined) todo states will not be propagated.
+---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
 ---@param todo_map table<integer, checkmate.TodoItem>
@@ -726,15 +728,17 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   local config = require("checkmate.config")
   local smart_config = config.options.smart_toggle
 
-  local want = {} -- id -> desired state
+  -- ultimately holds which todo's need their state updated
+  local desired = {} -- desired[id] = "checked"|"unchecked"
 
-  -- downward propagation
-  local function mark_down(id, state, depth)
-    if want[id] == state then
+  -- DOWNWARD PROPAGATION
+
+  local function propagate_down(id, state, depth)
+    if desired[id] == state then
       return
     end
 
-    want[id] = state
+    desired[id] = state
 
     -- determine if we should propagate to children
     local item = todo_map[id]
@@ -742,7 +746,17 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       return
     end
 
-    local propagate_config = state == "checked" and smart_config.check_down or smart_config.uncheck_down
+    -- pick the right down propagation mode
+    -- only propagate checked/unchecked states
+    local propagate_config
+    if state == "checked" then
+      propagate_config = smart_config.check_down
+    elseif state == "unchecked" then
+      propagate_config = smart_config.uncheck_down
+    else
+      -- don't propagate other states
+      return
+    end
 
     if propagate_config == "none" then
       return
@@ -751,24 +765,59 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
 
     for _, child_id in ipairs(item.children) do
-      mark_down(child_id, state, depth + 1)
+      local child = todo_map[child_id]
+      if child then
+        if state == "checked" and child.state == "unchecked" then
+          -- only unchecked children become checked
+          propagate_down(child_id, state, depth + 1)
+        elseif state == "unchecked" and child.state == "checked" then
+          -- only checked children become unchecked
+          propagate_down(child_id, state, depth + 1)
+        end
+        -- other states (e.g. user custom states) are left alone
+      end
     end
   end
 
   -- initialize the downward pass for each selected item
   for _, item in ipairs(items) do
-    local item_target_state = target_state
-    if not item_target_state then
-      -- if no explicit target, toggle based on current state
-      item_target_state = (item.state == "unchecked") and "checked" or "unchecked"
-    end
-
-    mark_down(item.id, item_target_state, 0)
+    -- any non-checked state becomes checked, checked becomes unchecked
+    local s = target_state or (item.state == "checked" and "unchecked" or "checked")
+    propagate_down(item.id, s, 0)
   end
 
-  -- upward propagation
+  -- UPWARD PROPAGATION
 
-  -- helper checks if all relevant children are checked
+  local function subtree_all(id, pred)
+    local item = todo_map[id]
+    if not item or not pred(desired[id] or item.state) then
+      return false
+    end
+    for _, cid in ipairs(item.children or {}) do
+      if not subtree_all(cid, pred) then
+        return false
+      end
+    end
+    return true
+  end
+
+  local function subtree_any(id, pred)
+    local item = todo_map[id]
+    if not item then
+      return false
+    end
+    if pred(desired[id] or item.state) then
+      return true
+    end
+    for _, cid in ipairs(item.children or {}) do
+      if subtree_any(cid, pred) then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- checks if all relevant children are checked
   local function should_check_parent(parent_id)
     if smart_config.check_up == "none" then
       return false
@@ -783,43 +832,19 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       -- check only direct children
       for _, child_id in ipairs(parent.children) do
         local child = todo_map[child_id]
-        if not child then
+        if not child or (desired[child_id] or child.state) == "unchecked" then
           return false
         end
-        local will_be_checked = want[child_id] == "checked" or (want[child_id] == nil and child.state == "checked")
-        if not will_be_checked then
-          return false
-        end
+        -- other states don't prevent parent from being checked
+        return true
       end
       return true
     else -- "all_children"
-      -- check all descendants recursively
-      local function all_descendants_checked(id)
-        local item = todo_map[id]
-        if not item then
-          return false
-        end
-
-        local will_be_checked = want[id] == "checked" or (want[id] == nil and item.state == "checked")
-        if not will_be_checked then
-          return false
-        end
-
-        -- check all children recursively
-        if item.children then
-          for _, child_id in ipairs(item.children) do
-            if not all_descendants_checked(child_id) then
-              return false
-            end
-          end
-        end
-
-        return true
-      end
-
-      -- check all direct children and their descendants
-      for _, child_id in ipairs(parent.children) do
-        if not all_descendants_checked(child_id) then
+      -- NOTE: i.e. check the parent if all children are checked
+      for _, cid in ipairs(parent.children) do
+        if not subtree_all(cid, function(st)
+          return st ~= "unchecked"
+        end) then
           return false
         end
       end
@@ -838,47 +863,26 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       return false -- no children means no reason to uncheck
     end
 
+    -- only uncheck parent if it's currently checked
+    if (desired[parent_id] or parent.state) ~= "checked" then
+      return false
+    end
+
     if smart_config.uncheck_up == "direct_children" then
-      -- check only direct children
       for _, child_id in ipairs(parent.children) do
         local child = todo_map[child_id]
-        if child then
-          local will_be_unchecked = want[child_id] == "unchecked"
-            or (want[child_id] == nil and child.state == "unchecked")
-          if will_be_unchecked then
-            return true -- Any direct child unchecked
-          end
+        if child and (desired[child_id] or child.state) == "unchecked" then
+          -- only unchecked children cause parent to uncheck
+          return true
         end
       end
       return false
     else -- "all_children"
-      -- check all descendants recursively
-      local function any_descendant_unchecked(id)
-        local item = todo_map[id]
-        if not item then
-          return false
-        end
-
-        local will_be_unchecked = want[id] == "unchecked" or (want[id] == nil and item.state == "unchecked")
-        if will_be_unchecked then
-          return true
-        end
-
-        -- check all children recursively
-        if item.children then
-          for _, child_id in ipairs(item.children) do
-            if any_descendant_unchecked(child_id) then
-              return true
-            end
-          end
-        end
-
-        return false
-      end
-
-      -- check all direct children and their descendants
-      for _, child_id in ipairs(parent.children) do
-        if any_descendant_unchecked(child_id) then
+      -- NOTE: i.e. uncheck the parent if any children are unchecked
+      for _, cid in ipairs(parent.children) do
+        if subtree_any(cid, function(st)
+          return st == "unchecked"
+        end) then
           return true
         end
       end
@@ -886,50 +890,46 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- process upward propagation for checked items
+  -- process upward propagation for items becoming checked
   local function propagate_check_up(id)
-    local item = todo_map[id]
-    if not item or not item.parent_id then
+    local parent_id = todo_map[id] and todo_map[id].parent_id
+    if not parent_id then
       return
     end
 
-    if should_check_parent(item.parent_id) then
-      if want[item.parent_id] ~= "checked" then
-        want[item.parent_id] = "checked"
-        -- recursively propagate up
-        propagate_check_up(item.parent_id)
-      end
+    if should_check_parent(parent_id) and desired[parent_id] ~= "checked" then
+      desired[parent_id] = "checked"
+      propagate_check_up(parent_id)
     end
   end
 
-  -- process upward propagation for unchecked items
+  -- process upward propagation for items becoming unchecked
   local function propagate_uncheck_up(id)
-    local item = todo_map[id]
-    if not item or not item.parent_id then
+    local parent_id = todo_map[id] and todo_map[id].parent_id
+    if not parent_id then
       return
     end
 
-    if should_uncheck_parent(item.parent_id) then
-      if want[item.parent_id] ~= "unchecked" then
-        want[item.parent_id] = "unchecked"
-        -- recursively propagate up
-        propagate_uncheck_up(item.parent_id)
-      end
+    if should_uncheck_parent(parent_id) and desired[parent_id] ~= "unchecked" then
+      desired[parent_id] = "unchecked"
+      propagate_uncheck_up(parent_id)
     end
   end
 
   -- run upward propagation based on what we're setting items to
-  for id, desired_state in pairs(want) do
+  for id, desired_state in pairs(desired) do
     if desired_state == "checked" then
+      -- item becoming checked might cause parent to check
       propagate_check_up(id)
-    else -- unchecked
+    elseif desired_state == "unchecked" then
+      -- item becoming unchecked might cause parent to uncheck
       propagate_uncheck_up(id)
     end
   end
 
   local operations = {}
 
-  for id, desired_state in pairs(want) do
+  for id, desired_state in pairs(desired) do
     local item = todo_map[id]
     if item and item.state ~= desired_state then
       table.insert(operations, {

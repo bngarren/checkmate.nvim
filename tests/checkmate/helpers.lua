@@ -1,5 +1,23 @@
 local M = {}
 
+---Get the default unchecked marker from config
+---@return string marker
+function M.get_unchecked_marker()
+  local config = require("checkmate.config")
+  return config.get_defaults().todo_states.unchecked.marker
+end
+
+---Get the default checked marker from config
+---@return string marker
+function M.get_checked_marker()
+  local config = require("checkmate.config")
+  return config.get_defaults().todo_states.checked.marker
+end
+
+function M.get_pending_marker()
+  return "℗"
+end
+
 M.DEFAULT_TEST_CONFIG = {
   metadata = {
     ---@diagnostic disable-next-line: missing-fields
@@ -7,6 +25,12 @@ M.DEFAULT_TEST_CONFIG = {
   },
   enter_insert_after_new = false,
   smart_toggle = { enabled = false },
+  todo_states = {
+    pending = {
+      marker = M.get_pending_marker(),
+      markdown = ".", -- i.e. [.]
+    },
+  },
 }
 
 --- @param content string|string[]
@@ -237,20 +261,6 @@ function M.make_selection(row1, col1, row2, col2, mode)
   vim.api.nvim_win_set_cursor(0, { row2, col2 })
 
   vim.wait(5)
-end
-
----Get the default unchecked marker from config
----@return string marker
-function M.get_unchecked_marker()
-  local config = require("checkmate.config")
-  return config.get_defaults().todo_states.unchecked.marker
-end
-
----Get the default checked marker from config
----@return string marker
-function M.get_checked_marker()
-  local config = require("checkmate.config")
-  return config.get_defaults().todo_states.checked.marker
 end
 
 return M

@@ -165,8 +165,9 @@ end
 
 ---Toggle todo item(s) state under cursor or in visual selection
 ---
----To set a specific todo item to a target state, use `set_todo_item`
----@param target_state? string Optional target state ("checked" or "unchecked")
+--- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked"
+--- - To set a _specific_ todo item to a target state, use `set_todo_item`
+---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc.
 ---@return boolean success
 function M.toggle(target_state)
   local api = require("checkmate.api")

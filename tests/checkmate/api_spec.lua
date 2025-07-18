@@ -21,6 +21,7 @@ describe("API", function()
     it("should save todo file with correct Markdown syntax", function()
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+      local pending = h.get_pending_marker()
 
       local content = [[
 # Complex Todo List
@@ -39,7 +40,8 @@ describe("API", function()
 2. ]] .. checked .. [[ Call dentist
 3. ]] .. unchecked .. [[ Plan vacation
    - ]] .. unchecked .. [[ Research destinations
-   - ]] .. checked .. [[ Check budget]]
+   - ]] .. checked .. [[ Check budget
+- ]] .. pending .. [[ Pending task]]
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
@@ -72,10 +74,13 @@ describe("API", function()
       assert.equal("3. [ ] Plan vacation", lines[15]:gsub("%s+$", ""))
       assert.equal("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
       assert.equal("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
+      -- custom todo state/marker
+      assert.equal("- [.] Pending task", lines[18]:gsub("%s+$", ""))
 
       -- verify unicode symbols are NOT present in the saved file
       assert.no.matches(vim.pesc(unchecked), saved_content)
       assert.no.matches(vim.pesc(checked), saved_content)
+      assert.no.matches(vim.pesc(pending), saved_content)
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -88,6 +93,7 @@ describe("API", function()
 
 - [ ] Unchecked task
 - [x] Checked task
+- [.] Pending task
       ]]
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
@@ -96,12 +102,14 @@ describe("API", function()
 
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
+      local pending = h.get_pending_marker()
 
-      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", lines[3])
-      assert.matches("- " .. vim.pesc(checked) .. " Checked task", lines[4])
+      assert.matches("- " .. unchecked .. " Unchecked task", lines[3])
+      assert.matches("- " .. checked .. " Checked task", lines[4])
+      assert.matches("- " .. pending .. " Pending task", lines[5])
 
       local todo_map = require("checkmate.parser").discover_todos(bufnr)
-      assert.equal(vim.tbl_count(todo_map), 2)
+      assert.equal(3, vim.tbl_count(todo_map))
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -217,7 +225,7 @@ describe("API", function()
       end)
 
       it("should call BufWritePre and BufWritePost", function()
-        local bufnr = h.setup_todo_file_buffer("")
+        local bufnr, file_path = h.setup_todo_file_buffer("")
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Todo new" })
         assert.is_true(vim.bo[bufnr].modified)
 
@@ -248,14 +256,14 @@ describe("API", function()
         assert.is_true(buf_write_post_called)
 
         finally(function()
-          h.cleanup_buffer(bufnr)
+          h.cleanup_buffer(bufnr, file_path)
           vim.api.nvim_clear_autocmds({ group = augroup })
         end)
       end)
     end)
   end)
 
-  describe("todo collection", function()
+  describe("todo collection from cursor/selection", function()
     local cm
     before_each(function()
       cm = require("checkmate")

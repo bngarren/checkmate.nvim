@@ -38,9 +38,13 @@ describe("checkmate init and lifecycle", function()
       local custom_config = {
         enabled = true,
         files = { "tasks.md", "*.task" },
-        todo_markers = {
-          checked = "x",
-          unchecked = "o",
+        todo_states = {
+          checked = {
+            marker = "x",
+          },
+          unchecked = {
+            marker = "o",
+          },
         },
         notify = false,
       }
@@ -53,8 +57,8 @@ describe("checkmate init and lifecycle", function()
       assert.equal(2, #config.options.files)
       assert.equal("tasks.md", config.options.files[1])
       assert.equal("*.task", config.options.files[2])
-      assert.equal("x", config.options.todo_markers.checked)
-      assert.equal("o", config.options.todo_markers.unchecked)
+      assert.equal("x", config.options.todo_states.checked.marker)
+      assert.equal("o", config.options.todo_states.unchecked.marker)
       assert.is_false(config.options.notify)
 
       checkmate.stop()

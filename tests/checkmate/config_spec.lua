@@ -43,8 +43,8 @@ describe("Config", function()
 
       assert.is_true(config.options.enabled)
       assert.is_true(config.options.notify)
-      assert.equal("□", config.options.todo_markers.unchecked)
-      assert.equal("✔", config.options.todo_markers.checked)
+      assert.equal("□", config.options.todo_states.unchecked.marker)
+      assert.equal("✔", config.options.todo_states.checked.marker)
       assert.equal("-", config.options.default_list_marker)
       assert.is_true(config.options.enter_insert_after_new)
 
@@ -131,16 +131,17 @@ describe("Config", function()
 
       ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({
-        ---@diagnostic disable-next-line: missing-fields
-        todo_markers = {
-          -- unchecked = "□", -- this is the default
-          checked = "✅",
+        todo_states = {
+          ---@diagnostic disable-next-line: missing-fields
+          checked = {
+            marker = "✅",
+          },
         },
         default_list_marker = "+",
         enter_insert_after_new = false,
       })
 
-      assert.equal("✅", config.options.todo_markers.checked)
+      assert.equal("✅", config.options.todo_states.checked.marker)
       assert.equal("+", config.options.default_list_marker)
       assert.is_false(config.options.enter_insert_after_new)
 

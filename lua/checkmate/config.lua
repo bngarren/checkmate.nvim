@@ -158,11 +158,11 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- Markdown checkbox representation
 --- For custom states, this determines how the todo state is written in Markdown syntax.
 --- Important:
----   - Must be unique among all todo states. If two states share the same Markdown representation, then there will
+---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
 ---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
 ---   - Not guaranteed to work in other apps/plugins as custom `[.]`, `[/]`, etc. are not standard Github-flavored Markdown
 ---   - This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
---- Markdown spec
+--- Markdown spec, e.g. `[ ]` and `[x]`
 ---@field markdown string | string[]
 ---
 --- The order in which this state is cycled (lower = first)
@@ -392,12 +392,12 @@ local defaults = {
       desc = "Set todo item as unchecked (not done)",
       modes = { "n", "v" },
     },
-    ["<leader>T0"] = {
+    ["<leader>T="] = {
       rhs = "<cmd>Checkmate cycle_next<CR>",
       desc = "Cycle todo item(s) to the next state",
       modes = { "n", "v" },
     },
-    ["<leader>T9"] = {
+    ["<leader>T-"] = {
       rhs = "<cmd>Checkmate cycle_previous<CR>",
       desc = "Cycle todo item(s) to the previous state",
       modes = { "n", "v" },
@@ -438,20 +438,16 @@ local defaults = {
     ---@diagnostic disable-next-line: missing-fields
     unchecked = {
       marker = "□",
-      order = 1,
+      order = 999,
       -- we don't need to set the `markdown` field as it can't be overriden
     },
     ---@diagnostic disable-next-line: missing-fields
     checked = {
       marker = "✔",
-      order = 2,
+      order = 1,
       -- we don't need to set the `markdown` field as it can't be overriden
     },
   },
-  --[[ todo_markers = {
-    unchecked = "□",
-    checked = "✔",
-  }, ]]
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
@@ -666,6 +662,7 @@ function M.validate_options(opts)
   end
 
   -- Validate todo_markers
+  ---@deprecated v0.10
   if opts.todo_markers ~= nil then
     ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
     if not ok then

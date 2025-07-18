@@ -736,10 +736,10 @@ Individual styles can still be overriden using the `style` option and passing a 
 |----------|-------------|
 | CheckmateListMarkerUnordered | Unordered list markers, e.g. `-`,`*`, and `+`. (_Only those associated with a todo_) |
 | CheckmateListMarkerOrdered | Ordered list markers, e.g. `1.`, `2)`. (_Only those associated with a todo_) |
-| CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_markers` option |
+| CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_states` `marker` option |
 | CheckmateUncheckedMainContent | The main content of an unchecked todo (typically the first paragraph) |
 | CheckmateUncheckedAdditionalContent | Additional content for an unchecked todo (subsequent paragraphs, list items, etc.) |
-| CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_markers` option |
+| CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_states` `marker` option |
 | CheckmateCheckedMainContent | The main content of a checked todo (typically the first paragraph) |
 | CheckmateCheckedAdditionalContent | Additional content for a checked todo (subsequent paragraphs, list items, etc.) |
 | CheckmateTodoCountIndicator | The todo count indicator, e.g. `1/4`, shown on the todo line, if enabled. See `show_todo_count` option |
@@ -760,8 +760,8 @@ opts = {
 ```
 
 #### Example: Style a custom todo state
-Custom `todo_states` will be styled following the same highlight group naming convention:
-e.g. `Checkmate**State**Marker`
+[Custom todo states](#todo-states) will be styled following the same highlight group naming convention:
+e.g. `Checkmate[State]Marker`
 So, if you define a `partial` state:
 ```lua
 todo_states = {
@@ -783,16 +783,16 @@ The default states for a todo are binary, `checked` and `unchecked`. These will 
 ```lua
 todo_states = {
   checked = {
-    marker = "✅"
+    marker = "☒"
   },
   unchecked = {
-    marker = "◻️"
+    marker = "☐"
   }
 }
 ```
 
 ### Custom states
-If you would like to add additional, custom states (outside of the GFM spec), Checkmate can support this (but don't expect cross-compatibility with other Markdown programs)
+If you would like to add additional, custom states (outside of the GFM spec), Checkmate can support this (but don't assume cross-compatibility with other Markdown programs).
 
 For example, you may want to set todos as:
 - 'partial' or 'pending'
@@ -809,10 +809,18 @@ todo_states = {
   }
 }
 ```
-The `marker` is the string used in the Checkmate bufer. The `markdown` is the char used inside the Markdown task list item, e.g. `[.]`.
+`marker` is the string used in the Checkmate buffer. `markdown` is the char used inside the Markdown task list item, e.g. `[.]`.
 
 > [!TIP]
-> Be sure that the `marker` and `markdown` values are unique amongst all states, otherwise the parser won't map correctly
+> Be sure that the `marker` and `markdown` values are unique amongst all states, otherwise the parser won't map correctly.
+
+You can then cycle through a todo's states with `:Checkmate cycle_next` and `:Checkmate cycle_previous` or using the API, such as:
+```lua
+require("checkmate").cycle()
+
+-- or to toggle to a specific state
+require("checkmate").toggle("partial")
+```
 
 ## Todo count indicator
 

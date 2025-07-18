@@ -2,6 +2,8 @@ describe("Parser", function()
   local h = require("tests.checkmate.helpers")
   local checkmate = require("checkmate")
 
+  local pending_marker = "℗"
+
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
@@ -17,7 +19,16 @@ describe("Parser", function()
   before_each(function()
     _G.reset_state()
 
-    checkmate.setup()
+    ---@diagnostic disable-next-line: missing-fields
+    checkmate.setup({
+      -- add custom states
+      todo_states = {
+        pending = {
+          marker = pending_marker,
+          markdown = ".", -- i.e. [.]
+        },
+      },
+    })
     vim.wait(20)
   end)
 
@@ -316,6 +327,28 @@ describe("Parser", function()
       end)
     end)
 
+    it("should parse todos with custom todo states", function()
+      local parser = require("checkmate.parser")
+      local unchecked = h.get_unchecked_marker()
+      -- we setup the "pending" state in the top level before_each
+      local content = [[
+  - ]] .. unchecked .. [[ Default unchecked
+  - ]] .. pending_marker .. [[ Pending
+      ]]
+
+      local bufnr = h.setup_test_buffer(content)
+      local todo_map = parser.discover_todos(bufnr)
+
+      assert.equal(2, #todo_map)
+
+      local pending_todo = h.find_todo_by_text(todo_map, "Pending")
+      assert.is_not_nil(pending_todo)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
     it("should build correct parent-child relationships with mixed list types", function()
       local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
@@ -475,14 +508,7 @@ Line that should not affect parent-child relationship
     end)
   end)
 
-  describe("todo item detection", function()
-    --[[ it("should return checkmate_todo_patterns", function()
-      local config = require("checkmate.config")
-      local parser = require("checkmate.parser")
-      local patterns = parser.get_checkmate_todo_patterns()
-      vim.print(config.options.todo_states)
-      vim.print(patterns)
-    end) ]]
+  describe("get todo item and state", function()
     describe("get_todo_item_state", function()
       it("should detect unchecked todo items with default marker", function()
         local parser = require("checkmate.parser")
@@ -508,25 +534,44 @@ Line that should not affect parent-child relationship
         }
         for _, case in ipairs(cases) do
           local state = parser.get_todo_item_state(case)
-          vim.print({ case = case, state = state })
           assert.equal("checked", state)
         end
       end)
 
-      it("should detect unchecked todo items with various list markers", function()
+      it("should detect pending todo items with custom marker", function()
+        local parser = require("checkmate.parser")
+        local cases = {
+          "- " .. pending_marker .. " This is a pending todo",
+          "- " .. pending_marker,
+        }
+        for _, case in ipairs(cases) do
+          local state = parser.get_todo_item_state(case)
+          assert.equal("pending", state)
+        end
+      end)
+
+      it("should detect todo items with various list markers for all states", function()
         local parser = require("checkmate.parser")
         local unchecked_marker = h.get_unchecked_marker()
+        local checked_marker = h.get_checked_marker()
 
-        -- test with different list markers
         local list_markers = { "-", "+", "*" }
-        for _, marker in ipairs(list_markers) do
-          local cases = {
-            marker .. " " .. unchecked_marker .. " This is an unchecked todo",
-            marker .. " " .. unchecked_marker,
-          }
-          for _, case in ipairs(cases) do
-            local state = parser.get_todo_item_state(case)
-            assert.equal("unchecked", state)
+        local test_cases = {
+          { marker = unchecked_marker, state = "unchecked" },
+          { marker = checked_marker, state = "checked" },
+          { marker = pending_marker, state = "pending" },
+        }
+
+        for _, list_marker in ipairs(list_markers) do
+          for _, test_case in ipairs(test_cases) do
+            local cases = {
+              list_marker .. " " .. test_case.marker .. " This is a " .. test_case.state .. " todo",
+              list_marker .. " " .. test_case.marker,
+            }
+            for _, case in ipairs(cases) do
+              local state = parser.get_todo_item_state(case)
+              assert.equal(test_case.state, state)
+            end
           end
         end
       end)
@@ -575,15 +620,12 @@ Line that should not affect parent-child relationship
         local parser = require("checkmate.parser")
 
         local config = require("checkmate.config")
-        local original_markers = vim.deepcopy(config.options.todo_markers)
 
-        config.options.todo_markers = {
-          unchecked = "[ ]",
-          checked = "[x]",
-        }
+        config.options.todo_states.checked.marker = "[x]"
+        config.options.todo_states.unchecked.marker = "[ ]"
 
         -- force clear the pre-compiled pattern cache
-        parser.clear_pattern_cache()
+        parser.clear_parser_cache()
 
         local lines = {
           "- [ ] Custom unchecked",
@@ -599,8 +641,6 @@ Line that should not affect parent-child relationship
           local state = parser.get_todo_item_state(line)
           assert.equal(expected[i], state)
         end
-
-        config.options.todo_markers = original_markers
       end)
     end)
     describe("get_todo_item_at_position", function()
@@ -611,26 +651,31 @@ Line that should not affect parent-child relationship
 - [ ] This is a todo line
 This is another line
 - [ ] Another todo line
+- [.] Pending
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
+          config = {
+            todo_states = {
+              pending = {
+                marker = pending_marker,
+                markdown = ".", -- i.e. [.]
+              },
+            },
+          },
+        })
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
-
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
 
-        todo_item = parser.get_todo_item_at_position(bufnr, 2, 0)
-
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
-
+        todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 2, 0))
         assert.is_truthy(todo_item.todo_text:match("Another todo line"))
 
+        todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 0))
+        assert.is_truthy(todo_item.todo_text:match("Pending"))
+
         finally(function()
-          h.cleanup_buffer(bufnr)
+          h.cleanup_buffer(bufnr, file_path)
         end)
       end)
 
@@ -706,9 +751,7 @@ This is another line
         local bufnr = h.setup_todo_file_buffer(content)
 
         -- cursor on wrapped portion of nested todo
-        local todo_item = parser.get_todo_item_at_position(bufnr, 3, 10)
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 10))
         assert.is_truthy(todo_item.todo_text:match("Deeply nested todo"))
 
         assert.is_falsy(todo_item.todo_text:match("Parent todo"))
@@ -731,9 +774,7 @@ This is another line
 
         local bufnr = h.setup_todo_file_buffer(content)
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 3, 0)
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 0))
         assert.is_truthy(todo_item.todo_text:match("Separate todo"))
 
         finally(function()

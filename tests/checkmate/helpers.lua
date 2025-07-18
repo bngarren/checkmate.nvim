@@ -138,7 +138,7 @@ end
 ---@param x T?
 ---@return T
 function M.exists(x)
-  assert(x ~= nil, "Unexpected nil")
+  assert(x ~= nil, "Does not exist!")
   return x
 end
 

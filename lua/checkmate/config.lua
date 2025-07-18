@@ -155,13 +155,18 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@field marker string
 ---
+--- Markdown checkbox representation
+--- For custom states, this determines how the todo state is written in Markdown syntax.
+--- Important:
+---   - Must be unique among all todo states. If two states share the same Markdown representation, then there will
+---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
+---   - Not guaranteed to work in other apps/plugins as custom `[.]`, `[/]`, etc. are not standard Github-flavored Markdown
+---   - This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
+--- Markdown spec
+---@field markdown string | string[]
+---
 --- The order in which this state is cycled (lower = first)
 ---@field order? number
----
---- Optional markdown checkbox representation
---- This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
---- Markdown spec
----@field markdown? string | string[]
 
 -----------------------------------------------------
 
@@ -387,6 +392,16 @@ local defaults = {
       desc = "Set todo item as unchecked (not done)",
       modes = { "n", "v" },
     },
+    ["<leader>T0"] = {
+      rhs = "<cmd>Checkmate cycle_next<CR>",
+      desc = "Cycle todo item(s) to the next state",
+      modes = { "n", "v" },
+    },
+    ["<leader>T9"] = {
+      rhs = "<cmd>Checkmate cycle_previous<CR>",
+      desc = "Cycle todo item(s) to the previous state",
+      modes = { "n", "v" },
+    },
     ["<leader>Tn"] = {
       rhs = "<cmd>Checkmate create<CR>",
       desc = "Create todo item",
@@ -420,13 +435,17 @@ local defaults = {
   },
   default_list_marker = "-",
   todo_states = {
+    ---@diagnostic disable-next-line: missing-fields
     unchecked = {
       marker = "□",
       order = 1,
+      -- we don't need to set the `markdown` field as it can't be overriden
     },
+    ---@diagnostic disable-next-line: missing-fields
     checked = {
       marker = "✔",
       order = 2,
+      -- we don't need to set the `markdown` field as it can't be overriden
     },
   },
   --[[ todo_markers = {
@@ -648,7 +667,7 @@ function M.validate_options(opts)
 
   -- Validate todo_markers
   if opts.todo_markers ~= nil then
-    local ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
+    ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
     if not ok then
       return false, err
     end
@@ -678,7 +697,7 @@ function M.validate_options(opts)
 
   -- Validate default_list_marker
   if opts.default_list_marker ~= nil then
-    local ok, err = validate_type(opts.default_list_marker, "string", "default_list_marker", true)
+    ok, err = validate_type(opts.default_list_marker, "string", "default_list_marker", true)
     if not ok then
       return false, err
     end
@@ -690,7 +709,7 @@ function M.validate_options(opts)
   end
 
   if opts.ui ~= nil then
-    local ok, err = validate_type(opts.ui, "table", "ui", true)
+    ok, err = validate_type(opts.ui, "table", "ui", true)
     if not ok then
       return false, err
     end
@@ -710,7 +729,7 @@ function M.validate_options(opts)
 
   -- Validate todo_count_position
   if opts.todo_count_position ~= nil then
-    local ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
+    ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
     if not ok then
       return false, err
     end
@@ -723,7 +742,7 @@ function M.validate_options(opts)
 
   -- Validate todo_count_formatter
   if opts.todo_count_formatter ~= nil then
-    local ok, err = validate_type(opts.todo_count_formatter, "function", "todo_count_formatter", true)
+    ok, err = validate_type(opts.todo_count_formatter, "function", "todo_count_formatter", true)
     if not ok then
       return false, err
     end
@@ -736,28 +755,7 @@ function M.validate_options(opts)
       return false, err
     end
 
-    local valid_style_keys = {
-      "CheckmateListMarkerUnordered",
-      "CheckmateListMarkerOrdered",
-      "CheckmateUncheckedMarker",
-      "CheckmateUncheckedMainContent",
-      "CheckmateUncheckedAdditionalContent",
-      "CheckmateCheckedMarker",
-      "CheckmateCheckedMainContent",
-      "CheckmateCheckedAdditionalContent",
-      "CheckmateTodoCountIndicator",
-    }
-
-    local valid_keys_set = {}
-    for _, key in ipairs(valid_style_keys) do
-      valid_keys_set[key] = true
-    end
-
     for field, value in pairs(opts.style) do
-      if not valid_keys_set[field] then
-        return false, string.format("style.%s is not a recognized style key or highlight group", field)
-      end
-
       ok, err = validate_type(value, "table", "style." .. field, false)
       if not ok then
         return false, err
@@ -767,7 +765,7 @@ function M.validate_options(opts)
 
   -- Validate smart_toggle
   if opts.smart_toggle ~= nil then
-    local ok, err = validate_type(opts.smart_toggle, "table", "smart_toggle", true)
+    ok, err = validate_type(opts.smart_toggle, "table", "smart_toggle", true)
     if not ok then
       return false, err
     end
@@ -809,7 +807,7 @@ function M.validate_options(opts)
 
   -- Validate archive
   if opts.archive ~= nil then
-    local ok, err = validate_type(opts.archive, "table", "archive", true)
+    ok, err = validate_type(opts.archive, "table", "archive", true)
     if not ok then
       return false, err
     end
@@ -845,7 +843,7 @@ function M.validate_options(opts)
 
   -- Validate linter
   if opts.linter ~= nil then
-    local ok, err = validate_type(opts.linter, "table", "linter", true)
+    ok, err = validate_type(opts.linter, "table", "linter", true)
     if not ok then
       return false, err
     end
@@ -873,7 +871,7 @@ function M.validate_options(opts)
     end
 
     for meta_name, meta_props in pairs(opts.metadata) do
-      local ok, err = validate_type(meta_props, "table", "metadata." .. meta_name, true)
+      ok, err = validate_type(meta_props, "table", "metadata." .. meta_name, true)
       if not ok then
         return false, err
       end
@@ -966,6 +964,7 @@ end
 local function merge_deprecated_opts(current_opts, user_opts)
   -----------------------
   ---@deprecated v0.10
+  ---Should be removed once todo_markers is removed
 
   user_opts = user_opts or {}
 
@@ -974,10 +973,12 @@ local function merge_deprecated_opts(current_opts, user_opts)
   if user_opts.todo_markers and not user_opts.todo_states then
     local default_states = require("checkmate.config").get_defaults().todo_states
     current_opts.todo_states = {
+      ---@diagnostic disable-next-line: missing-fields
       unchecked = {
         marker = user_opts.todo_markers.unchecked,
         order = default_states.unchecked.order,
       },
+      ---@diagnostic disable-next-line: missing-fields
       checked = {
         marker = user_opts.todo_markers.checked,
         order = default_states.checked.order,

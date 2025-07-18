@@ -203,8 +203,9 @@ function M.create_markdown_checkbox_patterns(chars)
 end
 
 --- Attempts to match a GitHub-style task list checkbox (e.g. "- [ ] foo" or "1. [x] bar")
+--- Note: this will only match the GFM task list items, not custom user configurated states, e.g. "- [.]"
 --- @param line string
---- @param state? checkmate.TodoItemState
+--- @param state? string "unchecked" or "checked"
 --- @return { indent: integer, marker: string, checked: boolean, content: string, raw_checkbox: string }? result
 function M.match_markdown_checkbox(line, state)
   line = line or ""

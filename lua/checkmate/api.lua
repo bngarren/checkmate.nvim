@@ -662,7 +662,7 @@ function M.compute_diff_insert_todo_below(bufnr, row)
 end
 
 --- Compute diff hunks for toggling a batch of items with their target states
----@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: checkmate.TodoItemState}
+---@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.compute_diff_toggle(items_with_states)
   local config = require("checkmate.config")
@@ -689,7 +689,7 @@ end
 
 --- Toggle state of todo item(s)
 ---@param ctx checkmate.TransactionContext Transaction context
----@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
+---@param operations table[] Array of {id: integer, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_state(ctx, operations)
   local items_with_states = {}
@@ -709,7 +709,7 @@ end
 
 --- Set todo items to specific state
 ---@param ctx checkmate.TransactionContext Transaction context
----@param operations table[] Array of {id: integer, target_state: checkmate.TodoItemState}
+---@param operations table[] Array of {id: integer, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.set_todo_item(ctx, operations)
   return M.toggle_state(ctx, operations)
@@ -718,12 +718,12 @@ end
 ---Toggle a batch of todo items with proper parent/child propagation
 ---i.e. 'smart toggle'
 ---In checkmate.nvim, `toggle` functionality cycles the todo's state between "checked" and "unchecked" only.
----Non-standard (user defined) todo states will not be propagated.
+---Custom states are set individually but do not propagate to parents/children.
 ---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
 ---@param todo_map table<integer, checkmate.TodoItem>
----@param target_state? checkmate.TodoItemState Optional target state, otherwise toggle each item
+---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
   local config = require("checkmate.config")
   local smart_config = config.options.smart_toggle
@@ -943,6 +943,42 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   if #operations > 0 then
     ctx.add_op(M.toggle_state, operations)
   end
+end
+
+--- Get the next todo state in the cycle
+---@param current_state string Current todo state
+---@param backward? boolean If true, cycle backward
+---@return string next_state The next todo state name
+function M.get_next_todo_state(current_state, backward)
+  local parser = require("checkmate.parser")
+  local states = parser.get_ordered_todo_states()
+  local current_index = nil
+
+  for i, state in ipairs(states) do
+    if state.name == current_state then
+      current_index = i
+      break
+    end
+  end
+
+  if not current_index then
+    return states[1].name
+  end
+
+  local next_index
+  if backward then
+    next_index = current_index - 1
+    if next_index < 1 then
+      next_index = #states -- wrap to end
+    end
+  else
+    next_index = current_index + 1
+    if next_index > #states then
+      next_index = 1 -- wrap to beginning
+    end
+  end
+
+  return states[next_index].name
 end
 
 ---@param todo_item checkmate.TodoItem

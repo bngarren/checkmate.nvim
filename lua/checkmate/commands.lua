@@ -33,14 +33,6 @@ local top_commands = {
     complete = { "checked", "unchecked" },
   },
 
-  create = {
-    desc = "Create a new todo item",
-    nargs = "0",
-    handler = function()
-      require("checkmate").create()
-    end,
-  },
-
   check = {
     desc = "Mark todo item as checked",
     nargs = "0",
@@ -54,6 +46,30 @@ local top_commands = {
     nargs = "0",
     handler = function()
       require("checkmate").uncheck()
+    end,
+  },
+
+  cycle_next = {
+    desc = "Cycle todo state forward",
+    nargs = "0",
+    handler = function()
+      require("checkmate").cycle()
+    end,
+  },
+
+  cycle_previous = {
+    desc = "Cycle todo state backward",
+    nargs = "0",
+    handler = function()
+      require("checkmate").cycle(true)
+    end,
+  },
+
+  create = {
+    desc = "Create a new todo item",
+    nargs = "0",
+    handler = function()
+      require("checkmate").create()
     end,
   },
 

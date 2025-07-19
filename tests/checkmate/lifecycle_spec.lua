@@ -26,6 +26,9 @@ describe("checkmate init and lifecycle", function()
       assert.is_true(checkmate.is_running())
       local actual = vim.deepcopy(config.options)
       actual.style = {} -- to match expected because default has style = {}
+      actual.todo_markers = nil -- TODO: remove once @deprecated todo_markers is removed
+      actual.todo_states.checked.markdown = nil -- won't be in expected/default as it is added during setup
+      actual.todo_states.unchecked.markdown = nil
       local expected = config.get_defaults()
       assert.same(expected, actual)
       checkmate.stop()
@@ -35,9 +38,13 @@ describe("checkmate init and lifecycle", function()
       local custom_config = {
         enabled = true,
         files = { "tasks.md", "*.task" },
-        todo_markers = {
-          checked = "x",
-          unchecked = "o",
+        todo_states = {
+          checked = {
+            marker = "x",
+          },
+          unchecked = {
+            marker = "o",
+          },
         },
         notify = false,
       }
@@ -50,8 +57,8 @@ describe("checkmate init and lifecycle", function()
       assert.equal(2, #config.options.files)
       assert.equal("tasks.md", config.options.files[1])
       assert.equal("*.task", config.options.files[2])
-      assert.equal("x", config.options.todo_markers.checked)
-      assert.equal("o", config.options.todo_markers.unchecked)
+      assert.equal("x", config.options.todo_states.checked.marker)
+      assert.equal("o", config.options.todo_states.unchecked.marker)
       assert.is_false(config.options.notify)
 
       checkmate.stop()

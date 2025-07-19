@@ -11,14 +11,16 @@ M.PRIORITY = {
 }
 
 --- Get highlight group for todo content based on state and relation
----@param todo_state checkmate.TodoItemState The todo state
+---@param todo_state string
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group The highlight group to use
 function M.get_todo_content_highlight(todo_state, is_main_content)
-  if todo_state == "checked" then
-    return is_main_content and "CheckmateCheckedMainContent" or "CheckmateCheckedAdditionalContent"
+  local state_name = require("checkmate.util").snake_to_camel(todo_state)
+
+  if is_main_content then
+    return "Checkmate" .. state_name .. "MainContent"
   else
-    return is_main_content and "CheckmateUncheckedMainContent" or "CheckmateUncheckedAdditionalContent"
+    return "Checkmate" .. state_name .. "AdditionalContent"
   end
 end
 
@@ -80,8 +82,29 @@ function M.register_highlight_groups()
     CheckmateNormal = { bold = false, force = true, nocombine = true, fg = "fg" },
   }
 
+  -- generate highlight groups for each todo state
+  for state_name, _ in pairs(config.options.todo_states) do
+    local state_name_camel = require("checkmate.util").snake_to_camel(state_name)
+
+    local marker_group = "Checkmate" .. state_name_camel .. "Marker"
+    local main_content_group = "Checkmate" .. state_name_camel .. "MainContent"
+    local additional_content_group = "Checkmate" .. state_name_camel .. "AdditionalContent"
+
+    if config.options.style[marker_group] then
+      highlights[marker_group] = config.options.style[marker_group]
+    end
+    if config.options.style[main_content_group] then
+      highlights[main_content_group] = config.options.style[main_content_group]
+    end
+    if config.options.style[additional_content_group] then
+      highlights[additional_content_group] = config.options.style[additional_content_group]
+    end
+  end
+
   for group_name, settings in pairs(config.options.style or {}) do
-    highlights[group_name] = settings
+    if not highlights[group_name] then
+      highlights[group_name] = settings
+    end
   end
 
   -- For metadata tags, we only set up the base highlight groups from static styles
@@ -301,7 +324,8 @@ function M.highlight_todo_marker(bufnr, todo_item)
   local marker_text = todo_item.todo_marker.text
 
   if marker_pos.col >= 0 then
-    local hl_group = todo_item.state == "checked" and "CheckmateCheckedMarker" or "CheckmateUncheckedMarker"
+    local state_name_camel = require("checkmate.util").snake_to_camel(todo_item.state)
+    local hl_group = "Checkmate" .. state_name_camel .. "Marker"
 
     local line = M.get_buffer_line(bufnr, marker_pos.row)
     if not line then

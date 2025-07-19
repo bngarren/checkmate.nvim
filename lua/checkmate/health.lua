@@ -34,20 +34,23 @@ function M.check()
 
   start("Checkmate configuration")
   local config = require("checkmate.config")
+  local checkmate = require("checkmate")
 
-  local validation_ok, validation_err = config.validate_options(config.options)
+  local validation_ok, validation_err = config.validate_options(checkmate.get_user_opts())
   if validation_ok then
     ok("Configuration is valid")
   else
     error("Configuration validation failed: " .. validation_err)
   end
 
-  if config.options.enabled then
-    ok("Checkmate is enabled")
-  else
-    warn("Checkmate is disabled", {
-      "Set `enabled = true` in your config to enable",
-    })
+  if validation_ok then
+    if config.options.enabled then
+      ok("Checkmate is enabled")
+    else
+      warn("Checkmate is disabled", {
+        "Set `enabled = true` in your config to enable",
+      })
+    end
   end
 end
 

@@ -702,18 +702,55 @@ function M.validate_options(opts)
     local seen_markdown = {}
 
     for state_name, state_def in pairs(opts.todo_states) do
+      if type(state_def) ~= "table" then
+        return false, "todo_states." .. state_name .. " must be a table"
+      end
+
       local marker = state_def.marker
       local markdown = state_def.markdown
 
+      -- since markdown isn't set by the user for the default "unchecked" and "checked" states, we
+      -- set them here so we can still validate against them, i.e. look for duplicates
+      if state_name == "unchecked" then
+        markdown = markdown or " "
+      elseif state_name == "checked" then
+        markdown = markdown or { "x", "X" }
+      end
+
+      -- marker cannot be nil
       ok, err = validate_type(marker, "string", "todo_states." .. state_name .. ".marker", false)
       if not ok then
         return false, err
       end
-      ok, err = validate_type(markdown, "string", "todo_states." .. state_name .. ".markdown", false)
-      if not ok then
-        return false, err
+
+      -- markdown required for custom states
+      if state_name ~= "checked" and state_name ~= "unchecked" and markdown == nil then
+        return false, "todo_states." .. state_name .. ".markdown is required for custom states"
       end
 
+      if markdown ~= nil then
+        if type(markdown) ~= "string" and type(markdown) ~= "table" then
+          return false, "todo_states." .. state_name .. ".markdown must be a string or table"
+        end
+
+        markdown = type(markdown) == "string" and { markdown } or markdown
+        ---@cast markdown string[]
+
+        for i, o in ipairs(markdown) do
+          if type(o) ~= "string" then
+            return false, "todo_states." .. state_name .. ".markdown[" .. i .. "] must be a string"
+          end
+        end
+      end
+
+      if state_def.order ~= nil then
+        ok, err = validate_type(state_def.order, "number", "todo_states." .. state_name .. ".order", true)
+        if not ok then
+          return false, err
+        end
+      end
+
+      -- check for duplicate markers
       if seen_markers[marker] ~= nil then
         return false,
           string.format(
@@ -726,16 +763,21 @@ function M.validate_options(opts)
         seen_markers[marker] = state_name
       end
 
-      if seen_markdown[markdown] ~= nil then
-        return false,
-          string.format(
-            "todo_states '%s' and '%s' cannot have the same markdown: %s",
-            state_name,
-            seen_markdown[markdown],
-            markdown
-          )
-      else
-        seen_markdown[markdown] = state_name
+      -- check for duplicate markdown strings
+      if markdown then
+        for _, md in ipairs(markdown) do
+          if seen_markdown[md] ~= nil then
+            return false,
+              string.format(
+                "todo_states '%s' and '%s' cannot have the same markdown representation: [%s]",
+                state_name,
+                seen_markdown[md],
+                md
+              )
+          else
+            seen_markdown[md] = state_name
+          end
+        end
       end
     end
   end

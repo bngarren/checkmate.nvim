@@ -435,17 +435,16 @@ local defaults = {
   },
   default_list_marker = "-",
   todo_states = {
+    -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
     ---@diagnostic disable-next-line: missing-fields
     unchecked = {
       marker = "□",
       order = 999,
-      -- we don't need to set the `markdown` field as it can't be overriden
     },
     ---@diagnostic disable-next-line: missing-fields
     checked = {
       marker = "✔",
       order = 1,
-      -- we don't need to set the `markdown` field as it can't be overriden
     },
   },
   style = {}, -- override defaults
@@ -690,6 +689,55 @@ function M.validate_options(opts)
     if opts.todo_markers.unchecked and vim.fn.strcharlen(opts.todo_markers.unchecked) ~= 1 then
       return false, "The 'unchecked' todo marker must be a single character"
     end ]]
+  end
+
+  -- Validate todo_states
+  if opts.todo_states ~= nil then
+    ok, err = validate_type(opts.todo_states, "table", "todo_states", true)
+    if not ok then
+      return false, err
+    end
+
+    local seen_markers = {}
+    local seen_markdown = {}
+
+    for state_name, state_def in pairs(opts.todo_states) do
+      local marker = state_def.marker
+      local markdown = state_def.markdown
+
+      ok, err = validate_type(marker, "string", "todo_states." .. state_name .. ".marker", false)
+      if not ok then
+        return false, err
+      end
+      ok, err = validate_type(markdown, "string", "todo_states." .. state_name .. ".markdown", false)
+      if not ok then
+        return false, err
+      end
+
+      if seen_markers[marker] ~= nil then
+        return false,
+          string.format(
+            "todo_states '%s' and '%s' cannot have the same marker: %s",
+            state_name,
+            seen_markers[marker],
+            marker
+          )
+      else
+        seen_markers[marker] = state_name
+      end
+
+      if seen_markdown[markdown] ~= nil then
+        return false,
+          string.format(
+            "todo_states '%s' and '%s' cannot have the same markdown: %s",
+            state_name,
+            seen_markdown[markdown],
+            markdown
+          )
+      else
+        seen_markdown[markdown] = state_name
+      end
+    end
   end
 
   -- Validate default_list_marker

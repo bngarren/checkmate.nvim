@@ -15,6 +15,9 @@ M.PRIORITY = {
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group The highlight group to use
 function M.get_todo_content_highlight(todo_state, is_main_content)
+  -- capitalize the state name
+  -- e.g. checked -> CheckmateCheckedMainContent
+  -- e.g. partial -> CheckmatePartialAdditionalContent
   local state_name = todo_state:gsub("^%l", string.upper)
 
   if is_main_content then

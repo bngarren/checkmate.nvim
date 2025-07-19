@@ -74,38 +74,34 @@ M.markdown_unchecked_checkbox = "%[ %]"
 -- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
 M.todo_map_cache = {}
 
+-- [marker] -> state name
+M.todo_marker_to_state = {}
+
 local pattern_cache = {
   list_item_with_captures = nil,
   list_item_without_captures = nil,
-  unicode_checked_todo_with_captures = nil,
-  unicode_checked_todo_without_captures = nil,
-  unicode_unchecked_todo_with_captures = nil,
-  unicode_unchecked_todo_without_captures = nil,
-  markdown_checked_checkbox_with_captures = nil,
-  markdown_unchecked_checkbox_with_captures = nil,
-  -- new
   checkmate_todo_patterns_by_state_with_captures = {},
   checkmate_todo_patterns_by_state_without_captures = {},
+  checkmate_todo_patterns_all_with_captures = nil,
+  checkmate_todo_patterns_all_without_captures = nil,
   markdown_checkbox_patterns_by_state = {},
 }
 
 -- Ordered according to `order` field
+-- [integer] - > {name: string, marker: string, order: number}[]
 local todo_states_cache = nil
 
 function M.clear_parser_cache()
   M.todo_map_cache = {}
+  M.todo_marker_to_state = {}
+
   pattern_cache = {
     list_item_with_captures = nil,
     list_item_without_captures = nil,
-    unicode_checked_todo_with_captures = nil,
-    unicode_checked_todo_without_captures = nil,
-    unicode_unchecked_todo_with_captures = nil,
-    unicode_unchecked_todo_without_captures = nil,
-    markdown_checked_checkbox_with_captures = nil,
-    markdown_unchecked_checkbox_with_captures = nil,
-    -- new
     checkmate_todo_patterns_by_state_with_captures = {},
     checkmate_todo_patterns_by_state_without_captures = {},
+    checkmate_todo_patterns_all_with_captures = nil,
+    checkmate_todo_patterns_all_without_captures = nil,
     markdown_checkbox_patterns_by_state = {},
   }
   todo_states_cache = nil
@@ -146,12 +142,12 @@ function M.get_checkmate_todo_patterns_by_state(todo_state, with_captures)
   local cache_key = with_captures and "checkmate_todo_patterns_by_state_with_captures"
     or "checkmate_todo_patterns_by_state_without_captures"
 
-  if not pattern_cache[cache_key][state] then
-    pattern_cache[cache_key][state] =
+  if not pattern_cache[cache_key][todo_state] then
+    pattern_cache[cache_key][todo_state] =
       require("checkmate.parser.helpers").create_unicode_todo_patterns(state.marker, { with_captures = with_captures })
   end
 
-  return pattern_cache[cache_key][state]
+  return pattern_cache[cache_key][todo_state]
 end
 
 -- Get all checkmate todo patterns (for all configured states)
@@ -160,16 +156,19 @@ end
 function M.get_all_checkmate_todo_patterns(with_captures)
   local config = require("checkmate.config")
 
-  local cache_key = with_captures and "checkmate_todo_patterns_by_state_with_captures"
-    or "checkmate_todo_patterns_by_state_without_captures"
+  local cache_key = with_captures and "checkmate_todo_patterns_all_with_captures"
+    or "checkmate_todo_patterns_all_without_captures"
 
-  local patterns = {}
+  if not pattern_cache[cache_key] then
+    local patterns = {}
 
-  for state_name, _ in pairs(config.options.todo_states) do
-    table.insert(patterns, M.get_checkmate_todo_patterns_by_state(state_name, with_captures))
+    for state_name, _ in pairs(config.options.todo_states) do
+      table.insert(patterns, M.get_checkmate_todo_patterns_by_state(state_name, with_captures))
+    end
+
+    pattern_cache[cache_key] = vim.iter(patterns):flatten():totable()
   end
-
-  return vim.iter(patterns):flatten():totable()
+  return pattern_cache[cache_key]
 end
 
 function M.get_markdown_checkbox_patterns_by_state(todo_state)
@@ -240,6 +239,26 @@ function M.get_ordered_todo_states()
   return todo_states_cache
 end
 
+---Returns the todo state associated with a marker, or nil
+---
+---Cached in `todo_marker_to_state` lookup table
+---
+---This assumes that markers are unique amongst all todo states
+---@param marker string
+---@return string|nil state
+function M.get_todo_state_by_marker(marker)
+  if not M.todo_marker_to_state[marker] then
+    local config = require("checkmate.config")
+    for state_name, state in pairs(config.options.todo_states) do
+      if state.marker == marker then
+        M.todo_marker_to_state[marker] = state_name
+        break
+      end
+    end
+  end
+  return M.todo_marker_to_state[marker]
+end
+
 ---Returns a todo map of the current buffer
 ---Will hit cache if buffer has not changed since last full parse,
 ---according to `:changedtick`
@@ -276,7 +295,7 @@ function M.get_todo_item_state(line)
   local ph = require("checkmate.parser.helpers")
   local config = require("checkmate.config")
 
-  local patterns = M.get_all_checkmate_todo_patterns(true)
+  local patterns = M.get_all_checkmate_todo_patterns(true) -- cached
 
   local result = ph.match_first(patterns, line)
   if not result.matched then
@@ -290,13 +309,7 @@ function M.get_todo_item_state(line)
     return nil
   end
 
-  for state_name, state in pairs(config.options.todo_states) do
-    if state.marker == captured_marker then
-      return state_name
-    end
-  end
-
-  return nil
+  return M.get_todo_state_by_marker(captured_marker)
 end
 
 --- Returns true if the given line is a Checkmate todo item

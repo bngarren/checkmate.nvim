@@ -823,6 +823,7 @@ require("checkmate").toggle("partial")
 ```
 
 ## Todo count indicator
+A todo count indicator displays the number of `checked / unchecked` todos in a hierarchy. It only counts the standard "checked" and "unchecked" states, not [custom states](#todo-states).
 
 <table>
   <tr>
@@ -877,6 +878,9 @@ todo_count_recursive = true,
 ## Smart Toggle
 
 Smart toggle provides intelligent parent-child todo state propagation. When you toggle a todo item, it can automatically update related todos based on your configuration.
+
+> [!NOTE] 
+> Smart toggle only propagates "unchecked" and "checked" states (the default/standard todo states). If [custom todo states](#todo-states) are used, they will not be included in smart toggling calculations/behavior.
 
 ### How it works
 

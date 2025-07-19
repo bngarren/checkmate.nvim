@@ -135,6 +135,7 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 - Toggle items with `:Checkmate toggle` (default: `<leader>Tt`)
 - Check items with `:Checkmate check` (default: `<leader>Tc`)
 - Uncheck items with `:Checkmate uncheck` (default: `<leader>Tu`)
+- Cycle to other [custom states](#todo-states) with `:Checkmate cycle_next` (default: `<leader>T=`) and `:Checkmate cycle_previous` (default `<leader>T-`)
 - Select multiple items in visual mode and use the same commands
 - Archive completed todos with `:Checkmate archive` (default: `<leader>Ta`)
 
@@ -778,6 +779,8 @@ styles = {
 }
 ```
 
+> State names will be converted to CamelCase when used in highlight group names. E.g. `not_planned` = `NotPlanned`
+
 ## Todo states
 The default states for a todo are binary, `checked` and `unchecked`. These will always be written to disk per the Github-flavored Markdown spec, e.g. `- [ ]` and `- [x]`. Their Checkmate buffer representation can be styled by setting the `todo_states` `marker` opt:
 ```lua
@@ -796,8 +799,8 @@ If you would like to add additional, custom states (outside of the GFM spec), Ch
 
 For example, you may want to set todos as:
 - 'partial' or 'pending'
-- 'on-hold'
-- 'not-planned'
+- 'on_hold'
+- 'not_planned'
 - etc.
 
 Just add the state to `todo_states`:

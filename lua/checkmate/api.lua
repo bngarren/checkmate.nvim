@@ -677,10 +677,14 @@ function M.compute_diff_toggle(items_with_states)
     local target_state = entry.target_state
     local row = todo_item.todo_marker.position.row
 
-    local new_marker = config.options.todo_states[target_state].marker
+    local state_def = config.options.todo_states[target_state]
 
-    local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
-    table.insert(hunks, hunk)
+    if state_def and state_def.marker then
+      local new_marker = config.options.todo_states[target_state].marker
+
+      local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
+      table.insert(hunks, hunk)
+    end
   end
 
   profiler.stop("api.compute_diff_toggle")

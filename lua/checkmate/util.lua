@@ -121,6 +121,22 @@ function M.trim_trailing(line)
   return line:match("^(.-)%s*$")
 end
 
+---Convert a snake_case string to CamelCase
+---@param input string input in snake_case (underscores)
+---@return string result converted to CamelCase
+function M.snake_to_camel(input)
+  local s = tostring(input)
+  -- uppercase the letter/digit after each underscore, and remove the underscore
+  s = s:gsub("_([%w])", function(c)
+    return c:upper()
+  end)
+  -- uppercase first character if it's a lowercase letter
+  s = s:gsub("^([a-z])", function(c)
+    return c:upper()
+  end)
+  return s
+end
+
 --- Returns the line's leading whitespace (indentation)
 ---@param line string
 ---@return string indent

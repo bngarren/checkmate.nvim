@@ -15,10 +15,7 @@ M.PRIORITY = {
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group The highlight group to use
 function M.get_todo_content_highlight(todo_state, is_main_content)
-  -- capitalize the state name
-  -- e.g. checked -> CheckmateCheckedMainContent
-  -- e.g. partial -> CheckmatePartialAdditionalContent
-  local state_name = todo_state:gsub("^%l", string.upper)
+  local state_name = require("checkmate.util").snake_to_camel(todo_state)
 
   if is_main_content then
     return "Checkmate" .. state_name .. "MainContent"
@@ -87,11 +84,11 @@ function M.register_highlight_groups()
 
   -- generate highlight groups for each todo state
   for state_name, _ in pairs(config.options.todo_states) do
-    local capitalized = state_name:gsub("^%l", string.upper)
+    local state_name_camel = require("checkmate.util").snake_to_camel(state_name)
 
-    local marker_group = "Checkmate" .. capitalized .. "Marker"
-    local main_content_group = "Checkmate" .. capitalized .. "MainContent"
-    local additional_content_group = "Checkmate" .. capitalized .. "AdditionalContent"
+    local marker_group = "Checkmate" .. state_name_camel .. "Marker"
+    local main_content_group = "Checkmate" .. state_name_camel .. "MainContent"
+    local additional_content_group = "Checkmate" .. state_name_camel .. "AdditionalContent"
 
     if config.options.style[marker_group] then
       highlights[marker_group] = config.options.style[marker_group]
@@ -327,8 +324,8 @@ function M.highlight_todo_marker(bufnr, todo_item)
   local marker_text = todo_item.todo_marker.text
 
   if marker_pos.col >= 0 then
-    local state_name = todo_item.state:gsub("^%l", string.upper)
-    local hl_group = "Checkmate" .. state_name .. "Marker"
+    local state_name_camel = require("checkmate.util").snake_to_camel(todo_item.state)
+    local hl_group = "Checkmate" .. state_name_camel .. "Marker"
 
     local line = M.get_buffer_line(bufnr, marker_pos.row)
     if not line then

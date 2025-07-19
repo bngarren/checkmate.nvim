@@ -783,6 +783,10 @@ end
 
 ----- END API -----
 
+function M.get_user_opts()
+  return vim.deepcopy(user_opts)
+end
+
 function M.is_initialized()
   return state.initialized
 end

@@ -21,8 +21,8 @@ describe("Highlights", function()
     it("should correctly highlight the todo LIST marker", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -67,7 +67,7 @@ describe("Highlights", function()
     it("should correctly highlight within-todo list markers", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -134,8 +134,8 @@ describe("Highlights", function()
     it("should correctly highlight the todo marker", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -205,8 +205,8 @@ describe("Highlights", function()
     it("should correctly highlight main and additional content", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - [ ] Todo A first line
@@ -326,7 +326,7 @@ describe("Highlights", function()
     it("should apply metadata tag highlights", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_checked_marker()
 
       local content = [[
 # Test Todo List
@@ -361,8 +361,8 @@ describe("Highlights", function()
     it("should display todo count when configured", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       config.options.show_todo_count = true
 

@@ -24,6 +24,8 @@ A Markdown-based todo/task plugin for Neovim.
 - Smart toggling behavior
 - Archive completed todos
 - Todo templates with LuaSnip snippet integration
+- 🆕 Custom todo states!
+  - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
 
 > [!NOTE]
 > Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
@@ -47,6 +49,7 @@ https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
 - [Commands](#commands)
 - [Configuration](#config)
   - [Styling](#styling)
+  - [Todo states](#todo-states)
   - [Todo counts](#todo-count-indicator)
   - [Smart toggle](#smart-toggle)
 - [Metadata](#metadata)
@@ -132,6 +135,7 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 - Toggle items with `:Checkmate toggle` (default: `<leader>Tt`)
 - Check items with `:Checkmate check` (default: `<leader>Tc`)
 - Uncheck items with `:Checkmate uncheck` (default: `<leader>Tu`)
+- Cycle to other [custom states](#todo-states) with `:Checkmate cycle_next` (default: `<leader>T=`) and `:Checkmate cycle_previous` (default `<leader>T-`)
 - Select multiple items in visual mode and use the same commands
 - Archive completed todos with `:Checkmate archive` (default: `<leader>Ta`)
 
@@ -151,6 +155,8 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `archive` | Archive all checked todo items in the buffer. See api `archive()` |
 | `check` | Mark the todo item under the cursor as checked. See api `check()`|
 | `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
+| `cycle_next` | Cycle a todo's state to the next available. See api `cycle()` |
+| `cycle_previous` | Cycle a todo's state to the previous. See api `cycle()` |
 | `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |
 | `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` |
 | `metadata jump_next` | Move the cursor to the next metadata tag for the todo item under the cursor. See api `jump_next_metadata()` |
@@ -159,7 +165,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `metadata select_value` | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()` |
 | `metadata toggle` | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)` |
 | `remove_all_metadata` | Remove *all* metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()` |
-| `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()` |
+| `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. This command only toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands. |
 | `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
 
 <br>
@@ -223,7 +229,14 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
----@field todo_markers checkmate.TodoMarkers
+---@deprecated use todo_states
+---@field todo_markers? checkmate.TodoMarkers
+---
+---The states that a todo item may have
+---Default: "unchecked" and "checked"
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked". If you add additional states here, they may not work
+---in other Markdown apps without special configuration
+---@field todo_states table<string, checkmate.TodoStateDefinition>
 ---
 ---Default list item marker to be used when creating new Todo items
 ---@field default_list_marker "-" | "*" | "+"
@@ -307,8 +320,31 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 -----------------------------------------------------
 
+---@class checkmate.TodoStateDefinition
+---
+--- The text string used for a todo marker is expected to be 1 character length.
+--- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
+---@field marker string
+---
+--- Markdown checkbox representation
+--- For custom states, this determines how the todo state is written in Markdown syntax.
+--- Important:
+---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
+---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
+---   - Not guaranteed to work in other apps/plugins as custom `[.]`, `[/]`, etc. are not standard Github-flavored Markdown
+---   - This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
+--- Markdown spec, e.g. `[ ]` and `[x]`
+---@field markdown string | string[]
+---
+--- The order in which this state is cycled (lower = first)
+---@field order? number
+
+-----------------------------------------------------
+
+--- DEPRECATED v0.10
 --- The text string used for todo markers is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
+---@deprecated use `todo_states`
 ---@class checkmate.TodoMarkers
 ---
 ---Character used for unchecked items
@@ -530,6 +566,16 @@ local defaults = {
       desc = "Set todo item as unchecked (not done)",
       modes = { "n", "v" },
     },
+    ["<leader>T="] = {
+      rhs = "<cmd>Checkmate cycle_next<CR>",
+      desc = "Cycle todo item(s) to the next state",
+      modes = { "n", "v" },
+    },
+    ["<leader>T-"] = {
+      rhs = "<cmd>Checkmate cycle_previous<CR>",
+      desc = "Cycle todo item(s) to the previous state",
+      modes = { "n", "v" },
+    },
     ["<leader>Tn"] = {
       rhs = "<cmd>Checkmate create<CR>",
       desc = "Create todo item",
@@ -562,9 +608,16 @@ local defaults = {
     },
   },
   default_list_marker = "-",
-  todo_markers = {
-    unchecked = "□",
-    checked = "✔",
+  todo_states = {
+-- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
+    unchecked = {
+      marker = "□",
+      order = 999,
+    },
+    checked = {
+      marker = "✔",
+      order = 1,
+    },
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
@@ -684,17 +737,21 @@ Individual styles can still be overriden using the `style` option and passing a 
 |----------|-------------|
 | CheckmateListMarkerUnordered | Unordered list markers, e.g. `-`,`*`, and `+`. (_Only those associated with a todo_) |
 | CheckmateListMarkerOrdered | Ordered list markers, e.g. `1.`, `2)`. (_Only those associated with a todo_) |
-| CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_markers` option |
+| CheckmateUncheckedMarker | Unchecked todo marker, e.g. `□`. See `todo_states` `marker` option |
 | CheckmateUncheckedMainContent | The main content of an unchecked todo (typically the first paragraph) |
 | CheckmateUncheckedAdditionalContent | Additional content for an unchecked todo (subsequent paragraphs, list items, etc.) |
-| CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_markers` option |
+| CheckmateCheckedMarker | Checked todo marker, e.g. `✔`. See `todo_states` `marker` option |
 | CheckmateCheckedMainContent | The main content of a checked todo (typically the first paragraph) |
 | CheckmateCheckedAdditionalContent | Additional content for a checked todo (subsequent paragraphs, list items, etc.) |
 | CheckmateTodoCountIndicator | The todo count indicator, e.g. `1/4`, shown on the todo line, if enabled. See `show_todo_count` option |
 
 Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag name and style.
 
-### Example: Change the checked marker to a bold green
+#### Main content versus Additional content
+Highlight groups with 'MainContent' refer to the todo item's first paragraph. 'AdditionalContent' refers to subsequent paragraphs, list items, etc.
+<img src="./assets/main-vs-additional-hl-groups.png" />
+
+#### Example: Change the checked marker to a bold green
 ```lua
 opts = {
     style = {
@@ -702,12 +759,74 @@ opts = {
     }
 }
 ```
-#### Main content versus Additional content
-Highlight groups with 'MainContent' refer to the todo item's first paragraph. 'AdditionalContent' refers to subsequent paragraphs, list items, etc.
-<img src="./assets/main-vs-additional-hl-groups.png" />
 
+#### Example: Style a custom todo state
+[Custom todo states](#todo-states) will be styled following the same highlight group naming convention:
+e.g. `Checkmate[State]Marker`
+So, if you define a `partial` state:
+```lua
+todo_states = {
+  partial = {
+    -- ...
+  }
+}
+```
+You can then style it:
+```lua
+styles = {
+  CheckmatePartialMarker = { fg = "#f0fc03" }
+  CheckmatePartialMainContent = { fg = "#faffa1" }
+}
+```
+
+> State names will be converted to CamelCase when used in highlight group names. E.g. `not_planned` = `NotPlanned`
+
+## Todo states
+The default states for a todo are binary, `checked` and `unchecked`. These will always be written to disk per the Github-flavored Markdown spec, e.g. `- [ ]` and `- [x]`. Their Checkmate buffer representation can be styled by setting the `todo_states` `marker` opt:
+```lua
+todo_states = {
+  checked = {
+    marker = "☒"
+  },
+  unchecked = {
+    marker = "☐"
+  }
+}
+```
+
+### Custom states
+If you would like to add additional, custom states (outside of the GFM spec), Checkmate can support this (but don't assume cross-compatibility with other Markdown programs).
+
+For example, you may want to set todos as:
+- 'partial' or 'pending'
+- 'on_hold'
+- 'not_planned'
+- etc.
+
+Just add the state to `todo_states`:
+```lua
+todo_states = {
+  partial = {
+    marker = "⚀",
+    markdown = "."
+  }
+}
+```
+`marker` is the string used in the Checkmate buffer. `markdown` is the char used inside the Markdown task list item, e.g. `[.]`.
+
+> [!TIP]
+> Be sure that the `marker` and `markdown` values are unique amongst all states, otherwise the parser won't map correctly.
+
+You can then cycle through a todo's states with `:Checkmate cycle_next` and `:Checkmate cycle_previous` or using the API, such as:
+```lua
+require("checkmate").cycle()
+
+-- or to toggle to a specific state
+require("checkmate").toggle("partial")
+```
 
 ## Todo count indicator
+A todo count indicator displays the number of `checked / unchecked` todos in a hierarchy. It only counts the standard "checked" and "unchecked" states, not [custom states](#todo-states).
 
 <table>
   <tr>
@@ -762,6 +881,9 @@ todo_count_recursive = true,
 ## Smart Toggle
 
 Smart toggle provides intelligent parent-child todo state propagation. When you toggle a todo item, it can automatically update related todos based on your configuration.
+
+> [!NOTE] 
+> Smart toggle only propagates "unchecked" and "checked" states (the default/standard todo states). If [custom todo states](#todo-states) are used, they will not be included in smart toggling calculations/behavior.
 
 ### How it works
 
@@ -913,6 +1035,8 @@ Planned features:
 - [x] **Smart toggling** - toggle all children checked if a parent todo is checked. Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_ 
 
 - [x] **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
+
+- [x] **Custom todo states** - support beyond binary "checked" and "unchecked", allowing for todos to be in custom states, e.g. pending, not-planned, on-hold, etc. _Added v0.10.0_
 
 - [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
 

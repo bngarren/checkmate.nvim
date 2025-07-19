@@ -116,8 +116,7 @@ function M.stop()
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
 
   local parser = require("checkmate.parser")
-  parser.todo_map_cache = {}
-  parser.clear_pattern_cache()
+  parser.clear_parser_cache()
 
   if package.loaded["checkmate.log"] then
     pcall(function()
@@ -134,7 +133,7 @@ end
 
 ---@class checkmate.Todo
 ---@field _todo_item checkmate.TodoItem internal representation
----@field state checkmate.TodoItemState
+---@field state string Todo state, e.g. "checked", "unchecked", or custom state like "pending". See config `todo_states`
 ---@field text string First line of the todo
 ---@field indent number Number of spaces before the list marker
 ---@field list_marker string List item marker, e.g. `-`, `*`, `+`
@@ -166,8 +165,9 @@ end
 
 ---Toggle todo item(s) state under cursor or in visual selection
 ---
----To set a specific todo item to a target state, use `set_todo_item`
----@param target_state? checkmate.TodoItemState Optional target state ("checked" or "unchecked")
+--- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states
+--- - To set a _specific_ todo item to a target state, use `set_todo_item`
+---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc.
 ---@return boolean success
 function M.toggle(target_state)
   local api = require("checkmate.api")
@@ -196,7 +196,7 @@ function M.toggle(target_state)
         ctx.add_op(api.toggle_state, {
           {
             id = todo_item.id,
-            target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked"),
+            target_state = target_state or (todo_item.state ~= "checked" and "checked" or "unchecked"),
           },
         })
       end
@@ -218,7 +218,7 @@ function M.toggle(target_state)
       for _, item in ipairs(todo_items) do
         table.insert(operations, {
           id = item.id,
-          target_state = target_state or (item.state == "unchecked" and "checked" or "unchecked"),
+          target_state = target_state or (item.state ~= "checked" and "checked" or "unchecked"),
         })
       end
 
@@ -235,7 +235,7 @@ end
 
 ---Sets a given todo item to a specific state
 ---@param todo_item checkmate.TodoItem Todo item to set state
----@param target_state checkmate.TodoItemState
+---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending"
 ---@return boolean success
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
@@ -299,6 +299,63 @@ end
 ---@return boolean success
 function M.uncheck()
   return M.toggle("unchecked")
+end
+
+---Change a todo item(s) state to the next or previous state
+---@param backward? boolean If true, cycle backward through states
+---@return boolean success
+function M.cycle(backward)
+  local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+  local parser = require("checkmate.parser")
+  local highlights = require("checkmate.highlights")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- inside a transaction, use cursor position
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
+    if todo_item then
+      local next_state = api.get_next_todo_state(todo_item.state, backward)
+      ctx.add_op(api.toggle_state, { {
+        id = todo_item.id,
+        target_state = next_state,
+      } })
+    end
+    return true
+  end
+
+  local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return false
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    local operations = {}
+
+    for _, item in ipairs(todo_items) do
+      local next_state = api.get_next_todo_state(item.state, backward)
+      table.insert(operations, {
+        id = item.id,
+        target_state = next_state,
+      })
+    end
+
+    if #operations > 0 then
+      _ctx.add_op(api.toggle_state, operations)
+    end
+  end, function()
+    highlights.apply_highlighting(bufnr)
+  end)
+
+  return true
 end
 
 --- Creates a new todo item

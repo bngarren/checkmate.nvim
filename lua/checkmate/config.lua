@@ -171,8 +171,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 -----------------------------------------------------
 
 --- DEPRECATED v0.10
---- The text string used for todo markers is expected to be 1 character length.
---- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@deprecated use `todo_states`
 ---@class checkmate.TodoMarkers
 ---

@@ -721,7 +721,7 @@ end
 
 ---Toggle a batch of todo items with proper parent/child propagation
 ---i.e. 'smart toggle'
----In checkmate.nvim, `toggle` functionality cycles the todo's state between "checked" and "unchecked" only.
+---Only propagates states when toggling "checked" to "unchecked" and vice versa.
 ---Custom states are set individually but do not propagate to parents/children.
 ---
 ---@param ctx checkmate.TransactionContext Transaction context

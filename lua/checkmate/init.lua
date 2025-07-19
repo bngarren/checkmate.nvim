@@ -165,7 +165,7 @@ end
 
 ---Toggle todo item(s) state under cursor or in visual selection
 ---
---- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked"
+--- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states
 --- - To set a _specific_ todo item to a target state, use `set_todo_item`
 ---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc.
 ---@return boolean success
@@ -301,7 +301,7 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
---- Cycle todo item(s) to the next or previous state
+---Change a todo item(s) state to the next or previous state
 ---@param backward? boolean If true, cycle backward through states
 ---@return boolean success
 function M.cycle(backward)

@@ -310,6 +310,9 @@ function M.cycle(backward)
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
   local highlights = require("checkmate.highlights")
+  local config = require("checkmate.config")
+
+  local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
 
   local ctx = transaction.current_context()
   if ctx then
@@ -319,17 +322,21 @@ function M.cycle(backward)
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       local next_state = api.get_next_todo_state(todo_item.state, backward)
-      ctx.add_op(api.toggle_state, { {
-        id = todo_item.id,
-        target_state = next_state,
-      } })
+      if smart_toggle_enabled then
+        api.propagate_toggle(ctx, { todo_item }, ctx.get_todo_map(), next_state)
+      else
+        ctx.add_op(api.toggle_state, { {
+          id = todo_item.id,
+          target_state = next_state,
+        } })
+      end
     end
     return true
   end
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
-  local todo_items = api.collect_todo_items_from_selection(is_visual)
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
@@ -337,19 +344,26 @@ function M.cycle(backward)
     return false
   end
 
+  -- the next state will be based on the first item
+  local sorted_todo_items = util.get_sorted_todo_list(todo_items)
+  local next_state = api.get_next_todo_state(sorted_todo_items[1].state, backward)
+
   transaction.run(bufnr, function(_ctx)
-    local operations = {}
+    if smart_toggle_enabled then
+      api.propagate_toggle(_ctx, todo_items, todo_map, next_state)
+    else
+      local operations = {}
 
-    for _, item in ipairs(todo_items) do
-      local next_state = api.get_next_todo_state(item.state, backward)
-      table.insert(operations, {
-        id = item.id,
-        target_state = next_state,
-      })
-    end
+      for _, item in ipairs(todo_items) do
+        table.insert(operations, {
+          id = item.id,
+          target_state = next_state,
+        })
+      end
 
-    if #operations > 0 then
-      _ctx.add_op(api.toggle_state, operations)
+      if #operations > 0 then
+        _ctx.add_op(api.toggle_state, operations)
+      end
     end
   end, function()
     highlights.apply_highlighting(bufnr)

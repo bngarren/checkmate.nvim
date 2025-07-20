@@ -1879,6 +1879,50 @@ Line 2
         h.cleanup_buffer(bufnr, file_path)
       end)
     end)
+
+    describe("cycle state", function()
+      -- ensure that "cycling" state will propagate state up/down the same way that "toggle" does
+      it("should propagate state when cycling", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. unchecked .. [[ Child 1
+  - ]] .. unchecked .. [[ Child 2
+    - ]] .. unchecked .. [[ Grandchild 1
+]]
+
+        local bufnr, file_path = h.setup_todo_file_buffer(content, {
+          config = {
+            smart_toggle = {
+              enabled = true,
+              check_down = "direct_children",
+              uncheck_down = "none",
+              check_up = "direct_children",
+              uncheck_up = "direct_children",
+            },
+          },
+        })
+
+        -- cursor to parent task and toggle
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").cycle()
+
+        vim.wait(20)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
+        -- grandchild should NOT be checked (only direct children)
+        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+    end)
   end)
 
   describe("get todo", function()

@@ -2454,6 +2454,35 @@ Line 2
           h.cleanup_buffer(bufnr, file_path)
         end)
       end)
+
+      it("should ignore custom states when deciding parent propagation", function()
+        local unchecked = h.get_unchecked_marker()
+        local pending = h.get_pending_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. pending .. [[ Child custom
+  - ]] .. unchecked .. [[ Child unchecked
+]]
+
+        -- only looking at check_up/all_children, no down propagation
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        require("checkmate").toggle()
+        vim.wait(20)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        -- child “pending” stays pending, the other child becomes checked,
+        -- and parent becomes checked because “pending” is ignored.
+        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+        assert.matches("Child custom", lines[2])
+        assert.matches("Child unchecked", lines[3])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
     end)
   end)
 

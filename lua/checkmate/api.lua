@@ -732,7 +732,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   local config = require("checkmate.config")
   local smart_config = config.options.smart_toggle
 
-  -- ultimately holds which todo's need their state updated
+  -- holds which todo's need their state updated
   local desired = {} -- desired[id] = "checked"|"unchecked"
 
   -- DOWNWARD PROPAGATION
@@ -744,7 +744,6 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     desired[id] = state
 
-    -- determine if we should propagate to children
     local item = todo_map[id]
     if not item or not item.children or #item.children == 0 then
       return
@@ -752,29 +751,25 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     -- pick the right down propagation mode
     -- only propagate checked/unchecked states
-    local propagate_config
-    if state == "checked" then
-      propagate_config = smart_config.check_down
-    elseif state == "unchecked" then
-      propagate_config = smart_config.uncheck_down
-    else
-      -- don't propagate other states
+    local propagate_mode = (state == "checked") and smart_config.check_down
+      or (state == "unchecked") and smart_config.uncheck_down
+      or "none"
+
+    if propagate_mode == "none" then
       return
     end
-
-    if propagate_config == "none" then
+    if propagate_mode == "direct_children" and depth > 0 then
       return
-    elseif propagate_config == "direct_children" and depth > 0 then
-      return -- only propagate to direct children (depth 0 -> 1)
     end
 
     for _, child_id in ipairs(item.children) do
       local child = todo_map[child_id]
       if child then
-        if state == "checked" and child.state == "unchecked" then
+        local current = (desired[child_id] or child.state)
+        if state == "checked" and current == "unchecked" then
           -- only unchecked children become checked
           propagate_down(child_id, state, depth + 1)
-        elseif state == "unchecked" and child.state == "checked" then
+        elseif state == "unchecked" and current == "checked" then
           -- only checked children become unchecked
           propagate_down(child_id, state, depth + 1)
         end
@@ -828,19 +823,26 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
 
     local parent = todo_map[parent_id]
-    if not parent or not parent.children or #parent.children == 0 then
+    if not parent then
+      return false
+    end
+
+    -- only check the parent if it is unchecked
+    if (desired[parent_id] or parent.state) ~= "unchecked" then
+      return false
+    end
+
+    if not parent.children or #parent.children == 0 then
       return true -- no children means we can check it
     end
 
     if smart_config.check_up == "direct_children" then
       -- check only direct children
       for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if not child or (desired[child_id] or child.state) == "unchecked" then
+        local st = (desired[child_id] or todo_map[child_id].state)
+        if st == "unchecked" then
           return false
         end
-        -- other states don't prevent parent from being checked
-        return true
       end
       return true
     else -- "all_children"
@@ -856,7 +858,6 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- helper checks if parent should be unchecked
   local function should_uncheck_parent(parent_id)
     if smart_config.uncheck_up == "none" then
       return false
@@ -874,9 +875,8 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if smart_config.uncheck_up == "direct_children" then
       for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if child and (desired[child_id] or child.state) == "unchecked" then
-          -- only unchecked children cause parent to uncheck
+        local st = (desired[child_id] or todo_map[child_id].state)
+        if st == "unchecked" then
           return true
         end
       end
@@ -903,8 +903,8 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if should_check_parent(parent_id) and desired[parent_id] ~= "checked" then
       desired[parent_id] = "checked"
-      propagate_check_up(parent_id)
     end
+    propagate_check_up(parent_id)
   end
 
   -- process upward propagation for items becoming unchecked
@@ -916,8 +916,8 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if should_uncheck_parent(parent_id) and desired[parent_id] ~= "unchecked" then
       desired[parent_id] = "unchecked"
-      propagate_uncheck_up(parent_id)
     end
+    propagate_uncheck_up(parent_id)
   end
 
   -- run upward propagation based on what we're setting items to

@@ -195,8 +195,18 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@class checkmate.SmartToggleSettings
 ---
 ---Whether to enable smart toggle behavior
+---
+---What is 'smart toggle'?
+--- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a sensible manner
+--- - In this mode, changing the state of a todo maybe also affect nearby todos
 ---Default: true
 ---@field enabled boolean?
+---
+---Whether to use smart toggle behavior with `cycle` commands/API
+---Turn this on if you want the state propagation to occur when you are cycling through states,
+---e.g. with `:Checkmate cycle_*` and `cycle()` api
+---Default: false
+---@field include_cycle boolean?
 ---
 ---How checking a parent affects its children
 ---  - "all_children": Check all descendants, including nested
@@ -437,18 +447,19 @@ local defaults = {
     ---@diagnostic disable-next-line: missing-fields
     unchecked = {
       marker = "□",
-      order = 999,
+      order = 1,
     },
     ---@diagnostic disable-next-line: missing-fields
     checked = {
       marker = "✔",
-      order = 1,
+      order = 2,
     },
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
+    include_cycle = false,
     check_down = "direct_children",
     uncheck_down = "none",
     check_up = "direct_children",

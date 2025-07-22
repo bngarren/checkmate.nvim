@@ -32,6 +32,7 @@ local M = {}
 --- This allows tracking the same todo item across buffer modifications.
 --- @field id integer
 --- @field state string The todo state, e.g. "checked", "unchecked", or a custom state like "pending"
+--- @field state_type checkmate.TodoStateType
 --- @field node TSNode The Treesitter node
 --- Todo item's buffer range
 --- This range is adjusted from the raw TS node range via *get_semantic_range*:
@@ -761,9 +762,11 @@ function M.discover_todos(bufnr)
         first_inline_range = semantic_range
       end
 
+      ---@type checkmate.TodoItem
       todo_map[extmark_id] = {
         id = extmark_id,
         state = todo_state,
+        state_type = config.get_todo_state_type(todo_state),
         node = item.node,
         range = semantic_range,
         ts_range = raw_range,

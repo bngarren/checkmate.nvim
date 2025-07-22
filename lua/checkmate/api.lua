@@ -802,15 +802,15 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
   -- UPWARD PROPAGATION
 
-  local function is_complete_behavior(state)
+  local function is_complete_type(state)
     return config.get_todo_state_type(state) == "complete"
   end
 
-  local function is_incomplete_behavior(state)
+  local function is_incomplete_type(state)
     return config.get_todo_state_type(state) == "incomplete"
   end
 
-  local function is_inactive_behavior(state)
+  local function is_inactive_type(state)
     return config.get_todo_state_type(state) == "inactive"
   end
 
@@ -822,7 +822,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     local state = desired[id] or item.state
     -- skip inactive states from the predicate check
-    if not is_inactive_behavior(state) and not pred(state) then
+    if not is_inactive_type(state) and not pred(state) then
       return false
     end
 
@@ -866,7 +866,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     -- only check the parent if it has 'incomplete' type
     local parent_state = desired[parent_id] or parent.state
-    if not is_incomplete_behavior(parent_state) then
+    if not is_incomplete_type(parent_state) then
       return false
     end
 
@@ -878,7 +878,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       -- check only direct children
       for _, child_id in ipairs(parent.children) do
         local st = (desired[child_id] or todo_map[child_id].state)
-        if is_incomplete_behavior(st) then
+        if is_incomplete_type(st) then
           return false
         end
       end
@@ -890,7 +890,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       for _, cid in ipairs(parent.children) do
         if
           not subtree_all(cid, function(st)
-            return is_complete_behavior(st) or is_inactive_behavior(st)
+            return is_complete_type(st) or is_inactive_type(st)
           end)
         then
           return false
@@ -912,14 +912,14 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     -- only uncheck parent if it has complete type
     local parent_state = desired[parent_id] or parent.state
-    if not is_complete_behavior(parent_state) then
+    if not is_complete_type(parent_state) then
       return false
     end
 
     if smart_config.uncheck_up == "direct_children" then
       for _, child_id in ipairs(parent.children) do
         local st = (desired[child_id] or todo_map[child_id].state)
-        if is_incomplete_behavior(st) then
+        if is_incomplete_type(st) then
           return true
         end
       end
@@ -927,7 +927,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     else -- "all_children"
       -- uncheck the parent if any child has incomplete type
       for _, cid in ipairs(parent.children) do
-        if subtree_any(cid, is_incomplete_behavior) then
+        if subtree_any(cid, is_incomplete_type) then
           return true
         end
       end

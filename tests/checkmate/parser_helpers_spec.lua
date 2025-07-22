@@ -1,6 +1,5 @@
 describe("Parser Helpers", function()
-  local h = require("tests.checkmate.helpers")
-  local ph = require("checkmate.parser.helpers")
+  local h, ph
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -14,6 +13,9 @@ describe("Parser Helpers", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    ph = require("checkmate.parser.helpers")
   end)
 
   describe("create_list_item_patterns", function()

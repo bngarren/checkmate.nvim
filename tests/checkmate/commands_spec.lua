@@ -1,7 +1,5 @@
-local checkmate = require("checkmate")
-local h = require("tests.checkmate.helpers")
-
 describe("Commands", function()
+  local h, checkmate
   local bufnr, temp_file
   lazy_setup(function()
     stub(vim.api, "nvim_echo")
@@ -17,6 +15,12 @@ describe("Commands", function()
     h.cleanup_buffer(bufnr, temp_file)
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
+  end)
+
+  before_each(function()
+    _G.reset_state()
+    checkmate = require("checkmate")
+    h = require("tests.checkmate.helpers")
   end)
 
   it("toggle calls toggle()", function()

@@ -1,5 +1,5 @@
 describe("Config", function()
-  local h = require("tests.checkmate.helpers")
+  local h
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -13,6 +13,8 @@ describe("Config", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
 
     -- Back up globals
     _G.loaded_checkmate_bak = vim.g.loaded_checkmate

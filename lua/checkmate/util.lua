@@ -534,6 +534,56 @@ function M.build_todo(todo_item)
   }
 end
 
+--[[
+Apply diff hunks to buffer 
+
+Line insertion vs text replacement
+- nvim_buf_set_text: used for replacements and insertions WITHIN a line
+  this is important because it preserves extmarks that are not directly in the replaced range
+  i.e. the extmarks that track todo location
+- nvim_buf_set_lines: used for inserting NEW LINES
+  when used with same start/end positions, it inserts new lines without affecting
+  existing lines or their extmarks.
+
+We use nvim_buf_set_lines for whole line insertions (when start_col = end_col = 0)
+because it's cleaner and doesn't risk affecting extmarks on adjacent lines.
+For all other operations (replacements, partial line edits), we use nvim_buf_set_text
+to preserve extmarks as much as possible.
+--]]
+---@param bufnr integer Buffer number
+---@param hunks checkmate.TextDiffHunk[]
+function M.apply_diff(bufnr, hunks)
+  if vim.tbl_isempty(hunks) then
+    return
+  end
+
+  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
+  table.sort(hunks, function(a, b)
+    if a.start_row ~= b.start_row then
+      return a.start_row > b.start_row
+    end
+    return a.start_col > b.start_col
+  end)
+
+  -- apply hunks (first one creates undo entry, rest join)
+  for i, hunk in ipairs(hunks) do
+    if i > 1 then
+      vim.cmd("silent! undojoin")
+    end
+
+    local is_line_insertion = hunk.start_row == hunk.end_row
+      and hunk.start_col == 0
+      and hunk.end_col == 0
+      and #hunk.insert > 0
+
+    if is_line_insertion then
+      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
+    else
+      vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
+    end
+  end
+end
+
 -- Cursor helper
 M.Cursor = {}
 

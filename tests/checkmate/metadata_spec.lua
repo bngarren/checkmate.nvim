@@ -1,6 +1,5 @@
 describe("Metadata", function()
-  local h = require("tests.checkmate.helpers")
-  local checkmate = require("checkmate")
+  local h, checkmate
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -14,6 +13,9 @@ describe("Metadata", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
 
     h.ensure_normal_mode()
 

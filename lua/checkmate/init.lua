@@ -312,7 +312,8 @@ function M.cycle(backward)
   local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
 
-  local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
+  local smart_toggle_enabled = config.options.smart_toggle
+    and (config.options.smart_toggle.enabled and config.options.smart_toggle.include_cycle)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -346,7 +347,7 @@ function M.cycle(backward)
 
   -- the next state will be based on the first item
   local sorted_todo_items = util.get_sorted_todo_list(todo_items)
-  local next_state = api.get_next_todo_state(sorted_todo_items[1].state, backward)
+  local next_state = api.get_next_todo_state(sorted_todo_items[1].item.state, backward)
 
   transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled then

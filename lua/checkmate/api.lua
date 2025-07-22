@@ -721,8 +721,12 @@ end
 
 ---Toggle a batch of todo items with proper parent/child propagation
 ---i.e. 'smart toggle'
----Only propagates states when toggling "checked" to "unchecked" and vice versa.
----Custom states are set individually but do not propagate to parents/children.
+---
+---Only `checked` and `unchecked` states are propagated.
+---Custom states may influence propagation logic (based on their `type`) but don't get changed by it.
+--- - Users explicitly set custom states for a reason (e.g., "on_hold", "cancelled")
+--- - These states shouldn't arbitrarily change just because a parent was toggled,
+---   but they should influence whether a parent becomes checked/unchecked
 ---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
@@ -732,8 +736,8 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   local config = require("checkmate.config")
   local smart_config = config.options.smart_toggle
 
-  -- ultimately holds which todo's need their state updated
-  local desired = {} -- desired[id] = "checked"|"unchecked"
+  -- holds which todo's need their state updated
+  local desired = {} -- desired[id] = state_name
 
   -- DOWNWARD PROPAGATION
 
@@ -744,7 +748,6 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     desired[id] = state
 
-    -- determine if we should propagate to children
     local item = todo_map[id]
     if not item or not item.children or #item.children == 0 then
       return
@@ -752,51 +755,77 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     -- pick the right down propagation mode
     -- only propagate checked/unchecked states
-    local propagate_config
-    if state == "checked" then
-      propagate_config = smart_config.check_down
-    elseif state == "unchecked" then
-      propagate_config = smart_config.uncheck_down
-    else
-      -- don't propagate other states
+    local propagate_mode = (state == "checked") and smart_config.check_down
+      or (state == "unchecked") and smart_config.uncheck_down
+      or "none"
+
+    if propagate_mode == "none" then
       return
     end
-
-    if propagate_config == "none" then
+    if propagate_mode == "direct_children" and depth > 0 then
       return
-    elseif propagate_config == "direct_children" and depth > 0 then
-      return -- only propagate to direct children (depth 0 -> 1)
     end
 
     for _, child_id in ipairs(item.children) do
       local child = todo_map[child_id]
       if child then
-        if state == "checked" and child.state == "unchecked" then
+        local current = (desired[child_id] or child.state)
+        -- only change between checked/unchecked, never to/from custom states
+        if state == "checked" and current == "unchecked" then
           -- only unchecked children become checked
           propagate_down(child_id, state, depth + 1)
-        elseif state == "unchecked" and child.state == "checked" then
+        elseif state == "unchecked" and current == "checked" then
           -- only checked children become unchecked
           propagate_down(child_id, state, depth + 1)
         end
-        -- other states (e.g. user custom states) are left alone
+        -- other states (custom states) are left alone
       end
     end
   end
 
   -- initialize the downward pass for each selected item
   for _, item in ipairs(items) do
-    -- any non-checked state becomes checked, checked becomes unchecked
-    local s = target_state or (item.state == "checked" and "unchecked" or "checked")
+    local s = target_state
+    if not s then
+      -- default toggle behavior
+      -- instead of just flipping checked ←→ unchecked, we use the `type` and flip to its opposite default state,
+      -- which allows for properly toggling custom states
+      local state_type = config.get_todo_state_type(item.state)
+      if state_type == "complete" then
+        s = "unchecked"
+      else -- incomplete or inactive
+        s = "checked"
+      end
+    end
     propagate_down(item.id, s, 0)
   end
 
   -- UPWARD PROPAGATION
 
+  local function is_complete_type(state)
+    return config.get_todo_state_type(state) == "complete"
+  end
+
+  local function is_incomplete_type(state)
+    return config.get_todo_state_type(state) == "incomplete"
+  end
+
+  local function is_inactive_type(state)
+    return config.get_todo_state_type(state) == "inactive"
+  end
+
   local function subtree_all(id, pred)
     local item = todo_map[id]
-    if not item or not pred(desired[id] or item.state) then
+    if not item then
+      return true -- empty subtree satisfies "all"
+    end
+
+    local state = desired[id] or item.state
+    -- skip inactive states from the predicate check
+    if not is_inactive_type(state) and not pred(state) then
       return false
     end
+
     for _, cid in ipairs(item.children or {}) do
       if not subtree_all(cid, pred) then
         return false
@@ -810,9 +839,12 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     if not item then
       return false
     end
-    if pred(desired[id] or item.state) then
+
+    local state = desired[id] or item.state
+    if pred(state) then
       return true
     end
+
     for _, cid in ipairs(item.children or {}) do
       if subtree_any(cid, pred) then
         return true
@@ -828,27 +860,39 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
 
     local parent = todo_map[parent_id]
-    if not parent or not parent.children or #parent.children == 0 then
+    if not parent then
+      return false
+    end
+
+    -- only check the parent if it has 'incomplete' type
+    local parent_state = desired[parent_id] or parent.state
+    if not is_incomplete_type(parent_state) then
+      return false
+    end
+
+    if not parent.children or #parent.children == 0 then
       return true -- no children means we can check it
     end
 
     if smart_config.check_up == "direct_children" then
       -- check only direct children
       for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if not child or (desired[child_id] or child.state) == "unchecked" then
+        local st = (desired[child_id] or todo_map[child_id].state)
+        if is_incomplete_type(st) then
           return false
         end
-        -- other states don't prevent parent from being checked
-        return true
       end
       return true
     else -- "all_children"
-      -- NOTE: i.e. check the parent if all children are checked
+      -- check the parent if all children (at any depth) are:
+      --  - non-inactive with 'complete' type, or
+      --  - inactive
       for _, cid in ipairs(parent.children) do
-        if not subtree_all(cid, function(st)
-          return st ~= "unchecked"
-        end) then
+        if
+          not subtree_all(cid, function(st)
+            return is_complete_type(st) or is_inactive_type(st)
+          end)
+        then
           return false
         end
       end
@@ -856,7 +900,6 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
     end
   end
 
-  -- helper checks if parent should be unchecked
   local function should_uncheck_parent(parent_id)
     if smart_config.uncheck_up == "none" then
       return false
@@ -867,26 +910,24 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
       return false -- no children means no reason to uncheck
     end
 
-    -- only uncheck parent if it's currently checked
-    if (desired[parent_id] or parent.state) ~= "checked" then
+    -- only uncheck parent if it has complete type
+    local parent_state = desired[parent_id] or parent.state
+    if not is_complete_type(parent_state) then
       return false
     end
 
     if smart_config.uncheck_up == "direct_children" then
       for _, child_id in ipairs(parent.children) do
-        local child = todo_map[child_id]
-        if child and (desired[child_id] or child.state) == "unchecked" then
-          -- only unchecked children cause parent to uncheck
+        local st = (desired[child_id] or todo_map[child_id].state)
+        if is_incomplete_type(st) then
           return true
         end
       end
       return false
     else -- "all_children"
-      -- NOTE: i.e. uncheck the parent if any children are unchecked
+      -- uncheck the parent if any child has incomplete type
       for _, cid in ipairs(parent.children) do
-        if subtree_any(cid, function(st)
-          return st == "unchecked"
-        end) then
+        if subtree_any(cid, is_incomplete_type) then
           return true
         end
       end
@@ -903,8 +944,8 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if should_check_parent(parent_id) and desired[parent_id] ~= "checked" then
       desired[parent_id] = "checked"
-      propagate_check_up(parent_id)
     end
+    propagate_check_up(parent_id)
   end
 
   -- process upward propagation for items becoming unchecked
@@ -916,17 +957,18 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
 
     if should_uncheck_parent(parent_id) and desired[parent_id] ~= "unchecked" then
       desired[parent_id] = "unchecked"
-      propagate_uncheck_up(parent_id)
     end
+    propagate_uncheck_up(parent_id)
   end
 
   -- run upward propagation based on what we're setting items to
   for id, desired_state in pairs(desired) do
-    if desired_state == "checked" then
-      -- item becoming checked might cause parent to check
+    local state_type = config.get_todo_state_type(desired_state)
+    if state_type == "complete" then
+      -- item becoming complete might cause parent to check
       propagate_check_up(id)
-    elseif desired_state == "unchecked" then
-      -- item becoming unchecked might cause parent to uncheck
+    elseif state_type == "incomplete" then
+      -- item becoming incomplete might cause parent to uncheck
       propagate_uncheck_up(id)
     end
   end
@@ -1626,20 +1668,25 @@ function M.move_cursor_to_metadata(bufnr, todo_item, backward)
   end
 end
 
---- Count completed and total child todos for a todo item
+--- Count completed and total (non-inactive type) child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
 ---@param todo_map table<integer, checkmate.TodoItem> Full todo map
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
+  local config = require("checkmate.config")
   local counts = { completed = 0, total = 0 }
 
   for _, child_id in ipairs(todo_item.children or {}) do
     local child = todo_map[child_id]
     if child then
-      counts.total = counts.total + 1
-      if child.state == "checked" then
-        counts.completed = counts.completed + 1
+      local child_state_type = config.get_todo_state_type(child.state)
+
+      if child_state_type ~= "inactive" then
+        counts.total = counts.total + 1
+        if child_state_type == "complete" then
+          counts.completed = counts.completed + 1
+        end
       end
 
       -- recursively count grandchildren

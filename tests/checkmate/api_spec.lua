@@ -1897,6 +1897,7 @@ Line 2
           config = {
             smart_toggle = {
               enabled = true,
+              include_cycle = true,
               check_down = "direct_children",
               uncheck_down = "none",
               check_up = "direct_children",
@@ -1905,8 +1906,9 @@ Line 2
           },
         })
 
-        -- cursor to parent task and toggle
+        -- cursor to parent task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        -- should cycle to checked since it defaults to next `order` (unchecked = 1, checked = 2)
         require("checkmate").cycle()
 
         vim.wait(20)
@@ -2365,6 +2367,39 @@ Line 2
         end)
       end)
 
+      it("should check common parent when all selected siblings become checked", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent
+  - ]] .. unchecked .. [[ A
+  - ]] .. unchecked .. [[ B
+- ]] .. unchecked .. [[ Other
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+          check_down = "none",
+          check_up = "direct_children",
+        })
+
+        -- visually select A and B
+        h.make_selection(2, 0, 3, 0, "V")
+        require("checkmate").toggle()
+        vim.wait(20)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        -- A and B now checked, so Parent should check
+        assert.matches("- " .. vim.pesc(checked) .. " Parent", lines[1])
+        assert.matches("A", lines[2])
+        assert.matches("B", lines[3])
+        assert.matches("- " .. vim.pesc(unchecked) .. " Other", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
       it("should handle cascading propagation correctly", function()
         local unchecked = h.get_unchecked_marker()
         local checked = h.get_checked_marker()
@@ -2449,6 +2484,39 @@ Line 2
         assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
         assert.matches("- " .. vim.pesc(checked) .. " Task A%.2", lines[3])
         assert.matches("- " .. vim.pesc(unchecked) .. " Task B", lines[4])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      -- NOTE: may update this in the future if we allow custom states to mimic behavior of
+      -- checked or unchecked. i.e. a "pending" state could be set to behave as "unchecked", thus
+      -- blocking the below `check_up` (whereas it does not block currently)
+      it("should ignore custom states when deciding parent propagation", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+        local pending = h.get_pending_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. pending .. [[ Child custom
+  - ]] .. unchecked .. [[ Child unchecked
+]]
+
+        -- only looking at check_up/all_children, no down propagation
+        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+        require("checkmate").toggle()
+        vim.wait(20)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        -- child “pending” stays pending, the other child becomes checked,
+        -- and parent becomes checked because “pending” is ignored.
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("Child custom", lines[2])
+        assert.matches("Child unchecked", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)

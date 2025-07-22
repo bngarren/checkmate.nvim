@@ -63,8 +63,9 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
----Note that Github-flavored Markdown specification only includes "checked" and "unchecked". If you add additional states here, they may not work
----in other Markdown apps without special configuration
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
+---
+---If you add additional states here, they may not work in other Markdown apps without special configuration.
 ---@field todo_states table<string, checkmate.TodoStateDefinition>
 ---
 ---Default list item marker to be used when creating new Todo items
@@ -80,16 +81,14 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
----Options for smart toggle behavior
----This allows an action on one todo item to recursively affect other todo items in the hierarchy in sensible manner
----The behavior is configurable with the following defaults:
---- - Toggling a todo item to checked will cause all direct children todos to become checked
---- - When all direct child todo items are checked, the parent todo will become checked
---- - Similarly, when a child todo is unchecked, it will ensure the parent todo also becomes unchecked if it was previously checked
---- - Unchecking a parent does not uncheck children by default. This can be changed.
+---Smart toggle provides intelligent parent-child todo state propagation
+---
+---When you change a todo's state, it can automatically update related todos based on their
+---hierarchical relationship. Only "checked" and "unchecked" states are propagated - custom
+---states remain unchanged but influence the propagation logic based on their type.
 ---@field smart_toggle checkmate.SmartToggleSettings
 ---
----Enable/disable the todo count indicator (shows number of sub-todo items completed)
+---Enable/disable the todo count indicator (shows number of child todo items incomplete vs complete)
 ---@field show_todo_count boolean
 ---
 ---Options for todo count indicator position
@@ -103,7 +102,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Formatter function for displaying the todo count indicator
 ---@field todo_count_formatter fun(completed: integer, total: integer)?: string
 ---
----Whether to count sub-todo items recursively in the todo_count
+---Whether to count child todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
 ---
@@ -149,13 +148,15 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
+---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
+
 ---@class checkmate.TodoStateDefinition
 ---
 --- The text string used for a todo marker is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@field marker string
 ---
---- Markdown checkbox representation
+--- Markdown checkbox representation (custom states only)
 --- For custom states, this determines how the todo state is written in Markdown syntax.
 --- Important:
 ---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
@@ -164,6 +165,20 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---   - This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
 --- Markdown spec, e.g. `[ ]` and `[x]`
 ---@field markdown string | string[]
+---
+--- Defines how a custom todo state relates to an intended task (custom states only)
+---
+--- The helps the custom state integrate with plugin behaviors like `smart toggle` and `todo count indicator`.
+---
+--- Options:
+--- - "incomplete" - active/ongoing task (like unchecked)
+--- - "complete"   - finished task (like checked)
+--- - "inactive"   - paused/deferred task (neither)
+---
+--- Defaults:
+---  - the "checked" state is always "complete" and the "unchecked" state is always "incomplete"
+---  - custom states without a defined `type` will default to "inactive"
+---@field type? checkmate.TodoStateType
 ---
 --- The order in which this state is cycled (lower = first)
 ---@field order? number
@@ -195,32 +210,48 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@class checkmate.SmartToggleSettings
 ---
 ---Whether to enable smart toggle behavior
+---
+---What is 'smart toggle'?
+--- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a sensible manner
+--- - In this mode, changing the state of a todo maybe also affect nearby todos
 ---Default: true
 ---@field enabled boolean?
 ---
+---Whether to use smart toggle behavior with `cycle` commands/API
+---
+---If enabled, this may inadvertently toggle nearby todos as you cycle through, depending on `smart_toggle` rules.
+---If you would like to cascade/propagate when setting a custom state, use the `toggle(target_state)` api.
+---
+---Default: false (cycling through states won't trigger propagation)
+---@field include_cycle boolean?
+---
 ---How checking a parent affects its children
 ---  - "all_children": Check all descendants, including nested
----  - "direct_children": Only check direct children (default)
+---  - "direct_children": Only check immediate unchecked children (default)
 ---  - "none": Don't propagate down
 ---@field check_down "all_children"|"direct_children"|"none"?
 ---
 ---How unchecking a parent affects its children
 ---  - "all_children": Uncheck all descendants, including nested
----  - "direct_children": Only uncheck direct children
+---  - "direct_children": Only uncheck immediate checked children
 ---  - "none": Don't propagate down (default)
 ---@field uncheck_down "all_children"|"direct_children"|"none"?
 ---
 ---When a parent should become checked
 ---i.e, how a checked child affects its parent
----  - "all_children": When ALL descendants are checked, including nested
----  - "direct_children": When all direct children are checked (default)
+---
+---Note: Custom states with "complete" type count as done, "incomplete" as not done,
+---and "inactive" states are ignored (as if they don't exist for completion purposes).
+---
+---  - "all_children": When ALL descendants are complete or inactive, including nested
+---  - "direct_children": When all immediate children are complete/inactive (default)
 ---  - "none": Never auto-check parents
 ---@field check_up "all_children"|"direct_children"|"none"?
 ---
 ---When a parent should become unchecked
 ---i.e, how a unchecked child affects its parent
----  - "all_children": When ANY descendant is unchecked
----  - "direct_children": When any direct child is unchecked (default)
+---  - "all_children": When ANY descendant is incomplete
+---  - "direct_children": When any immediate child is incomplete (default)
 ---  - "none": Never auto-uncheck parents
 ---@field uncheck_up "all_children"|"direct_children"|"none"?
 
@@ -437,18 +468,19 @@ local defaults = {
     ---@diagnostic disable-next-line: missing-fields
     unchecked = {
       marker = "□",
-      order = 999,
+      order = 1,
     },
     ---@diagnostic disable-next-line: missing-fields
     checked = {
       marker = "✔",
-      order = 1,
+      order = 2,
     },
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
+    include_cycle = false,
     check_down = "direct_children",
     uncheck_down = "none",
     check_up = "direct_children",
@@ -1115,8 +1147,11 @@ function M.setup(opts)
     merge_deprecated_opts(config, opts)
 
     -- ensure that checked and unchecked todo states always have GFM representation
+    -- ensure that type is never altered
     config.todo_states.checked.markdown = { "x", "X" }
+    config.todo_states.checked.type = "complete"
     config.todo_states.unchecked.markdown = " "
+    config.todo_states.unchecked.type = "incomplete"
 
     -- save user style for colorscheme updates
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}
@@ -1141,6 +1176,11 @@ end
 
 function M.get_defaults()
   return vim.deepcopy(defaults)
+end
+
+function M.get_todo_state_type(state_name)
+  local state_def = M.options.todo_states[state_name]
+  return state_def and state_def.type or "inactive"
 end
 
 return M

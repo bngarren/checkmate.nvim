@@ -28,7 +28,9 @@ describe("checkmate init and lifecycle", function()
       actual.style = {} -- to match expected because default has style = {}
       actual.todo_markers = nil -- TODO: remove once @deprecated todo_markers is removed
       actual.todo_states.checked.markdown = nil -- won't be in expected/default as it is added during setup
+      actual.todo_states.checked.type = nil
       actual.todo_states.unchecked.markdown = nil
+      actual.todo_states.unchecked.type = nil
       local expected = config.get_defaults()
       assert.same(expected, actual)
       checkmate.stop()

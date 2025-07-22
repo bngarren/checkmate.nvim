@@ -85,7 +85,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---When you change a todo's state, it can automatically update related todos based on their
 ---hierarchical relationship. Only "checked" and "unchecked" states are propagated - custom
----states remain unchanged but influence the propagation logic based on their behavior type.
+---states remain unchanged but influence the propagation logic based on their type.
 ---@field smart_toggle checkmate.SmartToggleSettings
 ---
 ---Enable/disable the todo count indicator (shows number of child todo items incomplete vs complete)
@@ -240,7 +240,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---When a parent should become checked
 ---i.e, how a checked child affects its parent
 ---
----Note: Custom states with "complete" behavior count as done, "incomplete" as not done,
+---Note: Custom states with "complete" type count as done, "incomplete" as not done,
 ---and "inactive" states are ignored (as if they don't exist for completion purposes).
 ---
 ---  - "all_children": When ALL descendants are complete or inactive, including nested
@@ -1147,7 +1147,7 @@ function M.setup(opts)
     merge_deprecated_opts(config, opts)
 
     -- ensure that checked and unchecked todo states always have GFM representation
-    -- ensure that behavior is never altered
+    -- ensure that type is never altered
     config.todo_states.checked.markdown = { "x", "X" }
     config.todo_states.checked.type = "complete"
     config.todo_states.unchecked.markdown = " "

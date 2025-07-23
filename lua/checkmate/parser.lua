@@ -1,3 +1,9 @@
+local config = require("checkmate.config")
+local util = require("checkmate.util")
+local profiler = require("checkmate.profiler")
+local log = require("checkmate.log")
+local ph = require("checkmate.parser.helpers")
+
 local M = {}
 
 ---@deprecated use checkmate.TodoState
@@ -112,12 +118,10 @@ end
 ---@return string[] patterns
 function M.get_list_item_patterns(with_captures)
   if with_captures and not pattern_cache.list_item_with_captures then
-    pattern_cache.list_item_with_captures =
-      require("checkmate.parser.helpers").create_list_item_patterns({ with_captures = true })
+    pattern_cache.list_item_with_captures = ph.create_list_item_patterns({ with_captures = true })
   end
   if not with_captures and not pattern_cache.list_item_without_captures then
-    pattern_cache.list_item_without_captures =
-      require("checkmate.parser.helpers").create_list_item_patterns({ with_captures = false })
+    pattern_cache.list_item_without_captures = ph.create_list_item_patterns({ with_captures = false })
   end
 
   if with_captures then
@@ -133,7 +137,6 @@ end
 ---@param with_captures? boolean
 ---@return string[] patterns
 function M.get_checkmate_todo_patterns_by_state(todo_state, with_captures)
-  local config = require("checkmate.config")
   local state = config.options.todo_states[todo_state]
   if not state then
     return {}
@@ -145,7 +148,7 @@ function M.get_checkmate_todo_patterns_by_state(todo_state, with_captures)
 
   if not pattern_cache[cache_key][todo_state] then
     pattern_cache[cache_key][todo_state] =
-      require("checkmate.parser.helpers").create_unicode_todo_patterns(state.marker, { with_captures = with_captures })
+      ph.create_unicode_todo_patterns(state.marker, { with_captures = with_captures })
   end
 
   return pattern_cache[cache_key][todo_state]
@@ -155,8 +158,6 @@ end
 ---@param with_captures? boolean (default false) Whether to include capture groups
 ---@return string[] patterns Array of patterns for all configured states
 function M.get_all_checkmate_todo_patterns(with_captures)
-  local config = require("checkmate.config")
-
   local cache_key = with_captures and "checkmate_todo_patterns_all_with_captures"
     or "checkmate_todo_patterns_all_without_captures"
 
@@ -173,7 +174,6 @@ function M.get_all_checkmate_todo_patterns(with_captures)
 end
 
 function M.get_markdown_checkbox_patterns_by_state(todo_state)
-  local config = require("checkmate.config")
   local state_def = config.options.todo_states[todo_state]
   if not state_def then
     return {}
@@ -185,8 +185,7 @@ function M.get_markdown_checkbox_patterns_by_state(todo_state)
   end
 
   if not pattern_cache[cache_key][todo_state] then
-    pattern_cache[cache_key][todo_state] =
-      require("checkmate.parser.helpers").create_markdown_checkbox_patterns(state_def.markdown)
+    pattern_cache[cache_key][todo_state] = ph.create_markdown_checkbox_patterns(state_def.markdown)
   end
 
   return pattern_cache[cache_key][todo_state]
@@ -210,7 +209,6 @@ function M.get_ordered_todo_states()
     return todo_states_cache
   end
 
-  local config = require("checkmate.config")
   local states = {}
   local max_order = 0
 
@@ -249,7 +247,6 @@ end
 ---@return string|nil state
 function M.get_todo_state_by_marker(marker)
   if not M.todo_marker_to_state[marker] then
-    local config = require("checkmate.config")
     for state_name, state in pairs(config.options.todo_states) do
       if state.marker == marker then
         M.todo_marker_to_state[marker] = state_name
@@ -293,9 +290,6 @@ end
 ---@param line string Line to extract todo item state
 ---@return string? state Todo item state, or nil if todo item wasn't found
 function M.get_todo_item_state(line)
-  local ph = require("checkmate.parser.helpers")
-  local config = require("checkmate.config")
-
   local patterns = M.get_all_checkmate_todo_patterns(true) -- cached
 
   local result = ph.match_first(patterns, line)
@@ -325,7 +319,6 @@ end
 
 function M.setup()
   local highlights = require("checkmate.highlights")
-  local log = require("checkmate.log")
 
   -- clear parser cache in case config changed
   M.clear_parser_cache()
@@ -335,9 +328,6 @@ end
 
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
 function M.convert_markdown_to_unicode(bufnr)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -412,9 +402,6 @@ end
 
 -- Convert Unicode symbols back to standard markdown 'task list marker' syntax
 function M.convert_unicode_to_markdown(bufnr)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -503,9 +490,6 @@ end
 ---@param opts GetTodoItemAtPositionOpts?
 ---@return checkmate.TodoItem? todo_item
 function M.get_todo_item_at_position(bufnr, row, col, opts)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   row = row or vim.api.nvim_win_get_cursor(0)[1] - 1
   col = col or vim.api.nvim_win_get_cursor(0)[2]
@@ -604,11 +588,6 @@ end
 ---@param bufnr number Buffer number
 ---@return table<integer, checkmate.TodoItem>  Map of all todo items with their relationships
 function M.discover_todos(bufnr)
-  local log = require("checkmate.log")
-  local config = require("checkmate.config")
-  local util = require("checkmate.util")
-  local profiler = require("checkmate.profiler")
-
   profiler.start("parser.discover_todos")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -839,7 +818,6 @@ end
 ---@param extmark_id integer
 ---@return {row: integer, col: integer}|nil
 function M.get_todo_position(bufnr, extmark_id)
-  local config = require("checkmate.config")
   local extmark = vim.api.nvim_buf_get_extmark_by_id(bufnr, config.ns_todos, extmark_id, {})
   if extmark then
     return { row = extmark[1], col = extmark[2] }

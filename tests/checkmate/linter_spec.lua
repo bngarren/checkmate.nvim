@@ -1,10 +1,12 @@
 -- tests/checkmate/linter_spec.lua
 describe("Linter", function()
-  local h = require("tests.checkmate.helpers")
-  local linter = require("checkmate.linter")
+  local h, linter
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    linter = require("checkmate.linter")
   end)
 
   -- helper to run linter & fetch diags in one go

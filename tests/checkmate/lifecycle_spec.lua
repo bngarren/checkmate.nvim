@@ -1,4 +1,4 @@
-local h = require("tests.checkmate.helpers")
+local h
 
 describe("checkmate init and lifecycle", function()
   lazy_setup(function()
@@ -15,6 +15,8 @@ describe("checkmate init and lifecycle", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
   end)
 
   describe("setup", function()

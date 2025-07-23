@@ -1,13 +1,15 @@
 describe("Transaction", function()
-  local h = require("tests.checkmate.helpers")
-
-  local checkmate = require("checkmate")
-  local transaction = require("checkmate.transaction")
-  local parser = require("checkmate.parser")
-  local api = require("checkmate.api")
+  local h, checkmate, transaction, parser, api, util
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
+    transaction = require("checkmate.transaction")
+    parser = require("checkmate.parser")
+    api = require("checkmate.api")
+    util = require("checkmate.util")
 
     checkmate.setup()
     vim.wait(20)
@@ -96,8 +98,8 @@ describe("Transaction", function()
     local bufnr = h.setup_test_buffer(content)
 
     local apply_diff_called = 0
-    local original_apply_diff = api.apply_diff
-    api.apply_diff = function(...)
+    local original_apply_diff = util.apply_diff
+    util.apply_diff = function(...)
       apply_diff_called = apply_diff_called + 1
       return original_apply_diff(...)
     end
@@ -117,7 +119,7 @@ describe("Transaction", function()
       assert.matches(config.options.todo_states.checked.marker, line)
     end
 
-    api.apply_diff = original_apply_diff
+    util.apply_diff = original_apply_diff
 
     finally(function()
       h.cleanup_buffer(bufnr)

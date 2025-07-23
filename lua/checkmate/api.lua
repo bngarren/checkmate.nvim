@@ -12,6 +12,14 @@ INDEXING CONVENTIONS:
 - Always use byte positions internally, only convert to char positions when absolutely necessary
 --]]
 
+local config = require("checkmate.config")
+local log = require("checkmate.log")
+local parser = require("checkmate.parser")
+local ph = require("checkmate.parser.helpers")
+local meta_module = require("checkmate.metadata")
+local util = require("checkmate.util")
+local profiler = require("checkmate.profiler")
+
 ---@class checkmate.Api
 local M = {}
 
@@ -51,7 +59,6 @@ function M.setup_buffer(bufnr)
     return false
   end
 
-  local config = require("checkmate.config")
   local checkmate = require("checkmate")
 
   -- bail early if we're not running
@@ -65,7 +72,6 @@ function M.setup_buffer(bufnr)
 
   checkmate.register_buffer(bufnr)
 
-  local parser = require("checkmate.parser")
   parser.convert_markdown_to_unicode(bufnr)
 
   if config.options.linter and config.options.linter.enabled ~= false then
@@ -109,8 +115,6 @@ function M.clear_keymaps(bufnr)
 end
 
 function M.setup_keymaps(bufnr)
-  local config = require("checkmate.config")
-  local log = require("checkmate.log")
   local keys = config.options.keys or {}
 
   local function buffer_map(_bufnr, mode, lhs, rhs, desc)
@@ -221,10 +225,6 @@ function M.setup_autocmds(bufnr)
       buffer = bufnr,
       desc = "Checkmate: Convert and save checkmate.nvim files",
       callback = function()
-        local parser = require("checkmate.parser")
-        local log = require("checkmate.log")
-        local util = require("checkmate.util")
-
         -- Guard against re-entrancy
         -- Previously had bug due to setting modified flag causing BufWriteCmd to run multiple times
         if vim.b[bufnr]._checkmate_writing then
@@ -356,7 +356,7 @@ function M.setup_autocmds(bufnr)
         require("checkmate").unregister_buffer(bufnr)
         M._debounced_processors[bufnr] = nil
         -- clear the todo map cache for this buffer
-        require("checkmate.parser").todo_map_cache[bufnr] = nil
+        parser.todo_map_cache[bufnr] = nil
 
         require("checkmate.metadata.picker").cleanup_ui(bufnr)
       end,
@@ -387,8 +387,6 @@ M.PROCESS_CONFIGS = {
 }
 
 function M.process_buffer(bufnr, process_type, reason)
-  local log = require("checkmate.log")
-
   process_type = process_type or "full"
   local process_config = M.PROCESS_CONFIGS[process_type]
   if not process_config then
@@ -407,8 +405,6 @@ function M.process_buffer(bufnr, process_type, reason)
         return
       end
 
-      local parser = require("checkmate.parser")
-      local config = require("checkmate.config")
       local start_time = vim.uv.hrtime() / 1000000
 
       local todo_map = parser.get_todo_map(bufnr)
@@ -437,7 +433,7 @@ function M.process_buffer(bufnr, process_type, reason)
       )
     end
 
-    M._debounced_processors[bufnr][process_type] = require("checkmate.util").debounce(process_impl, {
+    M._debounced_processors[bufnr][process_type] = util.debounce(process_impl, {
       ms = process_config.debounce_ms,
     })
   end
@@ -454,9 +450,7 @@ end
 function M.shutdown(bufnr)
   if vim.api.nvim_buf_is_valid(bufnr) then
     -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
-    pcall(require("checkmate.parser").convert_unicode_to_markdown, bufnr)
-
-    local config = require("checkmate.config")
+    pcall(parser.convert_unicode_to_markdown, bufnr)
 
     M.clear_keymaps(bufnr)
 
@@ -507,9 +501,6 @@ end
 ---@param is_visual boolean true if from visual selection
 ---@return checkmate.TextDiffHunk[] hunks array of diff hunks or {}
 function M.create_todos(ctx, start_row, end_row, is_visual)
-  local parser = require("checkmate.parser")
-  local config = require("checkmate.config")
-
   local hunks = {}
 
   local bufnr = ctx.get_buf()
@@ -571,13 +562,10 @@ end
 ---@param row integer 0-based row to convert
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_convert_to_todo(bufnr, row)
-  local config = require("checkmate.config")
-  local ph = require("checkmate.parser.helpers")
-
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
   -- existing indentation
-  local indent = require("checkmate.util").get_line_indent(line)
+  local indent = util.get_line_indent(line)
 
   local list_item = ph.match_list_item(line)
   local list_marker = list_item and list_item.marker
@@ -614,9 +602,6 @@ end
 ---@param row integer  -- 0-based row where we want to insert below
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_insert_todo_below(bufnr, row)
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
-
   local todo_map = parser.get_todo_map(bufnr)
   local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
 
@@ -665,9 +650,6 @@ end
 ---@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.compute_diff_toggle(items_with_states)
-  local config = require("checkmate.config")
-  local profiler = require("checkmate.profiler")
-
   profiler.start("api.compute_diff_toggle")
 
   local hunks = {}
@@ -733,7 +715,6 @@ end
 ---@param todo_map table<integer, checkmate.TodoItem>
 ---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
-  local config = require("checkmate.config")
   local smart_config = config.options.smart_toggle
 
   -- holds which todo's need their state updated
@@ -996,7 +977,6 @@ end
 ---@param backward? boolean If true, cycle backward
 ---@return string next_state The next todo state name
 function M.get_next_todo_state(current_state, backward)
-  local parser = require("checkmate.parser")
   local states = parser.get_ordered_todo_states()
   local current_index = nil
 
@@ -1032,8 +1012,6 @@ end
 ---@param bufnr integer
 ---@return {row: integer, col: integer, insert_after_space: boolean}
 function M.find_metadata_insert_position(todo_item, meta_name, bufnr)
-  local config = require("checkmate.config")
-  local util = require("checkmate.util")
   local meta_config = config.options.metadata[meta_name] or {}
   local incoming_sort_order = meta_config.sort_order or 100
 
@@ -1086,8 +1064,6 @@ function M.find_metadata_insert_position(todo_item, meta_name, bufnr)
   local successor_entry = nil
   local successor_order = math.huge
 
-  local meta_module = require("checkmate.metadata")
-
   -- basically we loop through each metadata entry and calculate if it's
   -- the closest predecessor and/or closest successor to the incoming metadata
   for _, entry in ipairs(todo_item.metadata.entries) do
@@ -1136,9 +1112,6 @@ end
 ---@param meta_value string Metadata default value
 ---@return checkmate.TextDiffHunk[], table<integer, {old_value: string, new_value: string}>
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
-  local log = require("checkmate.log")
-  local meta_module = require("checkmate.metadata")
-
   local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
     log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
@@ -1203,9 +1176,6 @@ end
 ---@param operations table[] Array of {id: integer, meta_name: string, meta_value?: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.add_metadata(ctx, operations)
-  local config = require("checkmate.config")
-  local meta_module = require("checkmate.metadata")
-
   local bufnr = ctx.get_buf()
   local hunks = {}
   local to_jump = nil
@@ -1407,7 +1377,6 @@ function M._collect_entries_to_remove(item, meta_names)
 
   -- remove specific metadata by name
   local entries = {}
-  local meta_module = require("checkmate.metadata")
 
   for _, meta_name in ipairs(meta_names) do
     local entry = item.metadata.by_tag[meta_name]
@@ -1433,8 +1402,6 @@ end
 ---@param ctx checkmate.TransactionContext
 ---@param callbacks {id: integer, canonical_name: string}[]
 function M._queue_removal_callbacks(ctx, callbacks)
-  local config = require("checkmate.config")
-
   for _, callback_info in ipairs(callbacks) do
     local meta_config = config.options.metadata[callback_info.canonical_name]
     if meta_config and meta_config.on_remove then
@@ -1470,7 +1437,7 @@ function M.remove_metadata(ctx, operations)
         -- collect callbacks
         for _, entry in ipairs(entries_to_remove) do
           local canonical = entry.alias_for or entry.tag
-          local meta_config = require("checkmate.config").options.metadata[canonical]
+          local meta_config = config.options.metadata[canonical]
           if meta_config and meta_config.on_remove then
             table.insert(pending_callbacks, {
               id = op.id,
@@ -1538,7 +1505,6 @@ function M.set_metadata_value(ctx, metadata, new_value)
 
   -- queue on_change callback
   if metadata.value ~= new_value then
-    local config = require("checkmate.config")
     local canonical_name = metadata.alias_for or metadata.tag
     local meta_config = config.options.metadata[canonical_name]
 
@@ -1674,7 +1640,6 @@ end
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
-  local config = require("checkmate.config")
   local counts = { completed = 0, total = 0 }
 
   for _, child_id in ipairs(todo_item.children or {}) do
@@ -1705,11 +1670,7 @@ end
 --- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
 --- @return boolean success Whether any items were archived
 function M.archive_todos(opts)
-  local util = require("checkmate.util")
-  local log = require("checkmate.log")
-  local parser = require("checkmate.parser")
   local highlights = require("checkmate.highlights")
-  local config = require("checkmate.config")
 
   opts = opts or {}
 
@@ -2028,10 +1989,6 @@ end
 ---@return checkmate.TodoItem[] items
 ---@return table<integer, checkmate.TodoItem> todo_map
 function M.collect_todo_items_from_selection(is_visual)
-  local parser = require("checkmate.parser")
-  local util = require("checkmate.util")
-  local profiler = require("checkmate.profiler")
-
   profiler.start("api.collect_todo_items_from_selection")
 
   local bufnr = vim.api.nvim_get_current_buf()
@@ -2086,56 +2043,6 @@ function M.collect_todo_items_from_selection(is_visual)
   profiler.stop("api.collect_todo_items_from_selection")
 
   return items, full_map
-end
-
---[[
-Apply diff hunks to buffer 
-
-Line insertion vs text replacement
-- nvim_buf_set_text: used for replacements and insertions WITHIN a line
-  this is important because it preserves extmarks that are not directly in the replaced range
-  i.e. the extmarks that track todo location
-- nvim_buf_set_lines: used for inserting NEW LINES
-  when used with same start/end positions, it inserts new lines without affecting
-  existing lines or their extmarks.
-
-We use nvim_buf_set_lines for whole line insertions (when start_col = end_col = 0)
-because it's cleaner and doesn't risk affecting extmarks on adjacent lines.
-For all other operations (replacements, partial line edits), we use nvim_buf_set_text
-to preserve extmarks as much as possible.
---]]
----@param bufnr integer Buffer number
----@param hunks checkmate.TextDiffHunk[]
-function M.apply_diff(bufnr, hunks)
-  if vim.tbl_isempty(hunks) then
-    return
-  end
-
-  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
-  table.sort(hunks, function(a, b)
-    if a.start_row ~= b.start_row then
-      return a.start_row > b.start_row
-    end
-    return a.start_col > b.start_col
-  end)
-
-  -- apply hunks (first one creates undo entry, rest join)
-  for i, hunk in ipairs(hunks) do
-    if i > 1 then
-      vim.cmd("silent! undojoin")
-    end
-
-    local is_line_insertion = hunk.start_row == hunk.end_row
-      and hunk.start_col == 0
-      and hunk.end_col == 0
-      and #hunk.insert > 0
-
-    if is_line_insertion then
-      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
-    else
-      vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
-    end
-  end
 end
 
 return M

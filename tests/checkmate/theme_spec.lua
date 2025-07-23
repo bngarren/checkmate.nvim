@@ -10,10 +10,11 @@
      order, rounding).  
 --]]
 describe("Theme", function()
-  local theme = require("checkmate.theme")
+  local theme
 
   before_each(function()
     _G.reset_state()
+    theme = require("checkmate.theme")
   end)
 
   describe("is_valid_hex_color", function()

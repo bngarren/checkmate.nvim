@@ -12,11 +12,7 @@
 
 -- Design:
 -- The linter uses a validator-based architecture where each rule is encapsulated
--- in a separate validator object implementing a common interface. This approach
--- allows for easy extension with new rules while keeping existing logic clean.
---
--- The algorithm is an *O(lines)* single pass with a tiny stack — perfect for
-real‑time linting of large Markdown buffers.
+-- in a separate validator object implementing a common interface.
 --
 -- Each validator receives a LintContext containing all necessary information to
 -- perform validation and report issues through a simplified reporting function.

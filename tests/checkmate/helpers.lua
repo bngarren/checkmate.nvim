@@ -1,16 +1,16 @@
+local config = require("checkmate.config")
+
 local M = {}
 
 ---Get the default unchecked marker from config
 ---@return string marker
 function M.get_unchecked_marker()
-  local config = require("checkmate.config")
   return config.get_defaults().todo_states.unchecked.marker
 end
 
 ---Get the default checked marker from config
 ---@return string marker
 function M.get_checked_marker()
-  local config = require("checkmate.config")
   return config.get_defaults().todo_states.checked.marker
 end
 
@@ -54,8 +54,8 @@ function M.setup_todo_file_buffer(content, opts)
   end
 
   if not opts.skip_setup then
-    local config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, opts.config or {})
-    local ok = require("checkmate").setup(config)
+    local _config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, opts.config or {})
+    local ok = require("checkmate").setup(_config)
     if not ok then
       error("Failed to setup Checkmate in setup_todo_buffer")
     end

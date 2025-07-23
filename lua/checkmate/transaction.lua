@@ -90,12 +90,7 @@ function M.run(bufnr, entry_fn, post_fn)
     end,
 
     get_todo_by_row = function(row, root_only)
-      return require("checkmate.parser").get_todo_item_at_position(
-        state.bufnr,
-        row,
-        0,
-        { todo_map = state.todo_map, root_only = root_only }
-      )
+      return parser.get_todo_item_at_position(state.bufnr, row, 0, { todo_map = state.todo_map, root_only = root_only })
     end,
 
     --- Queue any function and its arguments

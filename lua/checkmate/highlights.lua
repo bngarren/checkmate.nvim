@@ -1,3 +1,10 @@
+local util = require("checkmate.util")
+local config = require("checkmate.config")
+local api = require("checkmate.api")
+local log = require("checkmate.log")
+local parser = require("checkmate.parser")
+local profiler = require("checkmate.profiler")
+
 ---@class checkmate.Highlights
 local M = {}
 
@@ -15,7 +22,7 @@ M.PRIORITY = {
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group The highlight group to use
 function M.get_todo_content_highlight(todo_state, is_main_content)
-  local state_name = require("checkmate.util").snake_to_camel(todo_state)
+  local state_name = util.snake_to_camel(todo_state)
 
   if is_main_content then
     return "Checkmate" .. state_name .. "MainContent"
@@ -37,7 +44,6 @@ function M.get_buffer_line(bufnr, row)
 
   -- Fallback: create a temporary cache just for this call
   -- This shouldn't happen in normal flow but provides safety
-  local util = require("checkmate.util")
   local cache = util.create_line_cache(bufnr)
   return cache:get(row)
 end
@@ -73,9 +79,6 @@ function M.clear_highlight_cache()
 end
 
 function M.register_highlight_groups()
-  local config = require("checkmate.config")
-  local log = require("checkmate.log")
-
   local highlights = {
     ---this is used when we apply an extmark to override , e.g. setext headings
     ---@type vim.api.keyset.highlight
@@ -84,7 +87,7 @@ function M.register_highlight_groups()
 
   -- generate highlight groups for each todo state
   for state_name, _ in pairs(config.options.todo_states) do
-    local state_name_camel = require("checkmate.util").snake_to_camel(state_name)
+    local state_name_camel = util.snake_to_camel(state_name)
 
     local marker_group = "Checkmate" .. state_name_camel .. "Marker"
     local main_content_group = "Checkmate" .. state_name_camel .. "MainContent"
@@ -125,8 +128,6 @@ function M.register_highlight_groups()
 end
 
 function M.setup_highlights()
-  local config = require("checkmate.config")
-
   M.clear_highlight_cache()
 
   M.register_highlight_groups()
@@ -172,12 +173,6 @@ end
 ---@param bufnr integer Buffer number
 ---@param opts ApplyHighlightingOpts? Options
 function M.apply_highlighting(bufnr, opts)
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
-  local log = require("checkmate.log")
-  local profiler = require("checkmate.profiler")
-  local util = require("checkmate.util")
-
   profiler.start("highlights.apply_highlighting")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -249,7 +244,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
 
   -- depth limit check
   if ctx.depth >= ctx.max_depth then
-    local log = require("checkmate.log")
     log.warn(string.format("Max depth %d reached at todo %s", ctx.max_depth, todo_item.id))
     return
   end
@@ -274,7 +268,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   end)
 
   if not success then
-    local log = require("checkmate.log")
     log.error(string.format("Highlight error for todo %s: %s", todo_item.id, err))
     return
   end
@@ -319,7 +312,6 @@ end
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
 function M.highlight_todo_marker(bufnr, todo_item)
-  local config = require("checkmate.config")
   local marker_pos = todo_item.todo_marker.position
   local marker_text = todo_item.todo_marker.text
 
@@ -351,9 +343,6 @@ end
 ---@param todo_item checkmate.TodoItem
 ---@param todo_rows table<integer, checkmate.TodoItem> row to todo lookup table
 function M.highlight_list_markers(bufnr, todo_item, todo_rows)
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
-
   -- highlight the todo item's own marker
   if todo_item.list_marker and todo_item.list_marker.node then
     local start_row, start_col = todo_item.list_marker.node:range()
@@ -406,10 +395,8 @@ end
 
 ---Applies highlight groups to metadata entries
 ---@param bufnr integer Buffer number
----@param config checkmate.Config.mod Configuration module
 ---@param todo_item checkmate.TodoItem Todo item for this metadata
-function M.highlight_metadata(bufnr, config, todo_item)
-  local log = require("checkmate.log")
+function M.highlight_metadata(bufnr, todo_item)
   local meta_module = require("checkmate.metadata")
 
   local metadata = todo_item.metadata
@@ -480,8 +467,6 @@ end
 ---@param bufnr integer
 ---@param todo_item checkmate.TodoItem
 function M.highlight_content(bufnr, todo_item, todo_map)
-  local config = require("checkmate.config")
-
   local main_content_hl = M.get_todo_content_highlight(todo_item.state, true)
   local additional_content_hl = M.get_todo_content_highlight(todo_item.state, false)
 
@@ -617,7 +602,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     end
   end
 
-  M.highlight_metadata(bufnr, config, todo_item)
+  M.highlight_metadata(bufnr, todo_item)
 end
 
 ---Show todo count indicator
@@ -625,8 +610,6 @@ end
 ---@param todo_item checkmate.TodoItem
 ---@param todo_map table<integer, checkmate.TodoItem>
 function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
-  local config = require("checkmate.config")
-
   if not config.options.show_todo_count then
     return
   end
@@ -636,7 +619,7 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
   end
 
   local use_recursive = config.options.todo_count_recursive ~= false
-  local counts = require("checkmate.api").count_child_todos(todo_item, todo_map, { recursive = use_recursive })
+  local counts = api.count_child_todos(todo_item, todo_map, { recursive = use_recursive })
 
   if counts.total == 0 then
     return

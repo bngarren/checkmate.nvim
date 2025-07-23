@@ -1,11 +1,11 @@
 describe("Highlights", function()
-  local h = require("tests.checkmate.helpers")
-  local checkmate
+  local h, checkmate
 
   before_each(function()
     _G.reset_state()
 
     checkmate = require("checkmate")
+    h = require("tests.checkmate.helpers")
 
     checkmate.setup()
     vim.wait(100, function()

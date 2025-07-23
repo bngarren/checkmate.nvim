@@ -1,6 +1,5 @@
 describe("Parser", function()
-  local h = require("tests.checkmate.helpers")
-  local checkmate = require("checkmate")
+  local h, checkmate
 
   local pending_marker = "℗"
 
@@ -18,6 +17,9 @@ describe("Parser", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
 
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup({

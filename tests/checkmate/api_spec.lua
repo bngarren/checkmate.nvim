@@ -1,5 +1,5 @@
 describe("API", function()
-  local h = require("tests.checkmate.helpers")
+  local h, api, parser, util
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -13,6 +13,11 @@ describe("API", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    api = require("checkmate.api")
+    parser = require("checkmate.parser")
+    util = require("checkmate.util")
 
     h.ensure_normal_mode()
   end)
@@ -108,7 +113,7 @@ describe("API", function()
       assert.matches("- " .. checked .. " Checked task", lines[4])
       assert.matches("- " .. pending .. " Pending task", lines[5])
 
-      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local todo_map = parser.discover_todos(bufnr)
       assert.equal(3, vim.tbl_count(todo_map))
 
       finally(function()
@@ -130,7 +135,7 @@ describe("API", function()
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
-      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local todo_map = parser.discover_todos(bufnr)
       local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
 
       assert.is_not_nil(task_2)
@@ -150,7 +155,7 @@ describe("API", function()
       -- should already be, but just to be safe
       vim.bo[bufnr].filetype = "markdown"
 
-      todo_map = require("checkmate.parser").discover_todos(bufnr)
+      todo_map = parser.discover_todos(bufnr)
       local task_2_reloaded = h.find_todo_by_text(todo_map, "- " .. checked .. " Task 2")
 
       assert.is_not_nil(task_2_reloaded)
@@ -284,7 +289,7 @@ describe("API", function()
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-      local items = require("checkmate.api").collect_todo_items_from_selection(false)
+      local items = api.collect_todo_items_from_selection(false)
       assert.equal(1, #items)
 
       assert.matches("Task A", items[1].todo_text)
@@ -305,7 +310,7 @@ describe("API", function()
       -- linewise select top 2 todo lines
       h.make_selection(1, 0, 2, 0, "V")
 
-      local items = require("checkmate.api").collect_todo_items_from_selection(true)
+      local items = api.collect_todo_items_from_selection(true)
       assert.equal(2, #items)
 
       local foundA, foundB = false, false
@@ -560,9 +565,6 @@ Line 2
   describe("todo manipulation", function()
     describe("metadata operations", function()
       describe("find_metadata_insert_position", function()
-        local api = require("checkmate.api")
-        local parser = require("checkmate.parser")
-
         -- find byte position after a pattern in a line
         local function find_byte_pos_after(line, pattern)
           local _, end_pos = line:find(pattern)
@@ -730,7 +732,7 @@ Line 2
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
-        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 2, 0)
+        local todo_item = parser.get_todo_item_at_position(bufnr, 2, 0)
         assert.is_not_nil(todo_item)
 
         local success = require("checkmate").add_metadata("priority", "high")
@@ -771,7 +773,7 @@ Line 2
         -- move cursor to the Child todo A on line 2 (1-indexed)
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 1, 0) -- 0-indexed
+        local todo_item = parser.get_todo_item_at_position(bufnr, 1, 0) -- 0-indexed
         assert.is_not_nil(todo_item)
 
         require("checkmate").add_metadata("priority", "high")
@@ -786,7 +788,7 @@ Line 2
 
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+        todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
         assert.is_not_nil(todo_item)
 
         -- Add @priority metadata
@@ -835,7 +837,7 @@ Line 2
 
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
         assert.is_not_nil(todo_item)
         ---@cast todo_item checkmate.TodoItem
 
@@ -923,7 +925,7 @@ Line 2
 
         local bufnr = h.setup_test_buffer(content)
 
-        local todo_map = require("checkmate.parser").discover_todos(bufnr)
+        local todo_map = parser.discover_todos(bufnr)
         local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
 
         assert.is_not_nil(first_todo)
@@ -978,7 +980,7 @@ Line 2
         local bufnr = h.setup_test_buffer(content)
 
         -- get 1st todo
-        local todo_map = require("checkmate.parser").discover_todos(bufnr)
+        local todo_map = parser.discover_todos(bufnr)
         local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task with")
 
         assert.is_not_nil(first_todo)
@@ -1074,7 +1076,7 @@ Line 2
 
         local bufnr = h.setup_test_buffer(content)
 
-        local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0)
+        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
         assert.is_not_nil(todo_item)
         ---@cast todo_item checkmate.TodoItem
 
@@ -1116,7 +1118,6 @@ Line 2
 
         local bufnr = h.setup_test_buffer(content)
 
-        local parser = require("checkmate.parser")
         local todo_map = parser.discover_todos(bufnr)
         local todo_item = h.find_todo_by_text(todo_map, "Task @assignee")
         assert.is_not_nil(todo_item)
@@ -1170,7 +1171,6 @@ Line 2
 
         local bufnr = h.setup_test_buffer(content)
 
-        local parser = require("checkmate.parser")
         local todo_map = parser.discover_todos(bufnr)
         local todo_item = h.find_todo_by_text(todo_map, "Task needing data")
         assert.is_not_nil(todo_item)
@@ -1231,7 +1231,7 @@ Line 2
           local bufnr = h.setup_test_buffer(content)
 
           -- todo item at row 2 (0-indexed)
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "A test todo")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1284,7 +1284,7 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "A test todo")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1412,7 +1412,7 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task with existing")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1463,7 +1463,7 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task with metadata")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1523,8 +1523,6 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local parser = require("checkmate.parser")
-          local api = require("checkmate.api")
           local transaction = require("checkmate.transaction")
 
           local todo_map = parser.discover_todos(bufnr)
@@ -1588,7 +1586,7 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task @status")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1702,7 +1700,7 @@ Line 2
 
           local bufnr = h.setup_test_buffer(content)
 
-          local todo_map = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.find_todo_by_text(todo_map, "Task for testing")
           assert.is_not_nil(todo_item)
           ---@cast todo_item checkmate.TodoItem
@@ -1741,7 +1739,7 @@ Line 2
           lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.no.matches("@errortest", lines[1])
 
-          local todo_map_after = require("checkmate.parser").discover_todos(bufnr)
+          local todo_map_after = parser.discover_todos(bufnr)
           assert.is_not_nil(todo_map_after)
           assert.equal(1, vim.tbl_count(todo_map_after), "Todo map should still be valid")
 
@@ -1780,7 +1778,7 @@ Line 2
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
-      local todo_map = require("checkmate.parser").discover_todos(bufnr)
+      local todo_map = parser.discover_todos(bufnr)
 
       -- Find parent todo
       local parent_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Parent task")
@@ -1824,8 +1822,6 @@ Line 2
     end)
 
     it("should handle multiple todo operations in sequence", function()
-      local config = require("checkmate.config")
-
       local content = [[
 # Todo Sequence
 
@@ -1978,9 +1974,6 @@ Line 2
     end)
 
     it("should move cursor to next metadata entry and wrap around", function()
-      local parser = require("checkmate.parser")
-      local api = require("checkmate.api")
-
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
       local bufnr = h.setup_test_buffer(content)
 
@@ -2015,9 +2008,6 @@ Line 2
     end)
 
     it("should move cursor to previous metadata entry and wrap around, skipping current metadata", function()
-      local parser = require("checkmate.parser")
-      local api = require("checkmate.api")
-
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
       local bufnr = h.setup_test_buffer(content)
 
@@ -2549,7 +2539,7 @@ Line 2
       local buffer_content = table.concat(lines, "\n")
 
       -- no archive section should have been created
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         config.get_defaults().archive.heading.title,
         config.get_defaults().archive.heading.level
       )
@@ -2608,8 +2598,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string =
-        require("checkmate.util").get_heading_string(heading_title, config.get_defaults().archive.heading.level)
+      local archive_heading_string = util.get_heading_string(heading_title, config.get_defaults().archive.heading.level)
 
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
@@ -2683,7 +2672,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(heading_title, heading_level)
+      local archive_heading_string = util.get_heading_string(heading_title, heading_level)
 
       -- custom heading was used
       assert.matches(archive_heading_string, buffer_content)
@@ -2713,7 +2702,7 @@ Some content here
         },
       })
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
         config.get_defaults().archive.heading.level
       )
@@ -2800,7 +2789,7 @@ Some content here
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local buffer_content = table.concat(lines, "\n")
 
-        local archive_heading_string = require("checkmate.util").get_heading_string(
+        local archive_heading_string = util.get_heading_string(
           vim.pesc(config.get_defaults().archive.heading.title),
           config.get_defaults().archive.heading.level
         )
@@ -2886,7 +2875,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
         config.get_defaults().archive.heading.level
       )
@@ -2936,7 +2925,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
         config.get_defaults().archive.heading.level
       )
@@ -2981,7 +2970,7 @@ Some content here
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
         config.get_defaults().archive.heading.level
       )
@@ -3044,7 +3033,7 @@ Final content.
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
 
-      local archive_heading_string = require("checkmate.util").get_heading_string(
+      local archive_heading_string = util.get_heading_string(
         vim.pesc(config.get_defaults().archive.heading.title),
         config.get_defaults().archive.heading.level
       )
@@ -3094,9 +3083,6 @@ Final content.
       local content = [[
 - ]] .. unchecked .. [[ MyTask]]
       local bufnr = h.setup_test_buffer(content)
-
-      local parser = require("checkmate.parser")
-      local api = require("checkmate.api")
 
       local todo_map = parser.discover_todos(bufnr)
       local todo = h.find_todo_by_text(todo_map, "MyTask")

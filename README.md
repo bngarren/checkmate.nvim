@@ -1,6 +1,7 @@
 <div align="center">
 
-<img width="400" alt="Checkmate logo" src="./assets/logo.png">
+<img width="350" alt="checkmate_logo" src="https://github.com/user-attachments/assets/01c8e335-b8a0-47d5-b480-8ad8957c7b5f" />
+
 
 ### Get stuff done
 
@@ -35,8 +36,11 @@ A Markdown-based todo/task plugin for Neovim.
 
 <br/>
 
-<img width="700" alt="Checkmate example 1" src="./assets/todos-example-1.png">
-<img width="700" alt="Checkmate example 2" src="./assets/todos-example-2.png">
+<img width="1200" height="204" alt="checkmate_example_simple" src="https://github.com/user-attachments/assets/6eecda10-109a-442f-b709-83ed35065bf9" />
+
+
+<img width="1200" height="341" alt="checkmate_demo_complex" src="https://github.com/user-attachments/assets/8bbb9b20-23f7-4f82-b2b3-a8e8d2d9d4c5" />
+
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
@@ -781,7 +785,9 @@ Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag na
 
 #### Main content versus Additional content
 Highlight groups with 'MainContent' refer to the todo item's first paragraph. 'AdditionalContent' refers to subsequent paragraphs, list items, etc.
-<img src="./assets/main-vs-additional-hl-groups.png" />
+
+<img width="800" alt="checkmate_main_vs_additional_hl_groups" src="https://github.com/user-attachments/assets/adbd0766-8f33-4c8f-be1f-3eafacd81dda" />
+
 
 #### Example: Change the checked marker to a bold green
 ```lua
@@ -865,6 +871,8 @@ todo_states = {
   }
 }
 ```
+<img width="600" alt="checkmate_custom_states" src="https://github.com/user-attachments/assets/d2e5c894-ae06-456b-adc6-6bf11857c3ac" />
+
 
 #### State types
 States have three behavior types that affect smart toggle and todo counts:
@@ -984,7 +992,8 @@ opts = {
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
-<img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
+<img width="909" height="95" alt="checkmate_metadata_example" src="https://github.com/user-attachments/assets/69d95b07-f80a-4cd3-be40-856e627a8023" />
+
 
 - Default tags:
   - `@started` - default value is the current date/time

@@ -895,19 +895,13 @@ It displays the number of `checked / unchecked` todos in a hierarchy. It counts 
 <table>
   <tr>
     <td align="center">
-      <img
-        src="./assets/count-indicator-eol.png"
-        alt="Todo count indicator using 'eol' position"
-        height="75"
-      /><br/>
+      <img width="400" alt="checkmate_todo_indicator_eol" src="https://github.com/user-attachments/assets/1db966b3-3618-4aa4-915c-d3ea720c0a40" />
+      <br/>
       <sub>Todo count indicator using <code>eol</code> position</sub>
     </td>
     <td align="center">
-      <img
-        src="./assets/count-indicator-inline.png"
-        alt="Todo count indicator using 'inline' position"
-        height="75"
-      /><br/>
+      <img width="400" alt="checkmate_todo_indicator_inline" src="https://github.com/user-attachments/assets/a75b63c5-6df5-4937-9c15-c9fa7170ce4a" />
+      <br/>
       <sub>Todo count indicator using <code>inline</code> position</sub>
     </td>
   </tr>
@@ -928,6 +922,10 @@ end,
         height="75"
       /><br/>
 <sub>Todo count indicator using <code>todo_count_formatter</code> function</sub>
+
+<img width="400" alt="checkmate_progress_bar_example" src="https://github.com/user-attachments/assets/1aa6c88c-2b69-415f-9313-ff2df6888608" />
+<br>
+<sub>Progress bar example, see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Styling#use-a-progress-bar-for-more-than-4-subtasks) for code.</sub>
 
 #### Count all nested todo items
 If you want the todo count of a parent todo item to include _all_ nested todo items, set the recursive option.

@@ -907,38 +907,46 @@ It displays the number of `checked / unchecked` todos in a hierarchy. It counts 
   </tr>
 </table>
 
-#### Change the default display by passing a custom formatter
+### Change the default display by passing a custom formatter
 
+#### Basic example
 ```lua
 -- Custom formatter that returns the % completed
 todo_count_formatter = function(completed, total)
-  return string.format("%.0f%%", completed / total * 100)
+  return string.format("[%.0f%%]", completed / total * 100)
 end,
+style = {
+  CheckmateTodoCountIndicator = { fg = "#faef89" },
+},
 ```
-
-<img
-        src="./assets/count-indicator-custom-formatter.png"
-        alt="Todo count indicator using a custom formatter function"
-        height="75"
-      /><br/>
+<img width="400" alt="checkmate_todo_count_percentage" src="https://github.com/user-attachments/assets/ebbf1de4-bde3-4001-beab-a96feecd5f80" />
+<br/>
 <sub>Todo count indicator using <code>todo_count_formatter</code> function</sub>
+<br/>
+<br/>
 
+#### Progress bar example, see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Styling#use-a-progress-bar-for-more-than-4-subtasks) for code.
 <img width="400" alt="checkmate_progress_bar_example" src="https://github.com/user-attachments/assets/1aa6c88c-2b69-415f-9313-ff2df6888608" />
 <br>
-<sub>Progress bar example, see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Styling#use-a-progress-bar-for-more-than-4-subtasks) for code.</sub>
+
 
 #### Count all nested todo items
-If you want the todo count of a parent todo item to include _all_ nested todo items, set the recursive option.
+If you want the todo count of a parent todo item to include _all_ nested todo items, set the `todo_count_recursive` option.
 
-```lua
-todo_count_recursive = true,
-```
-<img
-        src="./assets/count-indicator-recursive.png"
-        alt="Todo count indicator using recursive option"
-        height="90"
-      /><br/>
-<sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
+<table>
+  <tr>
+    <td align="center">
+      <img width="400" alt="checkmate_todo_indicator_recursive_false" src="https://github.com/user-attachments/assets/82b8a025-e71c-487c-b42f-27a16f9bf810" />
+      <br/>
+      <sub><code>todo_count_recursive</code> false. Only direct children are counted.</sub>
+    </td>
+    <td align="center">
+      <img width="400" alt="checkmate_todo_indicator_recursive_true" src="https://github.com/user-attachments/assets/8e2b47bd-db1a-452f-872e-90db17702193" />
+      <br/>
+      <sub><code>todo_count_recursive</code> true. All children are counted.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Smart Toggle
 

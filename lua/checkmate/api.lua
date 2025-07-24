@@ -95,6 +95,7 @@ function M.setup_buffer(bufnr)
   M.setup_autocmds(bufnr)
 
   vim.b[bufnr].checkmate_setup_complete = true
+  vim.b[bufnr].checkmate_cleaned_up = false
 
   return true
 end
@@ -348,17 +349,12 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
-    -- cleanup buffer when buffer is deleted
-    vim.api.nvim_create_autocmd("BufDelete", {
+    -- cleanup buffer when buffer is deleted or unloaded
+    vim.api.nvim_create_autocmd({ "BufDelete", "BufUnload" }, {
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
-        require("checkmate").unregister_buffer(bufnr)
-        M._debounced_processors[bufnr] = nil
-        -- clear the todo map cache for this buffer
-        parser.todo_map_cache[bufnr] = nil
-
-        require("checkmate.metadata.picker").cleanup_ui(bufnr)
+        M.shutdown(bufnr)
       end,
     })
     vim.b[bufnr].checkmate_autocmds_setup = true
@@ -448,13 +444,15 @@ end
 
 -- Cleans up all checkmate state associated with a buffer
 function M.shutdown(bufnr)
-  if vim.api.nvim_buf_is_valid(bufnr) then
+  if vim.api.nvim_buf_is_valid(bufnr) and not vim.b[bufnr].checkmate_cleaned_up then
     -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
     pcall(parser.convert_unicode_to_markdown, bufnr)
+    parser.todo_map_cache[bufnr] = nil
 
     M.clear_keymaps(bufnr)
 
     require("checkmate.debug.debug_highlights").dispose(bufnr)
+    require("checkmate.metadata.picker").cleanup_ui(bufnr)
 
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
@@ -467,12 +465,15 @@ function M.shutdown(bufnr)
 
     vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
 
-    vim.b[bufnr].checkmate_setup_complete = nil
-    vim.b[bufnr].checkmate_autocmds_setup = nil
-
     if M._debounced_processors and M._debounced_processors[bufnr] then
       M._debounced_processors[bufnr] = nil
     end
+
+    require("checkmate").unregister_buffer(bufnr)
+
+    vim.b[bufnr].checkmate_setup_complete = nil
+    vim.b[bufnr].checkmate_autocmds_setup = nil
+    vim.b[bufnr].checkmate_cleaned_up = true
   end
 end
 

@@ -31,6 +31,9 @@ dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/options.lua"))
 dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/keymaps.lua"))
 
 package.path = package.path .. ";" .. vim.fn.getcwd() .. "/tests/fixtures/?/init.lua"
+-- add base config to the path so we can reuse
+package.path = package.path .. ";" .. vim.fs.normalize("~/.config/nvim/lua/?/init.lua")
+package.path = package.path .. ";" .. vim.fs.normalize("~/.config/nvim/lua/?.lua")
 local environments = require("environments")
 local env = environments[env_name]
 
@@ -45,6 +48,10 @@ local spec = {
   { "nvzone/volt", lazy = true },
   { "nvzone/menu", lazy = true },
 }
+
+-- Include nvim-dap and related tooling
+local debug_spec = require("bngarren.plugins.debug")
+vim.list_extend(spec, { debug_spec })
 
 -- environment-specific specs
 vim.list_extend(spec, env.spec or {})

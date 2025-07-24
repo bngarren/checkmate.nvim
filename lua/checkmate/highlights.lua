@@ -20,10 +20,9 @@ M.PRIORITY = {
 --- Get highlight group for todo content based on state and relation
 ---@param todo_state string
 ---@param is_main_content boolean Whether this is main content or additional content
----@return string highlight_group The highlight group to use
+---@return string highlight_group
 function M.get_todo_content_highlight(todo_state, is_main_content)
   local state_name = util.snake_to_camel(todo_state)
-
   if is_main_content then
     return "Checkmate" .. state_name .. "MainContent"
   else
@@ -37,13 +36,12 @@ end
 M._current_line_cache = nil
 
 function M.get_buffer_line(bufnr, row)
-  -- Use current cache if available
   if M._current_line_cache then
     return M._current_line_cache:get(row)
   end
 
-  -- Fallback: create a temporary cache just for this call
-  -- This shouldn't happen in normal flow but provides safety
+  -- fallback: create a temporary cache just for this call
+  -- this shouldn't happen in normal flow but provides safety
   local cache = util.create_line_cache(bufnr)
   return cache:get(row)
 end
@@ -374,7 +372,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
 
       -- skip if:
       -- - the todo item's own marker (same row)
-      -- - not another todo item
+      -- - another todo item
       if marker_start_row > todo_item.range.start.row and not todo_rows[marker_start_row] then
         local marker_type = parser.get_marker_type_from_capture_name(capture_name)
         local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"

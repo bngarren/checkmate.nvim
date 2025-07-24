@@ -46,13 +46,17 @@ M.setup = function(opts)
       error()
     end
 
+    if #config.get_deprecations(user_opts) > 0 then
+      vim.notify("Checkmate: deprecated usage. Run `checkhealth checkmate`.", vim.log.levels.WARN)
+    end
+
     M.set_initialized(true)
   end)
 
   if not success then
-    local msg = "Checkmate: Setup failed"
+    local msg = "Checkmate: Setup failed.\nRun `:checkhealth checkmate` to debug. "
     if err then
-      msg = msg .. ": " .. tostring(err)
+      msg = msg .. "\n" .. tostring(err)
     end
     vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
@@ -138,7 +142,7 @@ end
 ---@field indent number Number of spaces before the list marker
 ---@field list_marker string List item marker, e.g. `-`, `*`, `+`
 ---@field todo_marker string Todo marker, e.g. `□`, `✔`
----@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
+---@field is_checked fun(): boolean Whether todo is checked
 ---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 ---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
@@ -163,11 +167,14 @@ function M.enable()
   M.setup(user_opts)
 end
 
----Toggle todo item(s) state under cursor or in visual selection
+--- Toggle todo item(s) state under cursor or in visual selection
 ---
---- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states
---- - To set a _specific_ todo item to a target state, use `set_todo_item`
----@param target_state? string Optional target state, e.g. "checked", "unchecked", etc.
+--- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states.
+--- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent
+--- - To switch to states other than the default unchecked/checked, you can pass a {target_state} or use the `cycle()` API.
+--- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_item`.
+---
+---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc. See `checkmate.Config.todo_states`.
 ---@return boolean success
 function M.toggle(target_state)
   local api = require("checkmate.api")
@@ -233,9 +240,12 @@ function M.toggle(target_state)
   return true
 end
 
----Sets a given todo item to a specific state
+--- Sets a specific todo item to a specific state
+---
+--- To toggle state of todos under cursor or in linewise selection, use `toggle()`
+---
 ---@param todo_item checkmate.TodoItem Todo item to set state
----@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending"
+---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
 ---@return boolean success
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
@@ -301,16 +311,24 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
----Change a todo item(s) state to the next or previous state
----@param backward? boolean If true, cycle backward through states
+--- Change a todo item(s) state to the next or previous state
+---
+--- - Will act on the todo item under the cursor or all todo items within a visual selection
+--- - Refer to docs for `checkmate.Config.todo_states`. If no custom states are defined, this will act similar to `toggle()`, i.e., changing state between "unchecked" and "checked". However, unlike `toggle`, `cycle` will not propagate state changes to nearby todos ("smart toggle") unless `checkmate.Config.smart_toggle.include_cycle` is true.
+---
+--- {opts}
+---   - backward: (boolean) If true, will cycle in reverse
+---@param opts? {backward?: boolean}
 ---@return boolean success
-function M.cycle(backward)
+function M.cycle(opts)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
   local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
+
+  opts = opts or {}
 
   local smart_toggle_enabled = config.options.smart_toggle
     and (config.options.smart_toggle.enabled and config.options.smart_toggle.include_cycle)
@@ -322,7 +340,7 @@ function M.cycle(backward)
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      local next_state = api.get_next_todo_state(todo_item.state, backward)
+      local next_state = api.get_next_todo_state(todo_item.state, opts.backward)
       if smart_toggle_enabled then
         api.propagate_toggle(ctx, { todo_item }, ctx.get_todo_map(), next_state)
       else
@@ -347,7 +365,7 @@ function M.cycle(backward)
 
   -- the next state will be based on the first item
   local sorted_todo_items = util.get_sorted_todo_list(todo_items)
-  local next_state = api.get_next_todo_state(sorted_todo_items[1].item.state, backward)
+  local next_state = api.get_next_todo_state(sorted_todo_items[1].item.state, opts.backward)
 
   transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled then
@@ -800,7 +818,6 @@ end
 --- Inspect todo item at cursor
 function M.debug.at_cursor()
   local parser = require("checkmate.parser")
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
 
   local bufnr = vim.api.nvim_get_current_buf()

@@ -61,7 +61,7 @@ local top_commands = {
     desc = "Cycle todo state backward",
     nargs = "0",
     handler = function()
-      require("checkmate").cycle(true)
+      require("checkmate").cycle({ backward = true })
     end,
   },
 

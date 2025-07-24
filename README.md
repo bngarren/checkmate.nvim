@@ -1,6 +1,7 @@
 <div align="center">
 
-<img width="400" alt="Checkmate logo" src="./assets/logo.png">
+<img width="350" alt="checkmate_logo" src="https://github.com/user-attachments/assets/01c8e335-b8a0-47d5-b480-8ad8957c7b5f" />
+
 
 ### Get stuff done
 
@@ -35,8 +36,11 @@ A Markdown-based todo/task plugin for Neovim.
 
 <br/>
 
-<img width="700" alt="Checkmate example 1" src="./assets/todos-example-1.png">
-<img width="700" alt="Checkmate example 2" src="./assets/todos-example-2.png">
+<img width="1200" height="204" alt="checkmate_example_simple" src="https://github.com/user-attachments/assets/6eecda10-109a-442f-b709-83ed35065bf9" />
+
+
+<img width="1200" height="341" alt="checkmate_demo_complex" src="https://github.com/user-attachments/assets/8bbb9b20-23f7-4f82-b2b3-a8e8d2d9d4c5" />
+
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
@@ -781,7 +785,9 @@ Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag na
 
 #### Main content versus Additional content
 Highlight groups with 'MainContent' refer to the todo item's first paragraph. 'AdditionalContent' refers to subsequent paragraphs, list items, etc.
-<img src="./assets/main-vs-additional-hl-groups.png" />
+
+<img width="800" alt="checkmate_main_vs_additional_hl_groups" src="https://github.com/user-attachments/assets/adbd0766-8f33-4c8f-be1f-3eafacd81dda" />
+
 
 #### Example: Change the checked marker to a bold green
 ```lua
@@ -853,7 +859,7 @@ todo_states = {
   },
   cancelled = {
     marker = "✗",
-    markdown = "x",     -- Saved as `- [x]` 
+    markdown = "c",     -- Saved as `- [c]` 
     type = "complete",   -- Counts as "done"
     order = 2,
   },
@@ -865,6 +871,9 @@ todo_states = {
   }
 }
 ```
+
+<img width="800" height="145" alt="checkmate_custom_states" src="https://github.com/user-attachments/assets/b8f89d00-4523-4106-8dbe-82059b1a1334" />
+
 
 #### State types
 States have three behavior types that affect smart toggle and todo counts:
@@ -895,52 +904,58 @@ It displays the number of `checked / unchecked` todos in a hierarchy. It counts 
 <table>
   <tr>
     <td align="center">
-      <img
-        src="./assets/count-indicator-eol.png"
-        alt="Todo count indicator using 'eol' position"
-        height="75"
-      /><br/>
+      <img width="400" alt="checkmate_todo_indicator_eol" src="https://github.com/user-attachments/assets/1db966b3-3618-4aa4-915c-d3ea720c0a40" />
+      <br/>
       <sub>Todo count indicator using <code>eol</code> position</sub>
     </td>
     <td align="center">
-      <img
-        src="./assets/count-indicator-inline.png"
-        alt="Todo count indicator using 'inline' position"
-        height="75"
-      /><br/>
+      <img width="400" alt="checkmate_todo_indicator_inline" src="https://github.com/user-attachments/assets/a75b63c5-6df5-4937-9c15-c9fa7170ce4a" />
+      <br/>
       <sub>Todo count indicator using <code>inline</code> position</sub>
     </td>
   </tr>
 </table>
 
-#### Change the default display by passing a custom formatter
+### Change the default display by passing a custom formatter
 
+#### Basic example
 ```lua
 -- Custom formatter that returns the % completed
 todo_count_formatter = function(completed, total)
-  return string.format("%.0f%%", completed / total * 100)
+  return string.format("[%.0f%%]", completed / total * 100)
 end,
+style = {
+  CheckmateTodoCountIndicator = { fg = "#faef89" },
+},
 ```
-
-<img
-        src="./assets/count-indicator-custom-formatter.png"
-        alt="Todo count indicator using a custom formatter function"
-        height="75"
-      /><br/>
+<img width="400" alt="checkmate_todo_count_percentage" src="https://github.com/user-attachments/assets/ebbf1de4-bde3-4001-beab-a96feecd5f80" />
+<br/>
 <sub>Todo count indicator using <code>todo_count_formatter</code> function</sub>
+<br/>
+<br/>
+
+#### Progress bar example, see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Styling#use-a-progress-bar-for-more-than-4-subtasks) for code.
+<img width="400" alt="checkmate_progress_bar_example" src="https://github.com/user-attachments/assets/1aa6c88c-2b69-415f-9313-ff2df6888608" />
+<br>
+
 
 #### Count all nested todo items
-If you want the todo count of a parent todo item to include _all_ nested todo items, set the recursive option.
+If you want the todo count of a parent todo item to include _all_ nested todo items, set the `todo_count_recursive` option.
 
-```lua
-todo_count_recursive = true,
-```
-<img
-        src="./assets/count-indicator-recursive.png"
-        alt="Todo count indicator using recursive option"
-        height="90"
-      /><br/>
-<sub>Todo count indicator using <code>recursive</code> option. The children of 'Sub-task 3' are included in the overall count of 'Big important task'.</sub> 
+<table>
+  <tr>
+    <td align="center">
+      <img width="400" alt="checkmate_todo_indicator_recursive_false" src="https://github.com/user-attachments/assets/82b8a025-e71c-487c-b42f-27a16f9bf810" />
+      <br/>
+      <sub><code>todo_count_recursive</code> false. Only direct children are counted.</sub>
+    </td>
+    <td align="center">
+      <img width="400" alt="checkmate_todo_indicator_recursive_true" src="https://github.com/user-attachments/assets/8e2b47bd-db1a-452f-872e-90db17702193" />
+      <br/>
+      <sub><code>todo_count_recursive</code> true. All children are counted.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Smart Toggle
 
@@ -978,7 +993,8 @@ opts = {
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
-<img alt="Metadata Example" src="./assets/metadata-example.png" /><br/>
+<img width="909" height="95" alt="checkmate_metadata_example" src="https://github.com/user-attachments/assets/69d95b07-f80a-4cd3-be40-856e627a8023" />
+
 
 - Default tags:
   - `@started` - default value is the current date/time

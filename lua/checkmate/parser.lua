@@ -412,7 +412,6 @@ function M.convert_unicode_to_markdown(bufnr)
   for i, line in ipairs(lines) do
     local new_line = line
     local had_error = false
-    local did_replace = false
 
     for state_name, state_def in pairs(config.options.todo_states) do
       local patterns = M.get_checkmate_todo_patterns_by_state(state_name, true)
@@ -422,7 +421,16 @@ function M.convert_unicode_to_markdown(bufnr)
 
       for _, pattern in ipairs(patterns) do
         local ok, r, count = pcall(function()
-          return new_line:gsub(pattern, "%1" .. markdown_repr .. "%3")
+          -- similar to `convert_markdown_to_unicode`, the patterns fall into 2 categories:
+          --  - patterns that end with $: no trailing text, i.e. - ☐
+          --  - patterns that end with .*$: has trailing text, i.e. - ☐ some text
+          if pattern:find("%.%*%)%$") then
+            -- has text after the todo marker (i.e., third capture)
+            return new_line:gsub(pattern, "%1" .. markdown_repr .. "%3")
+          else
+            -- ends with just the todo marker
+            return new_line:gsub(pattern, "%1" .. markdown_repr)
+          end
         end)
 
         if not ok then
@@ -436,12 +444,12 @@ function M.convert_unicode_to_markdown(bufnr)
 
         if count > 0 then
           new_line = r
-          did_replace = true
+          modified = true
           break
         end
       end
 
-      if had_error or did_replace then
+      if had_error or new_line ~= line then
         break
       end
     end
@@ -450,11 +458,7 @@ function M.convert_unicode_to_markdown(bufnr)
       return false
     end
 
-    if new_line ~= line then
-      modified = true
-    end
-
-    table.insert(new_lines, new_line)
+    new_lines[i] = new_line
   end
 
   if modified then

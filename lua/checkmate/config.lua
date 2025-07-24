@@ -558,7 +558,6 @@ local defaults = {
 
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
-  active_buffers = {}, -- Track which buffers have checkmate active
 }
 
 -- The active configuration
@@ -708,6 +707,9 @@ function M.validate_options(opts)
       if not ok then
         return false, err
       end
+      if #v[1] == 0 then
+        return false, string.format("%s cannot be an empty string", v[3])
+      end
     end
 
     -- Ensure the todo_markers are only 1 character length
@@ -751,6 +753,10 @@ function M.validate_options(opts)
       ok, err = validate_type(marker, "string", "todo_states." .. state_name .. ".marker", false)
       if not ok then
         return false, err
+      end
+      -- marker cannot be empty string
+      if #marker == 0 then
+        return false, string.format("`%s` cannot be an empty string", "todo_states." .. state_name .. "." .. "marker")
       end
 
       -- markdown required for custom states
@@ -1075,13 +1081,40 @@ function M.validate_options(opts)
   return true
 end
 
+--- Returns list of deprecation warnings
+function M.get_deprecations(user_opts)
+  if type(user_opts) ~= "table" then
+    return {}
+  end
+
+  local res = {}
+
+  local function add(msg)
+    table.insert(res, msg)
+  end
+
+  ---@deprecated v0.10
+  if user_opts.todo_markers then
+    add("`config.todo_markers` is deprecated. Use `todo_states` instead.")
+  end
+
+  ---removed in v0.10
+  ---@diagnostic disable-next-line: undefined-field
+  if user_opts.todo_action_depth then
+    add(
+      "`config.todo_action_depth` has been removed (v0.10). Note, todos can now be interacted from any depth in their hierarchy"
+    )
+  end
+  return res
+end
+
 ---Handles merging of deprecated config opts into current config to maintain backwards compatibility
 ---@param current_opts checkmate.Config
 ---@param user_opts? checkmate.Config
 local function merge_deprecated_opts(current_opts, user_opts)
   -----------------------
+  --- todo_markers
   ---@deprecated v0.10
-  ---Should be removed once todo_markers is removed
 
   user_opts = user_opts or {}
 
@@ -1102,7 +1135,7 @@ local function merge_deprecated_opts(current_opts, user_opts)
       },
     }
   elseif user_opts.todo_markers and user_opts.todo_states then
-    vim.notify("Checkmate: deprecated `todo_markers` ignored because `todo_states` is set", vim.log.levels.WARN)
+    -- vim.notify("Checkmate: `todo_markers` ignored because `todo_states` is set", vim.log.levels.WARN)
   end
 
   ---@diagnostic disable-next-line: deprecated

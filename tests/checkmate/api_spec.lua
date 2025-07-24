@@ -46,7 +46,8 @@ describe("API", function()
 3. ]] .. unchecked .. [[ Plan vacation
    - ]] .. unchecked .. [[ Research destinations
    - ]] .. checked .. [[ Check budget
-- ]] .. pending .. [[ Pending task]]
+- ]] .. pending .. [[ Pending task
+- ]] .. unchecked
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
@@ -81,6 +82,8 @@ describe("API", function()
       assert.equal("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
       -- custom todo state/marker
       assert.equal("- [.] Pending task", lines[18]:gsub("%s+$", ""))
+      -- empty todo
+      assert.equal("- [ ]", lines[19]:gsub("%s+$", ""))
 
       -- verify unicode symbols are NOT present in the saved file
       assert.no.matches(vim.pesc(unchecked), saved_content)
@@ -507,29 +510,36 @@ Some other content ]]
       end)
     end)
 
-    it("should convert multiple selected lines to todos", function()
+    it("should handle visual selection with mixed content types", function()
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
       local content = [[
-Line 1
-Line 2
-  ]] .. default_list_marker .. [[ Line 3]]
+# Header should not convert
+Regular text line
+- Already a list item
+  Indented continuation
+    - Nested list item
+1. Ordered list item
+]]
 
       local bufnr = h.setup_test_buffer(content)
 
-      -- select all lines
-      vim.cmd("normal! ggVG")
+      -- select lines 2-6 (skipping header)
+      h.make_selection(2, 0, 6, 0, "V")
 
       local success = require("checkmate").create()
       assert.is_true(success)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal(default_list_marker .. " " .. unchecked .. " Line 1", lines[1])
-      assert.equal(default_list_marker .. " " .. unchecked .. " Line 2", lines[2])
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Line 3", lines[3]) -- preserves indentation
-      assert.equal(3, #lines) -- ensure no new line created
+
+      assert.equal("# Header should not convert", lines[1])
+      assert.equal(default_list_marker .. " " .. unchecked .. " Regular text line", lines[2])
+      assert.equal("- " .. unchecked .. " Already a list item", lines[3])
+      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented continuation", lines[4])
+      assert.equal("    - " .. unchecked .. " Nested list item", lines[5])
+      assert.equal("1. " .. unchecked .. " Ordered list item", lines[6])
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -882,7 +892,7 @@ Line 2
 
         local bufnr = h.setup_test_buffer(content)
 
-        -- Todo 1
+        -- Case 1
         -- remove @test1
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
         cm.remove_metadata("test1")
@@ -899,7 +909,7 @@ Line 2
 
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
 
-        -- Todo 2
+        -- Case 2
         -- remove @done
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
         cm.remove_metadata("done")
@@ -907,6 +917,22 @@ Line 2
 
         assert.equal("- " .. unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
         assert.equal("  @branch(fix/multi-line-todos)", lines[2])
+
+        -- Case 3
+        -- remove @func
+        content = [[
+- ]] .. unchecked .. [[ Task @func(call(nested,
+  args)) @other(value)
+  ]]
+
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        cm.remove_metadata("func")
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("- " .. unchecked .. " Task", lines[1])
+        assert.equal("  @other(value)", lines[2])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -2319,7 +2345,7 @@ Line 2
     end)
 
     describe("complex scenarios", function()
-      it("should handle multiple selection with smart toggle", function()
+      it("should handle multiple parent todo selection with smart toggle", function()
         local unchecked = h.get_unchecked_marker()
         local checked = h.get_checked_marker()
 
@@ -2357,7 +2383,7 @@ Line 2
         end)
       end)
 
-      it("should check common parent when all selected siblings become checked", function()
+      it("should check common parent when all selected siblings become checked (complete)", function()
         local unchecked = h.get_unchecked_marker()
         local checked = h.get_checked_marker()
 
@@ -2422,6 +2448,45 @@ Line 2
         assert.matches("- " .. vim.pesc(checked) .. " Child 1%.2", lines[4])
         assert.matches("- " .. vim.pesc(checked) .. " Parent 2", lines[5])
         assert.matches("- " .. vim.pesc(checked) .. " Child 2%.1", lines[6])
+
+        finally(function()
+          h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should handle smart toggle with mixed custom states", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+        local pending = h.get_pending_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Parent task
+  - ]] .. pending .. [[ Child pending
+  - ]] .. unchecked .. [[ Child unchecked
+  - ]] .. checked .. [[ Child checked
+]]
+
+        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+          check_down = "direct_children",
+          check_up = "direct_children",
+        })
+
+        -- toggle parent to checked
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        require("checkmate").toggle()
+
+        vim.wait(10)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        -- parent becomes checked
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        -- pending child stays pending (custom states don't changed during propagation)
+        assert.matches("- " .. pending .. " Child pending", lines[2])
+        -- unchecked child becomes checked
+        assert.matches("- " .. checked .. " Child unchecked", lines[3])
+        -- checked child stays checked
+        assert.matches("- " .. checked .. " Child checked", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)

@@ -32,7 +32,6 @@ function M.check()
     })
   end
 
-  start("Checkmate configuration")
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
 
@@ -51,6 +50,14 @@ function M.check()
         "Set `enabled = true` in your config to enable",
       })
     end
+  end
+
+  -- DEPRECATIONS
+
+  local deprecations = require("checkmate.config").get_deprecations(checkmate.get_user_opts())
+
+  if #deprecations > 0 then
+    warn("Deprecation warnings:\n" .. table.concat(deprecations, "\n"))
   end
 end
 

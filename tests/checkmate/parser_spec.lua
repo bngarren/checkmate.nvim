@@ -1,5 +1,8 @@
 describe("Parser", function()
-  local h, checkmate
+  ---@module "tests.checkmate.helpers"
+  local h
+  ---@module "checkmate"
+  local checkmate
 
   local pending_marker = "℗"
 
@@ -177,21 +180,18 @@ describe("Parser", function()
   with one continuation
 - ]] .. unchecked .. [[ Three line
   todo with
-  two continuations]]
+  two continuations
+
+New Section
+  - ]] .. unchecked .. [[ Indented line]]
 
       local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      local single_line = h.find_todo_by_text(todo_map, "Single line")
-      local multi_line = h.find_todo_by_text(todo_map, "Multi%-line")
-      local three_line = h.find_todo_by_text(todo_map, "Three line")
-
-      assert.is_not_nil(single_line)
-      ---@cast single_line checkmate.TodoItem
-      assert.is_not_nil(multi_line)
-      ---@cast multi_line checkmate.TodoItem
-      assert.is_not_nil(three_line)
-      ---@cast three_line checkmate.TodoItem
+      local single_line = h.exists(h.find_todo_by_text(todo_map, "Single line"))
+      local multi_line = h.exists(h.find_todo_by_text(todo_map, "Multi%-line"))
+      local three_line = h.exists(h.find_todo_by_text(todo_map, "Three line"))
+      local indented_line = h.exists(h.find_todo_by_text(todo_map, "Indented line"))
 
       assert.equal(1, single_line.range.start.row)
       assert.equal(1, single_line.range["end"].row)
@@ -202,9 +202,14 @@ describe("Parser", function()
       assert.equal(4, three_line.range.start.row)
       assert.equal(6, three_line.range["end"].row)
 
+      assert.equal(9, indented_line.range.start.row)
+      assert.equal(2, indented_line.range.start.col)
+      assert.equal(9, indented_line.range["end"].row)
+
       verify_todo_range_matches_content(bufnr, single_line)
       verify_todo_range_matches_content(bufnr, multi_line)
       verify_todo_range_matches_content(bufnr, three_line)
+      verify_todo_range_matches_content(bufnr, indented_line)
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -235,25 +240,12 @@ describe("Parser", function()
       local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      local total_todos = 0
-      for _ in pairs(todo_map) do
-        total_todos = total_todos + 1
-      end
-      assert.equal(12, total_todos)
+      assert.equal(12, #todo_map)
 
-      local level1_todo = h.find_todo_by_text(todo_map, "Level 1 todo")
-      local another_top = h.find_todo_by_text(todo_map, "Another top%-level todo")
-      local empty_content = h.find_todo_by_text(todo_map, "Todo with empty content")
-      local empty_line = h.find_todo_by_text(todo_map, "- " .. unchecked .. " %s*$") -- Empty line after marker
-
-      assert.is_not_nil(level1_todo)
-      ---@cast level1_todo checkmate.TodoItem
-      assert.is_not_nil(another_top)
-      ---@cast another_top checkmate.TodoItem
-      assert.is_not_nil(empty_content)
-      ---@cast empty_content checkmate.TodoItem
-      assert.is_not_nil(empty_line)
-      ---@cast empty_line checkmate.TodoItem
+      local level1_todo = h.exists(h.find_todo_by_text(todo_map, "Level 1 todo"))
+      local another_top = h.exists(h.find_todo_by_text(todo_map, "Another top%-level todo"))
+      local empty_content = h.exists(h.find_todo_by_text(todo_map, "Todo with empty content"))
+      local empty_line = h.exists(h.find_todo_by_text(todo_map, "- " .. unchecked .. " %s*$")) -- Empty line after marker
 
       -- verify parent-child relationships
       assert.equal(3, #level1_todo.children)
@@ -294,35 +286,25 @@ describe("Parser", function()
       ---@cast level4_todo checkmate.TodoItem
       assert.equal(1, #level4_todo.children)
 
-      local level5_todo = h.find_todo_by_text(todo_map, "Level 5 todo")
-      assert.is_not_nil(level5_todo)
-      ---@cast level5_todo checkmate.TodoItem
+      local level5_todo = h.exists(h.find_todo_by_text(todo_map, "Level 5 todo"))
+
       assert.equal(level4_todo.id, level5_todo.parent_id)
       -- verify expected TS nodes above it
       assert.equal("list_item", level5_todo.node:parent():parent():type())
       assert.equal("list", level5_todo.node:parent():type())
 
       -- verify tab indentation is handled properly
-      local tab_indent = h.find_todo_by_text(todo_map, "Tab indentation")
-      local double_tab = h.find_todo_by_text(todo_map, "Double tab indentation")
-      assert.is_not_nil(tab_indent)
-      ---@cast tab_indent checkmate.TodoItem
-      assert.is_not_nil(double_tab)
-      ---@cast double_tab checkmate.TodoItem
+      local tab_indent = h.exists(h.find_todo_by_text(todo_map, "Tab indentation"))
+      local double_tab = h.exists(h.find_todo_by_text(todo_map, "Double tab indentation"))
 
       -- tab indented item should be child of Another Level 2
-      local another_level2 = h.find_todo_by_text(todo_map, "Another Level 2")
-      assert.is_not_nil(another_level2)
-      ---@cast another_level2 checkmate.TodoItem
+      h.exists(h.find_todo_by_text(todo_map, "Another Level 2"))
 
       assert.equal(level1_todo.id, tab_indent.parent_id)
       assert.equal(tab_indent.id, double_tab.parent_id)
 
       -- verify unusual hierarchy jump (top level to level 3)
-      local unusual = h.find_todo_by_text(todo_map, "Direct jump to Level 3")
-      assert.is_not_nil(unusual)
-      ---@cast unusual checkmate.TodoItem
-      assert.equal(another_top.id, unusual.parent_id)
+      h.exists(h.find_todo_by_text(todo_map, "Direct jump to Level 3"))
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -332,6 +314,7 @@ describe("Parser", function()
     it("should parse todos with custom todo states", function()
       local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
+
       -- we setup the "pending" state in the top level before_each
       local content = [[
   - ]] .. unchecked .. [[ Default unchecked
@@ -343,8 +326,9 @@ describe("Parser", function()
 
       assert.equal(2, #todo_map)
 
-      local pending_todo = h.find_todo_by_text(todo_map, "Pending")
-      assert.is_not_nil(pending_todo)
+      local pending_todo = h.exists(h.find_todo_by_text(todo_map, "Pending"))
+      assert.equal("pending", pending_todo.state)
+      assert.equal(pending_marker, pending_todo.todo_marker.text)
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -357,7 +341,6 @@ describe("Parser", function()
       local checked = h.get_checked_marker()
 
       local content = [[
-# Mixed List Types
 - ]] .. unchecked .. [[ Parent with dash
   * ]] .. unchecked .. [[ Child with asterisk
   + ]] .. checked .. [[ Child with plus
@@ -371,25 +354,12 @@ describe("Parser", function()
       local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      local parent_dash = h.find_todo_by_text(todo_map, "Parent with dash")
-      local child_asterisk = h.find_todo_by_text(todo_map, "Child with asterisk")
-      local child_plus = h.find_todo_by_text(todo_map, "Child with plus")
-      local ordered_parent = h.find_todo_by_text(todo_map, "Ordered parent")
-      local ordered_child = h.find_todo_by_text(todo_map, "Ordered child")
-      local mixed_child = h.find_todo_by_text(todo_map, "Unordered child with asterisk")
-
-      assert.is_not_nil(parent_dash)
-      ---@cast parent_dash checkmate.TodoItem
-      assert.is_not_nil(child_asterisk)
-      ---@cast child_asterisk checkmate.TodoItem
-      assert.is_not_nil(child_plus)
-      ---@cast child_plus checkmate.TodoItem
-      assert.is_not_nil(ordered_parent)
-      ---@cast ordered_parent checkmate.TodoItem
-      assert.is_not_nil(ordered_child)
-      ---@cast ordered_child checkmate.TodoItem
-      assert.is_not_nil(mixed_child)
-      ---@cast mixed_child checkmate.TodoItem
+      local parent_dash = h.exists(h.find_todo_by_text(todo_map, "Parent with dash"))
+      local child_asterisk = h.exists(h.find_todo_by_text(todo_map, "Child with asterisk"))
+      local child_plus = h.exists(h.find_todo_by_text(todo_map, "Child with plus"))
+      local ordered_parent = h.exists(h.find_todo_by_text(todo_map, "Ordered parent"))
+      local ordered_child = h.exists(h.find_todo_by_text(todo_map, "Ordered child"))
+      local mixed_child = h.exists(h.find_todo_by_text(todo_map, "Unordered child with asterisk"))
 
       -- parent-child relationships
       assert.equal(2, #parent_dash.children)
@@ -421,41 +391,27 @@ describe("Parser", function()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo at document start
-Some non-todo content in between
+Some continuation content in between
 - ]] .. unchecked .. [[ Parent todo
   - ]] .. checked .. [[ Checked child
   - ]] .. unchecked .. [[ Unchecked child
 Line that should not affect parent-child relationship
   Not a todo but indented
-- ]] .. unchecked .. [[ Todo at document end
 - ]] .. unchecked .. [[ Todo as setext
   @priority(high)
-  -]]
+  -
+- ]] .. unchecked .. [[ Todo at document end]]
 
       local bufnr = h.setup_test_buffer(content)
       local todo_map = parser.discover_todos(bufnr)
 
-      local start_todo = h.find_todo_by_text(todo_map, "Todo at document start")
-      local parent_todo = h.find_todo_by_text(todo_map, "Parent todo")
-      local checked_child = h.find_todo_by_text(todo_map, "Checked child")
-      local unchecked_child = h.find_todo_by_text(todo_map, "Unchecked child")
-      local end_todo = h.find_todo_by_text(todo_map, "Todo at document end")
-      local setext_todo = h.find_todo_by_text(todo_map, "Todo as setext")
+      local start_todo = h.exists(h.find_todo_by_text(todo_map, "Todo at document start"))
+      local parent_todo = h.exists(h.find_todo_by_text(todo_map, "Parent todo"))
+      local checked_child = h.exists(h.find_todo_by_text(todo_map, "Checked child"))
+      local unchecked_child = h.exists(h.find_todo_by_text(todo_map, "Unchecked child"))
+      local end_todo = h.exists(h.find_todo_by_text(todo_map, "Todo at document end"))
+      local setext_todo = h.exists(h.find_todo_by_text(todo_map, "Todo as setext"))
 
-      assert.is_not_nil(start_todo)
-      ---@cast start_todo checkmate.TodoItem
-      assert.is_not_nil(parent_todo)
-      ---@cast parent_todo checkmate.TodoItem
-      assert.is_not_nil(checked_child)
-      ---@cast checked_child checkmate.TodoItem
-      assert.is_not_nil(unchecked_child)
-      ---@cast unchecked_child checkmate.TodoItem
-      assert.is_not_nil(end_todo)
-      ---@cast end_todo checkmate.TodoItem
-      assert.is_not_nil(setext_todo)
-      ---@cast setext_todo checkmate.TodoItem
-
-      -- edge position todos
       assert.is_nil(start_todo.parent_id)
       assert.is_nil(end_todo.parent_id)
 
@@ -493,12 +449,13 @@ Line that should not affect parent-child relationship
       local bufnr = h.setup_test_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
-      assert.equal(2, vim.tbl_count(todo_map))
+
+      assert.equal(2, #todo_map)
 
       for _, todo in pairs(todo_map) do
-        local pos = parser.get_todo_position(bufnr, todo.id)
-        assert.is_not_nil(pos)
-        ---@cast pos {row: integer, col: integer}
+        -- the todo position is its extmark pos which is stored by the todo marker pos
+        local pos = h.exists(parser.get_todo_position(bufnr, todo.id))
+
         -- should match the marker's stored position
         assert.equal(todo.todo_marker.position.row, pos.row)
         assert.equal(todo.todo_marker.position.col, pos.col)

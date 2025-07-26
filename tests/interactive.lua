@@ -66,6 +66,16 @@ if env.config and type(env.config) == "function" then
   end)
 end
 
+-- local ok, err = pcall(function()
+--   require("osv").launch({ port = 8086 })
+-- end)
+-- if not ok then
+--   vim.print(err)
+-- else
+--   vim.print("Debugger started")
+--   vim.ui.select({ "y", "n" }, {}, function(choice) end)
+-- end
+
 if env_name == "demo" then
   vim.cmd("edit tests/fixtures/demo.todo.md")
 else

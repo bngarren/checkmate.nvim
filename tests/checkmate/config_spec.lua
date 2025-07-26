@@ -232,9 +232,9 @@ describe("Config", function()
 
     describe("validate_options", function()
       it("should pass validation with opts = {}", function()
-        local config = require("checkmate.config")
+        local validate = require("checkmate.config.validate")
         local opts = {} ---@cast opts checkmate.Config
-        local valid, err = config.validate_options(opts)
+        local valid, err = validate.validate_options(opts)
         assert.equal(true, valid, err)
       end)
 
@@ -247,7 +247,8 @@ describe("Config", function()
 
       it("should successfully validate default options", function()
         local config = require("checkmate.config")
-        assert.is_true(config.validate_options(config.get_defaults()))
+        local validate = require("checkmate.config.validate")
+        assert.is_true(validate.validate_options(config.get_defaults()))
       end)
 
       it("should allow user to redefine a default metadata entry while keeping other defaults", function()
@@ -274,6 +275,7 @@ describe("Config", function()
 
       it("should fail to validate bad opts", function()
         local config = require("checkmate.config")
+        local validate = require("checkmate.config.validate")
 
         ---@type table<integer, checkmate.Config>
         local keys_iters = {
@@ -295,7 +297,7 @@ describe("Config", function()
           local defaults = config.get_defaults()
           defaults.keys = nil
           local opts = vim.tbl_deep_extend("force", defaults, iter)
-          local ok, _ = config.validate_options(opts)
+          local ok, _ = validate.validate_options(opts)
           assert.is_false(ok)
         end
       end)

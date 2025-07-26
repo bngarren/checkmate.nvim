@@ -1,5 +1,12 @@
 describe("API", function()
-  local h, api, parser, util
+  ---@module "tests.checkmate.helpers"
+  local h
+  ---@module "checkmate.api"
+  local api
+  ---@module "checkmate.parser"
+  local parser
+  ---@module "checkmate.util"
+  local util
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -570,6 +577,28 @@ Regular text line
         h.cleanup_buffer(bufnr)
       end)
     end)
+
+    it("should handle creating todo at end of buffer with no trailing newline", function()
+      local unchecked = h.get_unchecked_marker()
+
+      local content = [[
+# My tasks
+- ]] .. unchecked .. [[ First task]] -- no trailing newline
+
+      local bufnr = h.setup_test_buffer(content)
+
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      local success = require("checkmate").create()
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(3, #lines)
+      assert.matches("- " .. unchecked .. " ", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
   end)
 
   describe("todo manipulation", function()
@@ -862,6 +891,31 @@ Regular text line
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("     @test3%(baz%) @test4%(gah%)$", lines[2])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should update metadata value when cursor is on todo with same, existing metadata", function()
+        local cm = require("checkmate")
+        cm.setup()
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Task @priority(low) @status(pending)]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        require("checkmate").add_metadata("priority", "high")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("@priority%(high%)", lines[1])
+        assert.matches("@status%(pending%)", lines[1])
 
         finally(function()
           cm.stop()
@@ -1902,6 +1956,39 @@ Regular text line
       end)
     end)
 
+    it("should handle partial visual selections correctly when toggling", function()
+      local cm = require("checkmate")
+      cm.setup()
+
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
+
+      local content = [[
+- ]] .. unchecked .. [[ Task 1
+  with continuation
+- ]] .. unchecked .. [[ Task 2
+- ]] .. unchecked .. [[ Task 3
+  also continues]]
+
+      local bufnr = h.setup_test_buffer(content)
+
+      -- middle of Task 1 to middle of Task 3
+      h.make_selection(1, 5, 4, 10, "v")
+
+      require("checkmate").toggle()
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      -- all covered todos should be toggled
+      assert.matches("- " .. checked .. " Task 1", lines[1])
+      assert.matches("- " .. checked .. " Task 2", lines[3])
+      assert.matches("- " .. checked .. " Task 3", lines[4])
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
     describe("cycle state", function()
       -- ensure that "cycling" state will propagate state up/down the same way that "toggle" does
       it("should propagate state when cycling", function()
@@ -1944,6 +2031,41 @@ Regular text line
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
+        end)
+      end)
+
+      it("should cycle between default states when no custom states exist", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+
+        local cm = require("checkmate")
+        cm.setup()
+
+        local content = [[
+- ]] .. unchecked .. [[ Task to cycle]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        -- cycle forward (unchecked -> checked)
+        cm.cycle()
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked), lines[1])
+
+        -- cycle forward again (checked -> unchecked, wrapping)
+        cm.cycle()
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(unchecked), lines[1])
+
+        -- cycle backward (unchecked -> checked, wrapping)
+        cm.cycle({ backward = true })
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("- " .. vim.pesc(checked), lines[1])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
     end)

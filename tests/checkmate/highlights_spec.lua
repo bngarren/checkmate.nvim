@@ -1,5 +1,8 @@
 describe("Highlights", function()
-  local h, checkmate
+  ---@module "tests.checkmate.helpers"
+  local h
+  ---@module "checkmate"
+  local checkmate
 
   before_each(function()
     _G.reset_state()
@@ -8,9 +11,6 @@ describe("Highlights", function()
     h = require("tests.checkmate.helpers")
 
     checkmate.setup()
-    vim.wait(100, function()
-      return checkmate.is_running()
-    end)
   end)
 
   after_each(function()

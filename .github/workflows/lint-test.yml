@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        nvim-versions: ["stable", "nightly"]
+        nvim-versions: ["v0.10.2", "stable", "nightly"]
     name: test
 
     # Borrowed from https://github.com/folke/github/blob/main/neovim/action.yml

@@ -4,6 +4,9 @@ describe("Parser", function()
   ---@module "checkmate"
   local checkmate
 
+  ---@module "checkmate.parser"
+  local parser
+
   local pending_marker = "℗"
 
   lazy_setup(function()
@@ -23,6 +26,7 @@ describe("Parser", function()
 
     h = require("tests.checkmate.helpers")
     checkmate = require("checkmate")
+    parser = require("checkmate.parser")
 
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup({
@@ -63,7 +67,6 @@ describe("Parser", function()
 
   describe("list item discovery", function()
     it("should find all list items", function()
-      local parser = require("checkmate.parser")
       local content = [[
 - Parent list item A
   - Child list item a.1
@@ -170,7 +173,6 @@ describe("Parser", function()
 
   describe("todo discovery", function()
     it("should calculate correct ranges for todos with different lengths", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
 
       local content = [[
@@ -217,7 +219,6 @@ New Section
     end)
 
     it("should correctly handle complex hierarchical todos with various indentations", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
@@ -312,7 +313,6 @@ New Section
     end)
 
     it("should parse todos with custom todo states", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
 
       -- we setup the "pending" state in the top level before_each
@@ -336,7 +336,6 @@ New Section
     end)
 
     it("should build correct parent-child relationships with mixed list types", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
@@ -385,7 +384,6 @@ New Section
     end)
 
     it("should handle edge cases", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
@@ -436,7 +434,6 @@ Line that should not affect parent-child relationship
     end)
 
     it("should return correct buffer positions for each discovered todo item", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 
@@ -445,12 +442,13 @@ Line that should not affect parent-child relationship
       local content = [[
 - ]] .. unchecked .. [[ Alpha
 - ]] .. checked .. [[ Beta
+  - ]] .. unchecked .. [[ Charlie
 ]]
       local bufnr = h.setup_test_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
 
-      assert.equal(2, #todo_map)
+      assert.equal(3, #todo_map)
 
       for _, todo in pairs(todo_map) do
         -- the todo position is its extmark pos which is stored by the todo marker pos
@@ -469,115 +467,64 @@ Line that should not affect parent-child relationship
 
   describe("get todo item and state", function()
     describe("get_todo_item_state", function()
-      it("should detect unchecked todo items with default marker", function()
-        local parser = require("checkmate.parser")
-        local unchecked_marker = h.get_unchecked_marker()
-
-        local cases = {
-          "- " .. unchecked_marker .. " This is an unchecked todo",
-          "- " .. unchecked_marker,
-        }
-        for _, case in ipairs(cases) do
-          local state = parser.get_todo_item_state(case)
-          assert.equal("unchecked", state)
-        end
-      end)
-
-      it("should detect checked todo items with default marker", function()
-        local parser = require("checkmate.parser")
-        local checked_marker = h.get_checked_marker()
-
-        local cases = {
-          "- " .. checked_marker .. " This is an checked todo",
-          "- " .. checked_marker,
-        }
-        for _, case in ipairs(cases) do
-          local state = parser.get_todo_item_state(case)
-          assert.equal("checked", state)
-        end
-      end)
-
-      it("should detect pending todo items with custom marker", function()
-        local parser = require("checkmate.parser")
-        local cases = {
-          "- " .. pending_marker .. " This is a pending todo",
-          "- " .. pending_marker,
-        }
-        for _, case in ipairs(cases) do
-          local state = parser.get_todo_item_state(case)
-          assert.equal("pending", state)
-        end
-      end)
-
-      it("should detect todo items with various list markers for all states", function()
-        local parser = require("checkmate.parser")
+      it("should correctly identify todo item states from line text", function()
         local unchecked_marker = h.get_unchecked_marker()
         local checked_marker = h.get_checked_marker()
 
-        local list_markers = { "-", "+", "*" }
-        local test_cases = {
-          { marker = unchecked_marker, state = "unchecked" },
-          { marker = checked_marker, state = "checked" },
-          { marker = pending_marker, state = "pending" },
+        local valid_todos = {
+          -- unchecked todos
+          { line = "- " .. unchecked_marker .. " This is an unchecked todo", expected = "unchecked" },
+          { line = "- " .. unchecked_marker, expected = "unchecked" },
+          { line = "* " .. unchecked_marker, expected = "unchecked" },
+          { line = "+ " .. unchecked_marker, expected = "unchecked" },
+          { line = "1. " .. unchecked_marker, expected = "unchecked" },
+          { line = "1) " .. unchecked_marker, expected = "unchecked" },
+          { line = "50. " .. unchecked_marker, expected = "unchecked" },
+
+          -- checked todos
+          { line = "- " .. checked_marker .. " This is a checked todo", expected = "checked" },
+          { line = "- " .. checked_marker, expected = "checked" },
+          { line = "* " .. checked_marker, expected = "checked" },
+          { line = "+ " .. checked_marker, expected = "checked" },
+          { line = "1. " .. checked_marker, expected = "checked" },
+
+          -- custom state (pending) todos
+          { line = "- " .. pending_marker .. " This is a pending todo", expected = "pending" },
+          { line = "- " .. pending_marker, expected = "pending" },
+          { line = "* " .. pending_marker, expected = "pending" },
+          { line = "+ " .. pending_marker, expected = "pending" },
+          { line = "1. " .. pending_marker, expected = "pending" },
+
+          -- indented
+          { line = "    - " .. unchecked_marker .. " Indented todo", expected = "unchecked" },
+          { line = "  * " .. checked_marker .. " Another indented", expected = "checked" },
+          { line = "\t- " .. pending_marker .. " Tab indented", expected = "pending" },
         }
 
-        for _, list_marker in ipairs(list_markers) do
-          for _, test_case in ipairs(test_cases) do
-            local cases = {
-              list_marker .. " " .. test_case.marker .. " This is a " .. test_case.state .. " todo",
-              list_marker .. " " .. test_case.marker,
-            }
-            for _, case in ipairs(cases) do
-              local state = parser.get_todo_item_state(case)
-              assert.equal(test_case.state, state)
-            end
-          end
+        for _, test_case in ipairs(valid_todos) do
+          local state = parser.get_todo_item_state(test_case.line)
+          assert.equal(test_case.expected, state, string.format("Failed to detect state for: %s", test_case.line))
         end
-      end)
 
-      it("should detect todo items with indentation", function()
-        local parser = require("checkmate.parser")
-        local unchecked_marker = h.get_unchecked_marker()
-        local line = "    - " .. unchecked_marker .. " Indented todo"
-        local state = parser.get_todo_item_state(line)
-
-        assert.equal("unchecked", state)
-      end)
-
-      it("should detect todo items with ordered list markers", function()
-        local parser = require("checkmate.parser")
-        local unchecked_marker = h.get_unchecked_marker()
-
-        -- test with different numbered list formats
-        local formats = { "1. ", "1) ", "50. " }
-        for _, format in ipairs(formats) do
-          local line = format .. unchecked_marker .. " Numbered todo"
-          local state = parser.get_todo_item_state(line)
-          assert.equal("unchecked", state)
-        end
-      end)
-
-      it("should return nil for non-todo items", function()
-        local parser = require("checkmate.parser")
-        local unchecked_marker = h.get_unchecked_marker()
-
-        local lines = {
+        -- non-todo items that should return nil
+        local non_todos = {
           "Regular text",
           "- Just a list item",
           "1. Numbered list item",
           "* Another list item",
-          unchecked_marker .. " A todo marker but not a list item, therefore not a todo item",
+          unchecked_marker .. " A todo marker but not a list item",
+          "  " .. checked_marker .. " Marker with no list prefix",
+          "- [] Missing space in checkbox",
+          "- [x] Markdown checkbox (not our format)",
         }
 
-        for _, line in ipairs(lines) do
+        for _, line in ipairs(non_todos) do
           local state = parser.get_todo_item_state(line)
           assert.is_nil(state)
         end
       end)
 
       it("should handle multi-char todo markers from config", function()
-        local parser = require("checkmate.parser")
-
         local config = require("checkmate.config")
 
         config.options.todo_states.checked.marker = "[x]"
@@ -586,26 +533,21 @@ Line that should not affect parent-child relationship
         -- force clear the pre-compiled pattern cache
         parser.clear_parser_cache()
 
-        local lines = {
-          "- [ ] Custom unchecked",
-          "- [x] Custom checked",
+        -- {line, expected_state}
+        local cases = {
+          { "- [ ] Custom unchecked", "unchecked" },
+          { "- [x] Custom checked", "checked" },
         }
 
-        local expected = {
-          "unchecked",
-          "checked",
-        }
-
-        for i, line in ipairs(lines) do
-          local state = parser.get_todo_item_state(line)
-          assert.equal(expected[i], state)
+        for _, case in ipairs(cases) do
+          local state = parser.get_todo_item_state(case[1])
+          assert.equal(case[2], state)
         end
       end)
     end)
+
     describe("get_todo_item_at_position", function()
       it("should return todo item with cursor on todo marker line", function()
-        local parser = require("checkmate.parser")
-
         local content = [[
 - [ ] This is a todo line
 This is another line
@@ -639,8 +581,6 @@ This is another line
       end)
 
       it("should return todo item with cursor on continuation line", function()
-        local parser = require("checkmate.parser")
-
         local content = [[
 - [ ] This is a todo line
 This is another line
@@ -649,17 +589,18 @@ This is another line
 
         local bufnr = h.setup_todo_file_buffer(content)
 
-        local todo_item1 = parser.get_todo_item_at_position(bufnr, 0, 0)
-        assert.is_not_nil(todo_item1)
-        ---@cast todo_item1 checkmate.TodoItem
+        local todo_item1 = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item1.todo_text:match("This is a todo line"))
 
-        local todo_item2 = parser.get_todo_item_at_position(bufnr, 1, 0)
-        assert.is_not_nil(todo_item2)
-        ---@cast todo_item2 checkmate.TodoItem
+        local todo_item2 = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0))
         assert.is_truthy(todo_item2.todo_text:match("This is a todo line"))
 
         assert.equal(todo_item1.id, todo_item2.id)
+
+        local todo_item3 = h.exists(parser.get_todo_item_at_position(bufnr, 2, 0))
+        assert.is_truthy(todo_item3.todo_text:match("Another todo line"))
+
+        assert.no.equal(todo_item3.id, todo_item1.id)
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -667,8 +608,6 @@ This is another line
       end)
 
       it("should return todo item with cursor on nested list item", function()
-        local parser = require("checkmate.parser")
-
         local content = [[
 - [ ] This is a todo line
   - Nested 1
@@ -680,16 +619,13 @@ This is another line
 
         local bufnr = h.setup_todo_file_buffer(content)
 
+        -- test each nested list item
         for i = 1, 3 do
-          local todo_item = parser.get_todo_item_at_position(bufnr, i, 0)
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, i, 0))
           assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
         end
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 4, 0)
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 4, 0))
         assert.is_truthy(todo_item.todo_text:match("Separate todo"))
 
         finally(function()
@@ -698,7 +634,6 @@ This is another line
       end)
 
       it("should handle deeply nested wrapped todos", function()
-        local parser = require("checkmate.parser")
         local content = [[
 - [ ] Parent todo
   - Regular nested item
@@ -721,8 +656,6 @@ This is another line
       end)
 
       it("should return todo item with cursor within nested todo item", function()
-        local parser = require("checkmate.parser")
-
         local content = [[
 - [ ] This is a todo line
   - Nested 1
@@ -745,7 +678,6 @@ This is another line
 
   describe("extract_metadata", function()
     it("should extract a single metadata tag", function()
-      local parser = require("checkmate.parser")
       local bufnr = h.setup_test_buffer("- □ Task with @priority(high) tag")
 
       local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
@@ -782,7 +714,6 @@ This is another line
     end)
 
     it("should extract multiple metadata tags", function()
-      local parser = require("checkmate.parser")
       local line = "- □ Task @priority(high) @due(2023-04-01) @tags(important,urgent)"
       local bufnr = h.setup_test_buffer(line)
 
@@ -835,7 +766,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local content = [[
 - [ ] Todo with metadata @priority(high) @assignee(john) that continues with
   more metadata @due(2024-12-31) on the wrapped line
@@ -866,7 +796,6 @@ This is another line
     end)
 
     it("should handle metadata split across wrapped lines", function()
-      local parser = require("checkmate.parser")
       local content = [[
 - [ ] Todo with very long metadata value @description(This   is a very long
   description that spans multiple lines) @status(pending)
@@ -917,8 +846,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
-
       -- space between @tag and ()
       local line = "- □ Task @tag (value)"
       local bufnr = h.setup_test_buffer(line)
@@ -937,8 +864,6 @@ This is another line
     it("should preserve metadata with spaces in and around values", function()
       local cm = require("checkmate")
       cm.setup()
-
-      local parser = require("checkmate.parser")
 
       local content = [[
 - [ ] Task @note(this is a note  with   spaces)
@@ -972,7 +897,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local line = "- □ Task @issue(fix(api))"
       local bufnr = h.setup_test_buffer(line)
 
@@ -994,7 +918,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local line = "- □ Task @issue(value %with $pecial ch@rs!)"
       local bufnr = h.setup_test_buffer(line)
 
@@ -1022,8 +945,6 @@ This is another line
           },
         },
       })
-
-      local parser = require("checkmate.parser")
 
       local line = "- □ Task @pri(high) @p(medium)"
 
@@ -1054,7 +975,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local line = "- □ Task @tag-with-hyphens(value) @tag_with_underscores(value)"
 
       local bufnr = h.setup_test_buffer(line)
@@ -1076,7 +996,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local line = "- □ Task with no metadata"
       local bufnr = h.setup_test_buffer(line)
       local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
@@ -1097,7 +1016,6 @@ This is another line
       local cm = require("checkmate")
       cm.setup()
 
-      local parser = require("checkmate.parser")
       local line = "- □ Task @priority(low) Some text @priority(high)"
       local bufnr = h.setup_test_buffer(line)
       local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
@@ -1120,8 +1038,6 @@ This is another line
   describe("format conversion", function()
     describe("convert_markdown_to_unicode", function()
       it("should convert markdown checkboxes to unicode symbols", function()
-        local parser = require("checkmate.parser")
-
         local bufnr = vim.api.nvim_create_buf(false, true)
         local markdown_lines = {
           "# Todo List",
@@ -1174,7 +1090,6 @@ This is another line
       end)
 
       it("should convert only single-space [ ] checkboxes", function()
-        local parser = require("checkmate.parser")
         local unchecked = h.get_unchecked_marker()
 
         local content = [[
@@ -1204,7 +1119,6 @@ This is another line
     -- Test convert_unicode_to_markdown
     describe("convert_unicode_to_markdown", function()
       it("should convert unicode symbols back to markdown checkboxes", function()
-        local parser = require("checkmate.parser")
         local unchecked = h.get_unchecked_marker()
         local checked = h.get_checked_marker()
 
@@ -1247,7 +1161,6 @@ This is another line
       end)
 
       it("should handle indented todo items", function()
-        local parser = require("checkmate.parser")
         local unchecked = h.get_unchecked_marker()
         local checked = h.get_checked_marker()
 
@@ -1279,8 +1192,6 @@ This is another line
     end)
 
     it("should perform round-trip conversion correctly", function()
-      local parser = require("checkmate.parser")
-
       local bufnr = vim.api.nvim_create_buf(false, true)
 
       local original_lines = {
@@ -1311,8 +1222,6 @@ This is another line
     end)
 
     it("should not add extra lines", function()
-      local parser = require("checkmate.parser")
-
       local bufnr = vim.api.nvim_create_buf(false, true)
 
       local original_lines = {
@@ -1338,7 +1247,6 @@ This is another line
 
   describe("performance", function()
     it("should handle large documents with many todos at different levels", function()
-      local parser = require("checkmate.parser")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
 

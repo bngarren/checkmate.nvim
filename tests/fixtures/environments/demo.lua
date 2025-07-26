@@ -13,6 +13,9 @@ return {
     -- },
   },
   checkmate = require("checkmate_config").with({
+    todo_markers = {
+      checked = "#",
+    },
     todo_states = {
       unchecked = {
         marker = "☐",

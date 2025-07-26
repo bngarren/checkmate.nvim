@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.0](https://github.com/bngarren/checkmate.nvim/compare/v0.9.2...v0.10.0) (2025-07-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* Remove `todo_action_depth` option. Todos can be interacted with from any depth within the todo's hierarchy as long as it isn't within a nested todo. Change style/highlight group extmark ranges for Checkmate*MainContent and Checkmate*AdditionalContent.
+
+### Features
+
+* add `checkmate.snippets` API for LuaSnip integration ([#152](https://github.com/bngarren/checkmate.nvim/issues/152)) ([81a97b9](https://github.com/bngarren/checkmate.nvim/commit/81a97b923eca2d098287e35c166638bae2c894df))
+* add custom todo states (not just checked or unchecked) ([#153](https://github.com/bngarren/checkmate.nvim/issues/153)) ([6c655db](https://github.com/bngarren/checkmate.nvim/commit/6c655dbd64d137a2cbedf1ab2cc6a37245ec1fe0))
+* add multi-line support to todo content ([#139](https://github.com/bngarren/checkmate.nvim/issues/139)) ([24fdcb4](https://github.com/bngarren/checkmate.nvim/commit/24fdcb469175eabb8db0958a05aac63d52963148))
+* adds enable/disable plugin commands + public api ([#129](https://github.com/bngarren/checkmate.nvim/issues/129)) ([6818bf5](https://github.com/bngarren/checkmate.nvim/commit/6818bf5930eea9e1687e0ef46454f8a5740fbb5a))
+
+
+### Bug Fixes
+
+* cycle api should propagate state similar to toggle ([#155](https://github.com/bngarren/checkmate.nvim/issues/155)) ([51a854f](https://github.com/bngarren/checkmate.nvim/commit/51a854fa8f6b4ca9fd92513442ea11ba3321278a))
+* **health:** fix checkhealth to show correct config validation errors ([#154](https://github.com/bngarren/checkmate.nvim/issues/154)) ([605adbb](https://github.com/bngarren/checkmate.nvim/commit/605adbb052f3aac502004542747c65eaa8071f0e))
+* **parser:** fix bug with finding first inline range with setext heading ([#149](https://github.com/bngarren/checkmate.nvim/issues/149)) ([9bf370c](https://github.com/bngarren/checkmate.nvim/commit/9bf370cc9b813321b3a1a8cb62aa0b0962076ae7))
+* refine todo states implementation ([#156](https://github.com/bngarren/checkmate.nvim/issues/156)) ([3d4c94d](https://github.com/bngarren/checkmate.nvim/commit/3d4c94dc0317b429a06e6beed14e1ee9a95e56a2))
+
 ## [0.9.2](https://github.com/bngarren/checkmate.nvim/compare/v0.9.1...v0.9.2) (2025-06-27)
 
 

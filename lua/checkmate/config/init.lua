@@ -151,12 +151,8 @@ M.options = {}
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
---- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
+--- Defaults to `vim.fn.stdpath("log")`
 ---@field file_path string?
----
---- Should print log output to a scratch buffer
---- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
----@field use_buffer boolean
 
 -----------------------------------------------------
 

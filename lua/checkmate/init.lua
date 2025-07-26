@@ -96,7 +96,7 @@ function M.start()
 
     H.setup_existing_markdown_buffers()
 
-    log.info("Checkmate plugin started", { module = "init" })
+    log.info("✅ Checkmate started")
   end)
   if not success then
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
@@ -749,9 +749,8 @@ function M.lint(opts)
   else
     local msg = string.format("Found %d formatting issues", #results)
     util.notify(msg, vim.log.levels.WARN)
-    log.warn(msg, log.levels.WARN)
     for i, issue in ipairs(results) do
-      log.warn(string.format("Issue %d, row %d [%s]: %s", i, issue.lnum, issue.severity, issue.message))
+      -- log.warn(string.format("Issue %d, row %d [%s]: %s", i, issue.lnum, issue.severity, issue.message))
     end
   end
 

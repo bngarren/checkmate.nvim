@@ -393,7 +393,6 @@ function M.convert_markdown_to_unicode(bufnr)
       vim.bo[bufnr].modified = original_modified
     end)
 
-    log.debug("Converted Markdown todo symbols to Unicode", { module = "parser" })
     return true
   end
 
@@ -434,10 +433,6 @@ function M.convert_unicode_to_markdown(bufnr)
         end)
 
         if not ok then
-          log.error(
-            string.format("Error on line %d with pattern for state %s: %s", i, state_name, tostring(r)),
-            { module = "parser" }
-          )
           had_error = true
           break
         end
@@ -468,11 +463,9 @@ function M.convert_unicode_to_markdown(bufnr)
     end)
 
     if not ok then
-      log.error("Error setting buffer lines: " .. tostring(err), { module = "parser" })
       return false
     end
 
-    log.debug("Converted Unicode todo symbols to Markdown", { module = "parser" })
     return true
   end
 
@@ -542,7 +535,6 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
     node = node:parent()
   end
 
-  log.debug("No matching todo item found at position", { module = "parser" })
   return nil
 end
 
@@ -599,13 +591,11 @@ function M.discover_todos(bufnr)
 
   local parser = vim.treesitter.get_parser(bufnr, "markdown")
   if not parser then
-    log.debug("No parser available for markdown", { module = "parser" })
     return todo_map
   end
 
   local tree = parser:parse()[1]
   if not tree then
-    log.debug("Failed to parse buffer", { module = "parser" })
     vim.notify("Checkmate: Failed to parse buffer", vim.log.levels.ERROR)
     return todo_map
   end

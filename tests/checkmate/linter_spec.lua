@@ -1,10 +1,12 @@
 -- tests/checkmate/linter_spec.lua
 describe("Linter", function()
-  local h = require("tests.checkmate.helpers")
-  local linter = require("checkmate.linter")
+  local h, linter
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    linter = require("checkmate.linter")
   end)
 
   -- helper to run linter & fetch diags in one go
@@ -43,7 +45,7 @@ describe("Linter", function()
 - Parent
   - Child
     - Grandchild]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
     assert.equal(0, #diags)
     vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -53,7 +55,7 @@ describe("Linter", function()
     local content = [[
 - Parent
  - Bad child   ]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
@@ -65,7 +67,7 @@ describe("Linter", function()
     local content = [[
 - Parent
       - Too deep by spec ]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
@@ -78,7 +80,7 @@ describe("Linter", function()
 - Parent
   - unordered
   1. ordered sibling ]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(1, #diags)
@@ -90,7 +92,7 @@ describe("Linter", function()
     local content = [[
 - Parent
  - Bad child]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr, { severity = {
       INDENT_SHALLOW = vim.diagnostic.severity.ERROR,
     } })
@@ -106,7 +108,7 @@ describe("Linter", function()
 - Parent with space (valid list)
  -Child with no space (not valid)
   - Child with space (valid)]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     -- Should not detect any list items for no-space variants
@@ -120,7 +122,7 @@ describe("Linter", function()
   text on next line
   - Child (correctly aligned with parent's content)
  - Bad child (before parent's content)]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(1, #diags, "Only the bad child should be flagged")
@@ -137,7 +139,7 @@ describe("Linter", function()
   - Child of item 2
 
   - Still a child of item 2 despite blank line]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(0, #diags, "Empty lines should not cause issues")
@@ -154,7 +156,7 @@ Regular paragraph
 Code block:
     var x = 1;
   - Not a child (this is code, not a list)]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     -- Only items that parse as valid list items should be analyzed
@@ -170,7 +172,7 @@ Code block:
   and a third paragraph
   - Child item (properly aligned with content)
  - Bad child (too shallow)]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(1, #diags, "Only bad alignment should be flagged")
@@ -185,7 +187,7 @@ Code block:
   more continuation
 - Item 2
   - Child item]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
     local diags = run(bufnr)
 
     assert.equal(0, #diags, "Continuation lines should not affect list item detection")
@@ -221,7 +223,7 @@ Code block:
 - Short item
 - This is a very long list item that will trigger our custom rule]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
       local diags = run(bufnr)
 
       -- Should have our custom diagnostic
@@ -274,7 +276,7 @@ Code block:
       end, { priority = 2 }) -- specific position
 
       local content = "- List item to trigger validators"
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- Run the linter (this will trigger all validators)
       run(bufnr)

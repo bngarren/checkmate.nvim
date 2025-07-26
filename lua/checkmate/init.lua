@@ -1,132 +1,34 @@
 ---@class Checkmate
 local M = {}
 
--- Public Types
-
----@class checkmate.Todo
----@field _todo_item checkmate.TodoItem internal representation
----@field state checkmate.TodoItemState
----@field text string First line of the todo
----@field metadata string[][] Table of {tag, value} tuples
----@field is_checked fun(): boolean Whether todo is checked (vs unchecked)
----@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
-
----@class checkmate.MetadataContext
----@field name string Metadata tag name
----@field value string Current metadata value
----@field todo checkmate.Todo Access to todo item data
----@field buffer integer Buffer number
+-- Helper module
+local H = {}
 
 --- internal
 
-local state = {
+-- save initial user opts for later restarts
+local user_opts = {}
+
+M._state = {
+  -- initialized is config setup
   initialized = false,
+  -- core modules are setup (parser, highlights, linter) and autocmds registered
   running = false,
-  setup_callbacks = {},
   active_buffers = {}, -- bufnr -> true
 }
 
-function M.is_initialized()
-  return state.initialized
-end
-
-function M.set_initialized(value)
-  state.initialized = value
-
-  -- run cb's after setup done
-  if value and #state.setup_callbacks > 0 then
-    local callbacks = state.setup_callbacks
-    state.setup_callbacks = {}
-    for _, callback in ipairs(callbacks) do
-      vim.schedule(callback)
-    end
-  end
-end
-
-function M.is_running()
-  return state.running
-end
-
-function M.set_running(value)
-  state.running = value
-end
-
-function M.on_initialized(callback)
-  if state.initialized then
-    callback()
-  else
-    -- queue it
-    table.insert(state.setup_callbacks, callback)
-  end
-end
-
-function M.register_buffer(bufnr)
-  state.active_buffers[bufnr] = true
-end
-
-function M.unregister_buffer(bufnr)
-  state.active_buffers[bufnr] = nil
-end
-
-function M.is_buffer_active(bufnr)
-  return state.active_buffers[bufnr] == true
-end
-
--- Returns array of buffer numbers
-function M.get_active_buffer_list()
-  local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      table.insert(buffers, bufnr)
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Returns hash table of bufnr -> true
-function M.get_active_buffer_map()
-  local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      buffers[bufnr] = true
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Convenience function that returns count
-function M.count_active_buffers()
-  local count = 0
-  for bufnr in pairs(state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      count = count + 1
-    else
-      state.active_buffers[bufnr] = nil
-    end
-  end
-  return count
-end
-
-function M.reset()
-  state.initialized = false
-  state.running = false
-  state.setup_callbacks = {}
-  state.active_buffers = {}
-end
+local state = M._state
 
 ---@param opts checkmate.Config?
 ---@return boolean success
 M.setup = function(opts)
   local config = require("checkmate.config")
 
+  user_opts = opts or {}
+
   -- reload if config has changed
   if M.is_initialized() then
     local current_config = config.options
-
     if opts and not vim.deep_equal(opts, current_config) then
       M.stop()
     else
@@ -144,36 +46,37 @@ M.setup = function(opts)
       error()
     end
 
-    M.set_initialized(true)
-
-    if cfg.enabled then
-      M.start()
+    if #config.get_deprecations(user_opts) > 0 then
+      vim.notify("Checkmate: deprecated usage. Run `checkhealth checkmate`.", vim.log.levels.WARN)
     end
+
+    M.set_initialized(true)
   end)
 
   if not success then
-    local msg = "Checkmate: Setup failed"
+    local msg = "Checkmate: Setup failed.\nRun `:checkhealth checkmate` to debug. "
     if err then
-      msg = msg .. ": " .. tostring(err)
+      msg = msg .. "\n" .. tostring(err)
     end
     vim.notify(msg, vim.log.levels.ERROR)
     M.reset()
     return false
   end
 
+  if config.options.enabled then
+    M.start()
+  end
+
   return true
 end
 
--- spin up parser, highlights, commands, linter, autocmds
+-- spin up parser, highlights, linter, autocmds
 function M.start()
   if M.is_running() then
     return
   end
 
   local config = require("checkmate.config")
-  if not config.options.enabled then
-    return
-  end
 
   local success, err = pcall(function()
     local log = require("checkmate.log")
@@ -182,15 +85,16 @@ function M.start()
     -- each of these should clear any caches they own
     require("checkmate.parser").setup()
     require("checkmate.highlights").setup_highlights()
+
     if config.options.linter and config.options.linter.enabled ~= false then
       require("checkmate.linter").setup(config.options.linter)
     end
 
-    M._setup_autocommands()
-
     M.set_running(true)
 
-    M._setup_existing_markdown_buffers()
+    H.setup_autocommands()
+
+    H.setup_existing_markdown_buffers()
 
     log.info("Checkmate plugin started", { module = "init" })
   end)
@@ -198,51 +102,6 @@ function M.start()
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
     M.stop() -- cleanup partial initialization
   end
-end
-
-function M._setup_autocommands()
-  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
-
-  vim.api.nvim_create_autocmd("VimLeavePre", {
-    group = augroup,
-    callback = function()
-      M.stop()
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("FileType", {
-    group = augroup,
-    pattern = "markdown",
-    callback = function(event)
-      local cfg = require("checkmate.config").options
-      if not (cfg and cfg.enabled) then
-        return
-      end
-
-      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
-        --  TODO: remove legacy in v0.10+
-        require("checkmate.commands").setup(event.buf) -- legacy commands
-        require("checkmate.commands_new").setup(event.buf)
-        require("checkmate.api").setup_buffer(event.buf)
-      end
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("FileType", {
-    group = augroup,
-    callback = function(event)
-      local bufs = M.get_active_buffer_list()
-      for _, buf in ipairs(bufs) do
-        if event.buf == buf and event.match ~= "markdown" then
-          --  TODO: remove legacy in v0.10+
-          require("checkmate.commands").dispose(buf) -- legacy
-          require("checkmate.commands_new").dispose(buf)
-          require("checkmate.api").shutdown(buf)
-          M.unregister_buffer(buf)
-        end
-      end
-    end,
-  })
 end
 
 function M.stop()
@@ -257,11 +116,11 @@ function M.stop()
     require("checkmate.api").shutdown(bufnr)
   end
 
-  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_ft")
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
-  pcall(vim.api.nvim_del_augroup_by_name, "CheckmateHighlighting")
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
 
-  require("checkmate.parser").todo_map_cache = {}
+  local parser = require("checkmate.parser")
+  parser.clear_parser_cache()
 
   if package.loaded["checkmate.log"] then
     pcall(function()
@@ -272,28 +131,50 @@ function M.stop()
   M.reset()
 end
 
-function M._setup_existing_markdown_buffers()
-  local config = require("checkmate.config")
-  local file_matcher = require("checkmate.file_matcher")
+-------------- PUBLIC API --------------
 
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    if
-      vim.api.nvim_buf_is_valid(bufnr)
-      and vim.api.nvim_buf_is_loaded(bufnr)
-      and vim.bo[bufnr].filetype == "markdown"
-      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
-    then
-      require("checkmate.api").setup_buffer(bufnr)
-    end
-  end
+-- Public Types
+
+---@class checkmate.Todo
+---@field _todo_item checkmate.TodoItem internal representation
+---@field state string Todo state, e.g. "checked", "unchecked", or custom state like "pending". See config `todo_states`
+---@field text string First line of the todo
+---@field indent number Number of spaces before the list marker
+---@field list_marker string List item marker, e.g. `-`, `*`, `+`
+---@field todo_marker string Todo marker, e.g. `□`, `✔`
+---@field is_checked fun(): boolean Whether todo is checked
+---@field metadata string[][] Table of {tag, value} tuples
+---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
+---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
+
+---@class checkmate.MetadataContext
+---@field name string Metadata tag name
+---@field value string Current metadata value
+---@field todo checkmate.Todo Access to todo item data
+---@field buffer integer Buffer number
+
+-- Globally disables/deactivates Checkmate for all buffers
+function M.disable()
+  local cfg = require("checkmate.config")
+  cfg.options.enabled = false
+  M.stop()
 end
 
--- PUBLIC API --
+-- Starts/activates Checkmate
+function M.enable()
+  local cfg = require("checkmate.config")
+  cfg.options.enabled = true
+  M.setup(user_opts)
+end
 
----Toggle todo item(s) state under cursor or in visual selection
+--- Toggle todo item(s) state under cursor or in visual selection
 ---
----To set a specific todo item to a target state, use `set_todo_item`
----@param target_state? checkmate.TodoItemState Optional target state ("checked" or "unchecked")
+--- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states.
+--- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent
+--- - To switch to states other than the default unchecked/checked, you can pass a {target_state} or use the `cycle()` API.
+--- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_item`.
+---
+---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc. See `checkmate.Config.todo_states`.
 ---@return boolean success
 function M.toggle(target_state)
   local api = require("checkmate.api")
@@ -322,7 +203,7 @@ function M.toggle(target_state)
         ctx.add_op(api.toggle_state, {
           {
             id = todo_item.id,
-            target_state = target_state or (todo_item.state == "unchecked" and "checked" or "unchecked"),
+            target_state = target_state or (todo_item.state ~= "checked" and "checked" or "unchecked"),
           },
         })
       end
@@ -344,7 +225,7 @@ function M.toggle(target_state)
       for _, item in ipairs(todo_items) do
         table.insert(operations, {
           id = item.id,
-          target_state = target_state or (item.state == "unchecked" and "checked" or "unchecked"),
+          target_state = target_state or (item.state ~= "checked" and "checked" or "unchecked"),
         })
       end
 
@@ -359,9 +240,12 @@ function M.toggle(target_state)
   return true
 end
 
----Sets a given todo item to a specific state
+--- Sets a specific todo item to a specific state
+---
+--- To toggle state of todos under cursor or in linewise selection, use `toggle()`
+---
 ---@param todo_item checkmate.TodoItem Todo item to set state
----@param target_state checkmate.TodoItemState
+---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
 ---@return boolean success
 function M.set_todo_item(todo_item, target_state)
   local api = require("checkmate.api")
@@ -425,6 +309,86 @@ end
 ---@return boolean success
 function M.uncheck()
   return M.toggle("unchecked")
+end
+
+--- Change a todo item(s) state to the next or previous state
+---
+--- - Will act on the todo item under the cursor or all todo items within a visual selection
+--- - Refer to docs for `checkmate.Config.todo_states`. If no custom states are defined, this will act similar to `toggle()`, i.e., changing state between "unchecked" and "checked". However, unlike `toggle`, `cycle` will not propagate state changes to nearby todos ("smart toggle") unless `checkmate.Config.smart_toggle.include_cycle` is true.
+---
+--- {opts}
+---   - backward: (boolean) If true, will cycle in reverse
+---@param opts? {backward?: boolean}
+---@return boolean success
+function M.cycle(opts)
+  local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+  local parser = require("checkmate.parser")
+  local highlights = require("checkmate.highlights")
+  local config = require("checkmate.config")
+
+  opts = opts or {}
+
+  local smart_toggle_enabled = config.options.smart_toggle
+    and (config.options.smart_toggle.enabled and config.options.smart_toggle.include_cycle)
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- inside a transaction, use cursor position
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local todo_item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
+    if todo_item then
+      local next_state = api.get_next_todo_state(todo_item.state, opts.backward)
+      if smart_toggle_enabled then
+        api.propagate_toggle(ctx, { todo_item }, ctx.get_todo_map(), next_state)
+      else
+        ctx.add_op(api.toggle_state, { {
+          id = todo_item.id,
+          target_state = next_state,
+        } })
+      end
+    end
+    return true
+  end
+
+  local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return false
+  end
+
+  -- the next state will be based on the first item
+  local sorted_todo_items = util.get_sorted_todo_list(todo_items)
+  local next_state = api.get_next_todo_state(sorted_todo_items[1].item.state, opts.backward)
+
+  transaction.run(bufnr, function(_ctx)
+    if smart_toggle_enabled then
+      api.propagate_toggle(_ctx, todo_items, todo_map, next_state)
+    else
+      local operations = {}
+
+      for _, item in ipairs(todo_items) do
+        table.insert(operations, {
+          id = item.id,
+          target_state = next_state,
+        })
+      end
+
+      if #operations > 0 then
+        _ctx.add_op(api.toggle_state, operations)
+      end
+    end
+  end, function()
+    highlights.apply_highlighting(bufnr)
+  end)
+
+  return true
 end
 
 --- Creates a new todo item
@@ -561,7 +525,7 @@ function M.remove_metadata(metadata_name)
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_name = metadata_name } })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = { metadata_name } } })
     end
     return true
   end
@@ -580,7 +544,7 @@ function M.remove_metadata(metadata_name)
   for _, item in ipairs(todo_items) do
     table.insert(operations, {
       id = item.id,
-      meta_name = metadata_name,
+      meta_names = { metadata_name },
     })
   end
 
@@ -607,7 +571,7 @@ function M.remove_all_metadata()
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.remove_all_metadata, { todo_item.id })
+      ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = true } })
     end
     return true
   end
@@ -622,12 +586,16 @@ function M.remove_all_metadata()
     return false
   end
 
-  local ids = vim.tbl_map(function(item)
-    return item.id
-  end, todo_items)
+  local operations = {}
+  for _, item in ipairs(todo_items) do
+    table.insert(operations, {
+      id = item.id,
+      meta_names = true, -- true means remove all
+    })
+  end
 
   transaction.run(bufnr, function(_ctx)
-    _ctx.add_op(api.remove_all_metadata, ids)
+    _ctx.add_op(api.remove_metadata, operations)
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
@@ -732,6 +700,23 @@ function M.jump_previous_metadata()
   api.move_cursor_to_metadata(bufnr, todo_items[1], true)
 end
 
+---Returns a `checkmate.Todo` or nil
+---Will use the current buffer and cursor pos unless overriden in `opts`
+--- - `row` is 0-based
+---@param opts? {bufnr?: integer, row?: integer}
+---@return checkmate.Todo? todo
+function M.get_todo(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
+
+  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, 0)
+  if not todo then
+    return nil
+  end
+  return require("checkmate.util").build_todo(todo)
+end
+
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules
 ---
 --- This is not intended to be a comprehensive Markdown linter
@@ -787,34 +772,59 @@ function M.archive(opts)
   return api.archive_todos(opts)
 end
 
---- Open debug log
-function M.debug_log()
-  require("checkmate.log").open()
-end
+---------- DEBUGGING API ----------------
 
---- Clear debug log
-function M.debug_clear()
-  require("checkmate.log").clear()
+local debug_hl = require("checkmate.debug.debug_highlights")
+M.debug = {
+  ---Add a new highlight
+  ---@param range checkmate.Range
+  ---@param opts? {timeout?: integer, permanent?: boolean}
+  ---@return integer id extmark id
+  highlight = function(range, opts)
+    return debug_hl.add(range, opts)
+  end,
+  clear_all_highlights = function()
+    debug_hl.clear_all()
+  end,
+  list_highlights = function()
+    return debug_hl.list()
+  end,
+  log = function()
+    require("checkmate.log").open()
+  end,
+  clear_log = function()
+    require("checkmate.log").clear()
+  end,
+}
+
+-- Clears a debug highlight under the cursor
+function M.debug.clear_highlight()
+  local config = require("checkmate.config")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  local marks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns, { row - 1, 0 }, { row - 1, -1 }, { details = true })
+  for _, m in ipairs(marks) do
+    local id, _, start_col, details = m[1], m[2], m[3], m[4]
+    local end_col = details and details.end_col or start_col
+    if col - 1 >= start_col and col - 1 < end_col then
+      debug_hl.clear(bufnr, id)
+      vim.notify("Cleared debug highlight " .. id, vim.log.levels.INFO)
+      return
+    end
+  end
+  vim.notify("No debug highlight under cursor", vim.log.levels.WARN)
 end
 
 --- Inspect todo item at cursor
-function M.debug_at_cursor()
+function M.debug.at_cursor()
   local parser = require("checkmate.parser")
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  row = row - 1 -- normalize
+  row = row - 1
 
-  local extmark_id = 9001 -- arbitrary unique ID for debug highlight
-
-  -- clear previous
-  pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-
-  local item = parser.get_todo_item_at_position(bufnr, row, col, {
-    search = { main_content = true },
-  })
+  local item = parser.get_todo_item_at_position(bufnr, row, col)
 
   if not item then
     util.notify("No todo item found at cursor", vim.log.levels.INFO)
@@ -841,148 +851,164 @@ function M.debug_at_cursor()
     ("  Metadata: %s"):format(vim.inspect(item.metadata)),
   }
 
-  -- Use native vim.notify here as we want to show this regardless of config.options.notify
   vim.notify(table.concat(msg, "\n"), vim.log.levels.DEBUG)
 
-  vim.api.nvim_set_hl(0, "CheckmateDebugHighlight", { bg = "#3b3b3b" })
-
-  vim.api.nvim_buf_set_extmark(bufnr, config.ns, item.range.start.row, item.range.start.col, {
-    id = extmark_id,
-    end_row = item.range["end"].row,
-    end_col = item.range["end"].col,
-    hl_group = "CheckmateDebugHighlight",
-    priority = 9999, -- Ensure it draws on top
-  })
-
-  -- Auto-remove highlight after 3 seconds
-  vim.defer_fn(function()
-    pcall(vim.api.nvim_buf_del_extmark, bufnr, config.ns, extmark_id)
-  end, 3000)
+  M.debug.highlight(item.range)
 end
 
---- Print todo map
-function M.debug_print_todo_map()
+--- Print todo map (in Snacks scratch buffer or vim.print)
+function M.debug.print_todo_map()
   local parser = require("checkmate.parser")
   local todo_map = parser.discover_todos(vim.api.nvim_get_current_buf())
   local sorted_list = require("checkmate.util").get_sorted_todo_list(todo_map)
-  vim.notify(vim.inspect(sorted_list), vim.log.levels.DEBUG)
+  require("checkmate.util").scratch_buf_or_print(sorted_list, { name = "checkmate.nvim todo_map" })
 end
 
-function M.debug_extmarks()
+-- Print current config (in Snacks scratch buffer or vim.print)
+function M.debug.print_config()
   local config = require("checkmate.config")
-  local ns = config.ns
-  local bufnr = vim.api.nvim_get_current_buf()
+  require("checkmate.util").scratch_buf_or_print(config.options, { name = "checkmate.nvim config" })
+end
 
-  -- 1) Get cursor: {<1-based-row>, <0-based-col>}
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local row1, col0 = cursor[1], cursor[2]
+----- END API -----
 
-  -- 2) Convert to 0-based row for all extmark APIs:
-  local r0, c0 = row1 - 1, col0
+function M.get_user_opts()
+  return vim.deepcopy(user_opts)
+end
 
-  -- 3) Fetch *all* extmarks on this line by spanning from col=0 → col=-1.
-  --    Since we set overlap=true, we also catch any extmark whose “end_row,end_col”
-  --    is on this same line, even if its start was earlier.
-  local line_marks = vim.api.nvim_buf_get_extmarks(
-    bufnr,
-    ns,
-    { r0, 0 }, -- start at (0-based row, col=0)
-    { r0, -1 }, -- end   at (0-based row, “end of line”)
-    {
-      overlap = true,
-      hl_name = true, -- so info.hl_group is returned
-      details = true, -- so info.end_row, info.end_col, etc. are returned
-    }
-  )
+function M.is_initialized()
+  return state.initialized
+end
 
-  if vim.tbl_isempty(line_marks) then
-    print(string.format("🚫 No extmarks found on line %d (0-based).", r0))
-    return
-  end
+function M.set_initialized(value)
+  state.initialized = value
+end
 
-  -- 4) Manually filter only those extmarks whose 0-based range
-  --    actually covers the cursor‐column c0.
-  local hits = {}
-  for _, mark in ipairs(line_marks) do
-    local id = mark[1] -- extmark_id
-    local sr0 = mark[2] -- start_row   (0-based)
-    local sc0 = mark[3] -- start_col   (0-based)
-    local info = mark[4] or {} -- details table
+function M.is_running()
+  return state.running
+end
 
-    -- If details.end_row is nil, treat it as a “point” extmark:
-    local er0, ec0 = info.end_row, info.end_col
-    if er0 == nil then
-      er0, ec0 = sr0, sc0
-    end
+function M.set_running(value)
+  state.running = value
+end
 
-    -- Only consider extmarks that actually span this line (should be true)
-    -- and whose start_col ≤ c0 ≤ end_col.
-    if r0 >= sr0 and r0 <= er0 and c0 >= sc0 and c0 <= ec0 then
-      table.insert(hits, {
-        id = id,
-        sr0 = sr0,
-        sc0 = sc0,
-        er0 = er0,
-        ec0 = ec0,
-        info = info,
-      })
+function M.register_buffer(bufnr)
+  state.active_buffers[bufnr] = true
+end
+
+function M.unregister_buffer(bufnr)
+  state.active_buffers[bufnr] = nil
+end
+
+function M.is_buffer_active(bufnr)
+  return state.active_buffers[bufnr] == true
+end
+
+-- Returns array of buffer numbers
+function M.get_active_buffer_list()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      table.insert(buffers, bufnr)
+    else
+      state.active_buffers[bufnr] = nil
     end
   end
+  return buffers
+end
 
-  if vim.tbl_isempty(hits) then
-    print(string.format("🚫 No extmarks overlapping cursor (0-based: row=%d, col=%d).", r0, c0))
-    return
+-- Returns hash table of bufnr -> true
+function M.get_active_buffer_map()
+  local buffers = {}
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      buffers[bufnr] = true
+    else
+      state.active_buffers[bufnr] = nil
+    end
   end
+  return buffers
+end
 
-  -- 5) Print all hits in 0-based form:
-  print(string.format("🔍 Extmarks overlapping cursor (0-based: row=%d, col=%d):", r0, c0))
-  for _, entry in ipairs(hits) do
-    local id = entry.id
-    local sr0 = entry.sr0
-    local sc0 = entry.sc0
-    local er0 = entry.er0
-    local ec0 = entry.ec0
-    local info = entry.info
+-- Convenience function that returns count
+function M.count_active_buffers()
+  local count = 0
+  for bufnr in pairs(state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      count = count + 1
+    else
+      state.active_buffers[bufnr] = nil
+    end
+  end
+  return count
+end
 
-    -- Pull out every detail field (all are 0-based when they refer to rows/cols)
-    local namespace_id = info.ns_id or nil
-    local priority = info.priority or nil
-    local right_grav0 = info.right_gravity -- boolean or nil
-    local end_grav0 = info.end_right_gravity -- boolean or nil
-    local hl_eol0 = info.hl_eol -- boolean or nil
-    local group_name = info.hl_group -- string or nil
-    local sign_name = info.sign_name -- string or nil
+function M.reset()
+  state.initialized = false
+  state.running = false
+  state.active_buffers = {}
+end
 
-    -- Build a “key=value” list for whatever fields exist:
-    local parts = {}
-    if group_name then
-      table.insert(parts, "hl_group=" .. group_name)
-    end
-    if sign_name then
-      table.insert(parts, "sign_name=" .. sign_name)
-    end
-    if namespace_id then
-      table.insert(parts, "ns_id=" .. namespace_id)
-    end
-    if priority then
-      table.insert(parts, "priority=" .. priority)
-    end
-    if right_grav0 ~= nil then
-      table.insert(parts, "right_gravity=" .. tostring(right_grav0))
-    end
-    if end_grav0 ~= nil then
-      table.insert(parts, "end_right_gravity=" .. tostring(end_grav0))
-    end
-    if hl_eol0 ~= nil then
-      table.insert(parts, "hl_eol=" .. tostring(hl_eol0))
-    end
+---- Helpers ----
 
-    -- Finally, print the 0-based range {sr0,sc0}→{er0,ec0}:
-    table.insert(parts, string.format("range={%d,%d}→{%d,%d}", sr0, sc0, er0, ec0))
+function H.setup_autocommands()
+  local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
 
-    local detail_str = "[" .. table.concat(parts, ", ") .. "]"
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = augroup,
+    callback = function()
+      M.stop()
+    end,
+  })
 
-    print(string.format(" • extmark %d @ start=(row=%d, col=%d) (0-based) %s", id, sr0, sc0, detail_str))
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    pattern = "markdown",
+    callback = function(event)
+      local cfg = require("checkmate.config").options
+      if not (cfg and cfg.enabled) then
+        return
+      end
+
+      if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
+        require("checkmate.commands").setup(event.buf)
+        require("checkmate.api").setup_buffer(event.buf)
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    callback = function(event)
+      if event.match ~= "markdown" then
+        local bufs = M.get_active_buffer_map()
+
+        if bufs[event.buf] then
+          local buf = event.buf
+          require("checkmate.commands").dispose(buf)
+          require("checkmate.api").shutdown(buf)
+          M.unregister_buffer(buf)
+        end
+      end
+    end,
+  })
+end
+
+function H.setup_existing_markdown_buffers()
+  local config = require("checkmate.config")
+  local file_matcher = require("checkmate.file_matcher")
+
+  local buffers = vim.api.nvim_list_bufs()
+
+  for _, bufnr in ipairs(buffers) do
+    if
+      vim.api.nvim_buf_is_valid(bufnr)
+      and vim.api.nvim_buf_is_loaded(bufnr)
+      and vim.bo[bufnr].filetype == "markdown"
+      and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
+    then
+      require("checkmate.api").setup_buffer(bufnr)
+    end
   end
 end
 

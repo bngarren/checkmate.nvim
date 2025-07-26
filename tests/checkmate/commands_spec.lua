@@ -1,27 +1,30 @@
-local checkmate = require("checkmate")
-local h = require("tests.checkmate.helpers")
-
 describe("Commands", function()
+  local h, checkmate
   local bufnr, temp_file
+
   lazy_setup(function()
     stub(vim.api, "nvim_echo")
-
-    ---@diagnostic disable-next-line: missing-fields
-    checkmate.setup()
-    temp_file = h.create_temp_file()
-    bufnr = vim.api.nvim_create_buf(false, false)
-    vim.api.nvim_buf_set_name(bufnr, temp_file)
-    vim.api.nvim_win_set_buf(0, bufnr)
-    vim.cmd("edit!")
-    vim.bo[bufnr].filetype = "markdown"
-    vim.wait(20)
+    vim.wait(10)
   end)
 
   lazy_teardown(function()
-    checkmate.stop()
-    h.cleanup_buffer(bufnr, temp_file)
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
+  end)
+
+  before_each(function()
+    _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
+    ---@diagnostic disable-next-line: missing-fields
+    checkmate.setup()
+    bufnr, temp_file = h.setup_todo_file_buffer("")
+  end)
+
+  after_each(function()
+    checkmate.stop()
+    h.cleanup_buffer(bufnr, temp_file)
   end)
 
   it("toggle calls toggle()", function()

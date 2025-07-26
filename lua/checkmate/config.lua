@@ -53,14 +53,20 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---
 ---Keymappings (false to disable)
 ---
----Deprecation warning: TODO: The `checkmate.Action` string will be deprecated v0.10. Use the checkmate.KeymapConfig table instead.
----
 ---Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
 ---Note: mappings for metadata are set separately in the `metadata` table
----@field keys ( table<string, checkmate.Action|checkmate.KeymapConfig|false>| false )
+---@field keys ( table<string, checkmate.KeymapConfig|false>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
----@field todo_markers checkmate.TodoMarkers
+---@deprecated use todo_states
+---@field todo_markers? checkmate.TodoMarkers
+---
+---The states that a todo item may have
+---Default: "unchecked" and "checked"
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
+---
+---If you add additional states here, they may not work in other Markdown apps without special configuration.
+---@field todo_states table<string, checkmate.TodoStateDefinition>
 ---
 ---Default list item marker to be used when creating new Todo items
 ---@field default_list_marker "-" | "*" | "+"
@@ -72,26 +78,17 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---May need to tweak some colors to your liking
 ---@field style checkmate.StyleSettings?
 ---
---- Depth within a todo item's hierarchy from which actions (e.g. toggle) will act on the parent todo item
---- Examples:
---- 0 = toggle only triggered when cursor/selection includes same line as the todo item/marker
---- 1 = toggle triggered when cursor/selection includes any direct child of todo item
---- 2 = toggle triggered when cursor/selection includes any 2nd level children of todo item
----@field todo_action_depth integer
----
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
----Options for smart toggle behavior
----This allows an action on one todo item to recursively affect other todo items in the hierarchy in sensible manner
----The behavior is configurable with the following defaults:
---- - Toggling a todo item to checked will cause all direct children todos to become checked
---- - When all direct child todo items are checked, the parent todo will become checked
---- - Similarly, when a child todo is unchecked, it will ensure the parent todo also becomes unchecked if it was previously checked
---- - Unchecking a parent does not uncheck children by default. This can be changed.
+---Smart toggle provides intelligent parent-child todo state propagation
+---
+---When you change a todo's state, it can automatically update related todos based on their
+---hierarchical relationship. Only "checked" and "unchecked" states are propagated - custom
+---states remain unchanged but influence the propagation logic based on their type.
 ---@field smart_toggle checkmate.SmartToggleSettings
 ---
----Enable/disable the todo count indicator (shows number of sub-todo items completed)
+---Enable/disable the todo count indicator (shows number of child todo items incomplete vs complete)
 ---@field show_todo_count boolean
 ---
 ---Options for todo count indicator position
@@ -105,7 +102,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---Formatter function for displaying the todo count indicator
 ---@field todo_count_formatter fun(completed: integer, total: integer)?: string
 ---
----Whether to count sub-todo items recursively in the todo_count
+---Whether to count child todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
 ---
@@ -134,12 +131,6 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
----Actions that can be used for keymaps in the `keys` table of 'checkmate.Config'
----@deprecated TODO: remove v0.10
----@alias checkmate.Action "toggle" | "check" | "uncheck" | "create" | "remove_all_metadata" | "archive" | "select_metadata_value" | "jump_next_metadata" | "jump_previous_metadata"
-
------------------------------------------------------
-
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
@@ -157,8 +148,45 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -----------------------------------------------------
 
---- The text string used for todo markers is expected to be 1 character length.
+---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
+
+---@class checkmate.TodoStateDefinition
+---
+--- The text string used for a todo marker is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
+---@field marker string
+---
+--- Markdown checkbox representation (custom states only)
+--- For custom states, this determines how the todo state is written in Markdown syntax.
+--- Important:
+---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
+---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
+---   - Not guaranteed to work in other apps/plugins as custom `[.]`, `[/]`, etc. are not standard Github-flavored Markdown
+---   - This field is ignored for default `checked` and `unchecked` states as these are always represented per Github-flavored
+--- Markdown spec, e.g. `[ ]` and `[x]`
+---@field markdown string | string[]
+---
+--- Defines how a custom todo state relates to an intended task (custom states only)
+---
+--- The helps the custom state integrate with plugin behaviors like `smart toggle` and `todo count indicator`.
+---
+--- Options:
+--- - "incomplete" - active/ongoing task (like unchecked)
+--- - "complete"   - finished task (like checked)
+--- - "inactive"   - paused/deferred task (neither)
+---
+--- Defaults:
+---  - the "checked" state is always "complete" and the "unchecked" state is always "incomplete"
+---  - custom states without a defined `type` will default to "inactive"
+---@field type? checkmate.TodoStateType
+---
+--- The order in which this state is cycled (lower = first)
+---@field order? number
+
+-----------------------------------------------------
+
+--- DEPRECATED v0.10
+---@deprecated use `todo_states`
 ---@class checkmate.TodoMarkers
 ---
 ---Character used for unchecked items
@@ -182,32 +210,48 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---@class checkmate.SmartToggleSettings
 ---
 ---Whether to enable smart toggle behavior
+---
+---What is 'smart toggle'?
+--- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a sensible manner
+--- - In this mode, changing the state of a todo maybe also affect nearby todos
 ---Default: true
 ---@field enabled boolean?
 ---
+---Whether to use smart toggle behavior with `cycle` commands/API
+---
+---If enabled, this may inadvertently toggle nearby todos as you cycle through, depending on `smart_toggle` rules.
+---If you would like to cascade/propagate when setting a custom state, use the `toggle(target_state)` api.
+---
+---Default: false (cycling through states won't trigger propagation)
+---@field include_cycle boolean?
+---
 ---How checking a parent affects its children
 ---  - "all_children": Check all descendants, including nested
----  - "direct_children": Only check direct children (default)
+---  - "direct_children": Only check immediate unchecked children (default)
 ---  - "none": Don't propagate down
 ---@field check_down "all_children"|"direct_children"|"none"?
 ---
 ---How unchecking a parent affects its children
 ---  - "all_children": Uncheck all descendants, including nested
----  - "direct_children": Only uncheck direct children
+---  - "direct_children": Only uncheck immediate checked children
 ---  - "none": Don't propagate down (default)
 ---@field uncheck_down "all_children"|"direct_children"|"none"?
 ---
 ---When a parent should become checked
 ---i.e, how a checked child affects its parent
----  - "all_children": When ALL descendants are checked, including nested
----  - "direct_children": When all direct children are checked (default)
+---
+---Note: Custom states with "complete" type count as done, "incomplete" as not done,
+---and "inactive" states are ignored (as if they don't exist for completion purposes).
+---
+---  - "all_children": When ALL descendants are complete or inactive, including nested
+---  - "direct_children": When all immediate children are complete/inactive (default)
 ---  - "none": Never auto-check parents
 ---@field check_up "all_children"|"direct_children"|"none"?
 ---
 ---When a parent should become unchecked
 ---i.e, how a unchecked child affects its parent
----  - "all_children": When ANY descendant is unchecked
----  - "direct_children": When any direct child is unchecked (default)
+---  - "all_children": When ANY descendant is incomplete
+---  - "direct_children": When any immediate child is incomplete (default)
 ---  - "none": Never auto-uncheck parents
 ---@field uncheck_up "all_children"|"direct_children"|"none"?
 
@@ -215,32 +259,19 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 --- Style
 
----@deprecated TODO: remove v0.10 - use checkmate.HighlightGroup instead
----
----@alias checkmate.StyleKey
----| "list_marker_unordered"
----| "list_marker_ordered"
----| "unchecked_marker"
----| "unchecked_main_content"
----| "unchecked_additional_content"
----| "checked_marker"
----| "checked_main_content"
----| "checked_additional_content"
----| "todo_count_indicator"
-
 ---@alias checkmate.HighlightGroup
 ---| "CheckmateListMarkerUnordered" -- unordered list markers (-,+,*)
 ---| "CheckmateListMarkerOrdered" -- ordered (numerical) list markers (1.,2.)
 ---| "CheckmateUncheckedMarker" -- unchecked markers (□)
----| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st line)
----| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (below 1st line)
+---| "CheckmateUncheckedMainContent" -- main content of unchecked todo items (typically 1st paragraph)
+---| "CheckmateUncheckedAdditionalContent" -- additional content of unchecked todo items (subsequent paragraphs or list items)
 ---| "CheckmateCheckedMarker" -- checked markers (✔)
----| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st line)
----| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (below 1st line)
+---| "CheckmateCheckedMainContent" -- main content of checked todo items (typically 1st paragraph)
+---| "CheckmateCheckedAdditionalContent" -- additional content of checked todo items (subsequent paragraphs or list items)
 ---| "CheckmateTodoCountIndicator" -- the todo count indicator (e.g. x/x)
 
 ---Customize the style of markers and content
----@alias checkmate.StyleSettings table<checkmate.StyleKey|checkmate.HighlightGroup, vim.api.keyset.highlight>
+---@alias checkmate.StyleSettings table<checkmate.HighlightGroup, vim.api.keyset.highlight>
 
 -----------------------------------------------------
 
@@ -258,9 +289,7 @@ M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 ---also be used and have the same styling/functionality
 ---@field aliases? string[]
 ---
----@alias checkmate.StyleFn
----| fun(value?: string):vim.api.keyset.highlight -- Legacy (to be removed in future release)
----| fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
+---@alias checkmate.StyleFn fun(context?: checkmate.MetadataContext):vim.api.keyset.highlight
 ---
 ---Highlight settings table, or a function that returns highlight settings (being passed metadata context)
 ---@field style? vim.api.keyset.highlight|checkmate.StyleFn
@@ -392,6 +421,16 @@ local defaults = {
       desc = "Set todo item as unchecked (not done)",
       modes = { "n", "v" },
     },
+    ["<leader>T="] = {
+      rhs = "<cmd>Checkmate cycle_next<CR>",
+      desc = "Cycle todo item(s) to the next state",
+      modes = { "n", "v" },
+    },
+    ["<leader>T-"] = {
+      rhs = "<cmd>Checkmate cycle_previous<CR>",
+      desc = "Cycle todo item(s) to the previous state",
+      modes = { "n", "v" },
+    },
     ["<leader>Tn"] = {
       rhs = "<cmd>Checkmate create<CR>",
       desc = "Create todo item",
@@ -424,15 +463,24 @@ local defaults = {
     },
   },
   default_list_marker = "-",
-  todo_markers = {
-    unchecked = "□",
-    checked = "✔",
+  todo_states = {
+    -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
+    ---@diagnostic disable-next-line: missing-fields
+    unchecked = {
+      marker = "□",
+      order = 1,
+    },
+    ---@diagnostic disable-next-line: missing-fields
+    checked = {
+      marker = "✔",
+      order = 2,
+    },
   },
   style = {}, -- override defaults
-  todo_action_depth = 1, --  Depth within a todo item's hierachy from which actions (e.g. toggle) will act on the parent todo item
-  enter_insert_after_new = true, -- Should enter INSERT mode after :CheckmateCreate (new todo)
+  enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
   smart_toggle = {
     enabled = true,
+    include_cycle = false,
     check_down = "direct_children",
     uncheck_down = "none",
     check_up = "direct_children",
@@ -510,7 +558,6 @@ local defaults = {
 
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
-  active_buffers = {}, -- Track which buffers have checkmate active
 }
 
 -- The active configuration
@@ -628,10 +675,8 @@ function M.validate_options(opts)
           if rt ~= "string" and rt ~= "function" then
             return false, ("keys.%s: rhs must be a string or function"):format(lhs)
           end
-        elseif mt == "string" then
-        -- legacy action-name
         else
-          return false, ("keys.%s: must be false, string, or table"):format(lhs)
+          return false, ("keys.%s: must be false, or a table"):format(lhs)
         end
       end
     end
@@ -645,8 +690,9 @@ function M.validate_options(opts)
   end
 
   -- Validate todo_markers
+  ---@deprecated v0.10
   if opts.todo_markers ~= nil then
-    local ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
+    ok, err = validate_type(opts.todo_markers, "table", "todo_markers", true)
     if not ok then
       return false, err
     end
@@ -661,6 +707,9 @@ function M.validate_options(opts)
       if not ok then
         return false, err
       end
+      if #v[1] == 0 then
+        return false, string.format("%s cannot be an empty string", v[3])
+      end
     end
 
     -- Ensure the todo_markers are only 1 character length
@@ -674,9 +723,104 @@ function M.validate_options(opts)
     end ]]
   end
 
+  -- Validate todo_states
+  if opts.todo_states ~= nil then
+    ok, err = validate_type(opts.todo_states, "table", "todo_states", true)
+    if not ok then
+      return false, err
+    end
+
+    local seen_markers = {}
+    local seen_markdown = {}
+
+    for state_name, state_def in pairs(opts.todo_states) do
+      if type(state_def) ~= "table" then
+        return false, "todo_states." .. state_name .. " must be a table"
+      end
+
+      local marker = state_def.marker
+      local markdown = state_def.markdown
+
+      -- since markdown isn't set by the user for the default "unchecked" and "checked" states, we
+      -- set them here so we can still validate against them, i.e. look for duplicates
+      if state_name == "unchecked" then
+        markdown = markdown or " "
+      elseif state_name == "checked" then
+        markdown = markdown or { "x", "X" }
+      end
+
+      -- marker cannot be nil
+      ok, err = validate_type(marker, "string", "todo_states." .. state_name .. ".marker", false)
+      if not ok then
+        return false, err
+      end
+      -- marker cannot be empty string
+      if #marker == 0 then
+        return false, string.format("`%s` cannot be an empty string", "todo_states." .. state_name .. "." .. "marker")
+      end
+
+      -- markdown required for custom states
+      if state_name ~= "checked" and state_name ~= "unchecked" and markdown == nil then
+        return false, "todo_states." .. state_name .. ".markdown is required for custom states"
+      end
+
+      if markdown ~= nil then
+        if type(markdown) ~= "string" and type(markdown) ~= "table" then
+          return false, "todo_states." .. state_name .. ".markdown must be a string or table"
+        end
+
+        markdown = type(markdown) == "string" and { markdown } or markdown
+        ---@cast markdown string[]
+
+        for i, o in ipairs(markdown) do
+          if type(o) ~= "string" then
+            return false, "todo_states." .. state_name .. ".markdown[" .. i .. "] must be a string"
+          end
+        end
+      end
+
+      if state_def.order ~= nil then
+        ok, err = validate_type(state_def.order, "number", "todo_states." .. state_name .. ".order", true)
+        if not ok then
+          return false, err
+        end
+      end
+
+      -- check for duplicate markers
+      if seen_markers[marker] ~= nil then
+        return false,
+          string.format(
+            "todo_states '%s' and '%s' cannot have the same marker: %s",
+            state_name,
+            seen_markers[marker],
+            marker
+          )
+      else
+        seen_markers[marker] = state_name
+      end
+
+      -- check for duplicate markdown strings
+      if markdown then
+        for _, md in ipairs(markdown) do
+          if seen_markdown[md] ~= nil then
+            return false,
+              string.format(
+                "todo_states '%s' and '%s' cannot have the same markdown representation: [%s]",
+                state_name,
+                seen_markdown[md],
+                md
+              )
+          else
+            seen_markdown[md] = state_name
+          end
+        end
+      end
+    end
+  end
+
   -- Validate default_list_marker
   if opts.default_list_marker ~= nil then
-    local ok, err = validate_type(opts.default_list_marker, "string", "default_list_marker", true)
+    ok, err = validate_type(opts.default_list_marker, "string", "default_list_marker", true)
     if not ok then
       return false, err
     end
@@ -688,7 +832,7 @@ function M.validate_options(opts)
   end
 
   if opts.ui ~= nil then
-    local ok, err = validate_type(opts.ui, "table", "ui", true)
+    ok, err = validate_type(opts.ui, "table", "ui", true)
     if not ok then
       return false, err
     end
@@ -708,7 +852,7 @@ function M.validate_options(opts)
 
   -- Validate todo_count_position
   if opts.todo_count_position ~= nil then
-    local ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
+    ok, err = validate_type(opts.todo_count_position, "string", "todo_count_position", true)
     if not ok then
       return false, err
     end
@@ -721,7 +865,7 @@ function M.validate_options(opts)
 
   -- Validate todo_count_formatter
   if opts.todo_count_formatter ~= nil then
-    local ok, err = validate_type(opts.todo_count_formatter, "function", "todo_count_formatter", true)
+    ok, err = validate_type(opts.todo_count_formatter, "function", "todo_count_formatter", true)
     if not ok then
       return false, err
     end
@@ -734,40 +878,7 @@ function M.validate_options(opts)
       return false, err
     end
 
-    -- TODO: remove legacy with v0.10
-    local valid_style_keys = {
-      -- Legacy style keys
-      "list_marker_unordered",
-      "list_marker_ordered",
-      "unchecked_marker",
-      "unchecked_main_content",
-      "unchecked_additional_content",
-      "checked_marker",
-      "checked_main_content",
-      "checked_additional_content",
-      "todo_count_indicator",
-      -- Highlight group names
-      "CheckmateListMarkerUnordered",
-      "CheckmateListMarkerOrdered",
-      "CheckmateUncheckedMarker",
-      "CheckmateUncheckedMainContent",
-      "CheckmateUncheckedAdditionalContent",
-      "CheckmateCheckedMarker",
-      "CheckmateCheckedMainContent",
-      "CheckmateCheckedAdditionalContent",
-      "CheckmateTodoCountIndicator",
-    }
-
-    local valid_keys_set = {}
-    for _, key in ipairs(valid_style_keys) do
-      valid_keys_set[key] = true
-    end
-
     for field, value in pairs(opts.style) do
-      if not valid_keys_set[field] then
-        return false, string.format("style.%s is not a recognized style key or highlight group", field)
-      end
-
       ok, err = validate_type(value, "table", "style." .. field, false)
       if not ok then
         return false, err
@@ -775,21 +886,9 @@ function M.validate_options(opts)
     end
   end
 
-  -- Validate todo_action_depth
-  if opts.todo_action_depth ~= nil then
-    local ok, err = validate_type(opts.todo_action_depth, "number", "todo_action_depth", true)
-    if not ok then
-      return false, err
-    end
-
-    if math.floor(opts.todo_action_depth) ~= opts.todo_action_depth or opts.todo_action_depth < 0 then
-      return false, "todo_action_depth must be a non-negative integer"
-    end
-  end
-
   -- Validate smart_toggle
   if opts.smart_toggle ~= nil then
-    local ok, err = validate_type(opts.smart_toggle, "table", "smart_toggle", true)
+    ok, err = validate_type(opts.smart_toggle, "table", "smart_toggle", true)
     if not ok then
       return false, err
     end
@@ -831,7 +930,7 @@ function M.validate_options(opts)
 
   -- Validate archive
   if opts.archive ~= nil then
-    local ok, err = validate_type(opts.archive, "table", "archive", true)
+    ok, err = validate_type(opts.archive, "table", "archive", true)
     if not ok then
       return false, err
     end
@@ -867,7 +966,7 @@ function M.validate_options(opts)
 
   -- Validate linter
   if opts.linter ~= nil then
-    local ok, err = validate_type(opts.linter, "table", "linter", true)
+    ok, err = validate_type(opts.linter, "table", "linter", true)
     if not ok then
       return false, err
     end
@@ -895,7 +994,7 @@ function M.validate_options(opts)
     end
 
     for meta_name, meta_props in pairs(opts.metadata) do
-      local ok, err = validate_type(meta_props, "table", "metadata." .. meta_name, true)
+      ok, err = validate_type(meta_props, "table", "metadata." .. meta_name, true)
       if not ok then
         return false, err
       end
@@ -982,18 +1081,71 @@ function M.validate_options(opts)
   return true
 end
 
---- TODO: legacy, remove in next release v0.10
-M.style_key_to_highlight_group = {
-  list_marker_unordered = "CheckmateListMarkerUnordered",
-  list_marker_ordered = "CheckmateListMarkerOrdered",
-  unchecked_marker = "CheckmateUncheckedMarker",
-  unchecked_main_content = "CheckmateUncheckedMainContent",
-  unchecked_additional_content = "CheckmateUncheckedAdditionalContent",
-  checked_marker = "CheckmateCheckedMarker",
-  checked_main_content = "CheckmateCheckedMainContent",
-  checked_additional_content = "CheckmateCheckedAdditionalContent",
-  todo_count_indicator = "CheckmateTodoCountIndicator",
-}
+--- Returns list of deprecation warnings
+function M.get_deprecations(user_opts)
+  if type(user_opts) ~= "table" then
+    return {}
+  end
+
+  local res = {}
+
+  local function add(msg)
+    table.insert(res, msg)
+  end
+
+  ---@deprecated v0.10
+  if user_opts.todo_markers then
+    add("`config.todo_markers` is deprecated. Use `todo_states` instead.")
+  end
+
+  ---removed in v0.10
+  ---@diagnostic disable-next-line: undefined-field
+  if user_opts.todo_action_depth then
+    add(
+      "`config.todo_action_depth` has been removed (v0.10). Note, todos can now be interacted from any depth in their hierarchy"
+    )
+  end
+  return res
+end
+
+---Handles merging of deprecated config opts into current config to maintain backwards compatibility
+---@param current_opts checkmate.Config
+---@param user_opts? checkmate.Config
+local function merge_deprecated_opts(current_opts, user_opts)
+  -----------------------
+  --- todo_markers
+  ---@deprecated v0.10
+
+  user_opts = user_opts or {}
+
+  -- if the user set todo_markers but did not explicitly override todo_states,
+  -- build a new todo_states table from their markers, preserving the default order.
+  if user_opts.todo_markers and not user_opts.todo_states then
+    local default_states = require("checkmate.config").get_defaults().todo_states
+    current_opts.todo_states = {
+      ---@diagnostic disable-next-line: missing-fields
+      unchecked = {
+        marker = user_opts.todo_markers.unchecked,
+        order = default_states.unchecked.order,
+      },
+      ---@diagnostic disable-next-line: missing-fields
+      checked = {
+        marker = user_opts.todo_markers.checked,
+        order = default_states.checked.order,
+      },
+    }
+  elseif user_opts.todo_markers and user_opts.todo_states then
+    -- vim.notify("Checkmate: `todo_markers` ignored because `todo_states` is set", vim.log.levels.WARN)
+  end
+
+  ---@diagnostic disable-next-line: deprecated
+  current_opts.todo_markers = {
+    unchecked = current_opts.todo_states.unchecked.marker,
+    checked = current_opts.todo_states.checked.marker,
+  }
+
+  -----------------------
+end
 
 --- Setup function
 ---@param opts? checkmate.Config
@@ -1025,21 +1177,14 @@ function M.setup(opts)
       end
     end
 
-    -- normalize style settings: convert legacy keys to highlight group names
-    if config.style then
-      local normalized_style = {}
+    merge_deprecated_opts(config, opts)
 
-      for key, settings in pairs(config.style) do
-        local highlight_group = M.style_key_to_highlight_group[key]
-        if highlight_group then
-          normalized_style[highlight_group] = settings
-        else
-          normalized_style[key] = settings
-        end
-      end
-
-      config.style = normalized_style
-    end
+    -- ensure that checked and unchecked todo states always have GFM representation
+    -- ensure that type is never altered
+    config.todo_states.checked.markdown = { "x", "X" }
+    config.todo_states.checked.type = "complete"
+    config.todo_states.unchecked.markdown = " "
+    config.todo_states.unchecked.type = "incomplete"
 
     -- save user style for colorscheme updates
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}
@@ -1064,6 +1209,11 @@ end
 
 function M.get_defaults()
   return vim.deepcopy(defaults)
+end
+
+function M.get_todo_state_type(state_name)
+  local state_def = M.options.todo_states[state_name]
+  return state_def and state_def.type or "inactive"
 end
 
 return M

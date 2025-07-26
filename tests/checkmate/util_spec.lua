@@ -1,6 +1,28 @@
 describe("Util", function()
   local util = require("checkmate.util")
 
+  describe("string operations", function()
+    it("should convert snake case to camel case", function()
+      assert.equal("HelloWorld", util.snake_to_camel("hello_world"))
+      assert.equal("ThisIsATest", util.snake_to_camel("this_is_a_test"))
+      assert.equal("ABC", util.snake_to_camel("a_b_c"))
+      assert.equal("SnakeCASEInput", util.snake_to_camel("snake_CASE_input"))
+
+      -- preserves existing capitalization
+      assert.equal("AlreadyCamel", util.snake_to_camel("alreadyCamel"))
+      assert.equal("MixedUPAndDown", util.snake_to_camel("mixed_UP_and_down"))
+
+      -- numbers pass through
+      assert.equal("User123Name", util.snake_to_camel("user_123_name"))
+      assert.equal("GetHttp2Response", util.snake_to_camel("get_http2_response"))
+
+      -- edge‐cases
+      assert.equal("", util.snake_to_camel(""))
+      assert.equal("PrivateVariable", util.snake_to_camel("_private_variable"))
+      assert.equal("Trailing_", util.snake_to_camel("trailing_"))
+    end)
+  end)
+
   describe("util conversion functions", function()
     it("should correctly convert between byte and character positions for ASCII", function()
       local line = "- [ ] Simple task"

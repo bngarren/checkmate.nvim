@@ -1,9 +1,13 @@
 #!/usr/bin/env -S nvim -l
 
 -- This file is for manual interactive testing
--- Headless test suite used busted and uses busted.lua and minimal_init.lua
+-- Headless test suite uses busted.lua and minimal_init.lua
 --
--- To create a custom config, edit the environments.lua and then pass it as arg or TEST_ENV
+-- Custom configs for an interactive test are defined in `fixtures/environments/` (not tracked)
+-- A environment exposes:
+-- - `specs` - LazySpec
+-- - `checkmate` - checkmate config
+-- - `config` - a function to run additional config after plugins are loaded
 
 -- disable built-ins that might interfere
 for _, m in ipairs({
@@ -26,14 +30,28 @@ load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/ma
 dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/options.lua"))
 dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/keymaps.lua"))
 
-package.path = package.path .. ";" .. vim.fn.getcwd() .. "/tests/?.lua"
+package.path = package.path .. ";" .. vim.fn.getcwd() .. "/tests/fixtures/?/init.lua"
+-- add base config to the path so we can reuse
+package.path = package.path .. ";" .. vim.fs.normalize("~/.config/nvim/lua/?/init.lua")
+package.path = package.path .. ";" .. vim.fs.normalize("~/.config/nvim/lua/?.lua")
 local environments = require("environments")
-local env = environments.get(env_name)
+local env = environments[env_name]
 
 -- base specs for all environments
 local spec = {
-  { dir = vim.uv.cwd(), opts = env.checkmate, ft = "markdown" },
+  { dir = vim.uv.cwd(), opts = env.checkmate or {}, ft = "markdown" },
+  {
+    "mason-org/mason.nvim",
+    opts = {},
+  },
+  -- Menu
+  { "nvzone/volt", lazy = true },
+  { "nvzone/menu", lazy = true },
 }
+
+-- Include nvim-dap and related tooling
+local debug_spec = require("bngarren.plugins.debug")
+vim.list_extend(spec, { debug_spec })
 
 -- environment-specific specs
 vim.list_extend(spec, env.spec or {})
@@ -42,12 +60,16 @@ require("lazy.minit").repro({
   spec = spec,
 })
 
-if env.config then
+if env.config and type(env.config) == "function" then
   vim.schedule(function()
     env.config()
   end)
 end
 
-vim.cmd("edit tests/test.todo.md")
+if env_name == "demo" then
+  vim.cmd("edit tests/fixtures/demo.todo.md")
+else
+  vim.cmd("edit tests/fixtures/test.todo.md")
+end
 vim.notify("Loaded environment: " .. env_name, vim.log.levels.INFO)
-vim.notify("data: " .. vim.fn.stdpath("data"))
+-- vim.notify("data: " .. vim.fn.stdpath("data"))

@@ -1,5 +1,4 @@
-local h = require("tests.checkmate.helpers")
-local checkmate = require("checkmate")
+local h, checkmate
 
 describe("Picker", function()
   lazy_setup(function()
@@ -14,8 +13,12 @@ describe("Picker", function()
 
   before_each(function()
     _G.reset_state()
-    h.ensure_normal_mode()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
     checkmate.setup()
+
+    h.ensure_normal_mode()
   end)
 
   after_each(function()

@@ -1,9 +1,14 @@
 describe("Highlights", function()
-  local h = require("tests.checkmate.helpers")
-  local checkmate = require("checkmate")
+  ---@module "tests.checkmate.helpers"
+  local h
+  ---@module "checkmate"
+  local checkmate
 
   before_each(function()
     _G.reset_state()
+
+    checkmate = require("checkmate")
+    h = require("tests.checkmate.helpers")
 
     checkmate.setup()
   end)
@@ -16,8 +21,8 @@ describe("Highlights", function()
     it("should correctly highlight the todo LIST marker", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -26,7 +31,7 @@ describe("Highlights", function()
     - ]] .. checked .. [[ Todo B.1.1 
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -62,7 +67,7 @@ describe("Highlights", function()
     it("should correctly highlight within-todo list markers", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -71,7 +76,7 @@ describe("Highlights", function()
   1. Ordered
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -129,8 +134,8 @@ describe("Highlights", function()
     it("should correctly highlight the todo marker", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
 - ]] .. unchecked .. [[ Todo A 
@@ -139,7 +144,7 @@ describe("Highlights", function()
     - ]] .. checked .. [[ Todo B.1.1 
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
 
@@ -200,27 +205,27 @@ describe("Highlights", function()
     it("should correctly highlight main and additional content", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       local content = [[
-- ]] .. unchecked .. [[ Todo A main content
-  Additional content line 1
-  Additional content line 2
-- ]] .. checked .. [[ Todo B main content
-  - Regular list item
+- [ ] Todo A first line
+  This is still part of the main content (same paragraph)
+  And so is this line
+  
+  This is additional content (new paragraph after blank line)
+- [x] Todo B main content that wraps
+  to multiple lines within the same paragraph
+  - Regular nested list item (additional content)
   More additional content
 ]]
 
-      local bufnr = h.create_test_buffer(content)
-
+      local bufnr, file_path = h.setup_test_buffer(content)
       vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
-
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
-
       local extmarks = h.get_extmarks(bufnr, config.ns)
 
-      -- MAIN CONTENT (first line of each todo)
+      -- MAIN CONTENT
       local got_main = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
@@ -233,24 +238,45 @@ describe("Highlights", function()
         end
       end
 
-      -- Main content should start after "- □ " (or "- ✔ ")
+      -- Todo A: 3 lines of main content (all part of first inline)
+      -- Todo B: 2 lines of main content
       local expected_main = {
+        -- Todo A - line 1
         {
           hl_group = "CheckmateUncheckedMainContent",
           start = { row = 0, col = 2 + #unchecked + 1 },
-          ["end"] = { row = 0, col = #("- " .. unchecked .. " Todo A main content") },
+          ["end"] = { row = 0, col = #("- " .. unchecked .. " Todo A first line") },
         },
+        -- Todo A - line 2 (continuation)
+        {
+          hl_group = "CheckmateUncheckedMainContent",
+          start = { row = 1, col = 2 },
+          ["end"] = { row = 1, col = #"  This is still part of the main content (same paragraph)" },
+        },
+        -- Todo A - line 3 (continuation)
+        {
+          hl_group = "CheckmateUncheckedMainContent",
+          start = { row = 2, col = 2 },
+          ["end"] = { row = 2, col = #"  And so is this line" },
+        },
+        -- Todo B - line 1
         {
           hl_group = "CheckmateCheckedMainContent",
-          start = { row = 3, col = 2 + #checked + 1 },
-          ["end"] = { row = 3, col = #("- " .. checked .. " Todo B main content") },
+          start = { row = 5, col = 2 + #checked + 1 },
+          ["end"] = { row = 5, col = #("- " .. checked .. " Todo B main content that wraps") },
+        },
+        -- Todo B - line 2 (continuation)
+        {
+          hl_group = "CheckmateCheckedMainContent",
+          start = { row = 6, col = 2 },
+          ["end"] = { row = 6, col = #"  to multiple lines within the same paragraph" },
         },
       }
 
-      assert.equal(#expected_main, #got_main)
+      assert.equal(#expected_main, #got_main, "Should have correct number of main content highlights")
       assert.same(expected_main, got_main)
 
-      -- ADDITIONAL CONTENT (subsequent lines)
+      -- ADDITIONAL CONTENT (content after first inline/paragraph)
       local got_additional = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
@@ -266,35 +292,32 @@ describe("Highlights", function()
         end
       end
 
-      -- additional content should start at first non-whitespace (skipping list markers)
       local expected_additional = {
+        -- Todo A's additional content
         {
           hl_group = "CheckmateUncheckedAdditionalContent",
-          start = { row = 1, col = 2 },
-          ["end"] = { row = 1, col = #"  Additional content line 1" },
+          start = { row = 4, col = 2 },
+          ["end"] = { row = 4, col = #"  This is additional content (new paragraph after blank line)" },
         },
-        {
-          hl_group = "CheckmateUncheckedAdditionalContent",
-          start = { row = 2, col = 2 },
-          ["end"] = { row = 2, col = #"  Additional content line 2" },
-        },
+        -- Todo B's nested list item
         {
           hl_group = "CheckmateCheckedAdditionalContent",
-          start = { row = 4, col = 4 },
-          ["end"] = { row = 4, col = #"  - Regular list item" },
+          start = { row = 7, col = 4 },
+          ["end"] = { row = 7, col = #"  - Regular nested list item (additional content)" },
         },
+        -- Todo B's last line
         {
           hl_group = "CheckmateCheckedAdditionalContent",
-          start = { row = 5, col = 2 },
-          ["end"] = { row = 5, col = #"  More additional content" },
+          start = { row = 8, col = 2 },
+          ["end"] = { row = 8, col = #"  More additional content" },
         },
       }
 
-      assert.equal(#expected_additional, #got_additional)
+      assert.equal(#expected_additional, #got_additional, "Should have correct number of additional content highlights")
       assert.same(expected_additional, got_additional)
 
       finally(function()
-        h.cleanup_buffer(bufnr)
+        h.cleanup_buffer(bufnr, file_path)
       end)
     end)
   end)
@@ -303,7 +326,7 @@ describe("Highlights", function()
     it("should apply metadata tag highlights", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
+      local unchecked = h.get_checked_marker()
 
       local content = [[
 # Test Todo List
@@ -311,7 +334,7 @@ describe("Highlights", function()
 - ]] .. unchecked .. [[ Todo with @priority(high) metadata
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
@@ -338,8 +361,8 @@ describe("Highlights", function()
     it("should display todo count when configured", function()
       local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
-      local unchecked = config.get_defaults().todo_markers.unchecked
-      local checked = config.get_defaults().todo_markers.checked
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
 
       config.options.show_todo_count = true
 
@@ -352,7 +375,7 @@ describe("Highlights", function()
   - ]] .. unchecked .. [[ Child 3
 ]]
 
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 

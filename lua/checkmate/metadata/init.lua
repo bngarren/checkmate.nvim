@@ -20,45 +20,40 @@ function M.create_context(todo_item, meta_name, value, bufnr)
 end
 
 ---Evaluates a `metadata.style` (table or getter function) to return a highlight tbl
----Handles both legacy and new function signatures
---- TODO: remove legacy in v0.10+
 ---
 ---@param meta_props checkmate.MetadataProps Metadata properties, from the configuration
 ---@param context checkmate.MetadataContext
 ---@return vim.api.keyset.highlight hl The highlight table
 function M.evaluate_style(meta_props, context)
   local style = meta_props.style
-  if type(style) ~= "function" then
+
+  if type(style) == "table" then
     ---@cast style vim.api.keyset.highlight
     -- return static style as-is
     return style
-  end
-  ---@cast style checkmate.StyleFn
+  elseif type(style) == "function" then
+    ---@cast style checkmate.StyleFn
 
-  --we determine new vs. legacy by just trying it and seeing if new fails
-  local success, result = pcall(style, context)
+    local success, result = pcall(style, context)
 
-  if success then
-    return result
-  else
-    -- failed, try legacy signature
-    M.show_deprecation_msg()
-    success, result = pcall(style, context.value)
     if success then
       return result
     else
+      vim.notify(
+        string.format("Checkmate: error in `style` function for metadata '%s'", context.name),
+        vim.log.levels.ERROR
+      )
       return {}
     end
+  else
+    return {}
   end
 end
 
 ---Evaluates a metadata value getter function
----Handles both legacy and new signatures
----
---- TODO: remove legacy in v0.10+
 ---
 ---@param meta_props checkmate.MetadataProps Metadata properties, from the configuration
----@param context checkmate.MetadataContext?
+---@param context checkmate.MetadataContext
 ---@return string value value
 function M.evaluate_value(meta_props, context)
   local get_value = meta_props.get_value
@@ -67,20 +62,17 @@ function M.evaluate_value(meta_props, context)
   end
 
   local success, result = pcall(function()
-    local info = debug.getinfo(get_value, "u")
-
-    -- if no params, this is legacy
-    if info.nparams == 0 or not context then
-      return tostring(get_value() or "")
-    end
-
     return tostring(get_value(context) or "")
   end)
 
   if success then
     return result
   else
-    vim.notify("Checkmate: error calling get_value: " .. result, vim.log.levels.ERROR)
+    vim.notify(
+      string.format("Checkmate: error in get_value function for metadata '%s'.\n%s", context.name, tostring(result))
+        .. result,
+      vim.log.levels.ERROR
+    )
     return ""
   end
 end
@@ -335,17 +327,17 @@ end
 
 --- Find metadata entry at col position on todo line
 ---@param todo_item checkmate.TodoItem
+---@param row integer 0-based row position
 ---@param col integer 0-based column position
 ---@return checkmate.MetadataEntry?
-function M.find_metadata_at_col(todo_item, col)
+function M.find_metadata_at_pos(todo_item, row, col)
   local metadata = todo_item.metadata.entries
   if not metadata or #metadata == 0 then
     return nil
   end
 
   for _, entry in ipairs(metadata) do
-    -- range is end-exclusive so we check col < end_col
-    if col >= entry.range.start.col and col < entry.range["end"].col then
+    if entry.range:contains(row, col) then
       return entry
     end
   end
@@ -353,21 +345,28 @@ function M.find_metadata_at_col(todo_item, col)
   return nil
 end
 
-function M.show_deprecation_msg()
-  if not M._deprecation_msg_shown then
-    vim.schedule(function()
-      vim.notify(
-        "Checkmate: One or more metadata are using the deprecated `style` function. Please update to accept a `MetadataContext` object.",
-        vim.log.levels.WARN
-      )
-      M._deprecation_msg_shown = true
-    end)
-  end
+---Sorts array of metadata entries and returns a copy
+---Default behavior is to sort by increasing `sort_order`
+---@param entries checkmate.MetadataEntry[]
+---@param reverse? boolean If true (default false), will sort in descending order
+function M.sort(entries, reverse)
+  reverse = not not reverse
+
+  local sorted_entries = vim.deepcopy(entries)
+  table.sort(sorted_entries, function(a, b)
+    local arow, brow = a.range.start.row, b.range.start.row
+    if arow ~= brow then
+      -- XOR
+      return (arow < brow) ~= reverse
+    end
+    -- rows equal, compare cols
+    local acol, bcol = a.range.start.col, b.range.start.col
+    return (acol < bcol) ~= reverse
+  end)
+  return sorted_entries
 end
 
 ---Reset internal state
-function M.reset()
-  M._deprecation_msg_shown = false
-end
+function M.reset() end
 
 return M

@@ -1,13 +1,15 @@
 describe("Transaction", function()
-  local h = require("tests.checkmate.helpers")
-
-  local checkmate = require("checkmate")
-  local transaction = require("checkmate.transaction")
-  local parser = require("checkmate.parser")
-  local api = require("checkmate.api")
+  local h, checkmate, transaction, parser, api, util
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
+    transaction = require("checkmate.transaction")
+    parser = require("checkmate.parser")
+    api = require("checkmate.api")
+    util = require("checkmate.util")
 
     checkmate.setup()
     vim.wait(20)
@@ -20,7 +22,7 @@ describe("Transaction", function()
   end)
 
   it("should reject nested transactions in same buffer", function()
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
 
     assert.has_error(function()
       transaction.run(bufnr, function()
@@ -39,7 +41,7 @@ describe("Transaction", function()
 
     -- Create temp buf with one unchecked todo
     local content = "- " .. unchecked .. " TaskX"
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
 
     assert.is_false(transaction.is_active())
 
@@ -65,7 +67,7 @@ describe("Transaction", function()
 
   it("should execute queued callbacks within a transaction", function()
     -- empty buffer (no todo items needed for callback test)
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
 
     local called = false
     local received = nil
@@ -93,11 +95,11 @@ describe("Transaction", function()
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
 - ]] .. unchecked .. [[ Task 3 ]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
 
     local apply_diff_called = 0
-    local original_apply_diff = api.apply_diff
-    api.apply_diff = function(...)
+    local original_apply_diff = util.apply_diff
+    util.apply_diff = function(...)
       apply_diff_called = apply_diff_called + 1
       return original_apply_diff(...)
     end
@@ -114,10 +116,10 @@ describe("Transaction", function()
 
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     for _, line in ipairs(lines) do
-      assert.matches(config.options.todo_markers.checked, line)
+      assert.matches(config.options.todo_states.checked.marker, line)
     end
 
-    api.apply_diff = original_apply_diff
+    util.apply_diff = original_apply_diff
 
     finally(function()
       h.cleanup_buffer(bufnr)
@@ -127,7 +129,7 @@ describe("Transaction", function()
   it("should update todo map after operations for subsequent callbacks", function()
     local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
 
     local states_in_callback = {}
 
@@ -163,7 +165,7 @@ describe("Transaction", function()
 - ]] .. unchecked .. [[ Task 1
 - ]] .. unchecked .. [[ Task 2
 ]]
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
 
     local execution_order = {}
 
@@ -199,7 +201,7 @@ describe("Transaction", function()
   end)
 
   it("should provide current_context when transaction is active", function()
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
     local context_inside = nil
     local context_outside = transaction.current_context(bufnr)
 
@@ -220,7 +222,7 @@ describe("Transaction", function()
   end)
 
   it("should deduplicate repeated operations", function()
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
     local op_called = 0
 
     local function dummy_op()
@@ -242,7 +244,7 @@ describe("Transaction", function()
   end)
 
   it("should execute post function after transaction completes", function()
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
     local post_called = false
 
     transaction.run(bufnr, function()
@@ -259,7 +261,7 @@ describe("Transaction", function()
   end)
 
   it("should not crash transaction when callback throws error", function()
-    local bufnr = h.create_test_buffer("")
+    local bufnr = h.setup_test_buffer("")
     local other_callbacks_executed = {}
 
     assert.has_no_error(function()
@@ -290,7 +292,7 @@ describe("Transaction", function()
   it("should handle callback errors with operations present", function()
     local unchecked = h.get_unchecked_marker()
     local content = "- " .. unchecked .. " Task1"
-    local bufnr = h.create_test_buffer(content)
+    local bufnr = h.setup_test_buffer(content)
 
     assert.has_no_error(function()
       transaction.run(bufnr, function(ctx)

@@ -1,5 +1,5 @@
 describe("Config", function()
-  local h = require("tests.checkmate.helpers")
+  local h
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -13,6 +13,8 @@ describe("Config", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
 
     -- Back up globals
     _G.loaded_checkmate_bak = vim.g.loaded_checkmate
@@ -43,10 +45,9 @@ describe("Config", function()
 
       assert.is_true(config.options.enabled)
       assert.is_true(config.options.notify)
-      assert.equal("□", config.options.todo_markers.unchecked)
-      assert.equal("✔", config.options.todo_markers.checked)
+      assert.equal("□", config.options.todo_states.unchecked.marker)
+      assert.equal("✔", config.options.todo_states.checked.marker)
       assert.equal("-", config.options.default_list_marker)
-      assert.equal(1, config.options.todo_action_depth)
       assert.is_true(config.options.enter_insert_after_new)
 
       checkmate.stop()
@@ -55,10 +56,9 @@ describe("Config", function()
     it("should correctly setup keymaps", function()
       local checkmate = require("checkmate")
 
-      local bufnr, file_path = h.setup_todo_buffer("", {
+      local bufnr, file_path = h.setup_todo_file_buffer("", {
         config = {
           keys = {
-            ["<leader>Tt"] = "toggle", -- legacy
             ["<leader>Ta"] = { -- cmd
               rhs = "<cmd>Checkmate archive<CR>",
               desc = "Archive todos",
@@ -81,15 +81,12 @@ describe("Config", function()
       -- keymaps were created
       local keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
 
-      local found_toggle = false
       local found_archive = false
       local found_check = false
       local found_uncheck = false
 
       for _, keymap in ipairs(keymaps) do
-        if keymap.lhs == " Tt" then
-          found_toggle = true
-        elseif keymap.lhs == " Ta" then
+        if keymap.lhs == " Ta" then
           found_archive = true
         elseif keymap.lhs == " Tc" then
           found_check = true
@@ -98,14 +95,9 @@ describe("Config", function()
         end
       end
 
-      assert.is_true(found_toggle)
       assert.is_true(found_archive)
       assert.is_true(found_check)
       assert.is_true(found_uncheck)
-
-      local toggle_stub = stub(checkmate, "toggle")
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tt", true, false, true), "x", false)
-      assert.stub(toggle_stub).called(1)
 
       local archive_stub = stub(checkmate, "archive")
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Ta", true, false, true), "x", false)
@@ -122,7 +114,6 @@ describe("Config", function()
       finally(function()
         checkmate.stop()
         h.cleanup_buffer(bufnr, file_path)
-        toggle_stub:revert()
         archive_stub:revert()
         check_stub:revert()
         uncheck_stub:revert()
@@ -142,16 +133,17 @@ describe("Config", function()
 
       ---@diagnostic disable-next-line: missing-fields
       checkmate.setup({
-        ---@diagnostic disable-next-line: missing-fields
-        todo_markers = {
-          -- unchecked = "□", -- this is the default
-          checked = "✅",
+        todo_states = {
+          ---@diagnostic disable-next-line: missing-fields
+          checked = {
+            marker = "✅",
+          },
         },
         default_list_marker = "+",
         enter_insert_after_new = false,
       })
 
-      assert.equal("✅", config.options.todo_markers.checked)
+      assert.equal("✅", config.options.todo_states.checked.marker)
       assert.equal("+", config.options.default_list_marker)
       assert.is_false(config.options.enter_insert_after_new)
 

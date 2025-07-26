@@ -1,4 +1,22 @@
+local config = require("checkmate.config")
+
 local M = {}
+
+---Get the default unchecked marker from config
+---@return string marker
+function M.get_unchecked_marker()
+  return config.get_defaults().todo_states.unchecked.marker
+end
+
+---Get the default checked marker from config
+---@return string marker
+function M.get_checked_marker()
+  return config.get_defaults().todo_states.checked.marker
+end
+
+function M.get_pending_marker()
+  return "℗"
+end
 
 M.DEFAULT_TEST_CONFIG = {
   metadata = {
@@ -7,13 +25,19 @@ M.DEFAULT_TEST_CONFIG = {
   },
   enter_insert_after_new = false,
   smart_toggle = { enabled = false },
+  todo_states = {
+    pending = {
+      marker = M.get_pending_marker(),
+      markdown = ".", -- i.e. [.]
+    },
+  },
 }
 
 --- @param content string|string[]
 --- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
 --- @return integer bufnr
 --- @return string file_path
-function M.setup_todo_buffer(content, opts)
+function M.setup_todo_file_buffer(content, opts)
   opts = opts or {}
 
   local content_str
@@ -30,8 +54,8 @@ function M.setup_todo_buffer(content, opts)
   end
 
   if not opts.skip_setup then
-    local config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, opts.config or {})
-    local ok = require("checkmate").setup(config)
+    local _config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, opts.config or {})
+    local ok = require("checkmate").setup(_config)
     if not ok then
       error("Failed to setup Checkmate in setup_todo_buffer")
     end
@@ -110,8 +134,12 @@ end
 --- @param content string|string[]
 --- @param name string?
 --- @return integer bufnr
-function M.create_test_buffer(content, name)
-  local bufnr = vim.api.nvim_create_buf(false, true)
+function M.setup_test_buffer(content, name)
+  local filename = name or "todo.md"
+
+  local bufnr = vim.api.nvim_create_buf(true, false)
+
+  vim.api.nvim_buf_set_name(bufnr, filename)
 
   local lines
   if type(content) == "table" then
@@ -122,10 +150,20 @@ function M.create_test_buffer(content, name)
 
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  vim.api.nvim_buf_set_name(bufnr, name or "todo.md")
+  vim.api.nvim_win_set_buf(0, bufnr)
 
   vim.bo[bufnr].filetype = "markdown"
+
   return bufnr
+end
+
+--- Asserts that x is not nil, or errors.
+---@generic T
+---@param x T?
+---@return T
+function M.exists(x)
+  assert(x ~= nil, "Does not exist!")
+  return x
 end
 
 ---@param bufnr integer
@@ -182,10 +220,11 @@ function M.verify_content_lines(content, expected_lines, start_line)
 end
 
 --- Finds the first todo item in a todo_map whose `todo_text` matches the given Lua pattern.
---- @param todo_map table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
+--- @param todo_map? table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
 --- @param pattern string Lua pattern to match against each item's `todo_text`
 --- @return checkmate.TodoItem? todo The matching todo item, or `nil` if none found
 function M.find_todo_by_text(todo_map, pattern)
+  todo_map = todo_map or require("checkmate.parser").get_todo_map(0)
   for _, todo in pairs(todo_map) do
     if todo.todo_text:match(pattern) then
       return todo
@@ -222,20 +261,6 @@ function M.make_selection(row1, col1, row2, col2, mode)
   vim.api.nvim_win_set_cursor(0, { row2, col2 })
 
   vim.wait(5)
-end
-
----Get the default unchecked marker from config
----@return string marker
-function M.get_unchecked_marker()
-  local config = require("checkmate.config")
-  return config.get_defaults().todo_markers.unchecked
-end
-
----Get the default checked marker from config
----@return string marker
-function M.get_checked_marker()
-  local config = require("checkmate.config")
-  return config.get_defaults().todo_markers.checked
 end
 
 return M

@@ -1,6 +1,5 @@
 describe("Metadata", function()
-  local h = require("tests.checkmate.helpers")
-  local checkmate = require("checkmate")
+  local h, checkmate
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -14,6 +13,9 @@ describe("Metadata", function()
 
   before_each(function()
     _G.reset_state()
+
+    h = require("tests.checkmate.helpers")
+    checkmate = require("checkmate")
 
     h.ensure_normal_mode()
 
@@ -29,7 +31,7 @@ describe("Metadata", function()
       local unchecked = h.get_unchecked_marker()
 
       local content = "- " .. unchecked .. " Task A @priority(high) @started(today)"
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -81,7 +83,7 @@ describe("Metadata", function()
       local unchecked = h.get_unchecked_marker()
 
       local content = "- " .. unchecked .. " Task A @priority(high) @started(today)"
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -117,7 +119,7 @@ describe("Metadata", function()
       local unchecked = h.get_unchecked_marker()
 
       local content = "- " .. unchecked .. " Task A @priority(high) @started(today)"
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -155,7 +157,7 @@ describe("Metadata", function()
       before_each(function()
         local unchecked = h.get_unchecked_marker()
         local content = "- " .. unchecked .. " Task A @priority(high) @started(today)"
-        bufnr = h.create_test_buffer(content)
+        bufnr = h.setup_test_buffer(content)
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
         todo_item = h.get_todo_at_cursor(bufnr)
         assert.is_not_nil(todo_item)
@@ -426,7 +428,7 @@ describe("Metadata", function()
       local unchecked = h.get_unchecked_marker()
 
       local content = "- " .. unchecked .. " Task A @priority(high) @started(today)"
-      local bufnr = h.create_test_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 

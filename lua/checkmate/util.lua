@@ -3,6 +3,13 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+function M.tbl_isempty_or_nil(t)
+  if t == nil then
+    return true
+  end
+  return vim.tbl_isempty(t)
+end
+
 ---Returns true is current mode is VISUAL, false otherwise
 ---@return boolean
 function M.is_visual_mode()
@@ -104,6 +111,39 @@ function M.get_hl_color(hl_group, prop, default)
   return default
 end
 
+function M.trim_leading(line)
+  line = line or ""
+  return line:match("^%s*(.*)$")
+end
+
+function M.trim_trailing(line)
+  line = line or ""
+  return line:match("^(.-)%s*$")
+end
+
+---Convert a snake_case string to CamelCase
+---@param input string input in snake_case (underscores)
+---@return string result converted to CamelCase
+function M.snake_to_camel(input)
+  local s = tostring(input)
+  -- uppercase the letter/digit after each underscore, and remove the underscore
+  s = s:gsub("_([%w])", function(c)
+    return c:upper()
+  end)
+  -- uppercase first character if it's a lowercase letter
+  s = s:gsub("^([a-z])", function(c)
+    return c:upper()
+  end)
+  return s
+end
+
+--- Returns the line's leading whitespace (indentation)
+---@param line string
+---@return string indent
+function M.get_line_indent(line)
+  return line:match("^(%s*)") or ""
+end
+
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
 --
 -- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,
@@ -114,200 +154,12 @@ end
 --
 -- @param s string: Input string to escape
 -- @return string: Escaped string safe for use inside a Lua character class
-local function escape_for_char_class(s)
+function M.escape_for_char_class(s)
   if not s or s == "" then
     return ""
   end
-  return s:gsub("([%%%^%]%-])", "%%%1")
-end
-
---- Escapes special characters in a string for safe use in a Lua pattern as a literal.
---
--- This allows literal matching of characters like `(`, `[`, `.`, etc.,
--- which otherwise have special meaning in Lua patterns.
---
--- Example:
---   escape_literal(".*[abc]") → "%.%*%[abc%]"
---
----@param s string: Input string to escape
----@return string: Escaped string safe for literal matching in Lua patterns
-local function escape_literal(s)
-  if not s or s == "" then
-    return ""
-  end
-  ---@diagnostic disable-next-line: redundant-return-value
-  return s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
-end
-
---- Creates a pattern that matches list item prefixes, supporting:
--- 1. Simple markers (e.g., "-", "+", "*")
--- 2. Optional numbered formats (e.g., "1.", "1)")
---
----@param opts table: Options
---   - simple_markers: string | table of characters (default "-+*")
---   - use_numbered_list_markers: boolean (default true)
---   - with_capture: boolean - whether to wrap the pattern in a capturing group (default true)
----@return string[]: A Lua pattern for matching list prefixes
-function M.create_list_prefix_patterns(opts)
-  opts = opts or {}
-  local simple_markers = opts.simple_markers or "-+*"
-  local use_numbered = opts.use_numbered_list_markers ~= false
-  local with_capture = opts.with_capture ~= false
-
-  if type(simple_markers) == "table" then
-    simple_markers = table.concat(simple_markers, "")
-  end
-
-  local escaped_simple = escape_for_char_class(simple_markers)
-
-  local function wrap(p)
-    return with_capture and "^(" .. p .. ")" or p
-  end
-
-  local patterns = {
-    wrap("%s*[" .. escaped_simple .. "]%s+"),
-  }
-
-  if use_numbered then
-    table.insert(patterns, wrap("%s*%d+[%.)]%s+"))
-  end
-
-  return patterns
-end
-
---- Tries each pattern in order and returns the first successful match.
---
--- @param patterns string[]: List of Lua patterns
--- @param str string: Input string to test
--- @return string|nil: The first match found, or nil if none match
-function M.match_first(patterns, str)
-  for _, pat in ipairs(patterns) do
-    local match = str:match(pat)
-    if match then
-      return match
-    end
-  end
-  return nil
-end
-
---- Builds an array of Lua patterns to check if a line is a todo item.
--- Each call returns a list of full-match patterns that:
---   1. Start with a list prefix (simple or numbered)
---   2. Are followed by a specific todo marker (e.g., "□", "✔")
---
----@param opts table:
---   - simple_markers: string | table (e.g., "-+*")
---   - use_numbered_list_markers: boolean (default true)
----@return function(todo_marker): string[] pattern
-function M.build_todo_patterns(opts)
-  opts = opts or {}
-
-  local prefix_patterns = M.create_list_prefix_patterns({
-    simple_markers = opts.simple_markers,
-    use_numbered_list_markers = opts.use_numbered_list_markers,
-    with_capture = false,
-  })
-
-  ---Build multiple full-patterns from todo_marker
-  ---@param todo_marker string: The todo marker to look for
-  ---@return string[] patterns List of full Lua patterns to match
-  local function build_patterns_with_marker(todo_marker)
-    local escaped_todo = escape_literal(todo_marker)
-    local patterns = {}
-    for _, prefix in ipairs(prefix_patterns) do
-      table.insert(patterns, "^" .. prefix .. (escaped_todo or ""))
-    end
-    return patterns
-  end
-
-  return build_patterns_with_marker
-end
-
---- Builds one or more patterns with a capture group for the list prefix.
---
--- Each pattern captures the full list item prefix (whitespace + marker),
--- and appends a user-defined pattern that comes after.
---
----@param opts table:
---   - simple_markers: string|table - Characters like "-", "+", "*" (default: "-+*")
---   - use_numbered_list_markers: boolean - Whether to include "1." or "1)" (default: true)
---   - right_pattern: string - Pattern for content after list marker (default: "")
----@return string[]: A list of full patterns
-function M.build_list_pattern(opts)
-  opts = opts or {}
-
-  local prefix_patterns = M.create_list_prefix_patterns({
-    simple_markers = opts.simple_markers,
-    use_numbered_list_markers = opts.use_numbered_list_markers,
-    with_capture = true,
-  })
-
-  local right_pattern = opts.right_pattern or ""
-  local full_patterns = {}
-
-  for _, prefix in ipairs(prefix_patterns) do
-    table.insert(full_patterns, prefix .. right_pattern)
-  end
-
-  return full_patterns
-end
-
---- Builds patterns to match `- `, `* `, or other configured list markers
-function M.build_empty_list_patterns(list_item_markers)
-  return M.build_list_pattern({
-    simple_markers = list_item_markers,
-  })
-end
-
---- Builds patterns to match a Unicode todo item like `- ✔`
-function M.build_unicode_todo_patterns(list_item_markers, todo_marker)
-  return M.build_list_pattern({
-    simple_markers = list_item_markers,
-    right_pattern = escape_literal(todo_marker),
-  })
-end
-
---- Builds patterns to match GitHub Flavored Markdown checkboxes like `- [x]` or `1. [ ]`
----
---- For each list marker type we create 2 pattern variants:
---- 1. One for checkboxes at end of line
---- 2. One for checkboxes followed by space
----
---- Below are the patterns for an unchecked markdown task marker:
---- { "^(%s*[%-+*]%s+)%[ %]$", "^(%s*%d+[%.)]%s+)%[ %]$", "^(%s*[%-+*]%s+)%[ %] ", "^(%s*%d+[%.)]%s+)%[ %] " }
---- 2 patterns are matching type bullet markers with the 2 variants
---- 2 patterns are matching ordered list markers with the 2 variants
----
---- IMPORTANT: the patterns returned have different behaviors:
---- - EOL patterns (variant 1): Match list prefix + checkbox, captured in group 1
---- - Space patterns (varian 2): Match list prefix + checkbox + space, but only capture prefix in group 1
----   The trailing space is matched but NOT captured, requiring special handling in gsub replacements
----
----@param list_item_markers table List item markers to use, e.g. {"-", "*", "+"}
----@param checkbox_pattern string Must be a Lua pattern, e.g. "%[[xX]%]" or "%[ %]"
----@return string[] patterns List of full Lua patterns with capture group for list prefix
-function M.build_markdown_checkbox_patterns(list_item_markers, checkbox_pattern)
-  if not checkbox_pattern or checkbox_pattern == "" then
-    error("checkbox_pattern cannot be nil or empty")
-  end
-
-  local patterns = {}
-
-  -- Variant 1: Checkbox at end of line (e.g., "- [ ]" with no trailing content)
-  local eol_patterns = M.build_list_pattern({
-    simple_markers = list_item_markers,
-    right_pattern = checkbox_pattern .. "$",
-  })
-  vim.list_extend(patterns, eol_patterns)
-
-  -- Variant 2: Checkbox followed by space - include space in the pattern but not the replacement
-  local space_patterns = M.build_list_pattern({
-    simple_markers = list_item_markers,
-    right_pattern = checkbox_pattern .. " ", -- space not captured, just matched!!!
-  })
-  vim.list_extend(patterns, space_patterns)
-
-  return patterns
+  local result = s:gsub("([%%%^%]%-])", "%%%1")
+  return result
 end
 
 ---Returns a todo_map table sorted by start row
@@ -600,15 +452,50 @@ function M.byte_to_char_col(line, byte_col)
   return char_idx
 end
 
+---Opens in the content in a scratch buffer or uses vim.print
+---Currently only supports Snacks.scratch
+---@param content any Will use `vim.inspect()` internally to stringify
+---@param scratch_opts table
+function M.scratch_buf_or_print(content, scratch_opts)
+  local has_snacks, snacks = pcall(require, "snacks.scratch")
+  if has_snacks then
+    local opts = vim.tbl_deep_extend("force", {
+      name = scratch_opts.name or "checkmate.nvim",
+      autowrite = false,
+      ft = "lua",
+      template = vim.inspect(content),
+      win = {
+        width = 140,
+        height = 40,
+        keys = {
+          ["source"] = false,
+        },
+      },
+    }, scratch_opts)
+    local win = snacks.open(opts)
+    if win and win.buf then
+      vim.bo[win.buf].ro = true
+    end
+  else
+    vim.print(content)
+  end
+end
+
 ---Creates a public facing checkmate.Todo from the internal checkmate.TodoItem representation
 ---
 ---exposes a public api while still providing access to the underlying todo_item
 ---@param todo_item checkmate.TodoItem
 ---@return checkmate.Todo
 function M.build_todo(todo_item)
+  local parser = require("checkmate.parser")
+
   local metadata_array = {}
   for _, entry in ipairs(todo_item.metadata.entries) do
     table.insert(metadata_array, { entry.tag, entry.value })
+  end
+
+  local function is_checked()
+    return todo_item.state == "checked"
   end
 
   local function get_metadata(name)
@@ -623,8 +510,13 @@ function M.build_todo(todo_item)
     return result[1], result[2]
   end
 
-  local function is_checked()
-    return todo_item.state == "checked"
+  local function get_parent()
+    if not todo_item.parent_id then
+      return nil
+    end
+    local bufnr = vim.api.nvim_get_current_buf()
+    local parent_item = parser.get_todo_map(bufnr)[todo_item.parent_id]
+    return parent_item and M.build_todo(parent_item) or nil
   end
 
   ---@type checkmate.Todo
@@ -632,10 +524,64 @@ function M.build_todo(todo_item)
     _todo_item = todo_item,
     state = todo_item.state,
     text = todo_item.todo_text,
+    indent = todo_item.range.start.col,
+    list_marker = todo_item.list_marker.text,
+    todo_marker = todo_item.todo_marker.text,
     metadata = metadata_array,
     is_checked = is_checked,
     get_metadata = get_metadata,
+    get_parent = get_parent,
   }
+end
+
+--[[
+Apply diff hunks to buffer 
+
+Line insertion vs text replacement
+- nvim_buf_set_text: used for replacements and insertions WITHIN a line
+  this is important because it preserves extmarks that are not directly in the replaced range
+  i.e. the extmarks that track todo location
+- nvim_buf_set_lines: used for inserting NEW LINES
+  when used with same start/end positions, it inserts new lines without affecting
+  existing lines or their extmarks.
+
+We use nvim_buf_set_lines for whole line insertions (when start_col = end_col = 0)
+because it's cleaner and doesn't risk affecting extmarks on adjacent lines.
+For all other operations (replacements, partial line edits), we use nvim_buf_set_text
+to preserve extmarks as much as possible.
+--]]
+---@param bufnr integer Buffer number
+---@param hunks checkmate.TextDiffHunk[]
+function M.apply_diff(bufnr, hunks)
+  if vim.tbl_isempty(hunks) then
+    return
+  end
+
+  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
+  table.sort(hunks, function(a, b)
+    if a.start_row ~= b.start_row then
+      return a.start_row > b.start_row
+    end
+    return a.start_col > b.start_col
+  end)
+
+  -- apply hunks (first one creates undo entry, rest join)
+  for i, hunk in ipairs(hunks) do
+    if i > 1 then
+      vim.cmd("silent! undojoin")
+    end
+
+    local is_line_insertion = hunk.start_row == hunk.end_row
+      and hunk.start_col == 0
+      and hunk.end_col == 0
+      and #hunk.insert > 0
+
+    if is_line_insertion then
+      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
+    else
+      vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
+    end
+  end
 end
 
 -- Cursor helper

@@ -8,7 +8,7 @@ per batch, even if many operations or callbacks are queued.
 op (operation):
   – A function (plus its original args) that returns zero or more TextDiffHunk[]
   – All queued ops are collected each loop iteration; their hunks are merged,
-    applied once via api.apply_diff, then parser.discover_todos is called exactly once.
+    applied once via util.apply_diff, then parser.discover_todos is called exactly once.
 callback (cb):
   – A function (plus its args) meant to run after the current batch of ops is applied
   – All queued callbacks run only after the todo map has been refreshed (discover_todos).
@@ -18,7 +18,7 @@ some notes on the internals (inside M.run):
   1. entry_fn(context) runs, letting plugin code queue up ops/cbs.
   2. While there are ops or cbs:
      a. If op_queue is nonempty:
-       - Pull all ops at once → call op.fn for each, collect all diff hunks → api.apply_diff(bufnr, all_hunks) → parser.discover_todos(bufnr).
+       - Pull all ops at once → call op.fn for each, collect all diff hunks → util.apply_diff(bufnr, all_hunks) → parser.discover_todos(bufnr).
      b. If cb_queue is nonempty:
        - Pull all callbacks at once → run each cb_fn(context, ...)
        - Any new ops/cbs now sit in op_queue/cb_queue for next loop iteration.
@@ -33,17 +33,17 @@ remember...
 
 local M = {}
 local parser = require("checkmate.parser")
-local api = require("checkmate.api")
+local util = require("checkmate.util")
 
 ---the exposed transaction state is referred to as "context"
 ---the internal state is M._states[bufnr]
 ---@class checkmate.TransactionContext
----@field get_todo_map function(): table<integer, checkmate.TodoItem>
----@field get_todo_by_id function(id: integer): checkmate.TodoItem?
----@field get_todo_by_row function(row: integer): checkmate.TodoItem?
----@field add_op function(fn: fn, ...)
----@field add_cb function(fn: fn, ...)
----@field get_buf function(): integer Returns the buffer
+---@field get_todo_map fun(): table<integer, checkmate.TodoItem>
+---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
+---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
+---@field add_op fun(fn: function, ...)
+---@field add_cb fun(fn: function, ...)
+---@field get_buf fun(): integer Returns the buffer
 
 M._states = {} -- bufnr -> state
 
@@ -89,8 +89,8 @@ function M.run(bufnr, entry_fn, post_fn)
       return state.todo_map[extmark_id]
     end,
 
-    get_todo_by_row = function(row)
-      return require("checkmate.parser").get_todo_item_at_position(state.bufnr, row, 0, { todo_map = state.todo_map })
+    get_todo_by_row = function(row, root_only)
+      return parser.get_todo_item_at_position(state.bufnr, row, 0, { todo_map = state.todo_map, root_only = root_only })
     end,
 
     --- Queue any function and its arguments
@@ -146,7 +146,7 @@ function M.run(bufnr, entry_fn, post_fn)
       end
 
       if #all_hunks > 0 then
-        api.apply_diff(bufnr, all_hunks)
+        util.apply_diff(bufnr, all_hunks)
         state.todo_map = parser.discover_todos(bufnr)
       end
     end

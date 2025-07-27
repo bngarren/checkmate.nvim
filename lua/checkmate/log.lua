@@ -1,7 +1,7 @@
 -- A structured logging module for Checkmate
 
 ---@alias basic_log fun(args: any)
----@alias fmt_log fun(format_string: string, args: any)
+---@alias fmt_log fun(format_string: string, ...)
 ---@alias lazy_log fun(lazy_fn: fun())
 
 ---@class checkmate.Log
@@ -263,7 +263,7 @@ function M.setup()
         path = log_file_path,
         max_file_size = tostring(max_file_size / (1024 ^ 2)) .. " mb",
       }
-      local msg = "Checkmate logger initialized:\n" .. vim.inspect(info)
+      local msg = "[log] Checkmate logger initialized:\n" .. vim.inspect(info)
       local formatted = format_log("INFO", msg, nil)
       log_file:write(formatted .. "\n")
       log_file:flush()

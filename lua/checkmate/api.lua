@@ -42,6 +42,7 @@ function M.is_valid_buffer(bufnr)
   local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
   if not ok or not is_valid then
     vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    log.fmt_error("[api] Invalid buffer %d", bufnr)
     return false
   end
 
@@ -63,6 +64,7 @@ function M.setup_buffer(bufnr)
 
   -- bail early if we're not running
   if not checkmate.is_running() then
+    log.fmt_error("[api] Call to setup_buffer %d but Checkmate is NOT running", bufnr)
     return false
   end
 
@@ -95,6 +97,8 @@ function M.setup_buffer(bufnr)
 
   vim.b[bufnr].checkmate_setup_complete = true
   vim.b[bufnr].checkmate_cleaned_up = false
+
+  log.fmt_debug("[api] Setup complete for bufnr %d", bufnr)
 
   return true
 end

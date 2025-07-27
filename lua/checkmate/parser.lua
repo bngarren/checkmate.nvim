@@ -321,7 +321,7 @@ function M.setup()
   -- clear parser cache in case config changed
   M.clear_parser_cache()
 
-  log.info("Parser setup complete")
+  log.info("[parser] Setup complete")
 end
 
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
@@ -448,6 +448,7 @@ function M.convert_unicode_to_markdown(bufnr)
     end
 
     if had_error then
+      log.error("[parser] Error in `convert_unicode_to_markdown`")
       return false
     end
 
@@ -461,6 +462,7 @@ function M.convert_unicode_to_markdown(bufnr)
     end)
 
     if not ok then
+      log.log_error(err, "[parser] Error with `nvim_buf_set_lines` in `convert_unicode_to_markdown`")
       return false
     end
 
@@ -595,6 +597,7 @@ function M.discover_todos(bufnr)
   local tree = parser:parse()[1]
   if not tree then
     vim.notify("Checkmate: Failed to parse buffer", vim.log.levels.ERROR)
+    log.error("[parser] Failed to parse buffer in `discover_todos`")
     return todo_map
   end
 
@@ -1006,14 +1009,13 @@ function M.get_all_list_items(bufnr)
     end
   end
 
-  -- Build parent-child relationships
+  -- parent-child relationships
   for _, item in ipairs(list_items) do
-    -- Initialize children array
     item.children = {}
 
     for _, other in ipairs(list_items) do
       if item.node:id() ~= other.node:id() and other.parent_node == item.node then
-        table.insert(item.children, other.node:id()) -- Store index in our list
+        table.insert(item.children, other.node:id())
       end
     end
   end

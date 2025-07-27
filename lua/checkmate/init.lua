@@ -96,7 +96,7 @@ function M.start()
 
     H.setup_existing_markdown_buffers()
 
-    log.info("✅ Checkmate started successfully")
+    log.info("[main] ✔ Checkmate started successfully")
   end)
   if not success then
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
@@ -110,6 +110,7 @@ function M.stop()
   end
 
   local active_buffers = M.get_active_buffer_list()
+  local active_buffers_count = M.count_active_buffers()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
   for _, bufnr in ipairs(active_buffers) do
@@ -124,7 +125,9 @@ function M.stop()
 
   if package.loaded["checkmate.log"] then
     pcall(function()
-      require("checkmate.log").shutdown()
+      local log = require("checkmate.log")
+      log.fmt_info("[main] Checkmate stopped, with %d active buffers", active_buffers_count)
+      log.shutdown()
     end)
   end
 
@@ -788,8 +791,10 @@ M.debug = {
   list_highlights = function()
     return debug_hl.list()
   end,
-  log = function()
-    require("checkmate.log").open({ scratch = "floating" })
+  ---@param opts? {type?: "floating" | "split"}
+  log = function(opts)
+    opts = opts or {}
+    require("checkmate.log").open({ scratch = opts.type or "floating" })
   end,
   clear_log = function()
     require("checkmate.log").clear()
@@ -951,6 +956,7 @@ end
 ---- Helpers ----
 
 function H.setup_autocommands()
+  local log = require("checkmate.log")
   local augroup = vim.api.nvim_create_augroup("checkmate_global", { clear = true })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {
@@ -964,6 +970,7 @@ function H.setup_autocommands()
     group = augroup,
     pattern = "markdown",
     callback = function(event)
+      log.fmt_debug("[autocmd] Filetype = '%s' Bufnr = %d'", event.match, event.buf)
       local cfg = require("checkmate.config").options
       if not (cfg and cfg.enabled) then
         return
@@ -983,6 +990,8 @@ function H.setup_autocommands()
         local bufs = M.get_active_buffer_map()
 
         if bufs[event.buf] then
+          log.fmt_info("[autocmd] Filetype = '%s', turning off Checkmate for bufnr %d", event.match, event.buf)
+
           local buf = event.buf
           require("checkmate.commands").dispose(buf)
           require("checkmate.api").shutdown(buf)
@@ -995,10 +1004,12 @@ end
 
 function H.setup_existing_markdown_buffers()
   local config = require("checkmate.config")
+  local log = require("checkmate.log")
   local file_matcher = require("checkmate.file_matcher")
 
   local buffers = vim.api.nvim_list_bufs()
 
+  local existing_buffers = {}
   for _, bufnr in ipairs(buffers) do
     if
       vim.api.nvim_buf_is_valid(bufnr)
@@ -1006,8 +1017,14 @@ function H.setup_existing_markdown_buffers()
       and vim.bo[bufnr].filetype == "markdown"
       and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
     then
+      table.insert(existing_buffers, bufnr)
       require("checkmate.api").setup_buffer(bufnr)
     end
+  end
+
+  local count = vim.tbl_count(existing_buffers)
+  if count > 0 then
+    log.fmt_info("[main] %d existing Checkmate buffers found during startup: %s", count, existing_buffers)
   end
 end
 

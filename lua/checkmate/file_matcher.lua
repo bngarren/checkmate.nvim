@@ -1,6 +1,8 @@
 -- File pattern matching module
 -- Handles glob pattern matching for buffer activation
 
+local log = require("checkmate.log")
+
 local M = {}
 
 local api = vim.api
@@ -123,6 +125,8 @@ function M.should_activate_for_buffer(bufnr, patterns)
       return true
     end
   end
+
+  log.fmt_debug("Checkmate not activated for bufnr %d.\n'%s' does not match any pattern: %s", bufnr, filename, patterns)
 
   return false
 end

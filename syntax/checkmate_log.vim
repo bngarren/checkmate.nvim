@@ -2,7 +2,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-" Date and time at the start of lines
+" Date and time
 syntax match checkmateLogDate /^\d\{4}-\d\{2}-\d\{2} \d\{2}:\d\{2}:\d\{2}/ nextgroup=checkmateLogLevel skipwhite
 
 " Log levels
@@ -21,17 +21,17 @@ syntax match checkmateLogNumber /\<\d\+\.\d\+\>/ contained
 syntax match checkmateLogNumber /\<0x\x\+\>/ contained
 
 " Strings
-syntax region checkmateLogString start=/"/ skip=/\\"/ end=/"/ oneline contained
-syntax region checkmateLogString start=/'/ skip=/\\'/ end=/'/ oneline contained
+syntax region checkmateLogStringDouble start=/"/ skip=/\\"/ end=/"/ oneline 
+syntax region checkmateLogStringSingle start=/'/ skip=/\\'/ end=/'/ oneline 
 
 " File paths (common extensions)
-syntax match checkmateLogPath /[~/]\S*\.\(lua\|vim\|log\|txt\|json\|yaml\|toml\)/ contained
+syntax match checkmateLogPath /[~/]\S*\.\(lua\|vim\|log\|txt\|json\|yaml\|toml\|md\)/ 
 
-" Lua/Vim table output from vim.inspect
+" Table output from vim.inspect
 syntax region checkmateLogTable start=/{/ end=/}/ contains=checkmateLogTableKey,checkmateLogString,checkmateLogNumber,checkmateLogTable
 syntax match checkmateLogTableKey /\<\w\+\>\ze\s*=/ contained
 
-" Error-related keywords (case insensitive)
+" Error-related keywords 
 syntax match checkmateLogErrorWord /\c\<error\|failed\|failure\|fail\|exception\|critical\|fatal\>/
 
 " Success-related keywords
@@ -53,7 +53,8 @@ highlight default link checkmateLogWarn WarningMsg
 highlight default link checkmateLogError ErrorMsg
 highlight default link checkmateLogSource Identifier
 highlight default link checkmateLogNumber Number
-highlight default link checkmateLogString String
+highlight default link checkmateLogStringDouble String
+highlight default link checkmateLogStringSingle String
 highlight default link checkmateLogPath Directory
 highlight default link checkmateLogTable Structure
 highlight default link checkmateLogTableKey Identifier

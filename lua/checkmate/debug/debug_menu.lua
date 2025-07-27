@@ -89,20 +89,35 @@ local menu = {
   },
   { name = "separator" },
   {
-    name = "🔍 Open Log File",
+    name = "🔍 Open Log File (floating)",
     hl = "Normal",
     cmd = function()
-      require("checkmate").debug.log()
+      require("checkmate").debug.log({ type = "floating" })
     end,
     rtxt = "L",
   },
   {
-    name = "🔄 Clear Log File",
+    name = "✍︎ Log...",
     hl = "Normal",
-    cmd = function()
-      require("checkmate").debug.clear_log()
-    end,
-    rtxt = "C",
+    items = {
+      {
+        name = "🔍 Open Log File (split)",
+        hl = "Normal",
+        cmd = function()
+          require("checkmate").debug.log({ type = "split" })
+        end,
+        rtxt = "S",
+      },
+      { name = "separator" },
+      {
+        name = "🔄 Clear Log File",
+        hl = "Normal",
+        cmd = function()
+          require("checkmate").debug.clear_log()
+        end,
+        rtxt = "C",
+      },
+    },
   },
 }
 

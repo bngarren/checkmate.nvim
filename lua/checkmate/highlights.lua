@@ -185,6 +185,7 @@ function M.apply_highlighting(bufnr, opts)
   opts = opts or {}
 
   if opts.debug_reason then
+    -- could log here...
   end
 
   vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)

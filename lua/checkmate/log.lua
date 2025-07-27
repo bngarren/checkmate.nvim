@@ -284,8 +284,23 @@ function M.get_log_path()
   return log_file_path
 end
 
-function M.open()
-  vim.cmd(string.format("tabnew %s", log_file_path))
+---@param opts? {scratch?: "floating" | "split"}
+function M.open(opts)
+  opts = opts or {}
+
+  if opts.scratch then
+    local scratch =
+      require("checkmate.ui.scratch").open({ floating = opts.scratch == "floating", ft = "checkmate_log" })
+
+    if log_file_path and vim.fn.filereadable(log_file_path) == 1 then
+      local lines = vim.fn.readfile(log_file_path)
+      scratch:set(lines)
+    else
+      scratch:set({ "Log file not found or not readable: " .. (log_file_path or "no path set") })
+    end
+  else
+    vim.cmd(string.format("tabnew %s", log_file_path))
+  end
 end
 
 function M.clear()

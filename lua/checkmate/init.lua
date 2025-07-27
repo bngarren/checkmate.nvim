@@ -789,7 +789,7 @@ M.debug = {
     return debug_hl.list()
   end,
   log = function()
-    require("checkmate.log").open()
+    require("checkmate.log").open({ scratch = "floating" })
   end,
   clear_log = function()
     require("checkmate.log").clear()

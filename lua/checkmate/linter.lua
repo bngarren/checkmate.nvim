@@ -24,6 +24,8 @@
 -- - marker_type: Either "ordered" (1., 2.) or "unordered" (-,*,+) list type
 --]]
 
+local log = require("checkmate.log")
+
 local M = {}
 local cfg = {} ---@type table<string,any>
 
@@ -357,6 +359,8 @@ function M.setup(opts)
   }, M.ns)
 
   M.config = cfg
+
+  log.fmt_info("Linter setup complete (enabled=%s)", cfg.enabled)
 
   return cfg
 end

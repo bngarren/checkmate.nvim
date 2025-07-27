@@ -70,7 +70,7 @@ M.setup = function(opts)
   return true
 end
 
--- spin up parser, highlights, linter, autocmds
+-- spin up logger, parser, highlights, linter, autocmds
 function M.start()
   if M.is_running() then
     return
@@ -96,7 +96,7 @@ function M.start()
 
     H.setup_existing_markdown_buffers()
 
-    log.info("✅ Checkmate started")
+    log.info("✅ Checkmate started successfully")
   end)
   if not success then
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)

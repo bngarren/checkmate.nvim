@@ -87,6 +87,23 @@ local menu = {
       },
     },
   },
+  { name = "separator" },
+  {
+    name = "🔍 Open Log File",
+    hl = "Normal",
+    cmd = function()
+      require("checkmate").debug.log()
+    end,
+    rtxt = "L",
+  },
+  {
+    name = "🔄 Clear Log File",
+    hl = "Normal",
+    cmd = function()
+      require("checkmate").debug.clear_log()
+    end,
+    rtxt = "C",
+  },
 }
 
 function M.open()

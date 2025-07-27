@@ -151,8 +151,13 @@ M.options = {}
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
---- Defaults to `vim.fn.stdpath("log")`
+--- Defaults to `vim.fn.stdpath("log") .. "checkmate.log"`
 ---@field file_path string?
+---
+--- Max file size (kilobytes)
+--- When file size exceeds max, a new file will be overwritten
+--- Default: 5120 kb (5 mb)
+---@field max_file_size? number
 
 -----------------------------------------------------
 

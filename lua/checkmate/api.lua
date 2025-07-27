@@ -76,7 +76,6 @@ function M.setup_buffer(bufnr)
 
   if config.options.linter and config.options.linter.enabled ~= false then
     local linter = require("checkmate.linter")
-    linter.setup(config.options.linter)
     linter.lint_buffer(bufnr)
   end
 

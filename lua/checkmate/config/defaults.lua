@@ -17,7 +17,6 @@ return {
   log = {
     level = "info",
     use_file = false,
-    use_buffer = false,
   },
   -- Default keymappings
   keys = {

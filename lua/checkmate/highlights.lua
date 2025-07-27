@@ -121,6 +121,8 @@ function M.register_highlight_groups()
     vim.api.nvim_set_hl(0, group_name, group_settings)
   end
 
+  log.fmt_debug("%d highlights registered (excluding dynamic styles)", vim.tbl_count(highlights))
+
   require("checkmate.debug.debug_highlights").setup()
 end
 
@@ -134,6 +136,8 @@ function M.setup_highlights()
     group = vim.api.nvim_create_augroup("checkmate_highlights", { clear = true }),
     callback = function()
       vim.defer_fn(function()
+        log.info("[autocmd] ColorScheme")
+
         M.clear_highlight_cache()
 
         -- Get fresh theme-based defaults
@@ -238,7 +242,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
 
   -- depth limit check
   if ctx.depth >= ctx.max_depth then
-    log.warn(string.format("Max depth %d reached at todo %s", ctx.max_depth, todo_item.id))
     return
   end
 
@@ -262,7 +265,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   end)
 
   if not success then
-    log.error(string.format("Highlight error for todo %s: %s", todo_item.id, err))
     return
   end
 

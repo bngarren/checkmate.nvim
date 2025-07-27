@@ -318,12 +318,10 @@ function M.is_todo_item(line)
 end
 
 function M.setup()
-  local highlights = require("checkmate.highlights")
-
   -- clear parser cache in case config changed
   M.clear_parser_cache()
 
-  highlights.setup_highlights()
+  log.info("Parser setup complete")
 end
 
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols

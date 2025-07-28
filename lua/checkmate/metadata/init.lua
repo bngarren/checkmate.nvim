@@ -1,3 +1,5 @@
+local log = require("checkmate.log")
+
 local M = {}
 
 M._deprecation_msg_shown = false
@@ -43,6 +45,7 @@ function M.evaluate_style(meta_props, context)
         string.format("Checkmate: error in `style` function for metadata '%s'", context.name),
         vim.log.levels.ERROR
       )
+      log.log_error(result, "[metadata] Error in `style` function for " .. context.name)
       return {}
     end
   else
@@ -73,6 +76,7 @@ function M.evaluate_value(meta_props, context)
         .. result,
       vim.log.levels.ERROR
     )
+    log.log_error(result, "[metadata] Error in `get_value` function for " .. context.name)
     return ""
   end
 end
@@ -142,6 +146,7 @@ function M.evaluate_choices(meta_props, context, cb)
           ),
           vim.log.levels.WARN
         )
+        log.fmt_warn("[metadata] `choices` function for @%s invoked callback multiple times", context.name)
         return
       end
 
@@ -217,6 +222,7 @@ function M.evaluate_choices(meta_props, context, cb)
 
     -- all attempts failed
     vim.notify(string.format("Checkmate: failed to get choices for @%s", context.name), vim.log.levels.ERROR)
+    log.fmt_error("[metadata] Failed to get choices for @%s", context.name)
     cleanup()
     cb({})
   end

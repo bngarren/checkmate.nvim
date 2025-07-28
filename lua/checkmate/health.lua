@@ -1,3 +1,5 @@
+local validate = require("checkmate.config.validate")
+
 local M = {}
 
 function M.check()
@@ -35,7 +37,7 @@ function M.check()
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
 
-  local validation_ok, validation_err = config.validate_options(checkmate.get_user_opts())
+  local validation_ok, validation_err = validate.validate_options(checkmate.get_user_opts())
   if validation_ok then
     ok("Configuration is valid")
   else

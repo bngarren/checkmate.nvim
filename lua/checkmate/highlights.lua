@@ -121,7 +121,7 @@ function M.register_highlight_groups()
     vim.api.nvim_set_hl(0, group_name, group_settings)
   end
 
-  log.fmt_debug("%d highlights registered (excluding dynamic styles)", vim.tbl_count(highlights))
+  log.fmt_debug("[highlights] %d highlights registered (excluding dynamic styles)", vim.tbl_count(highlights))
 
   require("checkmate.debug.debug_highlights").setup()
 end

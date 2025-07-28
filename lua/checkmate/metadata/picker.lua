@@ -3,6 +3,7 @@ local meta_module = require("checkmate.metadata")
 local picker = require("checkmate.picker")
 local animation = require("checkmate.ui.animation")
 local util = require("checkmate.util")
+local log = require("checkmate.log")
 
 local M = {}
 
@@ -38,6 +39,7 @@ function M.open_picker(on_select)
   local bufnr = vim.api.nvim_get_current_buf()
 
   if active_pickers[bufnr] then
+    log.fmt_warn("[metadata/picker] `open_picker` called but picker is already active for bufnr %d", bufnr)
     return
   end
 
@@ -86,17 +88,19 @@ function M.open_picker(on_select)
     spinner = spinner,
   }
 
-  -- this is the cb that is passed as paraemter in the 'choices' function
+  -- this is the cb that is passed as parameter in the 'choices' function
   -- i.e., the user should call the cb when they have obtained the async results
   local function handle_completions(items)
     local active_op = active_pickers[bufnr]
     if not active_op then
+      log.fmt_warn("[metadata/picker] `handle_completions` called but picker is no longer active for bufnr %d", bufnr)
       return
     end
 
     cleanup_spinner(bufnr)
 
     if not vim.api.nvim_buf_is_valid(bufnr) then
+      log.fmt_warn("[metadata/picker] `handle_completions` called but bufnr %d is not valid", bufnr)
       return
     end
 
@@ -133,10 +137,10 @@ function M.open_picker(on_select)
 
   if not success then
     M.cleanup_ui(bufnr)
-    vim.notify(
-      string.format("Checkmate: Error getting completions for @%s: %s", selected_metadata.tag, tostring(result)),
-      vim.log.levels.ERROR
-    )
+    local err_msg =
+      string.format("Checkmate: Error getting completions for @%s: %s", selected_metadata.tag, tostring(result))
+    vim.notify(err_msg, vim.log.levels.ERROR)
+    log.log_error(result, "[metadata/picker] " .. err_msg)
     return
   end
 end

@@ -360,7 +360,7 @@ function M.setup(opts)
 
   M.config = cfg
 
-  log.fmt_info("Linter setup complete (enabled=%s)", cfg.enabled)
+  log.fmt_info("[linter] Setup complete (enabled=%s)", cfg.enabled)
 
   return cfg
 end

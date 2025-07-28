@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.1](https://github.com/bngarren/checkmate.nvim/compare/v0.10.0...v0.10.1) (2025-07-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* Removes `use_buffer` opts from `config.log`. Will just write to log file if `use_file` is enabled and when logging meets `level` threshold. This update does make `use_file` enabled by default with a log level of `warn` so that users can at least send in debug info if problems occur. Default log file is at `vim.fn.stdpath("log")` with filename "checkmate.log" (this can be modified with `file_path` opt).
+
+### Code Refactoring
+
+* organize config, improve logging/debugging([#164](https://github.com/bngarren/checkmate.nvim/issues/164)) ([186228c](https://github.com/bngarren/checkmate.nvim/commit/186228c4fa0cdb898a910dd8f530a473cac339c5))
+
 ## [0.10.0](https://github.com/bngarren/checkmate.nvim/compare/v0.9.2...v0.10.0) (2025-07-26)
 
 

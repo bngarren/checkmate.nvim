@@ -119,8 +119,9 @@ function M.register_highlight_groups()
 
   for group_name, group_settings in pairs(highlights) do
     vim.api.nvim_set_hl(0, group_name, group_settings)
-    log.debug("Applied highlight group: " .. group_name, { module = "parser" })
   end
+
+  log.fmt_debug("[highlights] %d highlights registered (excluding dynamic styles)", vim.tbl_count(highlights))
 
   require("checkmate.debug.debug_highlights").setup()
 end
@@ -135,6 +136,8 @@ function M.setup_highlights()
     group = vim.api.nvim_create_augroup("checkmate_highlights", { clear = true }),
     callback = function()
       vim.defer_fn(function()
+        log.info("[autocmd] ColorScheme")
+
         M.clear_highlight_cache()
 
         -- Get fresh theme-based defaults
@@ -182,7 +185,7 @@ function M.apply_highlighting(bufnr, opts)
   opts = opts or {}
 
   if opts.debug_reason then
-    log.debug(("apply_highlighting called for: %s"):format(opts.debug_reason), { module = "highlights" })
+    -- could log here...
   end
 
   vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
@@ -199,8 +202,6 @@ function M.apply_highlighting(bufnr, opts)
       M.highlight_todo_item(bufnr, todo_item, todo_map, { recursive = true })
     end
   end
-
-  log.debug("Highlighting applied", { module = "highlights" })
 
   M._current_line_cache = nil
 
@@ -242,7 +243,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
 
   -- depth limit check
   if ctx.depth >= ctx.max_depth then
-    log.warn(string.format("Max depth %d reached at todo %s", ctx.max_depth, todo_item.id))
     return
   end
 
@@ -266,7 +266,6 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   end)
 
   if not success then
-    log.error(string.format("Highlight error for todo %s: %s", todo_item.id, err))
     return
   end
 
@@ -444,19 +443,6 @@ function M.highlight_metadata(bufnr, todo_item)
         right_gravity = false,
         end_right_gravity = false,
       })
-
-      log.trace(
-        string.format(
-          "Applied highlight %s to metadata %s at [%d,%d]-[%d,%d]",
-          highlight_group,
-          tag,
-          entry.range.start.row,
-          entry.range.start.col,
-          entry.range["end"].row,
-          entry.range["end"].col
-        ),
-        { module = "highlights" }
-      )
     end
   end
 end

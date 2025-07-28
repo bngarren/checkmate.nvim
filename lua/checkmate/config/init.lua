@@ -75,7 +75,7 @@ M.options = {}
 ---
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
----Note that Gith[118;1:3uub-flavored Markdown specification only includes "checked" and "unchecked".
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
 ---
 ---If you add additional states here, they may not work in other Markdown apps without special configuration.
 ---@field todo_states table<string, checkmate.TodoStateDefinition>
@@ -148,15 +148,17 @@ M.options = {}
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 ---
 --- Should print log output to a file
+--- Default: true
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
---- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
+--- Defaults to `vim.fn.stdpath("log") .. "checkmate.log"`
 ---@field file_path string?
 ---
---- Should print log output to a scratch buffer
---- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
----@field use_buffer boolean
+--- Max file size (kilobytes)
+--- When file size exceeds max, a new file will be overwritten
+--- Default: 5120 kb (5 mb)
+---@field max_file_size? number
 
 -----------------------------------------------------
 
@@ -404,6 +406,11 @@ function M.get_deprecations(user_opts)
 
   local function add(msg)
     table.insert(res, msg)
+  end
+
+  ---@deprecated v0.10.1
+  if user_opts.log and user_opts.log.use_buffer then
+    add("`config.log.use_buffer` has been removed. Use `use_file` to enable/disable logging.")
   end
 
   ---@deprecated v0.10

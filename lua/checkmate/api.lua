@@ -42,6 +42,7 @@ function M.is_valid_buffer(bufnr)
   local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
   if not ok or not is_valid then
     vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    log.fmt_error("[api] Invalid buffer %d", bufnr)
     return false
   end
 
@@ -63,6 +64,7 @@ function M.setup_buffer(bufnr)
 
   -- bail early if we're not running
   if not checkmate.is_running() then
+    log.fmt_error("[api] Call to setup_buffer %d but Checkmate is NOT running", bufnr)
     return false
   end
 
@@ -76,7 +78,6 @@ function M.setup_buffer(bufnr)
 
   if config.options.linter and config.options.linter.enabled ~= false then
     local linter = require("checkmate.linter")
-    linter.setup(config.options.linter)
     linter.lint_buffer(bufnr)
   end
 
@@ -96,6 +97,8 @@ function M.setup_buffer(bufnr)
 
   vim.b[bufnr].checkmate_setup_complete = true
   vim.b[bufnr].checkmate_cleaned_up = false
+
+  log.fmt_debug("[api] Setup complete for bufnr %d", bufnr)
 
   return true
 end
@@ -154,7 +157,6 @@ function M.setup_keymaps(bufnr)
           mapping_config = vim.deepcopy(value)
         end
       else
-        log.warn(string.format("Invalid value type for key '%s'", key), { module = "api" })
       end
 
       if mapping_config and mapping_config.rhs then
@@ -200,8 +202,6 @@ function M.setup_keymaps(bufnr)
           local rhs = function()
             require("checkmate").toggle_metadata(meta_name)
           end
-
-          log.debug("Mapping " .. mode .. " mode key " .. key .. " to metadata." .. meta_name, { module = "api" })
 
           buffer_map(bufnr, mode, key, rhs, desc)
           table.insert(buffer_local_keys[bufnr], { mode, key })
@@ -252,7 +252,6 @@ function M.setup_autocmds(bufnr)
 
         local success = parser.convert_unicode_to_markdown(temp_bufnr)
         if not success then
-          log.error("Failed to convert Unicode to Markdown", { module = "api" })
           vim.api.nvim_buf_delete(temp_bufnr, { force = true })
           vim.notify("Checkmate: Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
           vim.b[bufnr]._checkmate_writing = false
@@ -285,7 +284,6 @@ function M.setup_autocmds(bufnr)
             pcall(function()
               uv.fs_unlink(temp_filename)
             end)
-            log.error("Failed to rename temp file: " .. (rename_err or "unknown error"), { module = "api" })
             vim.notify("Checkmate: Failed to save file", vim.log.levels.ERROR)
             vim.bo[bufnr].modified = was_modified
             vim.b[bufnr]._checkmate_writing = false
@@ -386,7 +384,6 @@ function M.process_buffer(bufnr, process_type, reason)
   process_type = process_type or "full"
   local process_config = M.PROCESS_CONFIGS[process_type]
   if not process_config then
-    log.error("Unknown process type: " .. process_type, { module = "api" })
     return
   end
 
@@ -422,11 +419,6 @@ function M.process_buffer(bufnr, process_type, reason)
 
       local end_time = vim.uv.hrtime() / 1000000
       local elapsed = end_time - start_time
-
-      log.debug(
-        ("Buffer processed (%s) in %d ms, reason: %s"):format(process_type, elapsed, reason or "unknown"),
-        { module = "api" }
-      )
     end
 
     M._debounced_processors[bufnr][process_type] = util.debounce(process_impl, {
@@ -435,11 +427,6 @@ function M.process_buffer(bufnr, process_type, reason)
   end
 
   M._debounced_processors[bufnr][process_type]()
-
-  log.debug(
-    ("Process (%s) scheduled for buffer %d, reason: %s"):format(process_type, bufnr, reason or "unknown"),
-    { module = "api" }
-  )
 end
 
 -- Cleans up all checkmate state associated with a buffer
@@ -1115,7 +1102,6 @@ end
 function M.compute_diff_add_metadata(items, meta_name, meta_value)
   local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
-    log.error("Metadata type '" .. meta_name .. "' is not configured", { module = "api" })
     return {}, {}
   end
 
@@ -1727,7 +1713,6 @@ function M.archive_todos(opts)
             break
           end
         end
-        log.debug(("Found existing archive section: lines %d-%d"):format(archive_start_row + 1, archive_end_row + 1))
         break
       end
     end
@@ -1775,7 +1760,6 @@ function M.archive_todos(opts)
     util.notify("No completed todo items to archive", vim.log.levels.INFO)
     return false
   end
-  log.debug(("Found %d root todos to archive"):format(archived_root_cnt))
 
   table.sort(archived_ranges, function(a, b)
     return a.start_row < b.start_row

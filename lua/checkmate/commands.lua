@@ -1,3 +1,5 @@
+local log = require("checkmate.log")
+
 local Commands = {}
 
 ---@class checkmate.CommandDefinition
@@ -326,6 +328,7 @@ function Commands.dispatch(opts)
         ("Usage: Checkmate %s <%s>"):format(path, table.concat(vim.tbl_keys(entry.subcommands), "|")),
         vim.log.levels.INFO
       )
+      log.fmt_warn("[commands] `%s %s` is not a valid Checkmate command", opts.name, opts.args)
       return
     end
     entry = entry.subcommands[name]

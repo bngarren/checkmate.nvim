@@ -319,14 +319,20 @@ describe("checkmate init and lifecycle", function()
   end)
 
   describe("file patterns", function()
-    local checkmate = require("checkmate")
-    local file_matcher = require("checkmate.file_matcher")
+    ---@module "checkmate"
+    local checkmate
+    ---@module "checkmate.file_matcher"
+    local file_matcher
 
-    lazy_setup(function()
+    before_each(function()
+      _G.reset_state()
+
+      checkmate = require("checkmate")
       checkmate.setup()
+      file_matcher = require("checkmate.file_matcher")
     end)
 
-    lazy_teardown(function()
+    after_each(function()
       checkmate.stop()
     end)
 

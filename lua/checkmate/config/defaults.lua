@@ -15,9 +15,8 @@ return {
     "*.todo.md",
   },
   log = {
-    level = "info",
-    use_file = false,
-    use_buffer = false,
+    level = "warn",
+    use_file = true,
   },
   -- Default keymappings
   keys = {

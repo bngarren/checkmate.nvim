@@ -238,7 +238,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
----Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
+---Note that Gith[118;1:3uub-flavored Markdown specification only includes "checked" and "unchecked".
 ---
 ---If you add additional states here, they may not work in other Markdown apps without special configuration.
 ---@field todo_states table<string, checkmate.TodoStateDefinition>
@@ -260,7 +260,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---
 ---When you change a todo's state, it can automatically update related todos based on their
 ---hierarchical relationship. Only "checked" and "unchecked" states are propagated - custom
----states remain unchanged but influence the propagation logic based on their behavior type.
+---states remain unchanged but influence the propagation logic based on their type.
 ---@field smart_toggle checkmate.SmartToggleSettings
 ---
 ---Enable/disable the todo count indicator (shows number of child todo items incomplete vs complete)
@@ -314,12 +314,13 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
---- Defaults to `~/.local/share/nvim/checkmate/current.log` (Unix) or `C:\Users\USERNAME\AppData\Local\nvim-data\checkmate\current.log` (Windows)
+--- Defaults to `vim.fn.stdpath("log") .. "checkmate.log"`
 ---@field file_path string?
 ---
---- Should print log output to a scratch buffer
---- Open with `:Checkate debug log` or `require("checkmate").debug_log()`
----@field use_buffer boolean
+--- Max file size (kilobytes)
+--- When file size exceeds max, a new file will be overwritten
+--- Default: 5120 kb (5 mb)
+---@field max_file_size? number
 
 -----------------------------------------------------
 
@@ -415,7 +416,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---When a parent should become checked
 ---i.e, how a checked child affects its parent
 ---
----Note: Custom states with "complete" behavior count as done, "incomplete" as not done,
+---Note: Custom states with "complete" type count as done, "incomplete" as not done,
 ---and "inactive" states are ignored (as if they don't exist for completion purposes).
 ---
 ---  - "all_children": When ALL descendants are complete or inactive, including nested
@@ -550,7 +551,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---
 ---Map of issues to diagnostic severity level
 ---@field severity table<string, vim.diagnostic.Severity>?
---- TODO: @field auto_fix boolean Auto fix on buffer write
 ---
 ---Whether to use verbose linter/diagnostic messages
 ---Default: false
@@ -562,7 +562,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ### Defaults
 ```lua
 ---@type checkmate.Config
-local defaults = {
+return {
   enabled = true,
   notify = true,
   -- Default file matching:
@@ -578,9 +578,8 @@ local defaults = {
     "*.todo.md",
   },
   log = {
-    level = "info",
-    use_file = false,
-    use_buffer = false,
+    level = "warn",
+    use_file = true,
   },
   -- Default keymappings
   keys = {

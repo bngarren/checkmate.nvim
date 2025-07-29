@@ -3272,9 +3272,7 @@ Final content.
       local bufnr = h.setup_test_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
-      local todo = h.find_todo_by_text(todo_map, "MyTask")
-      assert.is_not_nil(todo)
-      ---@cast todo checkmate.TodoItem
+      local todo = h.exists(h.find_todo_by_text(todo_map, "MyTask"))
 
       assert.equal("unchecked", todo.state)
 
@@ -3290,6 +3288,25 @@ Final content.
       assert.equal(todo.todo_marker.position.col + #unchecked, hunk.end_col)
       -- replacement should be the checked marker
       assert.same({ checked }, hunk.insert)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should compute correct diff hunk for inserting a todo below", function()
+      local unchecked = h.get_unchecked_marker()
+      local cm = require("checkmate")
+      cm.setup()
+
+      local content = [[
+- ]] .. unchecked .. [[ MyTask]]
+      local bufnr = h.setup_test_buffer(content)
+
+      local hunks = api.compute_diff_insert_todo_below(bufnr, 0)
+
+      vim.print(hunks)
 
       finally(function()
         cm.stop()

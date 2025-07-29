@@ -545,6 +545,43 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
   return hunks
 end
 
+--- Creates a new todo under the current list item
+---
+--- - Does nothing if parent_row is not a list item
+---@param ctx checkmate.TransactionContext
+---@param parent_row number 0-based row. The new todo will be created under (nested) this row
+---@param opts any
+function M.create_nested_todo(ctx, parent_row, opts)
+  local hunks = {}
+
+  local bufnr = ctx.get_buf()
+
+  local parent_line = vim.api.nvim_buf_get_lines(bufnr, parent_row, parent_row + 1, false)[1]
+
+  local li_match = ph.match_list_item(parent_line)
+
+  if not li_match then
+    util.notify("Checkmate: cannot create nested todo from non-list item", vim.log.levels.INFO)
+    log.fmt_debug("[api] Cannot create nested todo from non-list item. bufnr: %d, parent_row: %d", bufnr, parent_row)
+    return {}
+  end
+
+  local new_hunks = M.compute_diff_insert_todo_below(bufnr, parent_row)
+
+  vim.list_extend(hunks, new_hunks)
+
+  if config.options.enter_insert_after_new then
+    ctx.add_cb(function()
+      local new_row = parent_row + 1
+      local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
+      vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
+      vim.cmd("startinsert!")
+    end)
+  end
+
+  return hunks
+end
+
 --- Convert a single line into an “unchecked” todo
 ---@param bufnr integer Buffer number
 ---@param row integer 0-based row to convert
@@ -584,50 +621,64 @@ function M.compute_diff_convert_to_todo(bufnr, row)
   }
 end
 
---- Insert a new, empty “unchecked” todo directly below the given row.
+--- Insert a new, empty todo directly below the given row.
 ---
----@param bufnr integer Buffer number
----@param row integer  -- 0-based row where we want to insert below
+--- - Defaults to an "unchecked" todo if no `opts.todo_state` is specified
+---
+---@param bufnr number Buffer number
+---@param row number Line number (0-indexed). This is the parent row to insert BELOW.
+---@param opts? table Options table
+---  - indent?: boolean|number Auto-indent 2 spaces from parent if true, or indent by number of spaces
+---  - todo_state?: string Todo state to insert (default: "unchecked")
+---  - insert_markdown?: boolean If true, will insert checkbox as Markdown, otherwise will use marker
 ---@return checkmate.TextDiffHunk[]
-function M.compute_diff_insert_todo_below(bufnr, row)
-  local todo_map = parser.get_todo_map(bufnr)
-  local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
+function M.compute_diff_insert_todo_below(bufnr, row, opts)
+  opts = opts or {}
+  local todo_state = opts.todo_state or "unchecked"
 
-  local indent, marker_text
-  if cur_todo then
-    local list_node = cur_todo.list_marker and cur_todo.list_marker.node
-    if list_node then
-      -- list_node:range() → { start_row, start_col, end_row, end_col }
-      local sr, sc, _, ec = list_node:range()
-      indent = string.rep(" ", sc)
-      -- marker_text = text of the marker, e.g. "-" or "1."
-      marker_text = vim.api.nvim_buf_get_text(bufnr, sr, sc, sr, ec - 1, {})[1]
-
-      -- handle ordered lists by incrementing the number
-      local num = marker_text:match("^(%d+)[.)]")
-      if num then
-        local delimiter = marker_text:match("[.)]")
-        marker_text = tostring(tonumber(num) + 1) .. delimiter
-      end
-    else
-      -- shouldn't get here..but oh well, a fallback
-      indent = string.rep(" ", cur_todo.range.start.col)
-      marker_text = config.options.default_list_marker or "-"
-    end
-  else
-    indent = ""
-    marker_text = config.options.default_list_marker or "-"
+  local parent_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+  if not parent_line then
+    return {}
   end
 
-  local new_row = row + 1
-  local unchecked = config.options.todo_markers.unchecked or "□"
-  local new_line = indent .. marker_text .. " " .. unchecked .. " "
+  local li_match = ph.match_list_item(parent_line)
+  local li_marker_str = config.options.default_list_marker
+  local indent_str = ""
+
+  if li_match then
+    local base_indent = li_match.indent or 0
+    local base_indent_str = string.rep(" ", base_indent)
+
+    if opts.indent == true then
+      -- auto-indent 2 spaces from parent
+      indent_str = base_indent_str .. "  "
+    elseif type(opts.indent) == "number" then
+      -- indent by number of spaces
+      indent_str = string.rep(" ", opts.indent)
+    else
+      -- same indent as parent
+      indent_str = base_indent_str
+    end
+
+    li_marker_str = li_match.marker
+  else
+    -- not a list item
+    if type(opts.indent) == "number" then
+      indent_str = string.rep(" ", opts.indent)
+    elseif opts.indent == true then
+      indent_str = ""
+    end
+  end
+
+  local new_state = config.options.todo_states[todo_state] or config.options.todo_states.unchecked
+  local checkbox = opts.insert_markdown and new_state.markdown or new_state.marker
+  local new_line = indent_str .. li_marker_str .. " " .. checkbox .. " "
 
   return {
     {
-      start_row = new_row,
+      start_row = row + 1,
       start_col = 0,
-      end_row = new_row,
+      end_row = row + 1,
       end_col = 0,
       insert = { new_line },
     },

@@ -3294,24 +3294,5 @@ Final content.
         h.cleanup_buffer(bufnr)
       end)
     end)
-
-    it("should compute correct diff hunk for inserting a todo below", function()
-      local unchecked = h.get_unchecked_marker()
-      local cm = require("checkmate")
-      cm.setup()
-
-      local content = [[
-- ]] .. unchecked .. [[ MyTask]]
-      local bufnr = h.setup_test_buffer(content)
-
-      local hunks = api.compute_diff_insert_todo_below(bufnr, 0)
-
-      vim.print(hunks)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
-    end)
   end)
 end)

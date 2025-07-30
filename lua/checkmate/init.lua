@@ -394,19 +394,26 @@ function M.cycle(opts)
   return true
 end
 
+---@class checkmate.CreateOpts
+---@field nested? boolean Create as nested/child todo (default: false, normal mode only)
+---@field indent? number Additional indentation in spaces. Only applies when creating new todos below existing lines. If nil and `nested` is true, defaults to 2 spaces (relative to the parent list item). If nil and `nested` is false/nil, defaults to 0 (same level).
+---@field state? string Target todo state (default: "unchecked", or inherits from parent if nested)
+
 --- Creates a new todo item
 ---
 --- # Behavior
 --- - In normal mode:
 ---   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
+---   - Will append a new todo item below the current line if it's already a todo
+---   - With `nested = true`, will create an indented child todo below current line
 --- - In visual mode:
----   - Will convert each line in the selection to a new todo item with the default list marker
----   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
----   additional lines will be converted to individual todos
----   - Will not append any new todo items even if all lines in the selection are already todo items
+---   - Will convert each line in the selection to a new todo item
+---   - Will ignore lines that are already todo items
+---   - The `nested` option is ignored in visual mode
+---@param opts? checkmate.CreateOpts
 ---@return boolean success
-function M.create()
+function M.create(opts)
+  opts = opts or {}
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
@@ -417,7 +424,12 @@ function M.create()
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
-    ctx.add_op(api.create_todos, row, row, false)
+    ctx.add_op(api.create_todos, row, row, {
+      visual = false,
+      nested = opts.nested,
+      indent = opts.indent,
+      todo_state = opts.state,
+    })
 
     return true
   end
@@ -448,7 +460,12 @@ function M.create()
   end
 
   transaction.run(bufnr, function(tx_ctx)
-    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+    tx_ctx.add_op(api.create_todos, start_row, end_row, {
+      visual = is_visual,
+      nested = opts.nested,
+      indent = opts.indent,
+      todo_state = opts.state,
+    })
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)

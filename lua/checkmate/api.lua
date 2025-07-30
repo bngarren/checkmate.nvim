@@ -500,6 +500,12 @@ function M.create_todos(ctx, start_row, end_row, opts)
 
   local bufnr = ctx.get_buf()
 
+  local todo_state = opts.todo_state
+  if todo_state and not config.options.todo_states[todo_state] then
+    log.fmt_warn("[api] Invalid `todo_state` ('%s') passed to `create_todos`", todo_state)
+    todo_state = "unchecked"
+  end
+
   if opts.visual then
     -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
@@ -507,7 +513,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
       if not parser.is_todo_item(cur_line) then
         local new_hunks = M.compute_diff_create_todo(bufnr, row, {
           action = "convert",
-          todo_state = opts.todo_state or "unchecked",
+          todo_state = todo_state,
         })
         vim.list_extend(hunks, new_hunks)
       end
@@ -517,13 +523,13 @@ function M.create_todos(ctx, start_row, end_row, opts)
     local row = start_row
     local todo_item = ctx.get_todo_by_row(row, true) -- root_only
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-    local is_list_item = ph.match_list_item(line) ~= nil
+    local li_match = ph.match_list_item(line)
 
-    if todo_item or (is_list_item and opts.nested) then
+    if li_match and (todo_item or opts.nested) then
       -- current line is todo or we want nested: insert below
       local new_hunks = M.compute_diff_create_todo(bufnr, row, {
         action = "insert",
-        indent = opts.indent,
+        indent = opts.nested and li_match.indent + 2 or opts.indent or li_match.indent,
         todo_state = opts.todo_state,
         inherit_state = true,
       })
@@ -541,7 +547,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
       -- convert current line
       local new_hunks = M.compute_diff_create_todo(bufnr, row, {
         action = "convert",
-        todo_state = opts.todo_state or "unchecked",
+        todo_state = todo_state,
       })
       vim.list_extend(hunks, new_hunks)
 
@@ -558,46 +564,9 @@ function M.create_todos(ctx, start_row, end_row, opts)
   return hunks
 end
 
---- Creates a new todo under the current list item
----
---- - Does nothing if parent_row is not a list item
----@param ctx checkmate.TransactionContext
----@param parent_row number 0-based row. The new todo will be created under (nested) this row
----@param opts any
-function M.create_nested_todo(ctx, parent_row, opts)
-  local hunks = {}
-
-  local bufnr = ctx.get_buf()
-
-  local parent_line = vim.api.nvim_buf_get_lines(bufnr, parent_row, parent_row + 1, false)[1]
-
-  local li_match = ph.match_list_item(parent_line)
-
-  if not li_match then
-    util.notify("Checkmate: cannot create nested todo from non-list item", vim.log.levels.INFO)
-    log.fmt_debug("[api] Cannot create nested todo from non-list item. bufnr: %d, parent_row: %d", bufnr, parent_row)
-    return {}
-  end
-
-  local new_hunks = M.compute_diff_insert_todo_below(bufnr, parent_row)
-
-  vim.list_extend(hunks, new_hunks)
-
-  if config.options.enter_insert_after_new then
-    ctx.add_cb(function()
-      local new_row = parent_row + 1
-      local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
-      vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
-      vim.cmd("startinsert!")
-    end)
-  end
-
-  return hunks
-end
-
 ---@class ComputeDiffCreateTodoOpts
 ---@field action? "convert" | "insert" Default: "convert"
----@field indent? number Indent used for "insert" action. If nil, auto-indents 2 spaces from parent.
+---@field indent? number Indent used for "insert" action. This should be the absolute number of spaces for the list item indent.
 ---@field todo_state? string Todo state for new todo. Default: "unchecked"
 ---@field inherit_state? boolean Whether to inherit parent's state for insert (default: true)
 
@@ -662,14 +631,12 @@ function M.compute_diff_create_todo(bufnr, row, opts)
     if li_match then
       local base_indent = li_match.indent or 0
 
-      local additional_indent = 0
+      -- use provided indent directly, or default to base_indent
       if opts.indent ~= nil then
-        additional_indent = opts.indent
-      elseif opts.action == "insert" then
-        additional_indent = 2
+        indent_str = string.rep(" ", opts.indent)
+      else
+        indent_str = string.rep(" ", base_indent)
       end
-
-      indent_str = string.rep(" ", base_indent + additional_indent)
 
       li_marker_str = li_match.marker
 

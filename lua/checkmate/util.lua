@@ -576,9 +576,19 @@ function M.apply_diff(bufnr, hunks)
       and hunk.end_col == 0
       and #hunk.insert > 0
 
+    local is_line_replacement = hunk.start_col == 0
+      and hunk.end_col == 0
+      and hunk.end_row == hunk.start_row + 1
+      and #hunk.insert == 1
+
     if is_line_insertion then
+      -- insert new lines without affecting existing lines
       vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
+    elseif is_line_replacement then
+      -- replace entire line(s)
+      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.end_row, false, hunk.insert)
     else
+      -- partial text replacement within line(s)
       vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
     end
   end

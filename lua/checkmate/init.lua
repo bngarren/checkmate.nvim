@@ -396,20 +396,38 @@ end
 
 ---@class checkmate.CreateOpts
 ---@field nested? boolean Create as nested/child todo (default: false, normal mode only)
----@field indent? number Additional indentation in spaces. Only applies when creating new todos below existing lines. If nil and `nested` is true, defaults to 2 spaces (relative to the parent list item). If nil and `nested` is false/nil, defaults to 0 (same level).
----@field state? string Target todo state (default: "unchecked", or inherits from parent if nested)
+---@field indent? number Absolute indentation in spaces, from the start of line. Only applies when creating new todos below existing lines. When nil: inherits parent's indent for siblings, or parent's indent + 2 for nested todos.
+---@field state? string Target todo state (default: "unchecked", or inherits from parent if nested). If the `state` is not defined in config `todo_states` then "unchecked" will be used.
 
 --- Creates a new todo item
 ---
---- # Behavior
---- - In normal mode:
----   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line if it's already a todo
----   - With `nested = true`, will create an indented child todo below current line
---- - In visual mode:
----   - Will convert each line in the selection to a new todo item
----   - Will ignore lines that are already todo items
----   - The `nested` option is ignored in visual mode
+--- # Behavior by mode:
+--- ## Normal mode:
+--- - **On non-todo line**: Converts the line to a todo item
+--- - **On todo line**: Inserts a new todo below current line
+---   - Default: Creates sibling at same indentation level
+---   - With `nested = true`: Creates child todo indented 2 spaces
+---   - With custom `indent`: Creates todo at specified indentation
+---
+--- ## Visual mode:
+--- - Converts each non-todo line in selection to a todo item
+--- - Ignores lines that are already todo items
+--- - Options `nested` and `indent` are ignored
+---
+--- # Examples:
+--- ```lua
+--- -- Convert current line to todo
+--- require('checkmate').create()
+---
+--- -- Create a child todo below current todo
+--- require('checkmate').create({ nested = true })
+---
+--- -- Create todo with custom state
+--- require('checkmate').create({ state = "in_progress" })
+---
+--- -- Create todo at specific indentation (4 spaces)
+--- require('checkmate').create({ indent = 4 })
+--- ```
 ---@param opts? checkmate.CreateOpts
 ---@return boolean success
 function M.create(opts)
@@ -449,6 +467,9 @@ function M.create(opts)
     if end_row < start_row then
       start_row, end_row = end_row, start_row
     end
+
+    -- don't nest in visual mode
+    opts.nested = false
   else
     local cur = vim.api.nvim_win_get_cursor(0)
     start_row = cur[1] - 1

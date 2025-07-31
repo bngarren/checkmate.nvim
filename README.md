@@ -134,6 +134,8 @@ Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{
 
 (These will automatically convert when you leave insert mode!)
 
+Tip: You can also create nested/child todos using the `:Checkmate create_child` command/api, or the default keymap `<leader>TN`.
+
 ### 3. Manage Your Tasks
 
 - Toggle items with `:Checkmate toggle` (default: `<leader>Tt`)
@@ -158,7 +160,8 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 |--------------|-------------|
 | `archive` | Archive all checked todo items in the buffer. See api `archive()` |
 | `check` | Mark the todo item under the cursor as checked. See api `check()`|
-| `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
+| `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`. Can configure behavior via `opts` such as nesting, indentation, and the new todo's state. |
+| `create_child` | Create a new todo item below the current line and indented from the parent (+ 2 spaces). See api `create_child()` |
 | `cycle_next` | Cycle a todo's state to the next available. See api `cycle()` |
 | `cycle_previous` | Cycle a todo's state to the previous. See api `cycle()` |
 | `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |

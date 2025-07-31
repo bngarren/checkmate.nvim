@@ -50,6 +50,11 @@ return {
       desc = "Create todo item",
       modes = { "n", "v" },
     },
+    ["<leader>TN"] = {
+      rhs = "<cmd>Checkmate create_child<CR>",
+      desc = "Create todo item (nested)",
+      modes = { "n" },
+    },
     ["<leader>TR"] = {
       rhs = "<cmd>Checkmate remove_all_metadata<CR>",
       desc = "Remove all metadata from a todo item",

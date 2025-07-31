@@ -487,7 +487,7 @@ end
 ---@field visual? boolean Whether from visual selection
 ---@field nested? boolean Whether to create nested (indented) todo
 ---@field indent? number Indentation (spaces), see `compute_diff_create_todo`
----@field todo_state? string Target todo state of newly create todo(s)
+---@field todo_state? string|boolean Target todo state of newly create todo(s). If `true` will try to match state of parent.
 
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param start_row number 0-based range start
@@ -501,7 +501,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
   local bufnr = ctx.get_buf()
 
   local todo_state = opts.todo_state
-  if todo_state and not config.options.todo_states[todo_state] then
+  if todo_state ~= nil and type(todo_state) == "string" and not config.options.todo_states[todo_state] then
     log.fmt_warn("[api] Invalid `todo_state` ('%s') passed to `create_todos`", todo_state)
     todo_state = "unchecked"
   end
@@ -513,7 +513,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
       if not parser.is_todo_item(cur_line) then
         local new_hunks = M.compute_diff_create_todo(bufnr, row, {
           action = "convert",
-          todo_state = todo_state,
+          todo_state = type(todo_state) == "string" and todo_state or nil,
         })
         vim.list_extend(hunks, new_hunks)
       end
@@ -526,19 +526,44 @@ function M.create_todos(ctx, start_row, end_row, opts)
     local li_match = ph.match_list_item(line)
 
     -- in normal mode we can do 2 things:
-    -- - if origin line is a list item, we can insert below it IF it is also a todo item OR the user wants a nested todo under a regular list item
-    -- - if it's not a list item, we can convert the line to a todo
+    -- - we can insert below the line IF it is already a todo item OR the user wants a nested (child) todo under it (passing `opts.nested = true`)
+    -- - we can convert the line to a todo (if `opts.nested = false`)
 
-    if li_match and (todo_item or opts.nested) then
+    if todo_item ~= nil or opts.nested == true then
       -- current line is todo or we want nested: insert below
+
+      -- 1. opts.indent gets priority
+      -- 2. then if nested, we try to use parent list item + 2, otherwise just use 2 spaces
+      -- 3. if not nested, use parent list item (should be a todo item)
+      local new_indent = opts.indent
+      if opts.nested then
+        if not new_indent then
+          new_indent = (li_match and li_match.indent + 2) or 2
+        end
+      else
+        if not new_indent then
+          new_indent = (li_match and li_match.indent) or 0
+        end
+      end
+
+      -- we determine `inherit_state` from the `todo_state` opt being `true`
+      local inherit_state = false
+      if todo_state then
+        if type(todo_state) == "boolean" then
+          inherit_state = todo_state == true
+          todo_state = nil
+          ---@cast todo_state nil
+        elseif type(todo_state) == "string" then
+          inherit_state = false
+          ---@cast todo_state string
+        end
+      end
+
       local new_hunks = M.compute_diff_create_todo(bufnr, row, {
         action = "insert",
-        -- if nested, we take the origin/parent's indent and add 2 spaces
-        -- otherwise, we use the absolute opts.indent, or
-        -- fallback to just matching the parent's indent
-        indent = opts.nested and li_match.indent + 2 or opts.indent or li_match.indent,
-        todo_state = opts.todo_state,
-        inherit_state = false, -- TODO: should we expose `inherit_state`?
+        indent = new_indent,
+        todo_state = todo_state,
+        inherit_state = inherit_state,
       })
       vim.list_extend(hunks, new_hunks)
 
@@ -554,7 +579,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
       -- convert current line
       local new_hunks = M.compute_diff_create_todo(bufnr, row, {
         action = "convert",
-        todo_state = todo_state,
+        todo_state = type(todo_state) == "string" and todo_state or nil,
       })
       vim.list_extend(hunks, new_hunks)
 
@@ -666,8 +691,8 @@ function M.compute_diff_create_todo(bufnr, row, opts)
       -- not a list item
       if type(opts.indent) == "number" then
         indent_str = string.rep(" ", opts.indent --[[@as number]])
-      elseif opts.indent == true then
-        indent_str = "  "
+      else
+        indent_str = ""
       end
     end
 

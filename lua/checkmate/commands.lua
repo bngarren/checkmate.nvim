@@ -75,6 +75,14 @@ local top_commands = {
     end,
   },
 
+  create_child = {
+    desc = "Create a new todo item nested under current line",
+    nargs = "0",
+    handler = function()
+      require("checkmate").create_child()
+    end,
+  },
+
   lint = {
     desc = "Lint this buffer for Checkmate formatting issues",
     nargs = "0",

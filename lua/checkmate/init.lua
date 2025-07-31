@@ -397,7 +397,7 @@ end
 ---@class checkmate.CreateOpts
 ---@field nested? boolean Create as nested/child todo (default: false, normal mode only)
 ---@field indent? number Absolute indentation in spaces, from the start of line. Only applies when creating new todos below existing lines. When nil: inherits parent's indent for siblings, or parent's indent + 2 for nested todos.
----@field state? string Target todo state (default: "unchecked", or inherits from parent if nested). If the `state` is not defined in config `todo_states` then "unchecked" will be used.
+---@field state? string|boolean Target todo state (default: "unchecked", or inherits from parent if `true`). If the `state` is not defined in config `todo_states` then "unchecked" will be used.
 
 --- Creates a new todo item
 ---
@@ -492,6 +492,21 @@ function M.create(opts)
   end)
 
   return true
+end
+
+--- Creates a child todo under the current line
+---
+--- Attempts to indent the new todo based on the current line's indentation
+---
+--- For `opts` description see corresponding parameters in `create()` function
+---@param opts? {state?: string|boolean}
+---@return boolean
+function M.create_child(opts)
+  opts = opts or {}
+  return M.create({
+    nested = true,
+    state = opts.state,
+  })
 end
 
 --- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection

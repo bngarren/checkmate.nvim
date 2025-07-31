@@ -5,9 +5,7 @@ vim.env.NVIM_APPNAME = "headless"
 
 load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
 
-local env = require("tests.fixtures.environments.headless")
-
-local spec = env.spec
+local spec = {}
 
 if vim.env.DEBUG == "1" then
   table.insert(spec, {

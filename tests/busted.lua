@@ -5,10 +5,7 @@ vim.env.NVIM_APPNAME = "headless"
 
 load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
 
--- make sure `tests/` is on `package.path`
-local cwd = vim.fn.getcwd()
-package.path = cwd .. "/tests/?.lua;" .. cwd .. "/tests/?/init.lua;" .. package.path
-local env = require("fixtures.environments.headless")
+local env = require("tests.fixtures.environments.headless")
 
 local spec = env.spec
 

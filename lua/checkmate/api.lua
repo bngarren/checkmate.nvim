@@ -486,7 +486,7 @@ end
 ---@class CreateTodosOpts
 ---@field visual? boolean Whether from visual selection
 ---@field nested? boolean Whether to create nested (indented) todo
----@field indent? number Indentation for nested todos, see `compute_diff_create_todo`
+---@field indent? number Indentation (spaces), see `compute_diff_create_todo`
 ---@field todo_state? string Target todo state of newly create todo(s)
 
 ---@param ctx checkmate.TransactionContext Transaction context
@@ -525,19 +525,26 @@ function M.create_todos(ctx, start_row, end_row, opts)
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
     local li_match = ph.match_list_item(line)
 
+    -- in normal mode we can do 2 things:
+    -- - if origin line is a list item, we can insert below it IF it is also a todo item OR the user wants a nested todo under a regular list item
+    -- - if it's not a list item, we can convert the line to a todo
+
     if li_match and (todo_item or opts.nested) then
       -- current line is todo or we want nested: insert below
       local new_hunks = M.compute_diff_create_todo(bufnr, row, {
         action = "insert",
+        -- if nested, we take the origin/parent's indent and add 2 spaces
+        -- otherwise, we use the absolute opts.indent, or
+        -- fallback to just matching the parent's indent
         indent = opts.nested and li_match.indent + 2 or opts.indent or li_match.indent,
         todo_state = opts.todo_state,
-        inherit_state = true,
+        inherit_state = false, -- TODO: should we expose `inherit_state`?
       })
       vim.list_extend(hunks, new_hunks)
 
       if config.options.enter_insert_after_new then
         ctx.add_cb(function()
-          local new_row = row + 1
+          local new_row = todo_item and (todo_item.first_inline_range["end"].row + 1) or row + 1
           local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
           vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
           vim.cmd("startinsert!")
@@ -568,11 +575,11 @@ end
 ---@field action? "convert" | "insert" Default: "convert"
 ---@field indent? number Indent used for "insert" action. This should be the absolute number of spaces for the list item indent.
 ---@field todo_state? string Todo state for new todo. Default: "unchecked"
----@field inherit_state? boolean Whether to inherit parent's state for insert (default: true)
+---@field inherit_state? boolean Whether to inherit parent's state for insert (default: false)
 
 --- Compute diff for creating or converting to todo items
 ---@param bufnr integer Buffer number
----@param row integer 0-based row. If the `action` is "insert", the new todo will be on row + 1.
+---@param row integer 0-based row that is the "origin" of the new todo. "convert" will turn the row into a todo item. "insert" will insert a new todo line (at row + 1 for a regular list item or at the end of a todo's first inline range)
 ---@param opts? ComputeDiffCreateTodoOpts
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_create_todo(bufnr, row, opts)
@@ -618,10 +625,11 @@ function M.compute_diff_create_todo(bufnr, row, opts)
     }
   else -- action == "insert"
     local li_match = ph.match_list_item(line)
+    local todo_item
     local li_marker_str = config.options.default_list_marker
     local indent_str = ""
 
-    if opts.inherit_state ~= false then
+    if opts.inherit_state then
       local parent_state = parser.get_todo_item_state(line)
       if parent_state then
         todo_state = parent_state
@@ -629,6 +637,8 @@ function M.compute_diff_create_todo(bufnr, row, opts)
     end
 
     if li_match then
+      todo_item = parser.get_todo_item_at_position(bufnr, row, 0, { root_only = true })
+
       local base_indent = li_match.indent or 0
 
       -- use provided indent directly, or default to base_indent
@@ -665,126 +675,19 @@ function M.compute_diff_create_todo(bufnr, row, opts)
     local todo_marker = state_def.marker
     local new_line = indent_str .. li_marker_str .. " " .. todo_marker .. " "
 
+    -- if it's a todo item on the current row, we insert below its range
+    local start_row = todo_item and (todo_item.first_inline_range["end"].row + 1) or row + 1
+
     return {
       {
-        start_row = row + 1,
+        start_row = start_row,
         start_col = 0,
-        end_row = row + 1,
+        end_row = start_row,
         end_col = 0,
         insert = { new_line },
       },
     }
   end
-end
-
---- Convert a single line into an “unchecked” todo
----@param bufnr integer Buffer number
----@param row integer 0-based row to convert
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_convert_to_todo(bufnr, row)
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-
-  -- existing indentation
-  local indent = util.get_line_indent(line)
-
-  local list_item = ph.match_list_item(line)
-  local list_marker = list_item and list_item.marker
-
-  local unchecked = config.options.todo_markers.unchecked
-  local new_text
-
-  if list_marker then
-    -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
-    new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. unchecked)
-    -- add a space if the new line ends with the unchecked marker
-    if new_text:match(unchecked .. "$") then
-      new_text = new_text .. " "
-    end
-  else
-    local default_marker = config.options.default_list_marker or "-"
-    new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
-  end
-
-  return {
-    {
-      start_row = row,
-      start_col = 0,
-      end_row = row,
-      end_col = -1, -- this will force apply_diff to use set_text rather than set_lines
-      insert = { new_text },
-    },
-  }
-end
-
---- Insert a new, empty todo directly below the given row.
----
---- - Defaults to an "unchecked" todo if no `opts.todo_state` is specified
----
----@param bufnr number Buffer number
----@param row number Line number (0-indexed). This is the parent row to insert BELOW.
----@param opts? table Options table
----  - indent?: boolean|number Auto-indent 2 spaces from parent if true, or indent by number of spaces
----  - todo_state?: string Todo state to insert (default: "unchecked")
----  - insert_markdown?: boolean If true, will insert checkbox as Markdown, otherwise will use marker
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_insert_todo_below(bufnr, row, opts)
-  opts = opts or {}
-  local todo_state = opts.todo_state or "unchecked"
-
-  local parent_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
-  if not parent_line then
-    return {}
-  end
-
-  local li_match = ph.match_list_item(parent_line)
-  local li_marker_str = config.options.default_list_marker
-  local indent_str = ""
-
-  if li_match then
-    local base_indent = li_match.indent or 0
-    local base_indent_str = string.rep(" ", base_indent)
-
-    if opts.indent == true then
-      -- auto-indent 2 spaces from parent
-      indent_str = base_indent_str .. "  "
-    elseif type(opts.indent) == "number" then
-      -- indent by number of spaces
-      indent_str = string.rep(" ", opts.indent)
-    else
-      -- same indent as parent
-      indent_str = base_indent_str
-    end
-
-    li_marker_str = li_match.marker
-
-    -- handle ordered lists by incrementing the number
-    local num = li_marker_str:match("^(%d+)[.)]")
-    if num then
-      local delimiter = li_marker_str:match("[.)]")
-      li_marker_str = tostring(tonumber(num) + 1) .. delimiter
-    end
-  else
-    -- not a list item
-    if type(opts.indent) == "number" then
-      indent_str = string.rep(" ", opts.indent)
-    elseif opts.indent == true then
-      indent_str = ""
-    end
-  end
-
-  local new_state = config.options.todo_states[todo_state] or config.options.todo_states.unchecked
-  local checkbox = opts.insert_markdown and new_state.markdown or new_state.marker
-  local new_line = indent_str .. li_marker_str .. " " .. checkbox .. " "
-
-  return {
-    {
-      start_row = row + 1,
-      start_col = 0,
-      end_row = row + 1,
-      end_col = 0,
-      insert = { new_line },
-    },
-  }
 end
 
 --- Compute diff hunks for toggling a batch of items with their target states

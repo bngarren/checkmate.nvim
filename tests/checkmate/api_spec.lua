@@ -347,7 +347,7 @@ describe("API", function()
     local cm
     before_each(function()
       cm = require("checkmate")
-      cm.setup()
+      cm.setup(h.DEFAULT_TEST_CONFIG)
     end)
     after_each(function()
       cm.stop()
@@ -416,14 +416,14 @@ This is a regular line
       end)
     end)
 
-    it("should insert a new todo below when cursor is on existing todo", function()
+    it("should insert a new todo below existing todo's first inline range", function()
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
       local content = [[
 - ]] .. unchecked .. [[ First todo
-Some other content]]
+Some other content]] -- should insert todo after this line
 
       local bufnr = h.setup_test_buffer(content)
 
@@ -435,33 +435,50 @@ Some other content]]
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.equal(3, #lines)
       assert.equal(default_list_marker .. " " .. unchecked .. " First todo", lines[1])
-      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
-      assert.equal("Some other content", lines[3])
+      assert.equal("Some other content", lines[2])
+      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[3])
 
       finally(function()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
-    it("should maintain indentation when inserting new todo", function()
+    it("should insert todo with correct indentation", function()
       local config = require("checkmate.config")
       local unchecked = h.get_unchecked_marker()
       local default_list_marker = config.get_defaults().default_list_marker
 
       local content = [[
-  - ]] .. unchecked .. [[ Indented todo
-Some other content ]]
+- ]] .. unchecked .. [[ Indent 0]]
 
       local bufnr = h.setup_test_buffer(content)
 
+      -- 1. insert todo with exact indentation (cursor line 1)
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
-
-      local success = require("checkmate").create()
+      local success = require("checkmate").create({ indent = 4 })
       assert.is_true(success)
-
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented todo", lines[1])
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
+      assert.equal(default_list_marker .. " " .. unchecked .. " Indent 0", lines[1])
+      assert.equal("    " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
+
+      -- 2. insert todo matching parent (the new todo from above)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      success = require("checkmate").create({ indent = nil })
+      assert.is_true(success)
+      lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(default_list_marker .. " " .. unchecked .. " Indent 0", lines[1])
+      assert.equal("    " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
+      assert.equal("    " .. default_list_marker .. " " .. unchecked .. " ", lines[3])
+
+      -- 3. insert a nested todo (+2 spaces from parent)
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      success = require("checkmate").create({ nested = true })
+      assert.is_true(success)
+      lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal(default_list_marker .. " " .. unchecked .. " Indent 0", lines[1])
+      assert.equal("    " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
+      assert.equal("    " .. default_list_marker .. " " .. unchecked .. " ", lines[3])
+      assert.equal("      " .. default_list_marker .. " " .. unchecked .. " ", lines[4])
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -477,15 +494,24 @@ Some other content ]]
 ]]
       local bufnr = h.setup_test_buffer(content)
 
-      -- insert after first item
+      -- 1. insert after first item (should make 2.)
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
       local success = require("checkmate").create()
       assert.is_true(success)
-
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.equal("1. " .. unchecked .. " First item", lines[1])
       assert.equal("2. " .. unchecked .. " ", lines[2])
       assert.equal("2. " .. unchecked .. " Second item", lines[3])
+
+      -- 2. insert nested after last item (should make a new 1.)
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      success = require("checkmate").create({ nested = true })
+      assert.is_true(success)
+      lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.equal("1. " .. unchecked .. " First item", lines[1])
+      assert.equal("2. " .. unchecked .. " ", lines[2])
+      assert.equal("2. " .. unchecked .. " Second item", lines[3])
+      assert.equal("  1. " .. unchecked .. " ", lines[4])
 
       finally(function()
         h.cleanup_buffer(bufnr)
@@ -572,6 +598,42 @@ Regular text line
 
       assert.equal("  - " .. unchecked .. " Regular list item", lines[2])
       assert.matches("^%s*$", lines[3])
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should create todo with custom state", function()
+      local content = [[
+- □ Existing todo
+  ]]
+
+      local bufnr = h.setup_test_buffer(content)
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      -- Assuming you have a "pending" state configured
+      local success = require("checkmate").create({ state = "pending" })
+      assert.is_true(success)
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.matches(h.get_pending_marker() .. " ", lines[2])
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should handle invalid state gracefully", function()
+      local content = "Regular line"
+      local bufnr = h.setup_test_buffer(content)
+
+      local success = require("checkmate").create({ state = "invalid_state" })
+      assert.is_true(success)
+
+      -- should fall back to unchecked
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.matches(h.get_unchecked_marker(), lines[1])
 
       finally(function()
         h.cleanup_buffer(bufnr)

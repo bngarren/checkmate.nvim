@@ -536,4 +536,12 @@ function M.get_todo_state_type(state_name)
   return state_def and state_def.type or "inactive"
 end
 
+function M.get_todo_states()
+  local states = {}
+  for state_name in pairs(M.options.todo_states) do
+    table.insert(states, state_name)
+  end
+  return states
+end
+
 return M

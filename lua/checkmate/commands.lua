@@ -28,11 +28,13 @@ local top_commands = {
   toggle = {
     desc = "Toggle todo item under cursor or selection",
     nargs = "?",
-    handler = function(opts)
-      -- opts.fargs[2] may be "checked" or "unchecked"
-      require("checkmate").toggle(opts.fargs[2])
+    handler = function(data)
+      local fargs = data.fargs
+      require("checkmate").toggle(fargs and fargs[2] or nil)
     end,
-    complete = { "checked", "unchecked" },
+    complete = function()
+      return require("checkmate.config").get_todo_states()
+    end,
   },
 
   check = {
@@ -69,17 +71,25 @@ local top_commands = {
 
   create = {
     desc = "Create a new todo item",
-    nargs = "0",
-    handler = function()
-      require("checkmate").create()
+    nargs = "?",
+    handler = function(data)
+      local fargs = data.fargs
+      require("checkmate").create({ state = fargs and fargs[2] or nil })
+    end,
+    complete = function()
+      return require("checkmate.config").get_todo_states()
     end,
   },
 
   create_child = {
     desc = "Create a new todo item nested under current line",
-    nargs = "0",
-    handler = function()
-      require("checkmate").create_child()
+    nargs = "?",
+    handler = function(data)
+      local fargs = data.fargs
+      require("checkmate").create_child({ state = fargs and fargs[2] or nil })
+    end,
+    complete = function()
+      return require("checkmate.config").get_todo_states()
     end,
   },
 

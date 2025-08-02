@@ -1,8 +1,13 @@
 .PHONY: test test-file test-interactive clean
 
+# allow `make test DEBUG=1` (or any other target) to export DEBUG=1
+DEBUG ?= 0
+ifeq ($(DEBUG),1)
+export DEBUG
+endif
+
 FILE ?= $(f)
 TEST ?= $(t)
-
 BASENAME := $(basename $(notdir $(FILE)))
 
 #    - If FILE is empty, leave FILE_PATH empty.

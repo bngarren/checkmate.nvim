@@ -144,6 +144,18 @@ function M.get_line_indent(line)
   return line:match("^(%s*)") or ""
 end
 
+--- Returns true if the col (0-based) is at the end of the trimmed line
+---@param line string
+---@param col integer (0-based)
+---@param opts? {include_whitespace?: boolean}
+--- - include_whitespace: Default is true
+---@return boolean
+function M.is_end_of_line(line, col, opts)
+  opts = opts or {}
+  local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
+  return col + 1 == line_length
+end
+
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
 --
 -- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,
@@ -576,9 +588,19 @@ function M.apply_diff(bufnr, hunks)
       and hunk.end_col == 0
       and #hunk.insert > 0
 
+    local is_line_replacement = hunk.start_col == 0
+      and hunk.end_col == 0
+      and hunk.end_row == hunk.start_row + 1
+      and #hunk.insert == 1
+
     if is_line_insertion then
+      -- insert new lines without affecting existing lines
       vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
+    elseif is_line_replacement then
+      -- replace entire line(s)
+      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.end_row, false, hunk.insert)
     else
+      -- partial text replacement within line(s)
       vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
     end
   end

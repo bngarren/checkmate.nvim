@@ -50,6 +50,11 @@ return {
       desc = "Create todo item",
       modes = { "n", "v" },
     },
+    ["<leader>TN"] = {
+      rhs = "<cmd>Checkmate create_child<CR>",
+      desc = "Create todo item (nested)",
+      modes = { "n" },
+    },
     ["<leader>TR"] = {
       rhs = "<cmd>Checkmate remove_all_metadata<CR>",
       desc = "Remove all metadata from a todo item",
@@ -92,6 +97,10 @@ return {
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
+  list_continuation = {
+    enabled = true,
+    inherit_state = false,
+  },
   smart_toggle = {
     enabled = true,
     include_cycle = false,

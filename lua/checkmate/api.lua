@@ -209,6 +209,17 @@ function M.setup_keymaps(bufnr)
       end
     end
   end
+
+  -- List continuation (default is enabled)
+  if config.options.list_continuation.enabled ~= false then
+    local lc = require("checkmate.list_continuation")
+    vim.keymap.set("i", "<CR>", function()
+      return lc.expr_newline(false)
+    end, { expr = true, silent = true, buffer = bufnr })
+    vim.keymap.set("i", "<S-CR>", function()
+      return lc.expr_newline(true)
+    end, { expr = true, silent = true, buffer = bufnr })
+  end
 end
 
 function M.setup_autocmds(bufnr)
@@ -483,61 +494,112 @@ local function make_marker_replacement_hunk(row, todo_item, new_marker)
   }
 end
 
+---@class CreateTodosOpts
+---@field visual? boolean Whether from visual selection
+---@field nested? boolean Whether to create nested (indented) todo
+---@field indent? number Indentation (spaces), see `compute_diff_create_todo`
+---@field todo_state? string|boolean Target todo state of newly create todo(s). If `true` will try to match state of parent.
+
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param start_row number 0-based range start
 ---@param end_row number 0-based range end (inclusive)
----@param is_visual boolean true if from visual selection
+---@param opts? CreateTodosOpts
 ---@return checkmate.TextDiffHunk[] hunks array of diff hunks or {}
-function M.create_todos(ctx, start_row, end_row, is_visual)
+function M.create_todos(ctx, start_row, end_row, opts)
+  opts = opts or {}
   local hunks = {}
 
   local bufnr = ctx.get_buf()
 
-  if is_visual then
+  local todo_state = opts.todo_state
+  if todo_state ~= nil and type(todo_state) == "string" and not config.options.todo_states[todo_state] then
+    log.fmt_warn("[api] Invalid `todo_state` ('%s') passed to `create_todos`", todo_state)
+    todo_state = "unchecked"
+  end
+
+  if opts.visual then
     -- for each line in the range, convert if not already a todo
     for row = start_row, end_row do
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local is_todo = parser.is_todo_item(cur_line)
-      if is_todo == false then
-        local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-        if new_hunks and #new_hunks > 0 then
-          vim.list_extend(hunks, new_hunks)
-        end
+      if not parser.is_todo_item(cur_line) then
+        local new_hunks = M.compute_diff_create_todo(bufnr, row, {
+          action = "convert",
+          todo_state = type(todo_state) == "string" and todo_state or nil,
+        })
+        vim.list_extend(hunks, new_hunks)
       end
     end
   else
-    -- normal mode, is current line a todo?
+    -- normal mode
     local row = start_row
-    -- NOTE: only get a todo on this exact row.
-    -- I.e. if the row is a nested list item then it will return the parent todo unless we pass `root_only` = true
-    local todo_item = ctx.get_todo_by_row(row, true)
+    local todo_item = ctx.get_todo_by_row(row, true) -- root_only
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+    local li_match = ph.match_list_item(line)
 
-    if todo_item then
-      local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
+    -- in normal mode we can do 2 things:
+    -- - we can insert below the line IF it is already a todo item OR the user wants a nested (child) todo under it (passing `opts.nested = true`)
+    -- - we can convert the line to a todo (if `opts.nested = false`)
 
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_row = row + 1
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
+    if todo_item ~= nil or opts.nested == true then
+      -- current line is todo or we want nested: insert below
+
+      -- 1. opts.indent gets priority
+      -- 2. then if nested, we try to use parent list item + 2, otherwise just use 2 spaces
+      -- 3. if not nested, use parent list item (should be a todo item)
+      local new_indent = opts.indent
+      if opts.nested then
+        if not new_indent then
+          new_indent = (li_match and li_match.indent + 2) or 2
+        end
+      else
+        if not new_indent then
+          new_indent = (li_match and li_match.indent) or 0
         end
       end
-    else
-      local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
 
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
+      -- we determine `inherit_state` from the `todo_state` opt being `true`
+      local inherit_state = false
+      if todo_state then
+        if type(todo_state) == "boolean" then
+          inherit_state = todo_state == true
+          todo_state = nil
+          ---@cast todo_state nil
+        elseif type(todo_state) == "string" then
+          inherit_state = false
+          ---@cast todo_state string
         end
+      end
+
+      local new_hunks = M.compute_diff_create_todo(bufnr, row, {
+        action = "insert",
+        indent = new_indent,
+        todo_state = todo_state,
+        inherit_state = inherit_state,
+      })
+      vim.list_extend(hunks, new_hunks)
+
+      if config.options.enter_insert_after_new then
+        ctx.add_cb(function()
+          local new_row = todo_item and (todo_item.range["end"].row + 1) or row + 1
+          local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
+          vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
+          vim.cmd("startinsert!")
+        end)
+      end
+    else
+      -- convert current line
+      local new_hunks = M.compute_diff_create_todo(bufnr, row, {
+        action = "convert",
+        todo_state = type(todo_state) == "string" and todo_state or nil,
+      })
+      vim.list_extend(hunks, new_hunks)
+
+      if config.options.enter_insert_after_new then
+        ctx.add_cb(function()
+          local updated_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+          vim.api.nvim_win_set_cursor(0, { row + 1, #updated_line })
+          vim.cmd("startinsert!")
+        end)
       end
     end
   end
@@ -545,93 +607,123 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
   return hunks
 end
 
---- Convert a single line into an “unchecked” todo
+---@class ComputeDiffCreateTodoOpts
+---@field action? "convert" | "insert" Default: "convert"
+---@field indent? number Indent used for "insert" action. This should be the absolute number of spaces for the list item indent.
+---@field todo_state? string Todo state for new todo. Default: "unchecked"
+---@field inherit_state? boolean Whether to inherit parent's state for insert (default: false)
+
+--- Compute diff for creating or converting to todo items
 ---@param bufnr integer Buffer number
----@param row integer 0-based row to convert
+---@param row integer 0-based row that is the "origin" of the new todo. "convert" will turn the row into a todo item. "insert" will insert a new todo line (at row + 1 for a regular list item or at the end of a todo's range)
+---@param opts? ComputeDiffCreateTodoOpts
 ---@return checkmate.TextDiffHunk[]
-function M.compute_diff_convert_to_todo(bufnr, row)
+function M.compute_diff_create_todo(bufnr, row, opts)
+  opts = opts or {}
+  local action = opts.action or "convert"
+  local todo_state = opts.todo_state or "unchecked"
+
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
-  -- existing indentation
-  local indent = util.get_line_indent(line)
+  if action == "convert" then
+    -- convert existing line to todo
+    local indent = util.get_line_indent(line)
+    local list_item = ph.match_list_item(line)
+    local list_marker = list_item and list_item.marker
 
-  local list_item = ph.match_list_item(line)
-  local list_marker = list_item and list_item.marker
+    local state_def = config.options.todo_states[todo_state]
+    local todo_marker = state_def.marker
+    local new_text
 
-  local unchecked = config.options.todo_markers.unchecked
-  local new_text
-
-  if list_marker then
-    -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
-    new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. unchecked)
-    -- add a space if the new line ends with the unchecked marker
-    if new_text:match(unchecked .. "$") then
-      new_text = new_text .. " "
-    end
-  else
-    local default_marker = config.options.default_list_marker or "-"
-    new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
-  end
-
-  return {
-    {
-      start_row = row,
-      start_col = 0,
-      end_row = row,
-      end_col = -1, -- this will force apply_diff to use set_text rather than set_lines
-      insert = { new_text },
-    },
-  }
-end
-
---- Insert a new, empty “unchecked” todo directly below the given row.
----
----@param bufnr integer Buffer number
----@param row integer  -- 0-based row where we want to insert below
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_insert_todo_below(bufnr, row)
-  local todo_map = parser.get_todo_map(bufnr)
-  local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
-
-  local indent, marker_text
-  if cur_todo then
-    local list_node = cur_todo.list_marker and cur_todo.list_marker.node
-    if list_node then
-      -- list_node:range() → { start_row, start_col, end_row, end_col }
-      local sr, sc, _, ec = list_node:range()
-      indent = string.rep(" ", sc)
-      -- marker_text = text of the marker, e.g. "-" or "1."
-      marker_text = vim.api.nvim_buf_get_text(bufnr, sr, sc, sr, ec - 1, {})[1]
-
-      -- handle ordered lists by incrementing the number
-      local num = marker_text:match("^(%d+)[.)]")
-      if num then
-        local delimiter = marker_text:match("[.)]")
-        marker_text = tostring(tonumber(num) + 1) .. delimiter
+    if list_marker then
+      -- keep existing list marker, insert todo marker after it
+      new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. todo_marker)
+      -- add space if line ends with todo marker
+      if new_text:match(vim.pesc(todo_marker) .. "$") then
+        new_text = new_text .. " "
       end
     else
-      -- shouldn't get here..but oh well, a fallback
-      indent = string.rep(" ", cur_todo.range.start.col)
-      marker_text = config.options.default_list_marker or "-"
+      -- no list marker, add default
+      local default_marker = config.options.default_list_marker or "-"
+      new_text = indent .. default_marker .. " " .. todo_marker .. " " .. line:gsub("^%s*", "")
     end
-  else
-    indent = ""
-    marker_text = config.options.default_list_marker or "-"
+
+    -- since we're converting a non-todo to a todo, there's no todo extmark to preserve
+    -- therefore we can safely replace the entire line
+    return {
+      {
+        start_row = row,
+        start_col = 0,
+        end_row = row + 1,
+        end_col = 0,
+        insert = { new_text },
+      },
+    }
+  else -- action == "insert"
+    local li_match = ph.match_list_item(line)
+    local todo_item
+    local li_marker_str = config.options.default_list_marker
+    local indent_str = ""
+
+    if opts.inherit_state then
+      local parent_state = parser.get_todo_item_state(line)
+      if parent_state then
+        todo_state = parent_state
+      end
+    end
+
+    if li_match then
+      todo_item = parser.get_todo_item_at_position(bufnr, row, 0, { root_only = true })
+
+      local base_indent = li_match.indent or 0
+
+      -- use provided indent directly, or default to base_indent
+      if opts.indent ~= nil then
+        indent_str = string.rep(" ", opts.indent)
+      else
+        indent_str = string.rep(" ", base_indent)
+      end
+
+      li_marker_str = li_match.marker
+
+      -- handle ordered lists
+      local num = li_marker_str:match("^(%d+)[.)]")
+      if num then
+        local delimiter = li_marker_str:match("[.)]")
+        if opts.indent == false or opts.indent == 0 or opts.indent == nil then
+          -- same level: increment
+          li_marker_str = tostring(tonumber(num) + 1) .. delimiter
+        else
+          -- nested: start from 1
+          li_marker_str = "1" .. delimiter
+        end
+      end
+    else
+      -- not a list item
+      if type(opts.indent) == "number" then
+        indent_str = string.rep(" ", opts.indent --[[@as number]])
+      else
+        indent_str = ""
+      end
+    end
+
+    local state_def = config.options.todo_states[todo_state]
+    local todo_marker = state_def.marker
+    local new_line = indent_str .. li_marker_str .. " " .. todo_marker .. " "
+
+    -- if it's a todo item on the current row, we insert below its range
+    local start_row = todo_item and (todo_item.range["end"].row + 1) or row + 1
+
+    return {
+      {
+        start_row = start_row,
+        start_col = 0,
+        end_row = start_row,
+        end_col = 0,
+        insert = { new_line },
+      },
+    }
   end
-
-  local new_row = row + 1
-  local unchecked = config.options.todo_markers.unchecked or "□"
-  local new_line = indent .. marker_text .. " " .. unchecked .. " "
-
-  return {
-    {
-      start_row = new_row,
-      start_col = 0,
-      end_row = new_row,
-      end_col = 0,
-      insert = { new_line },
-    },
-  }
 end
 
 --- Compute diff hunks for toggling a batch of items with their target states

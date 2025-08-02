@@ -394,19 +394,44 @@ function M.cycle(opts)
   return true
 end
 
+---@class checkmate.CreateOpts
+---@field nested? boolean Create as nested/child todo (default: false, normal mode only)
+---@field indent? number Absolute indentation in spaces, from the start of line. Only applies when creating new todos below existing lines. When nil: inherits parent's indent for siblings, or parent's indent + 2 for nested todos.
+---@field state? string|boolean Target todo state (default: "unchecked", or inherits from parent if `true`). If the `state` is not defined in config `todo_states` then "unchecked" will be used.
+
 --- Creates a new todo item
 ---
---- # Behavior
---- - In normal mode:
----   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
---- - In visual mode:
----   - Will convert each line in the selection to a new todo item with the default list marker
----   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
----   additional lines will be converted to individual todos
----   - Will not append any new todo items even if all lines in the selection are already todo items
+--- # Behavior by mode:
+--- ## Normal mode:
+--- - **On non-todo line**: Converts the line to a todo item
+--- - **On todo line**: Inserts a new todo below current line
+---   - Default: Creates sibling at same indentation level
+---   - With `nested = true`: Creates child todo indented 2 spaces
+---   - With custom `indent`: Creates todo at specified indentation
+---
+--- ## Visual mode:
+--- - Converts each non-todo line in selection to a todo item
+--- - Ignores lines that are already todo items
+--- - Options `nested` and `indent` are ignored
+---
+--- # Examples:
+--- ```lua
+--- -- Convert current line to todo
+--- require('checkmate').create()
+---
+--- -- Create a child todo below current todo
+--- require('checkmate').create({ nested = true })
+---
+--- -- Create todo with custom state
+--- require('checkmate').create({ state = "in_progress" })
+---
+--- -- Create todo at specific indentation (4 spaces)
+--- require('checkmate').create({ indent = 4 })
+--- ```
+---@param opts? checkmate.CreateOpts
 ---@return boolean success
-function M.create()
+function M.create(opts)
+  opts = opts or {}
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
@@ -417,7 +442,12 @@ function M.create()
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
-    ctx.add_op(api.create_todos, row, row, false)
+    ctx.add_op(api.create_todos, row, row, {
+      visual = false,
+      nested = opts.nested,
+      indent = opts.indent,
+      todo_state = opts.state,
+    })
 
     return true
   end
@@ -437,6 +467,9 @@ function M.create()
     if end_row < start_row then
       start_row, end_row = end_row, start_row
     end
+
+    -- don't nest in visual mode
+    opts.nested = false
   else
     local cur = vim.api.nvim_win_get_cursor(0)
     start_row = cur[1] - 1
@@ -448,12 +481,32 @@ function M.create()
   end
 
   transaction.run(bufnr, function(tx_ctx)
-    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+    tx_ctx.add_op(api.create_todos, start_row, end_row, {
+      visual = is_visual,
+      nested = opts.nested,
+      indent = opts.indent,
+      todo_state = opts.state,
+    })
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)
 
   return true
+end
+
+--- Creates a child todo under the current line
+---
+--- Attempts to indent the new todo based on the current line's indentation
+---
+--- For `opts` description see corresponding parameters in `create()` function
+---@param opts? {state?: string|boolean}
+---@return boolean
+function M.create_child(opts)
+  opts = opts or {}
+  return M.create({
+    nested = true,
+    state = opts.state,
+  })
 end
 
 --- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection

@@ -1,5 +1,6 @@
--- parser/helpers.lua
 -- Helper functions for parsing Markdown list items and GFM task checkboxes
+
+local config = require("checkmate.config")
 
 local M = {}
 
@@ -92,8 +93,8 @@ end
 ---@param line string Line to match
 ---@return {indent: integer, marker: string, content: string}|nil
 function M.match_list_item(line)
-  line = line or ""
   local parser = require("checkmate.parser")
+  line = line or ""
   local list_item_patterns = parser.get_list_item_patterns(true)
 
   -- HACK: add whitespace to end so that we can always catch empty list items
@@ -202,55 +203,84 @@ function M.create_markdown_checkbox_patterns(chars)
   return pats
 end
 
---- Attempts to match a GitHub-style task list checkbox (e.g. "- [ ] foo" or "1. [x] bar")
---- Note: this will only match the GFM task list items, not custom user configurated states, e.g. "- [.]"
+--- Attempts to match a GitHub-style task list checkbox (e.g. `- [ ] foo` or `1. [x] bar`)
+--- - It will also match custom states, if defined in the config `todo_states`
+--- - Returns nil if the line does not match a Markdown checkbox
+--- - Pass `opts.state` to only match a checkbox with specific todo state
 --- @param line string
---- @param state? string "unchecked" or "checked"
---- @return { indent: integer, marker: string, checked: boolean, content: string, raw_checkbox: string }? result
-function M.match_markdown_checkbox(line, state)
-  line = line or ""
+--- @param opts? {state?: string}
+--- @return { indent: integer, marker: string, state: string, raw: string }? result
+--- Return
+--- - indent: number of spaces before list marker
+--- - marker: list marker string
+--- - state: todo state
+--- - raw: the Markdown checkbox string, e.g `[ ]`, `[x]`
+function M.match_markdown_checkbox(line, opts)
+  opts = opts or {}
   local parser = require("checkmate.parser")
-  local patterns = {}
 
-  if state == nil or state == "checked" then
-    for _, p in ipairs(parser.get_markdown_checked_checkbox_patterns()) do
-      table.insert(patterns, p)
-    end
-  end
-  if state == nil or state == "unchecked" then
-    for _, p in ipairs(parser.get_markdown_unchecked_checkbox_patterns()) do
-      table.insert(patterns, p)
-    end
-  end
-
-  local result = M.match_first(patterns, line)
-  if not result.matched then
+  if not line or #line == 0 then
     return nil
   end
 
-  -- captures are:
-  --   1) indent, 2) raw list-marker + first whitespace, 3) the "[ ]" or "[x]" token
-  local indent = #result.captures[1]
-  local lm_raw = result.captures[2]
-  local lm = vim.trim(lm_raw)
-  local raw_box = result.captures[3]
+  for state_name, _ in pairs(config.options.todo_states) do
+    if not opts.state or opts.state == state_name then
+      local state_patterns = parser.get_markdown_checkbox_patterns_by_state(state_name)
+      local result = M.match_first(state_patterns, line)
+      if result.matched then
+        -- see `M.create_markdown_checkbox_patterns`
+        --   1) indent, 2) raw list-marker + first whitespace, 3) the "[ ]" or "[x]" token
+        local indent_str, marker, raw = result:unpack()
+        return {
+          indent = #indent_str,
+          marker = vim.trim(marker),
+          state = state_name,
+          raw = raw,
+        }
+      end
+    end
+  end
+  return nil
+end
 
-  local mark_char = raw_box:match("%[([xX ])%]")
-  local checked = (mark_char or ""):lower() == "x"
+--- Checks if a line matches a todo (either Markdown or unicode)
+---@param line string
+---@return {indent: integer, list_marker: string, state: string, is_markdown: boolean}? match
+function M.match_todo(line)
+  local parser = require("checkmate.parser")
+  local util = require("checkmate.util")
 
-  local prefix_len = #result.captures[1] + #lm_raw + #raw_box
-  local next_char = line:sub(prefix_len + 1, prefix_len + 1)
-  local content = (next_char == " ") and line:sub(prefix_len + 2) or line:sub(prefix_len + 1)
+  -- 1. try to match unicode/Checkmate style todo
+  for _, pat in ipairs(parser.get_all_checkmate_todo_patterns(true)) do
+    local list_seg, todo_marker, _ = line:match(pat)
+    if list_seg then
+      local indent_ws = list_seg:match("^(%s*)") or ""
+      local list_marker = util.trim_leading(util.trim_trailing(list_seg))
 
-  content = require("checkmate.util").trim_trailing(content)
+      for state_name, state in pairs(config.options.todo_states) do
+        if state.marker == todo_marker then
+          return {
+            indent = #indent_ws,
+            list_marker = list_marker,
+            state = state_name,
+            is_markdown = false,
+          }
+        end
+      end
+    end
+  end
 
-  return {
-    indent = indent,
-    marker = lm,
-    checked = checked,
-    content = content,
-    raw_checkbox = raw_box,
-  }
+  -- 2. try to match Markdown style todo
+  local md_todo = M.match_markdown_checkbox(line)
+  if md_todo then
+    return {
+      indent = md_todo.indent,
+      list_marker = md_todo.marker,
+      state = md_todo.state,
+      is_markdown = true,
+    }
+  end
+  return nil
 end
 
 return M

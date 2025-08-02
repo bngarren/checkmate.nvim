@@ -144,6 +144,14 @@ function M.get_line_indent(line)
   return line:match("^(%s*)") or ""
 end
 
+--- Returns true if the col (0-based) is at the end of the trimmed line
+---@param line string
+---@param col integer (0-based)
+---@return boolean
+function M.is_end_of_line(line, col)
+  return col + 1 == #M.trim_trailing(line)
+end
+
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
 --
 -- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,

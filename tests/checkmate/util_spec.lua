@@ -1,6 +1,21 @@
 describe("Util", function()
   local util = require("checkmate.util")
 
+  it("should determine end of line", function()
+    local cases = {
+      { line = "test", col = 3, expected = true },
+      { line = "trailing  ", col = 9, expected = false },
+      { line = "trailing  ", col = 7, expected = true },
+      { line = "  pre", col = 4, expected = true },
+    }
+    for _, case in ipairs(cases) do
+      assert.equal(
+        case.expected,
+        util.is_end_of_line(case.line, case.col),
+        string.format("'%s' end at col %d? %s", case.line, case.col, case.expected)
+      )
+    end
+  end)
   describe("string operations", function()
     it("should convert snake case to camel case", function()
       assert.equal("HelloWorld", util.snake_to_camel("hello_world"))

@@ -569,7 +569,7 @@ function M.create_todos(ctx, start_row, end_row, opts)
 
       if config.options.enter_insert_after_new then
         ctx.add_cb(function()
-          local new_row = todo_item and (todo_item.first_inline_range["end"].row + 1) or row + 1
+          local new_row = todo_item and (todo_item.range["end"].row + 1) or row + 1
           local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
           vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
           vim.cmd("startinsert!")
@@ -604,7 +604,7 @@ end
 
 --- Compute diff for creating or converting to todo items
 ---@param bufnr integer Buffer number
----@param row integer 0-based row that is the "origin" of the new todo. "convert" will turn the row into a todo item. "insert" will insert a new todo line (at row + 1 for a regular list item or at the end of a todo's first inline range)
+---@param row integer 0-based row that is the "origin" of the new todo. "convert" will turn the row into a todo item. "insert" will insert a new todo line (at row + 1 for a regular list item or at the end of a todo's range)
 ---@param opts? ComputeDiffCreateTodoOpts
 ---@return checkmate.TextDiffHunk[]
 function M.compute_diff_create_todo(bufnr, row, opts)
@@ -701,7 +701,7 @@ function M.compute_diff_create_todo(bufnr, row, opts)
     local new_line = indent_str .. li_marker_str .. " " .. todo_marker .. " "
 
     -- if it's a todo item on the current row, we insert below its range
-    local start_row = todo_item and (todo_item.first_inline_range["end"].row + 1) or row + 1
+    local start_row = todo_item and (todo_item.range["end"].row + 1) or row + 1
 
     return {
       {

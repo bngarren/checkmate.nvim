@@ -93,6 +93,8 @@ M.options = {}
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
+---@field list_continuation checkmate.ListContinuationSettings
+---
 ---Smart toggle provides intelligent parent-child todo state propagation
 ---
 ---When you change a todo's state, it can automatically update related todos based on their
@@ -218,6 +220,26 @@ M.options = {}
 ---If false, will default to vim.ui.select
 ---If a function is passed, will use this picker implementation
 ---@field picker? checkmate.Picker
+
+-----------------------------------------------------
+
+---@class checkmate.ListContinuationSettings
+---
+--- Whether to enable list continuation behavior
+---
+--- If true, new todo (lines) will be added in INSERT mode when the cursor is at the end of line on a todo and is triggered by:
+--- - `<CR>` - this will add a sibling todo beneath the current line
+--- - `<S-CR>` - this will add a nested todo beneath the current line (+2 spaces relative to the parent)
+---
+--- Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
+---
+--- Default: true
+---@field enabled? boolean
+---
+--- If true, the new todo will inherit the state of the original line, i.e. it's previous sibling or its parent (if a nested todo is created)
+---
+--- Default: false. If false, new todos will be "unchecked".
+---@field inherit_state? boolean
 
 -----------------------------------------------------
 

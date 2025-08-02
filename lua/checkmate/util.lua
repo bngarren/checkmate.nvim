@@ -147,9 +147,13 @@ end
 --- Returns true if the col (0-based) is at the end of the trimmed line
 ---@param line string
 ---@param col integer (0-based)
+---@param opts? {include_whitespace?: boolean}
+--- - include_whitespace: Default is true
 ---@return boolean
-function M.is_end_of_line(line, col)
-  return col + 1 == #M.trim_trailing(line)
+function M.is_end_of_line(line, col, opts)
+  opts = opts or {}
+  local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
+  return col + 1 == line_length
 end
 
 --- Escapes special characters in a string for safe use in a Lua pattern character class.

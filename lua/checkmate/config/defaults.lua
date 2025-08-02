@@ -97,6 +97,10 @@ return {
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
+  list_continuation = {
+    enabled = true,
+    inherit_state = false,
+  },
   smart_toggle = {
     enabled = true,
     include_cycle = false,

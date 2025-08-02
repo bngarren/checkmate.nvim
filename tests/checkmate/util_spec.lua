@@ -2,6 +2,22 @@ describe("Util", function()
   local util = require("checkmate.util")
 
   it("should determine end of line", function()
+    -- including whitespace
+    local cases = {
+      { line = "test", col = 3, expected = true },
+      { line = "trailing  ", col = 9, expected = true },
+      { line = "trailing  ", col = 7, expected = false },
+      { line = "  pre", col = 4, expected = true },
+    }
+    for _, case in ipairs(cases) do
+      assert.equal(
+        case.expected,
+        util.is_end_of_line(case.line, case.col), -- default is to include whitespace if not `opts.include_whitespace` passed
+        string.format("'%s' end at col %d? %s", case.line, case.col, case.expected)
+      )
+    end
+
+    -- ignoring whitespace
     local cases = {
       { line = "test", col = 3, expected = true },
       { line = "trailing  ", col = 9, expected = false },
@@ -11,7 +27,7 @@ describe("Util", function()
     for _, case in ipairs(cases) do
       assert.equal(
         case.expected,
-        util.is_end_of_line(case.line, case.col),
+        util.is_end_of_line(case.line, case.col, { include_whitespace = false }),
         string.format("'%s' end at col %d? %s", case.line, case.col, case.expected)
       )
     end

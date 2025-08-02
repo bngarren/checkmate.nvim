@@ -245,7 +245,7 @@ end
 
 --- Checks if a line matches a todo (either Markdown or unicode)
 ---@param line string
----@return {indent: integer, list_marker: string, state: string, is_markdown: boolean}? match
+---@return {indent: integer, list_marker: string, state: string, is_markdown: boolean, raw?: string}? match
 function M.match_todo(line)
   local parser = require("checkmate.parser")
   local util = require("checkmate.util")
@@ -278,6 +278,7 @@ function M.match_todo(line)
       list_marker = md_todo.marker,
       state = md_todo.state,
       is_markdown = true,
+      raw = md_todo.raw,
     }
   end
   return nil

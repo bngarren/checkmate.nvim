@@ -209,6 +209,17 @@ function M.setup_keymaps(bufnr)
       end
     end
   end
+
+  -- List continuation (default is enabled)
+  if config.options.list_continuation.enabled ~= false then
+    local lc = require("checkmate.list_continuation")
+    vim.keymap.set("i", "<CR>", function()
+      return lc.expr_newline(false)
+    end, { expr = true, silent = true, buffer = bufnr })
+    vim.keymap.set("i", "<S-CR>", function()
+      return lc.expr_newline(true)
+    end, { expr = true, silent = true, buffer = bufnr })
+  end
 end
 
 function M.setup_autocmds(bufnr)

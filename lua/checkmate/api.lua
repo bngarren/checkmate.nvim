@@ -212,12 +212,13 @@ function M.setup_keymaps(bufnr)
 
   -- List continuation (default is enabled)
   if config.options.list_continuation.enabled ~= false then
+    local eol_only = config.options.list_continuation.eol_only
     local lc = require("checkmate.list_continuation")
     vim.keymap.set("i", "<CR>", function()
-      return lc.expr_newline(false)
+      return lc.expr_newline({ nested = false, eol_only = eol_only })
     end, { expr = true, silent = true, buffer = bufnr })
     vim.keymap.set("i", "<S-CR>", function()
-      return lc.expr_newline(true)
+      return lc.expr_newline({ nested = true, eol_only = eol_only })
     end, { expr = true, silent = true, buffer = bufnr })
   end
 end

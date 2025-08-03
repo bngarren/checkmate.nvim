@@ -625,6 +625,7 @@ describe("Parser Helpers", function()
             list_marker = "-",
             state = "unchecked",
             is_markdown = true,
+            raw = "[ ]",
           },
         },
         {
@@ -634,6 +635,7 @@ describe("Parser Helpers", function()
             list_marker = "+",
             state = "checked",
             is_markdown = true,
+            raw = "[x]",
           },
         },
         {
@@ -643,6 +645,7 @@ describe("Parser Helpers", function()
             list_marker = "10)",
             state = "pending",
             is_markdown = true,
+            raw = "[.]",
           },
         },
       }
@@ -650,6 +653,17 @@ describe("Parser Helpers", function()
       for _, case in ipairs(cases) do
         local result = h.exists(ph.match_todo(case.line))
         assert.same(case.expected, result)
+      end
+
+      local nil_cases = {
+        "-[ ] Missing space",
+        "-  [ ] Too much space",
+        "- [#] Unknown markdown",
+        unchecked .. " No list marker",
+      }
+
+      for _, case in ipairs(nil_cases) do
+        assert.is_nil(ph.match_todo(case))
       end
     end)
   end)

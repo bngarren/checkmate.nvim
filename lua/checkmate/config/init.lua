@@ -240,6 +240,11 @@ M.options = {}
 ---
 --- Default: false. If false, new todos will be "unchecked".
 ---@field inherit_state? boolean
+---
+--- If true, list continuation will only occur when the cursor is at the end of line. `<CR>` or `<S-CR>` will have default behavior when the cursor is not EOL.
+--- If false, `<CR>` or `<S-CR>` will break the line at the cursor and insert the remainder as a new todo line.
+--- Default: true.
+---@field eol_only? boolean
 
 -----------------------------------------------------
 

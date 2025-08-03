@@ -100,6 +100,7 @@ return {
   list_continuation = {
     enabled = true,
     inherit_state = false,
+    eol_only = true,
   },
   smart_toggle = {
     enabled = true,

@@ -313,6 +313,7 @@ function M.validate_options(opts)
     if opts.list_continuation then
       validate("list_continuation.enabled", opts.list_continuation.enabled, "boolean", true)
       validate("list_continuation.inherit_state", opts.list_continuation.inherit_state, "boolean", true)
+      validate("list_continuation.eol_only", opts.list_continuation.eol_only, "boolean", true)
     end
 
     if opts.smart_toggle then

@@ -92,6 +92,7 @@ local pattern_cache = {
   checkmate_todo_patterns_all_with_captures = nil,
   checkmate_todo_patterns_all_without_captures = nil,
   markdown_checkbox_patterns_by_state = {},
+  markdown_checkbox_patterns_all = nil,
 }
 
 -- Ordered according to `order` field
@@ -110,6 +111,7 @@ function M.clear_parser_cache()
     checkmate_todo_patterns_all_with_captures = nil,
     checkmate_todo_patterns_all_without_captures = nil,
     markdown_checkbox_patterns_by_state = {},
+    markdown_checkbox_patterns_all = nil,
   }
   todo_states_cache = nil
 end
@@ -189,6 +191,21 @@ function M.get_markdown_checkbox_patterns_by_state(todo_state)
   end
 
   return pattern_cache[cache_key][todo_state]
+end
+
+---@return string[] patterns
+function M.get_markdown_checkbox_patterns_all()
+  local cache_key = "markdown_checkbox_patterns_all"
+  if not pattern_cache[cache_key] then
+    local patterns = {}
+
+    for state_name, _ in pairs(config.options.todo_states) do
+      table.insert(patterns, M.get_markdown_checkbox_patterns_by_state(state_name))
+    end
+
+    pattern_cache[cache_key] = vim.iter(patterns):flatten():totable()
+  end
+  return pattern_cache[cache_key]
 end
 
 ---@return string[] patterns

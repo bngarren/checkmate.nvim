@@ -11,42 +11,27 @@ automatically create a new todo item below the current line:
 Notes:
   - Uses parser.helpers module to detects GitHub-style or Unicode checkbox lines 
   - `inherit_state` allows "reusing" the original line state, otherwise defaults to "unchecked"
+  - `eol_only` (default true), when false allows breaking a line and creating new todo with remainder
   - Falls back to a normal newline when not on a todo  
-  - Returns a single string so the entire operation stays in one undo step
+  - Each operation is a single undo step
 --]]
 
 local M = {}
 
-M._termcodes = {
-  cr = "",
-  -- stop the last undo block here
-  -- see :h undo-break
-  undo_break = "",
-  delete_to_eol = "",
-  -- ensure the cursor starts at col 0 before adding absolute indent
-  -- note: otherwise `\r` will put the cursor on a new line but may auto indent
-  ctrl_o0 = "",
-}
-
 -- can enable for testing
-M._disable_async = false
+M._test_mode = false
 
-function M._get_termcode(name)
-  if not M._termcodes[name] then
-    if name == "cr" then
-      M._termcodes[name] = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
-    elseif name == "undo_break" then
-      M._termcodes[name] = vim.api.nvim_replace_termcodes("<C-g>u", true, false, true)
-    elseif name == "delete_to_eol" then
-      M._termcodes[name] = vim.api.nvim_replace_termcodes("<C-o>D", true, false, true)
-    elseif name == "ctrl_o0" then
-      M._termcodes[name] = vim.api.nvim_replace_termcodes("<C-o>0", true, false, true)
-    end
-  end
-  return M._termcodes[name]
+function M._is_valid_cursor_position(col, todo)
+  local config = require("checkmate.config")
+  local box = todo.is_markdown and todo.raw or config.options.todo_states[todo.state].marker
+  -- where the checkbox + space ends in "insert" mode positioning
+  -- this is the insert pos 1 space after the box
+  local threshold = todo.indent + #todo.list_marker + 1 + #box
+
+  return col >= threshold
 end
 
---- @param todo table
+--- @param todo table See `parser.helpers.match_todo()`
 --- @param config checkmate.Config
 --- @return string
 function M._build_checkbox_marker(todo, config)
@@ -69,100 +54,80 @@ end
 --- This function is used to provide the `:h map-expression` when creating keymaps for Insert mode
 ---
 --- It essentially checks if the current line (in insert mode) is a todo line (either Markdown or Checkmate/unicode style) and
---- if true, returns an expression string that creates a new todo line with correct indentation and marker in an undo-friendly way
+--- if true, modifies the buffer using vim.schedule
 ---
 --- Default behavior is to only work when cursor is at end of line (this can be configured with `opts.eol_only`)
---- @param opts? {nested?: boolean, eol_only?: boolean}
+--- @param opts? {cursor?: {row: integer, col: integer}, nested?: boolean, eol_only?: boolean}
 --- @return string  "" to swallow the key, or "<CR>" to fall back
 function M.expr_newline(opts)
-  opts = opts or {}
+  opts = vim.tbl_extend("force", { nested = false, eol_only = true }, opts or {})
+  local config = require("checkmate.config").options
 
-  if opts.nested == nil then
-    opts.nested = false
+  local cr = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+
+  local row = vim.tbl_get(opts, "cursor", "row")
+  local col = vim.tbl_get(opts, "cursor", "col")
+  if not row or not col then
+    row, col = unpack(vim.api.nvim_win_get_cursor(0))
   end
-  if opts.eol_only == nil then
-    opts.eol_only = true
-  end
-
-  local config = require("checkmate.config")
-
-  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  col = col - 1 -- convert to 0-based
 
   local line = vim.api.nvim_get_current_line()
-
-  local cursor_is_eol = util.is_end_of_line(line, col)
-
-  -- only trigger if we're at EOL of a todo
-  if opts.eol_only and not cursor_is_eol then
-    return M._get_termcode("cr")
-  end
-
   local todo = ph.match_todo(line)
-  if not todo then
-    return M._get_termcode("cr")
+
+  -- not a todo or cursor before checkbox?  fall back
+  if not todo or not M._is_valid_cursor_position(col, todo) then
+    return cr
   end
 
-  -- get indent: same as parent, plus 2 spaces if nested
-  local child_indent = opts.nested and 2 or 0
-  local indent = todo.indent + child_indent
+  -- are we mid-line but eol_only disallows splitting?
+  -- note: in insert mode, col == #line means cursor is after all text
+  local at_eol = col >= #line
+  if opts.eol_only and not at_eol then
+    return cr
+  end
+
+  local box = M._build_checkbox_marker(todo, config)
+
+  local li_marker_str = todo.list_marker
+
+  -- handle ordered list auto-increment
+  local next_ordered_marker = util.get_next_ordered_marker(li_marker_str, opts.nested)
+
+  if next_ordered_marker ~= nil then
+    li_marker_str = next_ordered_marker
+  end
+
+  -- nested indent is relative to the parent's list marker length
+  local indent = todo.indent + (opts.nested and (#todo.list_marker + 1) or 0)
   local indent_str = string.rep(" ", indent)
 
-  -- todo marker
-  --  - for markdown, use raw checkbox, e.g "[ ]"
-  --  - for unicode, use the marker for that state
-  local box
-  if config.options.list_continuation.inherit_state then
-    if todo.is_markdown then
-      box = todo.raw
+  local prefix = indent_str .. li_marker_str .. " " .. box .. " "
+
+  local function callback()
+    -- start new undo‐break
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
+
+    if not at_eol then
+      -- split
+      local after = line:sub(col + 1)
+      vim.api.nvim_set_current_line(line:sub(1, col))
+      vim.api.nvim_buf_set_lines(0, row + 1, row + 1, false, { prefix .. after })
+      vim.api.nvim_win_set_cursor(0, { row + 2, #prefix }) -- row is 1-index so +2
     else
-      box = config.options.todo_states[todo.state].marker
+      -- new line below
+      vim.api.nvim_buf_set_lines(0, row + 1, row + 1, false, { prefix })
+      vim.api.nvim_win_set_cursor(0, { row + 2, #prefix })
     end
+  end
+
+  if M._test_mode then
+    callback()
   else
-    -- don't inherit state, use default "unchecked"
-    if todo.is_markdown then
-      box = string.format("[%s]", config.options.todo_states.unchecked.markdown)
-    else
-      box = config.options.todo_states.unchecked.marker
-    end
+    vim.schedule(callback)
   end
 
-  -- if <CR>/<S-CR> occurs within a line, we grab the remaining string we can append it to the new todo
-  local text_after_cursor = ""
-  if not cursor_is_eol then
-    text_after_cursor = string.sub(line, col + 2) -- +2 because col is 0-based and sub is 1-based
-    text_after_cursor = util.trim_leading(text_after_cursor)
-  end
-
-  local insert_text = indent_str .. todo.list_marker .. " " .. box .. " "
-  if text_after_cursor ~= "" then
-    -- the expected cursor behavior is to end up in front of the broken text from the prev row
-    -- position the cursor in front of the text_after_cursor
-    local target_col = #insert_text
-
-    if not M._disable_async then
-      M._vim.schedule(function()
-        vim.api.nvim_win_set_cursor(0, { row + 1, target_col })
-      end)
-    end
-
-    insert_text = insert_text .. text_after_cursor
-  end
-
-  return M._build_expr(insert_text, { is_eol = cursor_is_eol })
-end
-
-function M._build_expr(text, opts)
-  opts = opts or {}
-
-  local parts = {
-    M._get_termcode("undo_break"),
-    opts.is_eol == false and M._get_termcode("delete_to_eol") or "",
-    "\r",
-    M._get_termcode("ctrl_o0"),
-    text,
-  }
-  return table.concat(parts, "")
+  -- swallow the <CR> so Vim doesn't do its native newline
+  return ""
 end
 
 return M

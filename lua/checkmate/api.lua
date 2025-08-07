@@ -215,10 +215,12 @@ function M.setup_keymaps(bufnr)
     local eol_only = config.options.list_continuation.eol_only
     local lc = require("checkmate.list_continuation")
     vim.keymap.set("i", "<CR>", function()
-      return lc.expr_newline({ nested = false, eol_only = eol_only })
+      local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+      return lc.expr_newline({ cursor = { row = row - 1, col = col }, nested = false, eol_only = eol_only })
     end, { expr = true, silent = true, buffer = bufnr })
     vim.keymap.set("i", "<S-CR>", function()
-      return lc.expr_newline({ nested = true, eol_only = eol_only })
+      local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+      return lc.expr_newline({ cursor = { row = row - 1, col = col }, nested = true, eol_only = eol_only })
     end, { expr = true, silent = true, buffer = bufnr })
   end
 end
@@ -688,16 +690,12 @@ function M.compute_diff_create_todo(bufnr, row, opts)
       li_marker_str = li_match.marker
 
       -- handle ordered lists
-      local num = li_marker_str:match("^(%d+)[.)]")
-      if num then
-        local delimiter = li_marker_str:match("[.)]")
-        if opts.indent == false or opts.indent == 0 or opts.indent == nil then
-          -- same level: increment
-          li_marker_str = tostring(tonumber(num) + 1) .. delimiter
-        else
-          -- nested: start from 1
-          li_marker_str = "1" .. delimiter
-        end
+      local same_level = opts.indent == false or opts.indent == 0 or opts.indent == nil
+
+      local next_ordered_marker = util.get_next_ordered_marker(li_marker_str, not same_level)
+
+      if next_ordered_marker ~= nil then
+        li_marker_str = next_ordered_marker
       end
     else
       -- not a list item

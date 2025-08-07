@@ -145,6 +145,7 @@ function M.get_line_indent(line)
 end
 
 --- Returns true if the col (0-based) is at the end of the trimmed line
+--- The 'end' is the position of the last character of the line
 ---@param line string
 ---@param col integer (0-based)
 ---@param opts? {include_whitespace?: boolean}
@@ -154,6 +155,29 @@ function M.is_end_of_line(line, col, opts)
   opts = opts or {}
   local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
   return col + 1 == line_length
+end
+
+--- Returns the next ordered marker (incremented)
+--- e.g. if `1.` is passed, will return `2.`
+--- If the passed string does not match an ordered list marker, will return nil
+--- Pass `restart = true` if the numbering should start at 1, i.e. for a nested list item
+---@param li_marker_str string
+---@param restart? boolean
+---@return string|nil
+function M.get_next_ordered_marker(li_marker_str, restart)
+  local num = li_marker_str:match("^(%d+)[.)]")
+  local result = nil
+  if num then
+    local delimiter = li_marker_str:match("[.)]")
+    if not restart then
+      -- same level: increment
+      result = tostring(tonumber(num) + 1) .. delimiter
+    else
+      -- nested: start from 1
+      result = "1" .. delimiter
+    end
+  end
+  return result
 end
 
 --- Escapes special characters in a string for safe use in a Lua pattern character class.

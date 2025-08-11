@@ -17,6 +17,7 @@ local log = require("checkmate.log")
 local parser = require("checkmate.parser")
 local ph = require("checkmate.parser.helpers")
 local meta_module = require("checkmate.metadata")
+local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
 
@@ -24,13 +25,6 @@ local profiler = require("checkmate.profiler")
 local M = {}
 
 M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
-
----@class checkmate.TextDiffHunk
----@field start_row integer
----@field start_col integer
----@field end_row integer
----@field end_col integer
----@field insert string[]
 
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
 function M.is_valid_buffer(bufnr)
@@ -645,14 +639,12 @@ function M.compute_diff_toggle(items_with_states)
   for _, entry in ipairs(items_with_states) do
     local todo_item = entry.item
     local target_state = entry.target_state
-    local row = todo_item.todo_marker.position.row
 
     local state_def = config.options.todo_states[target_state]
 
     if state_def and state_def.marker then
       local new_marker = config.options.todo_states[target_state].marker
-
-      local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
+      local hunk = diff.make_marker_replace(todo_item, new_marker)
       table.insert(hunks, hunk)
     end
   end
@@ -666,19 +658,18 @@ end
 ---@param operations table[] Array of {id: integer, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_state(ctx, operations)
-  local items_with_states = {}
+  local hunks = {}
 
   for _, op in ipairs(operations) do
     local item = ctx.get_todo_by_id(op.id)
-    if item and item.state ~= op.target_state then
-      table.insert(items_with_states, {
-        item = item,
-        target_state = op.target_state,
-      })
+    local state_def = config.options.todo_states[op.target_state]
+    if item and item.state ~= op.target_state and state_def and state_def.marker then
+      local hunk = diff.make_marker_replace(item, state_def.marker)
+      table.insert(hunks, hunk)
     end
   end
 
-  return M.compute_diff_toggle(items_with_states)
+  return hunks
 end
 
 --- Set todo items to specific state

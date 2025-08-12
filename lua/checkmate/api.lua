@@ -458,25 +458,6 @@ function M.shutdown(bufnr)
   end
 end
 
---- Create a hunk that replaces only the todo marker character
----@param row integer
----@param todo_item checkmate.TodoItem
----@param new_marker string
----@return checkmate.TextDiffHunk
-local function make_marker_replacement_hunk(row, todo_item, new_marker)
-  local old_marker = todo_item.todo_marker.text
-  local byte_col = todo_item.todo_marker.position.col -- Already in bytes (0-indexed)
-  local old_marker_byte_len = #old_marker
-
-  return {
-    start_row = row,
-    start_col = byte_col,
-    end_row = row,
-    end_col = byte_col + old_marker_byte_len,
-    insert = { new_marker },
-  }
-end
-
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param start_row number 0-based range start
 ---@param end_row number 0-based range end (inclusive)
@@ -493,9 +474,9 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
       local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
       local is_todo = parser.is_todo_item(cur_line)
       if is_todo == false then
-        local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-        if new_hunks and #new_hunks > 0 then
-          vim.list_extend(hunks, new_hunks)
+        local hunk = M.compute_diff_convert_to_todo(bufnr, row)
+        if hunk then
+          table.insert(hunks, hunk)
         end
       end
     end
@@ -507,9 +488,9 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
     local todo_item = ctx.get_todo_by_row(row, true)
 
     if todo_item then
-      local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
+      local hunk = M.compute_diff_insert_todo_below(bufnr, row)
+      if hunk then
+        table.insert(hunks, hunk)
 
         if config.options.enter_insert_after_new then
           ctx.add_cb(function()
@@ -521,9 +502,9 @@ function M.create_todos(ctx, start_row, end_row, is_visual)
         end
       end
     else
-      local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
+      local hunk = M.compute_diff_convert_to_todo(bufnr, row)
+      if hunk then
+        table.insert(hunks, hunk)
 
         if config.options.enter_insert_after_new then
           ctx.add_cb(function()
@@ -542,7 +523,7 @@ end
 --- Convert a single line into an “unchecked” todo
 ---@param bufnr integer Buffer number
 ---@param row integer 0-based row to convert
----@return checkmate.TextDiffHunk[]
+---@return checkmate.TextDiffHunk
 function M.compute_diff_convert_to_todo(bufnr, row)
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
@@ -567,22 +548,14 @@ function M.compute_diff_convert_to_todo(bufnr, row)
     new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
   end
 
-  return {
-    {
-      start_row = row,
-      start_col = 0,
-      end_row = row,
-      end_col = -1, -- this will force apply_diff to use set_text rather than set_lines
-      insert = { new_text },
-    },
-  }
+  return diff.make_line_replace(row, new_text)
 end
 
 --- Insert a new, empty “unchecked” todo directly below the given row.
 ---
 ---@param bufnr integer Buffer number
 ---@param row integer  -- 0-based row where we want to insert below
----@return checkmate.TextDiffHunk[]
+---@return checkmate.TextDiffHunk
 function M.compute_diff_insert_todo_below(bufnr, row)
   local todo_map = parser.get_todo_map(bufnr)
   local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
@@ -617,40 +590,7 @@ function M.compute_diff_insert_todo_below(bufnr, row)
   local unchecked = config.options.todo_markers.unchecked or "□"
   local new_line = indent .. marker_text .. " " .. unchecked .. " "
 
-  return {
-    {
-      start_row = new_row,
-      start_col = 0,
-      end_row = new_row,
-      end_col = 0,
-      insert = { new_line },
-    },
-  }
-end
-
---- Compute diff hunks for toggling a batch of items with their target states
----@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.compute_diff_toggle(items_with_states)
-  profiler.start("api.compute_diff_toggle")
-
-  local hunks = {}
-
-  for _, entry in ipairs(items_with_states) do
-    local todo_item = entry.item
-    local target_state = entry.target_state
-
-    local state_def = config.options.todo_states[target_state]
-
-    if state_def and state_def.marker then
-      local new_marker = config.options.todo_states[target_state].marker
-      local hunk = diff.make_marker_replace(todo_item, new_marker)
-      table.insert(hunks, hunk)
-    end
-  end
-
-  profiler.stop("api.compute_diff_toggle")
-  return hunks
+  return diff.make_line_insert(new_row, new_line)
 end
 
 --- Toggle state of todo item(s)
@@ -670,14 +610,6 @@ function M.toggle_state(ctx, operations)
   end
 
   return hunks
-end
-
---- Set todo items to specific state
----@param ctx checkmate.TransactionContext Transaction context
----@param operations table[] Array of {id: integer, target_state: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.set_todo_item(ctx, operations)
-  return M.toggle_state(ctx, operations)
 end
 
 ---Toggle a batch of todo items with proper parent/child propagation
@@ -1086,67 +1018,55 @@ function M.find_metadata_insert_position(todo_item, meta_name, bufnr)
   end
 end
 
----@param items checkmate.TodoItem[]
+---@param bufnr integer
+---@param item checkmate.TodoItem
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value
----@return checkmate.TextDiffHunk[], table<integer, {old_value: string, new_value: string}>
-function M.compute_diff_add_metadata(items, meta_name, meta_value)
+---@return checkmate.TextDiffHunk? hunk, {old_value: string, new_value: string}? changed
+--- `hunk`: the diff hunk representing the new/updated metadata, or `nil` if no buffer change would result
+--- `changed`: allows the caller to fire on_change callbacks if we actually update a value
+function M.compute_diff_add_metadata(bufnr, item, meta_name, meta_value)
   local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
-    return {}, {}
+    return nil, nil
   end
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-  local changes = {} -- track for on_change callback
+  ---@type checkmate.TextDiffHunk?
+  local hunk = nil
 
-  for _, todo_item in ipairs(items) do
-    local value = meta_value
-    local existing_entry = todo_item.metadata.by_tag[meta_name]
+  local value = meta_value -- target value
+  local existing_entry = item.metadata.by_tag[meta_name]
 
-    if existing_entry then
-      if existing_entry.value ~= value then
-        changes[todo_item.id] = {
-          old_value = existing_entry.value,
-          new_value = value,
-        }
+  local changed
 
-        local line = vim.api.nvim_buf_get_lines(
-          bufnr,
-          existing_entry.range.start.row,
-          existing_entry.range.start.row + 1,
-          false
-        )[1]
+  if existing_entry then
+    if existing_entry.value ~= value then
+      changed = { old_value = existing_entry.value, new_value = value }
 
-        if line then
-          local hunk_list = M.compute_diff_update_metadata(existing_entry, value)
-          vim.list_extend(hunks, hunk_list)
-        end
+      local line =
+        vim.api.nvim_buf_get_lines(bufnr, existing_entry.range.start.row, existing_entry.range.start.row + 1, false)[1]
+
+      if line then
+        hunk = M.compute_diff_update_metadata(existing_entry, value)
       end
-    else
-      local insert_pos = M.find_metadata_insert_position(todo_item, meta_name, bufnr)
-
-      local metadata_text = "@" .. meta_name .. "(" .. value .. ")"
-      local insert_text
-
-      if insert_pos.insert_after_space then
-        insert_text = " " .. metadata_text
-      else
-        -- inserting before something, add space after
-        insert_text = metadata_text .. " "
-      end
-
-      local hunk = {
-        start_row = insert_pos.row,
-        start_col = insert_pos.col,
-        end_row = insert_pos.row,
-        end_col = insert_pos.col,
-        insert = { insert_text },
-      }
-      table.insert(hunks, hunk)
     end
+  else
+    -- doesn't exist yet, new insertion
+    local insert_pos = M.find_metadata_insert_position(item, meta_name, bufnr)
+
+    local metadata_text = "@" .. meta_name .. "(" .. value .. ")"
+    local insert_text
+
+    if insert_pos.insert_after_space then
+      insert_text = " " .. metadata_text
+    else
+      -- inserting before something, add space after
+      insert_text = metadata_text .. " "
+    end
+
+    hunk = diff.make_text_insert(insert_pos.row, insert_pos.col, insert_text)
   end
-  return hunks, changes
+  return hunk, changed
 end
 
 --- Add metadata to todo items
@@ -1177,16 +1097,18 @@ function M.add_metadata(ctx, operations)
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
     local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context)
 
-    local item_hunks, item_changes = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
-    vim.list_extend(hunks, item_hunks)
+    local item_hunk, item_changes = M.compute_diff_add_metadata(bufnr, item, op.meta_name, meta_value)
+    if not util.tbl_isempty_or_nil(item_hunk) then
+      table.insert(hunks, item_hunk)
+    end
 
     -- add callbacks
-    if item_changes[item.id] then
+    if item_changes then
       changes_by_meta[op.meta_name] = changes_by_meta[op.meta_name] or {}
       table.insert(changes_by_meta[op.meta_name], {
         id = op.id,
-        old_value = item_changes[item.id].old_value,
-        new_value = item_changes[item.id].new_value,
+        old_value = item_changes.old_value,
+        new_value = item_changes.new_value,
       })
     elseif not item.metadata.by_tag[op.meta_name] and meta_props.on_add then
       -- only queue on_add if it's actually a new addition
@@ -1258,7 +1180,9 @@ function M.compute_diff_remove_metadata(bufnr, entries)
 
   for _, entry in ipairs(sorted_entries) do
     local hunk = M.compute_metadata_removal_hunk(bufnr, entry)
-    table.insert(hunks, hunk)
+    if hunk then
+      table.insert(hunks, hunk)
+    end
   end
 
   return hunks
@@ -1286,13 +1210,7 @@ function M.compute_metadata_removal_hunk(bufnr, entry)
       end_col = end_col + 1
     end
 
-    return {
-      start_row = start_row,
-      start_col = start_col,
-      end_row = end_row,
-      end_col = end_col,
-      insert = { "" },
-    }
+    return diff.make_text_delete(start_row, start_col, end_col)
   end
 
   -- metadata breaks across more than 1 line
@@ -1328,13 +1246,7 @@ function M.compute_metadata_removal_hunk(bufnr, entry)
     table.remove(new_lines)
   end
 
-  return {
-    start_row = start_row,
-    start_col = 0, -- replace entire lines
-    end_row = end_row,
-    end_col = #lines[#lines], -- to end of last line
-    insert = new_lines,
-  }
+  return diff.make_line_replace({ start_row, end_row }, new_lines)
 end
 
 --- Helper to collect metadata entries to remove based on meta_names
@@ -1499,9 +1411,12 @@ function M.set_metadata_value(ctx, metadata, new_value)
     end
   end
 
-  return M.compute_diff_update_metadata(metadata, new_value)
+  return { M.compute_diff_update_metadata(metadata, new_value) }
 end
 
+---@param metadata checkmate.MetadataEntry
+---@param value string
+---@return checkmate.TextDiffHunk
 function M.compute_diff_update_metadata(metadata, value)
   local value_range = metadata.value_range
 
@@ -1510,15 +1425,7 @@ function M.compute_diff_update_metadata(metadata, value)
   -- (Future enhancement: support actual multi-line values)
   local sanitized_value = value:gsub("\n", " ")
 
-  local hunk = {
-    start_row = value_range.start.row,
-    start_col = value_range.start.col,
-    end_row = value_range["end"].row,
-    end_col = value_range["end"].col,
-    insert = { sanitized_value },
-  }
-
-  return { hunk }
+  return diff.make_text_replace(value_range.start.row, value_range.start.col, value_range["end"].col, sanitized_value)
 end
 
 --- moves the cursor forward or backward to the next metadata tag for the todo item

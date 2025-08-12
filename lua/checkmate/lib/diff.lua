@@ -70,20 +70,37 @@ end
 ----------------------------------
 -- Hunk factory methods
 
---- Create a hunk for replacing an entire line
----@param row integer 0-based row
----@param text string New line text
+---@param text any
+---@return string[] transformed
+local function transform_text(text)
+  if type(text) == "string" then
+    return { text }
+  elseif type(text) ~= "table" then
+    return { tostring(text) }
+  end
+  return text
+end
+
+--- Create a hunk for replacing entire line(s)
+---@param row integer|integer[] 0-based start row or [start, end] row tuple. End row is inclusive.
+---@param text string|string[] New line text
 ---@return checkmate.TextDiffHunk
 function M.make_line_replace(row, text)
-  return TextDiffHunk:new(row, 0, row + 1, 0, { text })
+  local _text = transform_text(text)
+  if type(row) == "number" then
+    return TextDiffHunk:new(row, 0, row + 1, 0, _text)
+  else
+    return TextDiffHunk:new(row[1], 0, row[2] + 1, 0, _text)
+  end
 end
 
 --- Create a hunk for inserting new lines
 ---@param row integer 0-based row to insert at
----@param lines string[] Lines to insert
+---@param text string|string[] Line(s) to insert
 ---@return checkmate.TextDiffHunk
-function M.make_line_insert(row, lines)
-  return TextDiffHunk:new(row, 0, row, 0, lines)
+function M.make_line_insert(row, text)
+  local _text = transform_text(text)
+  return TextDiffHunk:new(row, 0, row, 0, _text)
 end
 
 --- Create a hunk for replacing text within a line (preserves extmarks)
@@ -105,7 +122,7 @@ function M.make_text_insert(row, col, text)
   return TextDiffHunk:new(row, col, row, col, { text })
 end
 
---- Create a hunk for deleting text
+--- Create a hunk for deleting text within a single row
 ---@param row integer 0-based row
 ---@param start_col integer 0-based byte column
 ---@param end_col integer 0-based byte column (exclusive)
@@ -115,6 +132,8 @@ function M.make_text_delete(row, start_col, end_col)
 end
 
 --- Create a hunk for replacing a specific marker in a todo item
+---
+--- Just a convenience wrapper around `make_text_replace()`
 ---@param todo_item checkmate.TodoItem
 ---@param new_marker string
 ---@return checkmate.TextDiffHunk
@@ -169,13 +188,13 @@ function M.apply_diff(bufnr, hunks)
     if getmetatable(hunk) == TextDiffHunk then
       table.insert(converted_hunks, hunk)
     else
-      -- Old format - convert
+      -- old format - convert
       local new_hunk = TextDiffHunk:new(hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
       table.insert(converted_hunks, new_hunk)
     end
   end
 
-  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
+  -- sort hunks bottom to top so that row numbers don't change as we apply hunks
   table.sort(converted_hunks, function(a, b)
     if a.start_row ~= b.start_row then
       return a.start_row > b.start_row
@@ -186,7 +205,9 @@ function M.apply_diff(bufnr, hunks)
   -- apply hunks (first one creates undo entry, rest join)
   for i, hunk in ipairs(converted_hunks) do
     local undojoin = i > 1 -- join all operations after the first
-    hunk:apply(bufnr, { undojoin = undojoin })
+    if not vim.tbl_isempty(hunk) then
+      hunk:apply(bufnr, { undojoin = undojoin })
+    end
   end
 end
 

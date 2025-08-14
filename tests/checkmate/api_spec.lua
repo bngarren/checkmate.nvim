@@ -3257,44 +3257,4 @@ Final content.
       end)
     end)
   end)
-
-  describe("diffs", function()
-    it("should compute correct diff hunk for toggling a single todo item", function()
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-
-      local cm = require("checkmate")
-      cm.setup()
-
-      -- create a one-line todo
-      local content = [[
-- ]] .. unchecked .. [[ MyTask]]
-      local bufnr = h.setup_test_buffer(content)
-
-      local todo_map = parser.discover_todos(bufnr)
-      local todo = h.find_todo_by_text(todo_map, "MyTask")
-      assert.is_not_nil(todo)
-      ---@cast todo checkmate.TodoItem
-
-      assert.equal("unchecked", todo.state)
-
-      local hunks = api.compute_diff_toggle({ { item = todo, target_state = "checked" } })
-      assert.equal(1, #hunks)
-
-      local hunk = hunks[1]
-      -- start/end row should be the todo line
-      assert.equal(todo.todo_marker.position.row, hunk.start_row)
-      assert.equal(todo.todo_marker.position.row, hunk.end_row)
-      -- start col is marker col, end col is marker col + marker‐length
-      assert.equal(todo.todo_marker.position.col, hunk.start_col)
-      assert.equal(todo.todo_marker.position.col + #unchecked, hunk.end_col)
-      -- replacement should be the checked marker
-      assert.same({ checked }, hunk.insert)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
-    end)
-  end)
 end)

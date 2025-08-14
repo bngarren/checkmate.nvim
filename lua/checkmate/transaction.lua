@@ -33,6 +33,7 @@ remember...
 
 local M = {}
 local parser = require("checkmate.parser")
+local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 
 ---the exposed transaction state is referred to as "context"
@@ -146,7 +147,7 @@ function M.run(bufnr, entry_fn, post_fn)
       end
 
       if #all_hunks > 0 then
-        util.apply_diff(bufnr, all_hunks)
+        diff.apply_diff(bufnr, all_hunks)
         state.todo_map = parser.discover_todos(bufnr)
       end
     end

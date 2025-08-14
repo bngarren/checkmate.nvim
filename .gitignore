@@ -1,7 +1,6 @@
 vendor/plenary.nvim
 consolidated.md
 tests/fixtures
-tests/environments.lua
 
 logs/
 

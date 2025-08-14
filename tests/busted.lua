@@ -5,7 +5,6 @@ vim.env.NVIM_APPNAME = "headless"
 
 load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
 
-
 local spec = {}
 
 if vim.env.DEBUG == "1" then
@@ -32,9 +31,7 @@ if vim.env.DEBUG == "1" then
 end
 
 require("lazy.minit").busted({
-  spec = {
-    -- Plugin dependencies for testing
-  },
+  spec = spec,
   headless = {
     process = false,
     log = false,

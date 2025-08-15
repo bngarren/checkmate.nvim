@@ -60,7 +60,7 @@ vim.list_extend(
   { { dir = root, opts = vim.tbl_deep_extend("force", base.checkmate, env.checkmate) or {}, ft = "markdown" } }
 )
 
-load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
+assert(loadfile("tests/lazy_bootstrap.lua"))()
 
 -- setup vim
 dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/options.lua"))

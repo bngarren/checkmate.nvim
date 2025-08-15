@@ -3,7 +3,7 @@
 vim.env.LAZY_STDPATH = ".testdata"
 vim.env.NVIM_APPNAME = "headless"
 
-load(vim.fn.system("curl -s https://raw.githubusercontent.com/folke/lazy.nvim/main/bootstrap.lua"))()
+assert(loadfile("tests/lazy_bootstrap.lua"))()
 
 local spec = {}
 

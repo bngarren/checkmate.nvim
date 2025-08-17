@@ -347,7 +347,7 @@ describe("API", function()
     local cm
     before_each(function()
       cm = require("checkmate")
-      cm.setup()
+      cm.setup(h.DEFAULT_TEST_CONFIG)
     end)
     after_each(function()
       cm.stop()

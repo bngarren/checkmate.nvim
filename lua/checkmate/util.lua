@@ -10,11 +10,36 @@ function M.tbl_isempty_or_nil(t)
   return vim.tbl_isempty(t)
 end
 
+function M.is_normal_mode(mode)
+  mode = mode or vim.fn.mode()
+  return mode:match("^n")
+end
+
 ---Returns true is current mode is VISUAL, false otherwise
 ---@return boolean
-function M.is_visual_mode()
-  local mode = vim.fn.mode()
+function M.is_visual_mode(mode)
+  mode = mode or vim.fn.mode()
   return mode:match("^[vV]") or mode == "\22"
+end
+
+---Returns true is current mode is INSERT, false otherwise
+---@return boolean
+function M.is_insert_mode(mode)
+  mode = mode or vim.fn.mode()
+  return mode:match("^i")
+end
+
+---@return "n"|"v"|"i" mode
+function M.get_mode()
+  local mode = vim.fn.mode()
+  if M.is_visual_mode(mode) then
+    return "v"
+  elseif M.is_normal_mode(mode) then
+    return "n"
+  elseif M.is_insert_mode(mode) then
+    return "i"
+  end
+  return mode
 end
 
 ---Calls vim.notify with the given message and log_level depending on if config.options.notify enabled
@@ -177,6 +202,18 @@ function M.get_next_ordered_marker(li_marker_str, restart)
     end
   end
   return result
+end
+
+--- Check if cursor position is valid for list continuation
+--- The cursor must be after the checkbox/todo marker to trigger continuation
+---@param col integer 0-based cursor column in insert mode
+---@param todo_prefix checkmate.TodoPrefix Todo prefix from match_todo
+---@return boolean
+function M.is_valid_list_continuation_position(col, todo_prefix)
+  -- this is the position after: indent + list_marker + space + todo_marker
+  local threshold = todo_prefix.indent + #todo_prefix.list_marker + 1 + #todo_prefix.todo_marker
+
+  return col >= threshold
 end
 
 --- Escapes special characters in a string for safe use in a Lua pattern character class.

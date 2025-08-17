@@ -4,7 +4,7 @@ local config = require("checkmate.config")
 
 local M = {}
 
----@class checkmate.MatchedTodoPrefix
+---@class checkmate.TodoPrefix
 ---@field indent integer
 ---@field list_marker string
 ---@field state string Todo state
@@ -216,7 +216,7 @@ end
 --- - Pass `opts.state` to only match a checkbox with specific todo state
 --- @param line string
 --- @param opts? {state?: string}
---- @return checkmate.MatchedTodoPrefix? match
+--- @return checkmate.TodoPrefix? match
 function M.match_markdown_checkbox(line, opts)
   opts = opts or {}
   local parser = require("checkmate.parser")
@@ -248,7 +248,7 @@ end
 
 --- Checks if a line matches a todo (either Markdown or unicode)
 ---@param line string
----@return checkmate.MatchedTodoPrefix? match
+---@return checkmate.TodoPrefix? match
 function M.match_todo(line)
   local parser = require("checkmate.parser")
   local util = require("checkmate.util")
@@ -286,6 +286,23 @@ function M.match_todo(line)
     }
   end
   return nil
+end
+
+--- Convert a TodoItem to TodoPrefix
+---@private
+---@param item checkmate.TodoItem
+---@return checkmate.TodoPrefix
+function M._item_to_prefix(item)
+  local state_config = config.options.todo_states[item.state]
+  local todo_marker = state_config and state_config.marker or item.todo_marker.text
+
+  return {
+    indent = item.range.start.col,
+    list_marker = item.list_marker.text,
+    state = item.state,
+    is_markdown = false,
+    todo_marker = todo_marker,
+  }
 end
 
 return M

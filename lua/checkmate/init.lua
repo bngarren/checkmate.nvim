@@ -396,20 +396,36 @@ end
 
 --- Creates a new todo item
 ---
---- # Behavior
---- - In normal mode:
----   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
---- - In visual mode:
----   - Will convert each line in the selection to a new todo item with the default list marker
----   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
----   additional lines will be converted to individual todos
----   - Will not append any new todo items even if all lines in the selection are already todo items
+--- # Behavior by mode:
+--- - **Normal mode:**
+---   - If on a non-todo line: converts it to a todo item
+---   - If on a todo line: creates a sibling todo below (or above with opts.position)
+--- - **Visual mode:**
+---   - Converts each selected line to a todo item
+---   - Ignores lines that are already todos (first line only)
+--- - **Insert mode:**
+---   - Creates a new todo based on cursor position
+---   - Only works if cursor is after the todo marker
+---   - Maintains insert mode after creation
+---
+---@param opts? {nested?: boolean, position?: "above"|"below", inherit_state?: boolean, split_line?: boolean}
+---   - nested: Create as child (indented) instead of sibling
+---   - position: Where to place new todo (default: "below")
+---   - inherit_state: Copy parent's state (default: from config or false)
+---   - eol_only: In insert mode, only allow `list continuation` if cursor is at end of line. If false, will allow splitting the line and moving the remainder text to the new todo
 ---@return boolean success
-function M.create()
+function M.create(opts)
+  opts = opts or {}
+
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
+  local config = require("checkmate.config")
+  local ph = require("checkmate.parser.helpers")
+
+  local mode = util.get_mode()
+  local is_insert = mode == "i"
+  local is_visual = mode == "v"
 
   -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
   local ctx = transaction.current_context()
@@ -417,38 +433,96 @@ function M.create()
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
-    ctx.add_op(api.create_todos, row, row, false)
-
+    ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position or "below",
+      nested = opts.nested or false,
+      inherit_state = opts.inherit_state,
+      split_at_cursor = opts.split_line or false,
+      cursor_pos = { row = row, col = cursor[2] },
+    })
     return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  local is_visual = util.is_visual_mode()
 
-  local start_row, end_row
+  if is_insert then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+
+    -- are we on a todo line?
+    local line = vim.api.nvim_get_current_line()
+    local todo = ph.match_todo(line)
+
+    if not todo then
+      return false
+    end
+
+    if not util.is_valid_list_continuation_position(col, todo) then
+      return false
+    end
+
+    -- we use transaction for insert mode to maintain consistency
+    -- but schedule it to avoid issues with insert mode
+    vim.schedule(function()
+      -- undo break first
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
+
+      transaction.run(bufnr, function(tx_ctx)
+        tx_ctx.add_op(api.create_todo_insert, row, {
+          position = opts.position or "below",
+          nested = opts.nested or false,
+          inherit_state = opts.inherit_state,
+          split_at_cursor = opts.split_line or false,
+          cursor_pos = { row = row, col = col },
+        })
+      end, function()
+        local insert_row = opts.position == "above" and row or row + 1
+        local new_line = vim.api.nvim_buf_get_lines(bufnr, insert_row, insert_row + 1, false)[1] or ""
+        vim.api.nvim_win_set_cursor(0, { insert_row + 1, #new_line })
+      end)
+    end)
+
+    return true
+  end
+
   if is_visual then
+    -- exit visual mode first
     vim.cmd([[execute "normal! \<Esc>"]])
-    -- get the sel start/end row (1-based)
+
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
-    start_row = mark_start[1] - 1
-    end_row = mark_end[1] - 1
+    local start_row = mark_start[1] - 1
+    local end_row = mark_end[1] - 1
 
     if end_row < start_row then
       start_row, end_row = end_row, start_row
     end
-  else
-    local cur = vim.api.nvim_win_get_cursor(0)
-    start_row = cur[1] - 1
-    end_row = start_row
+
+    transaction.run(bufnr, function(tx_ctx)
+      tx_ctx.add_op(api.create_todos_visual, start_row, end_row, {
+        position = "replace",
+        nested = false,
+        inherit_state = false,
+      })
+    end, function()
+      require("checkmate.highlights").apply_highlighting(bufnr)
+    end)
+
+    return true
   end
 
-  if start_row == nil or end_row == nil then
-    return false
-  end
+  -- normal mode (default)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1
 
   transaction.run(bufnr, function(tx_ctx)
-    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+    tx_ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position or "below",
+      nested = opts.nested or false,
+      inherit_state = opts.inherit_state or false,
+      split_at_cursor = false,
+    })
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)

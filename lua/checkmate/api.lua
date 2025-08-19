@@ -182,6 +182,54 @@ function M.setup_keymaps(bufnr)
     end
   end
 
+  -- Setup list continuation keymaps (insert mode)
+  if config.options.list_continuation and config.options.list_continuation.enabled then
+    local continuation_keys = config.options.list_continuation.keys or {}
+
+    for key, handler in pairs(continuation_keys) do
+      if type(handler) == "function" then
+        local expr_fn = function()
+          local cursor = vim.api.nvim_win_get_cursor(0)
+          local line = vim.api.nvim_get_current_line()
+
+          local todo = ph.match_todo(line)
+          if not todo then
+            -- not on a todo, return the original key
+            return vim.api.nvim_replace_termcodes(key, true, false, true)
+          end
+
+          -- check if cursor position is valid (after the checkbox)
+          local col = cursor[2] -- 0-based in insert mode
+          if not util.is_valid_list_continuation_position(col, todo) then
+            return vim.api.nvim_replace_termcodes(key, true, false, true)
+          end
+
+          local at_eol = col >= #line
+          if not at_eol and config.options.list_continuation.split_line == false then
+            return vim.api.nvim_replace_termcodes(key, true, false, true)
+          end
+
+          if not todo.is_markdown then
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
+          end
+
+          handler()
+          return "" -- swallow the key
+        end
+
+        pcall(function()
+          vim.keymap.set("i", key, expr_fn, {
+            buffer = bufnr,
+            expr = true,
+            silent = true,
+            desc = "Checkmate list continuation: " .. key,
+          })
+          table.insert(buffer_local_keys[bufnr], { "i", key })
+        end)
+      end
+    end
+  end
+
   -- Setup metadata keymaps
   if config.options.use_metadata_keymaps then
     for meta_name, meta_props in pairs(config.options.metadata) do
@@ -598,6 +646,64 @@ function M.create_todo_normal(ctx, start_row, opts)
   end
 end
 
+--- cursor pos col: 0 indexed position in INSERT mode. This puts the cursor between/before the corresponding pos in NORMAL mode
+--- E.g. to insert at the EOL, col should be #line (1 after the last char) which puts the insert mode cursor after the last char
+---@param start_row integer 0-based row number
+---@param opts table
+---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
+---    where col=n means cursor is after char[n-1] and before char[n]
+function M.create_todo_insert(ctx, start_row, opts)
+  local bufnr = ctx.get_buf()
+  local line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
+
+  local current_prefix = ph.match_todo(line)
+  if not current_prefix then
+    return {} -- not on a todo line, do nothing
+  end
+
+  if opts.cursor_pos then
+    local col = opts.cursor_pos.col
+    if not util.is_valid_list_continuation_position(col, current_prefix) then
+      return {} -- cursor before checkbox, don't trigger
+    end
+  end
+
+  local insert_row = opts.position == "above" and start_row or start_row + 1
+
+  -- content to carry forward if splitting
+  local content_after = ""
+  local hunks = {}
+
+  if opts.split_at_cursor and opts.cursor_pos then
+    local col = opts.cursor_pos.col
+    if col < #line then
+      content_after = line:sub(col + 1)
+      -- update the current line to remove the content after cursor
+      local truncated = line:sub(1, col)
+      local line_hunk = diff.make_line_replace(start_row, truncated)
+      table.insert(hunks, line_hunk)
+    end
+  end
+
+  local new_todo = M._build_todo_line(current_prefix, {
+    nested = opts.nested,
+    inherit_state = opts.inherit_state,
+    content = content_after,
+  })
+
+  local hunk = diff.make_line_insert(insert_row, new_todo.line)
+  table.insert(hunks, hunk)
+
+  -- adjust the cursor
+  ctx.add_cb(function()
+    -- position cursor at the end of the new todo marker
+    local cursor_col = #new_todo.line - #content_after
+    vim.api.nvim_win_set_cursor(0, { insert_row + 1, cursor_col })
+  end)
+
+  return hunks
+end
+
 --- Build a new todo line with the given options
 ---@private
 ---@param parent_prefix? checkmate.TodoPrefix Context from parent todo (optional)
@@ -607,7 +713,7 @@ function M._build_todo_line(parent_prefix, opts)
   opts = opts or {}
   local content = opts.content or ""
 
-  local indent, list_marker, state, is_markdown, todo_marker
+  local indent, list_marker, state, todo_marker
 
   if parent_prefix then
     indent = parent_prefix.indent

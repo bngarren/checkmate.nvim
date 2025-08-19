@@ -408,11 +408,10 @@ end
 ---   - Only works if cursor is after the todo marker
 ---   - Maintains insert mode after creation
 ---
----@param opts? {nested?: boolean, position?: "above"|"below", inherit_state?: boolean, split_line?: boolean}
+---@param opts? {nested?: boolean, position?: "above"|"below", inherit_state?: boolean}
 ---   - nested: Create as child (indented) instead of sibling
 ---   - position: Where to place new todo (default: "below")
 ---   - inherit_state: Copy parent's state (default: from config or false)
----   - eol_only: In insert mode, only allow `list continuation` if cursor is at end of line. If false, will allow splitting the line and moving the remainder text to the new todo
 ---@return boolean success
 function M.create(opts)
   opts = opts or {}
@@ -420,14 +419,13 @@ function M.create(opts)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
-  local config = require("checkmate.config")
   local ph = require("checkmate.parser.helpers")
 
   local mode = util.get_mode()
   local is_insert = mode == "i"
   local is_visual = mode == "v"
 
-  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
+  -- if we’re already inside a transaction, queue a create_todo for the current cursor row
   local ctx = transaction.current_context()
   if ctx then
     local cursor = vim.api.nvim_win_get_cursor(0)
@@ -437,13 +435,15 @@ function M.create(opts)
       position = opts.position or "below",
       nested = opts.nested or false,
       inherit_state = opts.inherit_state,
-      split_at_cursor = opts.split_line or false,
+      split_at_cursor = true,
       cursor_pos = { row = row, col = cursor[2] },
     })
     return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
+
+  -- determine which api function to use based on current mode:
 
   if is_insert then
     local cursor = vim.api.nvim_win_get_cursor(0)
@@ -465,21 +465,19 @@ function M.create(opts)
     -- we use transaction for insert mode to maintain consistency
     -- but schedule it to avoid issues with insert mode
     vim.schedule(function()
-      -- undo break first
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
-
       transaction.run(bufnr, function(tx_ctx)
         tx_ctx.add_op(api.create_todo_insert, row, {
           position = opts.position or "below",
           nested = opts.nested or false,
           inherit_state = opts.inherit_state,
-          split_at_cursor = opts.split_line or false,
+          split_at_cursor = true,
           cursor_pos = { row = row, col = col },
         })
       end, function()
-        local insert_row = opts.position == "above" and row or row + 1
-        local new_line = vim.api.nvim_buf_get_lines(bufnr, insert_row, insert_row + 1, false)[1] or ""
-        vim.api.nvim_win_set_cursor(0, { insert_row + 1, #new_line })
+        -- ensure we stay in insert mode
+        if not util.is_insert_mode() then
+          vim.cmd("startinsert")
+        end
       end)
     end)
 

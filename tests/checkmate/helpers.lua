@@ -153,6 +153,9 @@ function M.setup_test_buffer(content, name)
   vim.api.nvim_win_set_buf(0, bufnr)
 
   vim.bo[bufnr].filetype = "markdown"
+  vim.bo[bufnr].modifiable = true
+
+  vim.api.nvim_set_current_buf(bufnr)
 
   return bufnr
 end

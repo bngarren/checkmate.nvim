@@ -402,17 +402,23 @@ end
 ---   - If on a todo line: creates a sibling todo below (or above with opts.position)
 --- - **Visual mode:**
 ---   - Converts each selected line to a todo item
----   - Ignores lines that are already todos (first line only)
+---   - Ignores lines that are already todos
 --- - **Insert mode:**
 ---   - Creates a new todo based on cursor position
 ---   - Only works if cursor is after the todo marker
 ---   - Maintains insert mode after creation
 ---
----@param opts? {nested?: boolean, position?: "above"|"below", inherit_state?: boolean}
+---@usage
+---   require("checkmate").create()  -- Create todo at cursor
+---   require("checkmate").create({ nested = true })  -- Create nested child
+---   require("checkmate").create({ position = "above" })  -- Create above current line
+---
+---@param opts? {nested?: boolean, position?: "above"|"below", target_state?: string, inherit_state?: boolean}
 ---   - nested: Create as child (indented) instead of sibling
 ---   - position: Where to place new todo (default: "below")
+---   - target_state: Todo state of the new todo (e.g. "checked", "unchecked", "custom"). This will override `inherit_state`.
 ---   - inherit_state: Copy parent's state (default: from config or false)
----@return boolean success
+---@return boolean success Whether the operation succeeded
 function M.create(opts)
   opts = opts or {}
 
@@ -434,6 +440,7 @@ function M.create(opts)
     ctx.add_op(api.create_todo_normal, row, {
       position = opts.position or "below",
       nested = opts.nested or false,
+      target_state = opts.target_state,
       inherit_state = opts.inherit_state,
       split_at_cursor = true,
       cursor_pos = { row = row, col = cursor[2] },
@@ -469,6 +476,7 @@ function M.create(opts)
         tx_ctx.add_op(api.create_todo_insert, row, {
           position = opts.position or "below",
           nested = opts.nested or false,
+          target_state = opts.target_state,
           inherit_state = opts.inherit_state,
           split_at_cursor = true,
           cursor_pos = { row = row, col = col },
@@ -498,11 +506,7 @@ function M.create(opts)
     end
 
     transaction.run(bufnr, function(tx_ctx)
-      tx_ctx.add_op(api.create_todos_visual, start_row, end_row, {
-        position = "replace",
-        nested = false,
-        inherit_state = false,
-      })
+      tx_ctx.add_op(api.create_todos_visual, start_row, end_row, opts.target_state)
     end, function()
       require("checkmate.highlights").apply_highlighting(bufnr)
     end)
@@ -518,6 +522,7 @@ function M.create(opts)
     tx_ctx.add_op(api.create_todo_normal, row, {
       position = opts.position or "below",
       nested = opts.nested or false,
+      target_state = opts.target_state,
       inherit_state = opts.inherit_state or false,
       split_at_cursor = false,
     })

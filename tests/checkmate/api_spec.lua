@@ -600,6 +600,49 @@ Regular text line
           h.cleanup_buffer(bufnr)
         end)
       end)
+
+      it("should create a new todo with target_state in normal mode", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+
+        local content = "- " .. unchecked .. " Todo A"
+
+        local bufnr = h.setup_test_buffer(content)
+
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        -- target_state ("checked") should override inherit_state ("unchecked")
+        local success = require("checkmate").create({ inherit_state = true, target_state = "checked" })
+        assert.is_true(success)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(2, #lines)
+        assert.matches("- " .. checked .. " ", lines[2])
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should create a new todo with target_state in visual mode", function()
+        local checked = h.get_checked_marker()
+
+        local content = "- Todo A"
+
+        local bufnr = h.setup_test_buffer(content)
+
+        h.make_selection(1, 0, 1, 0, "V")
+
+        local success = require("checkmate").create({ target_state = "checked" })
+        assert.is_true(success)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(1, #lines)
+        assert.matches("- " .. checked .. " Todo A", lines[1])
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
     end)
 
     describe("insert mode", function()
@@ -817,6 +860,49 @@ Regular text line
 
           run_create_todo_insert(bufnr, 0, {
             position = "below",
+            inherit_state = case.inherit,
+            split_at_cursor = true,
+            cursor_pos = { row = 0, col = #case.line },
+          })
+
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+          assert(
+            lines[2]:match(case.expected_marker),
+            case.name .. ": new line should have " .. (case.inherit and "inherited" or "default") .. " marker"
+          )
+
+          h.cleanup_buffer(bufnr)
+        end
+      end)
+
+      it("should handle target_state option and override inherit_state", function()
+        local unchecked = h.get_unchecked_marker()
+        local checked = h.get_checked_marker()
+
+        local test_cases = {
+          {
+            name = "use target without inherit_state present",
+            line = "- " .. unchecked .. " Test",
+            inherit = false,
+            target_state = "checked",
+            expected_marker = checked,
+          },
+          {
+            name = "use target and override inherit_state",
+            line = "- " .. unchecked .. " Test",
+            inherit = true,
+            target_state = "checked",
+            expected_marker = checked,
+          },
+        }
+
+        for _, case in ipairs(test_cases) do
+          local bufnr = h.setup_test_buffer(case.line)
+
+          run_create_todo_insert(bufnr, 0, {
+            position = "below",
+            target_state = case.target_state,
             inherit_state = case.inherit,
             split_at_cursor = true,
             cursor_pos = { row = 0, col = #case.line },

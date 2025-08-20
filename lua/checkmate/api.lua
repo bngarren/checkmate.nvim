@@ -10,6 +10,10 @@ INDEXING CONVENTIONS:
 - nvim_win_set_cursor uses 1-based row, 0-based byte column
 - Ranges are end-exclusive (like Treesitter)
 - Always use byte positions internally, only convert to char positions when absolutely necessary
+
+OPERATIONS:
+Called from the public API, within a transaction, and should return array `TextDiffHunk[]` for consistency.
+The transaction handles batching and applying the diff hunks to the buffer and calling callbacks with updated parse.
 --]]
 
 local config = require("checkmate.config")
@@ -29,6 +33,7 @@ M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = fal
 ---@class CreateTodoOptions
 ---@field position "above"|"below"|"replace" Where to place the todo relative to current line
 ---@field nested boolean Whether to create as a child (indented) todo
+---@field target_state? string Target todo state, overrides `inherit_state`
 ---@field inherit_state? boolean Whether to inherit the parent's state
 ---@field split_at_cursor? boolean In insert mode, whether to split line at cursor
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
@@ -513,74 +518,13 @@ function M.shutdown(bufnr)
   end
 end
 
----@param ctx checkmate.TransactionContext Transaction context
----@param start_row number 0-based range start
----@param end_row number 0-based range end (inclusive)
----@param is_visual boolean true if from visual selection
----@return checkmate.TextDiffHunk[] hunks array of diff hunks or {}
-function M.create_todos(ctx, start_row, end_row, is_visual)
-  local hunks = {}
-
-  local bufnr = ctx.get_buf()
-
-  if is_visual then
-    -- for each line in the range, convert if not already a todo
-    for row = start_row, end_row do
-      local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local is_todo = parser.is_todo_item(cur_line)
-      if is_todo == false then
-        local hunk = M.compute_diff_convert_to_todo(bufnr, row)
-        if hunk then
-          table.insert(hunks, hunk)
-        end
-      end
-    end
-  else
-    -- normal mode, is current line a todo?
-    local row = start_row
-    -- NOTE: only get a todo on this exact row.
-    -- I.e. if the row is a nested list item then it will return the parent todo unless we pass `root_only` = true
-    local todo_item = ctx.get_todo_by_row(row, true)
-
-    if todo_item then
-      local hunk = M.compute_diff_insert_todo_below(bufnr, row)
-      if hunk then
-        table.insert(hunks, hunk)
-
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_row = row + 1
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
-        end
-      end
-    else
-      local hunk = M.compute_diff_convert_to_todo(bufnr, row)
-      if hunk then
-        table.insert(hunks, hunk)
-
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
-        end
-      end
-    end
-  end
-
-  return hunks
-end
-
 --- Creates todo(s) by converting non-todo lines within the range
 ---@param ctx checkmate.TransactionContext
----@param start_row integer
----@param end_row integer
+---@param start_row integer start of the selection
+---@param end_row integer end of the selection
+---@param target_state? string Target todo state. Default is "unchecked".
 ---@return checkmate.TextDiffHunk[] hunks
-function M.create_todos_visual(ctx, start_row, end_row)
+function M.create_todos_visual(ctx, start_row, end_row, target_state)
   local bufnr = ctx.get_buf()
   local hunks = {}
 
@@ -588,7 +532,7 @@ function M.create_todos_visual(ctx, start_row, end_row)
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
     if not parser.is_todo_item(line) then
-      local hunk = M.compute_diff_convert_to_todo(bufnr, row)
+      local hunk = M.compute_diff_convert_to_todo(bufnr, row, target_state)
       if hunk then
         table.insert(hunks, hunk)
       end
@@ -600,9 +544,9 @@ end
 
 --- Convert or create a new child/sibling todo
 ---@param ctx checkmate.TransactionContext
----@param start_row integer
+---@param start_row integer Origin/parent row (not the new row)
 ---@param opts? CreateTodoOptions
----@return checkmate.TextDiffHunk
+---@return checkmate.TextDiffHunk[]
 function M.create_todo_normal(ctx, start_row, opts)
   opts = opts or {}
   local bufnr = ctx.get_buf()
@@ -611,8 +555,10 @@ function M.create_todo_normal(ctx, start_row, opts)
   if todo_item then
     -- current line is already a todo, create a new one
     local parent_prefix = ph._item_to_prefix(todo_item)
-    local new_todo = M._build_todo_line(parent_prefix, {
+    local new_todo = M._build_todo_line({
+      parent_prefix = parent_prefix,
       nested = opts.nested,
+      target_state = opts.target_state,
       inherit_state = opts.inherit_state,
     })
 
@@ -632,7 +578,7 @@ function M.create_todo_normal(ctx, start_row, opts)
     return { hunk }
   else
     -- current line is not a todo, convert it
-    local hunk = M.compute_diff_convert_to_todo(bufnr, start_row)
+    local hunk = M.compute_diff_convert_to_todo(bufnr, start_row, opts.target_state)
 
     if hunk and config.options.enter_insert_after_new then
       ctx.add_cb(function()
@@ -642,16 +588,17 @@ function M.create_todo_normal(ctx, start_row, opts)
       end)
     end
 
-    return hunk
+    return { hunk }
   end
 end
 
 --- cursor pos col: 0 indexed position in INSERT mode. This puts the cursor between/before the corresponding pos in NORMAL mode
 --- E.g. to insert at the EOL, col should be #line (1 after the last char) which puts the insert mode cursor after the last char
----@param start_row integer 0-based row number
----@param opts table
+---@param start_row integer Origin/parent row (not the new row). 0-based
+---@param opts CreateTodoOptions
 ---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
 ---    where col=n means cursor is after char[n-1] and before char[n]
+---@return checkmate.TextDiffHunk[] hunks
 function M.create_todo_insert(ctx, start_row, opts)
   local bufnr = ctx.get_buf()
   local line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
@@ -672,6 +619,7 @@ function M.create_todo_insert(ctx, start_row, opts)
 
   -- content to carry forward if splitting
   local content_after = ""
+  ---@type checkmate.TextDiffHunk[]
   local hunks = {}
 
   if opts.split_at_cursor and opts.cursor_pos then
@@ -685,8 +633,10 @@ function M.create_todo_insert(ctx, start_row, opts)
     end
   end
 
-  local new_todo = M._build_todo_line(current_prefix, {
+  local new_todo = M._build_todo_line({
+    parent_prefix = current_prefix,
     nested = opts.nested,
+    target_state = opts.target_state,
     inherit_state = opts.inherit_state,
     content = content_after,
   })
@@ -704,16 +654,25 @@ function M.create_todo_insert(ctx, start_row, opts)
   return hunks
 end
 
+---@class BuildTodoLineOpts
+---@field parent_prefix? checkmate.TodoPrefix Context from parent todo (optional)
+---@field nested? boolean
+---@field target_state? string Todo state of the new todo (overrides `inherit_state`)
+---@field inherit_state? boolean
+---@field content? string Text after the todo marker
+
 --- Build a new todo line with the given options
 ---@private
----@param parent_prefix? checkmate.TodoPrefix Context from parent todo (optional)
----@param opts {nested?: boolean, inherit_state?: boolean, content?: string}
+---@param opts? BuildTodoLineOpts
 ---@return {line: string, indent: integer, marker: string, state: string}
-function M._build_todo_line(parent_prefix, opts)
+function M._build_todo_line(opts)
   opts = opts or {}
   local content = opts.content or ""
+  local parent_prefix = opts.parent_prefix
+  local target_state = opts.target_state or "unchecked"
+  local todo_marker = config.options.todo_states[target_state].marker
 
-  local indent, list_marker, state, todo_marker
+  local indent, list_marker
 
   if parent_prefix then
     indent = parent_prefix.indent
@@ -729,25 +688,25 @@ function M._build_todo_line(parent_prefix, opts)
       list_marker = util.get_next_ordered_marker(list_marker, false) or list_marker
     end
 
-    if opts.inherit_state then
-      state = parent_prefix.state
+    -- use inherited parent state if enabled (and no target state passed)
+    if not opts.target_state and opts.inherit_state then
+      target_state = parent_prefix.state
       todo_marker = parent_prefix.todo_marker
     else
-      state = "unchecked"
       if parent_prefix.is_markdown then
-        local unchecked_char = config.options.todo_states.unchecked.markdown
-        unchecked_char = type(unchecked_char) == "table" and unchecked_char[1] or unchecked_char
-        todo_marker = "[" .. unchecked_char .. "]"
+        local markdown_char = config.options.todo_states[target_state].markdown
+        markdown_char = type(markdown_char) == "table" and markdown_char[1] or markdown_char
+        todo_marker = "[" .. markdown_char .. "]"
       else
-        todo_marker = config.options.todo_states.unchecked.marker
+        todo_marker = config.options.todo_states[target_state].marker
       end
     end
   else
     -- no parent - use defaults
     indent = 0
     list_marker = config.options.default_list_marker or "-"
-    state = "unchecked"
-    todo_marker = config.options.todo_states.unchecked.marker
+    target_state = target_state
+    todo_marker = todo_marker
   end
 
   local indent_str = string.rep(" ", indent)
@@ -757,25 +716,27 @@ function M._build_todo_line(parent_prefix, opts)
     line = line,
     indent = indent,
     marker = list_marker,
-    state = state,
+    state = target_state,
   }
 end
 
 --- Convert a regular line into a todo
 ---@param bufnr integer
 ---@param row integer 0-based row to convert
+---@param target_state? string Target todo state. Default is "unchecked".
 ---@return checkmate.TextDiffHunk
-function M.compute_diff_convert_to_todo(bufnr, row)
+function M.compute_diff_convert_to_todo(bufnr, row, target_state)
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
   local list_item = ph.match_list_item(line)
+  target_state = target_state or "unchecked"
+  local todo_marker = config.options.todo_states[target_state].marker
 
   local new_line
   if list_item then
     -- already a list item, just add the todo marker
-    local unchecked = config.options.todo_markers.unchecked
-    new_line = line:gsub("^(%s*" .. vim.pesc(list_item.marker) .. "%s+)", "%1" .. unchecked .. " ")
+    new_line = line:gsub("^(%s*" .. vim.pesc(list_item.marker) .. "%s+)", "%1" .. todo_marker .. " ")
     -- add space at end if needed
-    if new_line:match(unchecked .. "$") then
+    if new_line:match(todo_marker .. "$") then
       new_line = new_line .. " "
     end
   else
@@ -790,11 +751,12 @@ function M.compute_diff_convert_to_todo(bufnr, row)
         list_marker = config.options.default_list_marker or "-",
         state = "unchecked",
         is_markdown = false,
-        todo_marker = config.options.todo_markers.unchecked,
+        todo_marker = todo_marker,
       }
     end
 
-    local new_todo = M._build_todo_line(prefix, {
+    local new_todo = M._build_todo_line({
+      parent_prefix = prefix,
       nested = false,
       inherit_state = false,
       content = content,

@@ -400,6 +400,7 @@ end
 --- - **Normal mode:**
 ---   - If on a non-todo line: converts it to a todo item
 ---   - If on a todo line: creates a sibling todo below (or above with opts.position)
+---   - Can enter insert mode after creation with the `enter_insert_after_new` opt
 --- - **Visual mode:**
 ---   - Converts each selected line to a todo item
 ---   - Ignores lines that are already todos
@@ -414,11 +415,10 @@ end
 ---   require("checkmate").create({ position = "above" })  -- Create above current line
 ---
 ---@param opts? {nested?: boolean, position?: "above"|"below", target_state?: string, inherit_state?: boolean}
----   - nested: Create as child (indented) instead of sibling
+---   - nested: Create as child (indented) instead of sibling (default)
 ---   - position: Where to place new todo (default: "below")
----   - target_state: Todo state of the new todo (e.g. "checked", "unchecked", "custom"). This will override `inherit_state`.
----   - inherit_state: Copy parent's state (default: from config or false)
----@return boolean success Whether the operation succeeded
+---   - target_state: Todo state of the new todo (e.g. "checked", "unchecked", "custom"). This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo. Default is "unchecked".
+---   - inherit_state: Copy origin/parent todo's state (default: from config or false). The origin/parent todo is the todo on the current cursor line when `create` is called.
 function M.create(opts)
   opts = opts or {}
 
@@ -445,7 +445,7 @@ function M.create(opts)
       split_at_cursor = true,
       cursor_pos = { row = row, col = cursor[2] },
     })
-    return true
+    return
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
@@ -462,16 +462,39 @@ function M.create(opts)
     local todo = ph.match_todo(line)
 
     if not todo then
-      return false
+      return
     end
 
     if not util.is_valid_list_continuation_position(col, todo) then
-      return false
+      return
     end
+
+    -- since the buffer can change between now and when we run the below create_todo_insert, we use
+    -- an extmark to store the cursor position
+    -- For example, if the todo line is markdown like `- [ ] Test` this will be converted to unicode during
+    -- then plugin's TextChange autocmd handling, which could throw off the cursor position
+    local ns = vim.api.nvim_create_namespace("checkmate_create_temp")
+    local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row, col, {
+      right_gravity = true,
+    })
 
     -- we use transaction for insert mode to maintain consistency
     -- but schedule it to avoid issues with insert mode
     vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+        return
+      end
+
+      local mark_pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, extmark_id, {})
+      if not mark_pos or #mark_pos < 2 then
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+        return
+      end
+
+      local new_row = mark_pos[1]
+      local new_col = mark_pos[2]
+
       transaction.run(bufnr, function(tx_ctx)
         tx_ctx.add_op(api.create_todo_insert, row, {
           position = opts.position or "below",
@@ -479,7 +502,7 @@ function M.create(opts)
           target_state = opts.target_state,
           inherit_state = opts.inherit_state,
           split_at_cursor = true,
-          cursor_pos = { row = row, col = col },
+          cursor_pos = { row = new_row, col = new_col },
         })
       end, function()
         -- ensure we stay in insert mode
@@ -489,7 +512,7 @@ function M.create(opts)
       end)
     end)
 
-    return true
+    return
   end
 
   if is_visual then

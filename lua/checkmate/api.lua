@@ -33,9 +33,9 @@ M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = fal
 ---@class CreateTodoOptions
 ---@field position "above"|"below"|"replace" Where to place the todo relative to current line
 ---@field nested boolean Whether to create as a child (indented) todo
----@field target_state? string Target todo state, overrides `inherit_state`
----@field inherit_state? boolean Whether to inherit the parent's state
----@field split_at_cursor? boolean In insert mode, whether to split line at cursor
+---@field target_state? string Target todo state, overrides the state that would be derived if `inherit_state` is true.
+---@field inherit_state? boolean Whether to inherit the origin/parent todo's state
+---@field split_at_cursor? boolean In insert mode, when `split_at_cursor` is true, `cursor_pos` determines the split point. Text after `cursor_pos.col` moves to the new line
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
@@ -218,7 +218,9 @@ function M.setup_keymaps(bufnr)
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
           end
 
-          handler()
+          vim.schedule(function()
+            handler()
+          end)
           return "" -- swallow the key
         end
 

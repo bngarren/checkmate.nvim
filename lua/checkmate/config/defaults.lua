@@ -100,13 +100,13 @@ return {
       ["<CR>"] = function()
         require("checkmate").create({
           position = "below",
-          nested = false,
+          indent = false,
         })
       end,
       ["<S-CR>"] = function()
         require("checkmate").create({
           position = "below",
-          nested = true,
+          indent = true,
         })
       end,
     },

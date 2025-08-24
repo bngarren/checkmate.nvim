@@ -57,7 +57,7 @@ vim.list_extend(spec, env.spec or {})
 local root = vim.fs.root(0, ".git")
 vim.list_extend(
   spec,
-  { { dir = root, opts = vim.tbl_deep_extend("force", base.checkmate, env.checkmate) or {}, ft = "markdown" } }
+  { { dir = root, opts = vim.tbl_deep_extend("force", base.checkmate, env.checkmate or {}) or {}, ft = "markdown" } }
 )
 
 assert(loadfile("tests/lazy_bootstrap.lua"))()

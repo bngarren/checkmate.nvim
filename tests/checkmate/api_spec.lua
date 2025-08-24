@@ -353,7 +353,7 @@ describe("API", function()
       cm.stop()
     end)
 
-    describe("normal/visual mode", function()
+    describe("normal mode", function()
       it("should convert a regular line to a todo item", function()
         local config = require("checkmate.config")
         local unchecked = h.get_unchecked_marker()
@@ -469,6 +469,105 @@ Some other content ]]
         end)
       end)
 
+      it("should handle indent option correctly", function()
+        local unchecked = h.get_unchecked_marker()
+
+        local test_cases = {
+          {
+            name = "indent=false creates sibling",
+            initial = "- " .. unchecked .. " Parent todo",
+            opts = { indent = false },
+            expected_lines = {
+              "- " .. unchecked .. " Parent todo",
+              "- " .. unchecked .. " ",
+            },
+          },
+          {
+            name = "indent=true creates nested child",
+            initial = "- " .. unchecked .. " Parent todo",
+            opts = { indent = true },
+            expected_lines = {
+              "- " .. unchecked .. " Parent todo",
+              "  - " .. unchecked .. " ",
+            },
+          },
+          {
+            name = "indent='nested' creates nested child",
+            initial = "- " .. unchecked .. " Parent todo",
+            opts = { indent = "nested" },
+            expected_lines = {
+              "- " .. unchecked .. " Parent todo",
+              "  - " .. unchecked .. " ",
+            },
+          },
+          {
+            name = "indent=4 creates with explicit spaces",
+            initial = "- " .. unchecked .. " Parent todo",
+            opts = { indent = 4 },
+            expected_lines = {
+              "- " .. unchecked .. " Parent todo",
+              "    - " .. unchecked .. " ",
+            },
+          },
+          {
+            name = "indent=0 creates at root level",
+            initial = "  - " .. unchecked .. " Indented todo",
+            opts = { indent = 0 },
+            expected_lines = {
+              "  - " .. unchecked .. " Indented todo",
+              "- " .. unchecked .. " ",
+            },
+          },
+        }
+
+        for _, case in ipairs(test_cases) do
+          local bufnr = h.setup_test_buffer(case.initial)
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+          require("checkmate").create(case.opts)
+
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+          assert.equal(#case.expected_lines, #lines, case.name .. ": line count")
+          for i, expected in ipairs(case.expected_lines) do
+            assert.equal(expected, lines[i], case.name .. ": line " .. i)
+          end
+
+          h.cleanup_buffer(bufnr)
+        end
+      end)
+
+      it("should handle position option with indent", function()
+        local unchecked = h.get_unchecked_marker()
+
+        local content = "- " .. unchecked .. " Parent todo"
+
+        -- test position="above" with indent=true
+        local bufnr = h.setup_test_buffer(content)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        require("checkmate").create({ position = "above", indent = true })
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(2, #lines)
+        assert.equal("  - " .. unchecked .. " ", lines[1]) -- nested child above
+        assert.equal("- " .. unchecked .. " Parent todo", lines[2])
+
+        h.cleanup_buffer(bufnr)
+
+        -- test position="above" with indent=4
+        bufnr = h.setup_test_buffer(content)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        require("checkmate").create({ position = "above", indent = 4 })
+
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(2, #lines)
+        assert.equal("    - " .. unchecked .. " ", lines[1]) -- 4 spaces
+        assert.equal("- " .. unchecked .. " Parent todo", lines[2])
+
+        h.cleanup_buffer(bufnr)
+      end)
+
       it("should increment ordered list numbers when inserting", function()
         local unchecked = h.get_unchecked_marker()
 
@@ -512,42 +611,6 @@ Some other content ]]
         assert.equal("- Todo1", lines[1])
         assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
         assert.equal("  - Child1", lines[3])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
-      end)
-
-      it("should handle visual selection with mixed content types", function()
-        local config = require("checkmate.config")
-        local unchecked = h.get_unchecked_marker()
-        local default_list_marker = config.get_defaults().default_list_marker
-
-        local content = [[
-# Header should not convert
-Regular text line
-- Already a list item
-  Indented continuation
-    - Nested list item
-1. Ordered list item
-]]
-
-        local bufnr = h.setup_test_buffer(content)
-
-        -- select lines 2-6 (skipping header)
-        h.make_selection(2, 0, 6, 0, "V")
-
-        local success = require("checkmate").create()
-        assert.is_true(success)
-
-        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-        assert.equal("# Header should not convert", lines[1])
-        assert.equal(default_list_marker .. " " .. unchecked .. " Regular text line", lines[2])
-        assert.equal("- " .. unchecked .. " Already a list item", lines[3])
-        assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented continuation", lines[4])
-        assert.equal("    - " .. unchecked .. " Nested list item", lines[5])
-        assert.equal("1. " .. unchecked .. " Ordered list item", lines[6])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -623,6 +686,75 @@ Regular text line
         end)
       end)
 
+      it("should handle content option in normal mode", function()
+        local unchecked = h.get_unchecked_marker()
+
+        -- test content when creating new todo from existing todo
+        local content = "- " .. unchecked .. " Parent todo"
+        local bufnr = h.setup_test_buffer(content)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        require("checkmate").create({ content = "Custom content here" })
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(2, #lines)
+        assert.equal("- " .. unchecked .. " Parent todo", lines[1])
+        assert.equal("- " .. unchecked .. " Custom content here", lines[2])
+
+        h.cleanup_buffer(bufnr)
+
+        -- test content when converting non-todo line
+        content = "Regular text line"
+        bufnr = h.setup_test_buffer(content)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+        require("checkmate").create({ content = "Replaced content" })
+
+        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(1, #lines)
+        assert.equal("- " .. unchecked .. " Replaced content", lines[1])
+
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    describe("visual mode", function()
+      it("should handle visual selection with mixed content types", function()
+        local config = require("checkmate.config")
+        local unchecked = h.get_unchecked_marker()
+        local default_list_marker = config.get_defaults().default_list_marker
+
+        local content = [[
+# Header should not convert
+Regular text line
+- Already a list item
+  Indented continuation
+    - Nested list item
+1. Ordered list item
+]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        -- select lines 2-6 (skipping header)
+        h.make_selection(2, 0, 6, 0, "V")
+
+        local success = require("checkmate").create()
+        assert.is_true(success)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+        assert.equal("# Header should not convert", lines[1])
+        assert.equal(default_list_marker .. " " .. unchecked .. " Regular text line", lines[2])
+        assert.equal("- " .. unchecked .. " Already a list item", lines[3])
+        assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented continuation", lines[4])
+        assert.equal("    - " .. unchecked .. " Nested list item", lines[5])
+        assert.equal("1. " .. unchecked .. " Ordered list item", lines[6])
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
       it("should create a new todo with target_state in visual mode", function()
         local checked = h.get_checked_marker()
 
@@ -642,6 +774,51 @@ Regular text line
         finally(function()
           h.cleanup_buffer(bufnr)
         end)
+      end)
+
+      it("should replace content when content option is provided", function()
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+Line one
+Line two
+Line three
+]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        -- select all three lines
+        h.make_selection(1, 0, 3, 0, "V")
+
+        require("checkmate").create({ content = "Replaced" })
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal(4, #lines) -- includes empty line at end
+        assert.equal("- " .. unchecked .. " Replaced", lines[1])
+        assert.equal("- " .. unchecked .. " Replaced", lines[2])
+        assert.equal("- " .. unchecked .. " Replaced", lines[3])
+
+        h.cleanup_buffer(bufnr)
+      end)
+
+      it("should apply list_marker in visual mode", function()
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+Regular line
+Another line
+]]
+
+        local bufnr = h.setup_test_buffer(content)
+        h.make_selection(1, 0, 2, 0, "V")
+
+        require("checkmate").create({ list_marker = "*" })
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.equal("* " .. unchecked .. " Regular line", lines[1])
+        assert.equal("* " .. unchecked .. " Another line", lines[2])
+
+        h.cleanup_buffer(bufnr)
       end)
     end)
 
@@ -757,7 +934,7 @@ Regular text line
             },
             row = 1, -- 0 based
             cursor_after = "Child",
-            nested = false,
+            indent = false,
             expected = {
               "- " .. unchecked .. " Parent",
               "  - " .. unchecked .. " Child",
@@ -772,7 +949,7 @@ Regular text line
             },
             row = 1,
             cursor_after = "Child",
-            nested = true,
+            indent = true,
             expected = {
               "- " .. unchecked .. " Parent",
               "  - " .. unchecked .. " Child",
@@ -788,7 +965,7 @@ Regular text line
             },
             row = 2,
             cursor_after = "Level 2",
-            nested = true,
+            indent = true,
             expected = {
               "- " .. unchecked .. " Root",
               "  - " .. unchecked .. " Level 1",
@@ -807,7 +984,7 @@ Regular text line
 
           run_create_todo_insert(bufnr, case.row, {
             position = "below",
-            nested = case.nested,
+            indent = case.indent,
             split_at_cursor = true,
             cursor_pos = { row = case.row, col = cursor_col },
           })

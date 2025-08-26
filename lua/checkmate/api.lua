@@ -193,8 +193,22 @@ function M.setup_keymaps(bufnr)
   if config.options.list_continuation and config.options.list_continuation.enabled then
     local continuation_keys = config.options.list_continuation.keys or {}
 
-    for key, handler in pairs(continuation_keys) do
-      if type(handler) == "function" then
+    for key, key_config in pairs(continuation_keys) do
+      local handler, desc
+
+      if type(key_config) == "function" then
+        handler = key_config
+        desc = "List continuation for " .. key
+      elseif type(key_config) == "table" then
+        if type(key_config.rhs) == "function" then
+          handler = key_config.rhs
+          desc = key_config.desc or ("List continuation for " .. key)
+        end
+      end
+
+      if handler then
+        local orig_key = vim.api.nvim_replace_termcodes(key, true, false, true)
+
         local expr_fn = function()
           local cursor = vim.api.nvim_win_get_cursor(0)
           local line = vim.api.nvim_get_current_line()
@@ -202,20 +216,21 @@ function M.setup_keymaps(bufnr)
           local todo = ph.match_todo(line)
           if not todo then
             -- not on a todo, return the original key
-            return vim.api.nvim_replace_termcodes(key, true, false, true)
+            return orig_key
           end
 
           -- check if cursor position is valid (after the checkbox)
           local col = cursor[2] -- 0-based in insert mode
           if not util.is_valid_list_continuation_position(col, todo) then
-            return vim.api.nvim_replace_termcodes(key, true, false, true)
+            return orig_key
           end
 
           local at_eol = col >= #line
           if not at_eol and config.options.list_continuation.split_line == false then
-            return vim.api.nvim_replace_termcodes(key, true, false, true)
+            return orig_key
           end
 
+          -- Add undo breakpoint for non-markdown todos
           if not todo.is_markdown then
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
           end
@@ -223,6 +238,7 @@ function M.setup_keymaps(bufnr)
           vim.schedule(function()
             handler()
           end)
+
           return "" -- swallow the key
         end
 
@@ -231,7 +247,7 @@ function M.setup_keymaps(bufnr)
             buffer = bufnr,
             expr = true,
             silent = true,
-            desc = "Checkmate list continuation: " .. key,
+            desc = desc,
           })
           table.insert(buffer_local_keys[bufnr], { "i", key })
         end)
@@ -641,12 +657,19 @@ function M.create_todo_normal(ctx, start_row, opts)
 end
 
 --- Create todo in insert mode with line splitting support
---- cursor pos col: 0 indexed position in INSERT mode. This puts the cursor between/before the corresponding pos in NORMAL mode
---- E.g. to insert at the EOL, col should be #line (1 after the last char) which puts the insert mode cursor after the last char
+---
+--- When cursor is mid-line after a todo marker:
+---  1. Text after cursor moves to new todo line
+---  2. `content` option prepends to this split content
+---  3. Cursor positioned after new todo marker + space
+---
+---@param ctx checkmate.TransactionContext
 ---@param start_row integer Origin/parent row (not the new row). 0-based
 ---@param opts checkmate.CreateTodoOptions
 ---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
 ---    where col=n means cursor is after char[n-1] and before char[n]
+---  - split_at_cursor: When true, splits line at cursor position
+---  - content: Prepends to any split content
 ---@return checkmate.TextDiffHunk[] hunks
 function M.create_todo_insert(ctx, start_row, opts)
   local bufnr = ctx.get_buf()
@@ -691,7 +714,7 @@ function M.create_todo_insert(ctx, start_row, opts)
   local new_todo = M._build_todo_line({
     parent_prefix = current_prefix,
     target_state = opts.target_state,
-    inherit_state = opts.inherit_state or config.options.list_continuation.inherit_state,
+    inherit_state = opts.inherit_state,
     content = final_content,
     list_marker = opts.list_marker,
     indent = opts.indent,
@@ -708,6 +731,22 @@ function M.create_todo_insert(ctx, start_row, opts)
   end)
 
   return hunks
+end
+
+--- Normalize and validate indent option
+---@param indent any The raw indent option value
+---@return boolean|integer|nil normalized_indent
+local function normalize_indent_option(indent)
+  if indent == nil or indent == false then
+    return false -- sibling (default)
+  elseif indent == true or indent == "nested" then
+    return true -- nested child
+  elseif type(indent) == "number" and indent >= 0 then
+    return math.floor(indent) -- explicit spaces (ensure integer)
+  else
+    log.fmt_warn("Invalid indent option value: %s. Using default (sibling).", vim.inspect(indent))
+    return false
+  end
 end
 
 ---@class BuildTodoLineOpts
@@ -749,11 +788,12 @@ function M._build_todo_line(opts)
   end
 
   -- indentation
+  local indent_opt = normalize_indent_option(opts.indent)
   local indent
-  if type(opts.indent) == "number" then
+  if type(indent_opt) == "number" then
     -- explicit indent in spaces
-    indent = opts.indent
-  elseif opts.indent == true or opts.indent == "nested" then
+    indent = indent_opt
+  elseif indent_opt == true or opts.indent == "nested" then
     -- nested child - calculate based on parent
     if parent_prefix then
       indent = parent_prefix.indent + #parent_prefix.list_marker + 1
@@ -761,7 +801,7 @@ function M._build_todo_line(opts)
       -- no parent
       indent = 2
     end
-  elseif opts.indent == false or opts.indent == nil then
+  elseif indent_opt == false or opts.indent == nil then
     -- sibling (default) - same level as parent
     if parent_prefix then
       indent = parent_prefix.indent
@@ -780,7 +820,7 @@ function M._build_todo_line(opts)
     list_marker = opts.list_marker
   elseif parent_prefix then
     -- inherit from parent with auto numbering
-    local is_nested = opts.indent == true or opts.indent == "nested"
+    local is_nested = indent_opt == true
     if is_nested then
       -- nested items may reset numbering
       list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
@@ -837,11 +877,12 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
 
     local content = opts.content or existing_content
 
+    local indent_opt = normalize_indent_option(opts.indent)
     local final_indent
-    if type(opts.indent) == "number" then
+    if type(indent_opt) == "number" then
       -- explicit indent in spaces
-      final_indent = opts.indent
-    elseif opts.indent == true or opts.indent == "nested" then
+      final_indent = indent_opt
+    elseif indent_opt == true then
       -- add nesting indent (2 spaces by default)
       final_indent = #existing_indent + 2
     else

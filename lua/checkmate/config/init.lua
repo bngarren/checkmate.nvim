@@ -93,6 +93,10 @@ M.options = {}
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---@field enter_insert_after_new boolean
 ---
+---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enalbed` option.
+--- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row to set sensible defaults
+--- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
 ---@field list_continuation checkmate.ListContinuationSettings
 ---
 ---Smart toggle provides intelligent parent-child todo state propagation
@@ -227,22 +231,16 @@ M.options = {}
 ---
 --- Whether to enable list continuation behavior
 ---
---- If true, new todo (lines) will be added in INSERT mode when the cursor is at the end of line on a todo and is triggered by keymaps defined `list_continuation.keys`:
----
---- Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
----
 --- Default: true
 ---@field enabled? boolean
 ---
---- If true, the new todo will inherit the state of the original line, i.e. it's previous sibling or its parent (if a nested todo is created)
----
---- Default: false. If false, new todos will be "unchecked".
----@field inherit_state? boolean
----
 ---@field split_line? boolean
 ---
----@field keys? table<string, function>
-
+--- Specify keymaps for triggering list continuation in insert mode
+---
+--- Important: `keys` is not deeply merged with the defaults. So, if you wish to override any keys, consider copy/pasting the defaults and making modifications.
+---@field keys? table<string, {rhs: function, desc?: string}|function>
+---
 -----------------------------------------------------
 
 ---@class checkmate.SmartToggleSettings
@@ -516,6 +514,10 @@ function M.setup(opts)
         for meta_name, meta_props in pairs(opts.metadata) do
           config.metadata[meta_name] = vim.deepcopy(meta_props)
         end
+      end
+
+      if opts.list_continuation and opts.list_continuation.keys then
+        config.list_continuation.keys = vim.deepcopy(opts.list_continuation.keys)
       end
     end
 

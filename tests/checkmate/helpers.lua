@@ -1,4 +1,5 @@
 local config = require("checkmate.config")
+local assert = require("busted").assert
 
 local M = {}
 
@@ -264,6 +265,24 @@ function M.make_selection(row1, col1, row2, col2, mode)
   vim.api.nvim_win_set_cursor(0, { row2, col2 })
 
   vim.wait(5)
+end
+
+function M.assert_lines_equal(actual, expected, test_name)
+  local prefix = test_name and (test_name .. ": ") or ""
+  assert.equal(#expected, #actual, prefix .. "line count mismatch")
+  for i, expected_line in ipairs(expected) do
+    if expected_line ~= false then
+      assert.equal(expected_line, actual[i], prefix .. "line " .. i)
+    end
+  end
+end
+
+--- Returns the cursor location that is 1 after the last character of the found text
+--- uses the todo markers: unchecked, checked, and pending
+function M.find_cursor_after_text(line, text)
+  local todo_markers = { M.get_unchecked_marker(), M.get_checked_marker(), M.get_pending_marker() }
+  local prefix = line:match("^(.-" .. "[" .. table.concat(todo_markers, "") .. "]" .. " )")
+  return #prefix + #text
 end
 
 return M

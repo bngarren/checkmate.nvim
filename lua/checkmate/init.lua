@@ -395,38 +395,84 @@ function M.cycle(opts)
 end
 
 ---@class checkmate.CreateOptions
----@field content? string Text content for new todo (normal/insert only)
----@field position? "above"|"below" Where to place new todo. Default: "below". (normal/insert only)
----@field target_state? string Explicit todo state (e.g. "checked", "unchecked", "custom"). This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo. Default is "unchecked". (all modes)
----@field inherit_state? boolean Inherit state from parent/current todo. This is the todo on the cursor line when `create` is called. Default: false. (normal/insert only)
----@field list_marker? string Override list marker (all modes)
 ---
----Indentation (whitespace before list marker).
---- - boolean: false = sibling (default), true = nested child
---- - integer: explicit indent in spaces
---- - "nested": same as true
+--- Text content for new todo (all modes)
+--- In visual mode, replaces existing line content
+---@field content? string
+---
+--- Where to place new todo relative to the current line. (normal/insert only)
+--- Default: "below"
+---@field position? "above"|"below"
+---
+--- Explicit todo state, e.g. "checked", "unchecked", or custom state (all modes)
+--- This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo
+--- Default: "unchecked"
+---@field target_state? string
+---
+--- Whether to inherit state from parent/current todo (normal/insert only)
+--- The "parent" todo is is the todo on the cursor line when `create` is called
+--- Default: false (target_state is used)
+---@field inherit_state? boolean
+---
+--- Override list marker, e.g. "-", "*", "+", "1." (all modes)
+--- Default: will use parent's type or fallback to config `default_list_marker`
+---@field list_marker? string
+---
+--- Indentation (whitespace before list marker).
+---  - `false` (default): sibling - same indent as parent
+---  - `true` or `"nested"`: child - indented under parent
+---  - `integer`: explicit indent in spaces
 ---@field indent? boolean|integer|"nested"
+
+--- Creates or converts lines to todo items based on context and mode
 ---
---- Creates a new todo item
+--- # Mode-Specific Behavior
 ---
---- # Behavior by mode:
---- - **Normal mode:**
----   - If on a non-todo line: converts it to a todo item
----   - If on a todo line: creates a sibling todo below (or above with opts.position)
----   - Can enter insert mode after creation with the `enter_insert_after_new` opt
---- - **Visual mode:**
----   - Converts each selected line to a todo item
----   - Ignores lines that are already todos
----   - The `content` opt will replace existing text on converted line
---- - **Insert mode:**
----   - Creates a new todo based on cursor position
----   - Only works if cursor is after the todo marker
----   - Maintains insert mode after creation
+--- ## Normal Mode
+--- - **On non-todo line**: Converts line to todo (preserves text as content)
+---   - With `position`: Creates new todo above/below, preserves original line
+--- - **On todo line**: Creates sibling todo below
+---   - With `position="above"`: Creates sibling above
+---   - With `indent=true`: Creates nested child
 ---
----@usage
----   require("checkmate").create()  -- Create todo at cursor
----   require("checkmate").create({ nested = true })  -- Create nested child
----   require("checkmate").create({ position = "above" })  -- Create above current line
+--- ## Visual Mode
+--- - Converts each non-todo line in selection to a todo
+--- - Ignores lines that are already todos
+--- - Options `position`, `indent`, `inherit_state` are ignored
+--- - Option `content` replaces existing line text
+---
+--- ## Insert Mode
+--- - Creates new todo below (or above with `position="above"`)
+--- - If cursor is mid-line, splits line at cursor (text after cursor moves to new todo)
+--- - Maintains insert mode after creation
+---
+--- # Option Precedence
+---
+--- **State precedence** (highest to lowest):
+--- 1. `target_state` - explicit state
+--- 2. `inherit_state` - copies from parent/current todo
+--- 3. "unchecked" - default
+---
+--- **List marker precedence**:
+--- 1. `list_marker` - explicit marker
+--- 2. Inherited from parent/sibling with auto-numbering
+--- 3. Config `default_list_marker`
+--- 4. "-" - fallback
+---
+--- # Examples
+--- ```lua
+--- -- Convert current line to todo
+--- require("checkmate").create()
+---
+--- -- Create nested child todo
+--- require("checkmate").create({ indent = true })
+---
+--- -- Create todo above with custom state
+--- require("checkmate").create({ position = "above", target_state = "pending" })
+---
+--- -- Create with specific content and marker
+--- require("checkmate").create({ content = "New task", list_marker = "1." })
+--- ```
 ---
 ---@param opts? checkmate.CreateOptions
 function M.create(opts)
@@ -435,7 +481,6 @@ function M.create(opts)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
-  local ph = require("checkmate.parser.helpers")
   local log = require("checkmate.log")
 
   local mode = util.get_mode()
@@ -445,15 +490,24 @@ function M.create(opts)
   -- validate opts based on the mode
   if is_visual then
     -- visual mode only supports limited opts
-    local visual_opts = {
-      target_state = opts.target_state,
-      list_marker = opts.list_marker,
-      content = opts.content,
+    local allowed_opts = {
+      target_state = true,
+      list_marker = true,
+      content = true,
     }
-    local visual_opts_keys = vim.tbl_keys(visual_opts)
-    for k, _ in pairs(opts) do
-      if not vim.tbl_contains(visual_opts_keys, k) then
-        log.fmt_warn("cannot use `%s` option with `create()` in visual mode", k)
+
+    local visual_opts = {}
+    for k, v in pairs(opts) do
+      if allowed_opts[k] then
+        visual_opts[k] = v
+      else
+        -- warn
+        local ignored = { "position", "indent", "inherit_state" }
+        if vim.tbl_contains(ignored, k) then
+          log.fmt_debug("[main][create] Option '%s' is ignored in visual mode", k)
+        else
+          log.fmt_warn("[main][create] Unknown option '%s' in visual mode", k)
+        end
       end
     end
     opts = visual_opts

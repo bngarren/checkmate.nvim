@@ -62,6 +62,26 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
+local function init_buffer_undo_tracking(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  -- Baseline tick at attach/first setup; used to detect "no edits since attach"
+  vim.b[bufnr].checkmate_baseline_tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  vim.b[bufnr].checkmate_user_changed = false
+end
+
+local function mark_user_change(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  if vim.b[bufnr].checkmate_in_conversion then
+    return
+  end -- ignore our own writes
+  vim.b[bufnr].checkmate_last_user_tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  vim.b[bufnr].checkmate_user_changed = true
+end
+
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
   if not M.is_valid_buffer(bufnr) then
@@ -99,6 +119,8 @@ function M.setup_buffer(bufnr)
     vim.treesitter.start(bufnr, "markdown")
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
+
+  init_buffer_undo_tracking(bufnr)
 
   M.setup_keymaps(bufnr)
   M.setup_autocmds(bufnr)
@@ -400,6 +422,9 @@ function M.setup_autocmds(bufnr)
       buffer = bufnr,
       callback = function(args)
         if vim.bo[bufnr].modified then
+          if args.event == "InsertLeave" then
+            mark_user_change(bufnr)
+          end
           M.process_buffer(bufnr, "full", args.event)
         end
       end,
@@ -409,6 +434,7 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        mark_user_change(bufnr)
         M.process_buffer(bufnr, "full", "TextChanged")
       end,
     })
@@ -417,6 +443,7 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        mark_user_change(bufnr)
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
       end,
     })
@@ -458,6 +485,11 @@ function M.process_buffer(bufnr, process_type, reason)
   process_type = process_type or "full"
   local process_config = M.PROCESS_CONFIGS[process_type]
   if not process_config then
+    return
+  end
+
+  -- do not react to our own conversion writes
+  if vim.b[bufnr].checkmate_in_conversion then
     return
   end
 
@@ -534,6 +566,9 @@ function M.shutdown(bufnr)
 
     vim.b[bufnr].checkmate_setup_complete = nil
     vim.b[bufnr].checkmate_autocmds_setup = nil
+    vim.b[bufnr].checkmate_baseline_tick = nil
+    vim.b[bufnr].checkmate_last_user_tick = nil
+    vim.b[bufnr].checkmate_user_changed = nil
     vim.b[bufnr].checkmate_cleaned_up = true
   end
 end

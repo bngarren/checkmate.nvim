@@ -324,6 +324,8 @@ function M.setup()
   log.info("[parser] Setup complete")
 end
 
+-- Undo-head check: only join/suppress when sitting at the branch head
+-- If undotree() returns a non-table (e.g. no history), treat as "at head"
 local function is_at_undo_head(bufnr)
   local ut = vim.fn.undotree(bufnr)
   if type(ut) ~= "table" then
@@ -332,6 +334,9 @@ local function is_at_undo_head(bufnr)
   return (ut.seq_cur or 0) == (ut.seq_last or 0)
 end
 
+-- join conversion into the immediately preceding user change if
+-- the current changedtick equals the last tick we observed from a user edit
+-- (We ignore our own writes via checkmate_in_conversion.)
 local function should_attempt_join(bufnr)
   local last_user = vim.b[bufnr].checkmate_last_user_tick
   if not last_user then
@@ -347,14 +352,15 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
-  -- prevent re-entry
+  -- prevent re-entry:
+  -- so our own writes don't trigger downstream autocmds/handlers
+  -- or re-run this function (which would break join logic)
   if vim.b[bufnr].checkmate_in_conversion then
     return false
   end
   vim.b[bufnr].checkmate_in_conversion = true
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local original_modified = vim.bo[bufnr].modified
 
   local state_to_patterns = {}
   for state_name, state_def in pairs(config.options.todo_states) do
@@ -409,50 +415,70 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
+  -- Undo logic
+  -- - On open: if prior history exists and we're at head, undojoin this conversion
+  --   into the last block ("join_open"). If there is no history, suppress recording
+  --   just this first change ("suppress_open") via a temporary local undolevels=-1.
+  -- - After user inserts: join into the user's edit ("join").
+  -- - Otherwise: perform a normal, separate undo block ("normal").
+
   if not is_at_undo_head(bufnr) then
     vim.b[bufnr].checkmate_in_conversion = nil
     return false
   end
 
-  -- Initial *suppress* is allowed only if no edits since attach
+  -- Detect the "true initial normalization" *and* whether there is history to join to
   local cur_tick = vim.api.nvim_buf_get_changedtick(bufnr)
   local baseline = vim.b[bufnr].checkmate_baseline_tick or cur_tick
   local no_user_edits_since_attach = (vim.b[bufnr].checkmate_user_changed ~= true) and (cur_tick == baseline)
 
   local mode
   if no_user_edits_since_attach then
-    mode = "suppress" -- true initial normalization
+    if util.has_prior_history(bufnr) and util.at_head(bufnr) then
+      mode = "join_open" -- merge conversion into the last historical block
+    else
+      mode = "suppress_open" -- no prior history exists: suppress just this change
+    end
   elseif should_attempt_join(bufnr) then
-    mode = "join" -- merge into the user's last edit
+    mode = "join" -- merge with the user's just-finished edit
   else
-    mode = "normal" -- separate undo block
+    mode = "normal" -- separate block (fallback)
   end
 
   local view = vim.fn.winsaveview()
-  vim.api.nvim_buf_call(bufnr, function()
-    local saved_ul
-    if mode == "join" then
-      pcall(vim.cmd, "silent undojoin")
-    elseif mode == "suppress" then
-      saved_ul = vim.bo[bufnr].undolevels
-      vim.bo[bufnr].undolevels = -1
-    end
+  local original_modified = vim.bo[bufnr].modified
 
-    for i, c in ipairs(changes) do
-      if mode == "join" and i > 1 then
+  local function apply_changes(join_each)
+    vim.api.nvim_buf_call(bufnr, function()
+      if join_each then
+        ---@diagnostic disable-next-line: param-type-mismatch
         pcall(vim.cmd, "silent undojoin")
       end
-      vim.api.nvim_buf_set_lines(bufnr, c.row, c.row + 1, false, { c.text })
-    end
+      for i, c in ipairs(changes) do
+        if join_each and i > 1 then
+          -- repeat undojoin to keep all line writes coalesced with the prior block
+          ---@diagnostic disable-next-line: param-type-mismatch
+          pcall(vim.cmd, "silent undojoin")
+        end
+        vim.api.nvim_buf_set_lines(bufnr, c.row, c.row + 1, false, { c.text })
+      end
+    end)
+  end
 
-    if mode == "suppress" then
-      vim.bo[bufnr].undolevels = saved_ul
-    end
+  if mode == "join_open" then
+    apply_changes(true)
+  elseif mode == "suppress_open" then
+    util.suppress_next_change(bufnr, function()
+      apply_changes(false)
+    end)
+  elseif mode == "join" then
+    apply_changes(true)
+  else -- "normal"
+    apply_changes(false)
+  end
 
-    vim.bo[bufnr].modified = original_modified
-  end)
   vim.fn.winrestview(view)
-
+  vim.bo[bufnr].modified = original_modified
   vim.b[bufnr].checkmate_in_conversion = nil
   return true
 end

@@ -62,11 +62,20 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
-local function init_buffer_undo_tracking(bufnr)
+local function setup_undo_tracking(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
-  -- Baseline tick at attach/first setup; used to detect "no edits since attach"
+
+  -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
+  -- Rationale:
+  --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
+  --     undofiles whose hash matches file bytes; mismatch => undofile ignored.
+  --  - We still provide correct in-session undo/redo; persistent undo is off by design.
+  vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
+
+  -- Baseline tick at attach/first setup; used to infer "no edits since attach".
+  -- This lets us distinguish the first "conversion" pass on open from later edits.
   vim.b[bufnr].checkmate_baseline_tick = vim.api.nvim_buf_get_changedtick(bufnr)
   vim.b[bufnr].checkmate_user_changed = false
 end
@@ -120,7 +129,7 @@ function M.setup_buffer(bufnr)
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
-  init_buffer_undo_tracking(bufnr)
+  setup_undo_tracking(bufnr)
 
   M.setup_keymaps(bufnr)
   M.setup_autocmds(bufnr)

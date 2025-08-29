@@ -616,23 +616,26 @@ function M.build_todo(todo_item)
   }
 end
 
+-- Undo helper
+local U = {}
+
 -- True if the buffer has any prior undo history (from this or a previous session)
-function M.has_prior_history(bufnr)
+function U.has_prior_history(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local ut = vim.fn.undotree(bufnr)
   return type(ut) == "table" and (ut.seq_last or 0) > 0
 end
 
 -- True if we are at the head of the current branch
-function M.at_head(bufnr)
+function U.at_head(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local ut = vim.fn.undotree(bufnr)
   return type(ut) ~= "table" or (ut.seq_cur or 0) == (ut.seq_last or 0)
 end
 
 -- Temporarily set local 'undolevels' to -1 for the duration of fn(), then restore.
--- Use ONLY when there is truly no prior history to preserve.
-function M.suppress_next_change(bufnr, fn)
+-- use ONLY when there is no prior history (e.g. no undofile)
+function U.suppress_next_change(bufnr, fn)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local prev = vim.bo[bufnr].undolevels
   vim.bo[bufnr].undolevels = -1
@@ -692,5 +695,7 @@ function M.Cursor.restore(state)
 
   return success
 end
+
+M.undo = U
 
 return M

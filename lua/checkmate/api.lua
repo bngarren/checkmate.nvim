@@ -70,7 +70,7 @@ local function setup_undo_tracking(bufnr)
   -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
   -- Rationale:
   --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
-  --     undofiles whose hash matches file bytes; mismatch => undofile ignored.
+  --    undofiles whose hash matches file bytes; mismatch => undofile ignored.
   --  - We still provide correct in-session undo/redo; persistent undo is off by design.
   vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
 

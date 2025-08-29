@@ -434,7 +434,7 @@ function M.convert_markdown_to_unicode(bufnr)
 
   local mode
   if no_user_edits_since_attach then
-    if util.has_prior_history(bufnr) and util.at_head(bufnr) then
+    if util.undo.has_prior_history(bufnr) and util.undo.at_head(bufnr) then
       mode = "join_open" -- merge conversion into the last historical block
     else
       mode = "suppress_open" -- no prior history exists: suppress just this change
@@ -468,7 +468,7 @@ function M.convert_markdown_to_unicode(bufnr)
   if mode == "join_open" then
     apply_changes(true)
   elseif mode == "suppress_open" then
-    util.suppress_next_change(bufnr, function()
+    util.undo.suppress_next_change(bufnr, function()
       apply_changes(false)
     end)
   elseif mode == "join" then

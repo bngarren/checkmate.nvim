@@ -396,32 +396,40 @@ end
 
 ---@class checkmate.CreateOptions
 ---
---- Text content for new todo (all modes)
+--- Text content for new todo
 --- In visual mode, replaces existing line content
+--- Modes: all
+--- Default: ""
 ---@field content? string
 ---
---- Where to place new todo relative to the current line. (normal/insert only)
+--- Where to place new todo relative to the current line
+--- Modes: normal, insert
 --- Default: "below"
 ---@field position? "above"|"below"
 ---
---- Explicit todo state, e.g. "checked", "unchecked", or custom state (all modes)
+--- Explicit todo state, e.g. "checked", "unchecked", or custom state
 --- This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo
+--- Modes: all
 --- Default: "unchecked"
 ---@field target_state? string
 ---
---- Whether to inherit state from parent/current todo (normal/insert only)
+--- Whether to inherit state from parent/current todo
 --- The "parent" todo is is the todo on the cursor line when `create` is called
+--- Modes: normal, insert
 --- Default: false (target_state is used)
 ---@field inherit_state? boolean
 ---
---- Override list marker, e.g. "-", "*", "+", "1." (all modes)
+--- Override list marker, e.g. "-", "*", "+", "1."
+--- Modes: all
 --- Default: will use parent's type or fallback to config `default_list_marker`
 ---@field list_marker? string
 ---
---- Indentation (whitespace before list marker).
+--- Indentation (whitespace before list marker)
 ---  - `false` (default): sibling - same indent as parent
 ---  - `true` or `"nested"`: child - indented under parent
 ---  - `integer`: explicit indent in spaces
+--- Modes: normal, insert
+--- Default: false
 ---@field indent? boolean|integer|"nested"
 
 --- Creates or converts lines to todo items based on context and mode
@@ -457,11 +465,11 @@ end
 --- 1. `list_marker` - explicit marker
 --- 2. Inherited from parent/sibling with auto-numbering
 --- 3. Config `default_list_marker`
---- 4. "-" - fallback
+--- 4. "-" is fallback
 ---
 --- # Examples
 --- ```lua
---- -- Convert current line to todo
+--- -- Convert current line to todo or create a new todo on current line
 --- require("checkmate").create()
 ---
 --- -- Create nested child todo

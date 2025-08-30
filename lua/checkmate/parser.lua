@@ -324,13 +324,43 @@ function M.setup()
   log.info("[parser] Setup complete")
 end
 
+-- Undo-head check: only join/suppress when sitting at the branch head
+-- If undotree() returns a non-table (e.g. no history), treat as "at head"
+local function is_at_undo_head(bufnr)
+  local ut = vim.fn.undotree(bufnr)
+  if type(ut) ~= "table" then
+    return true
+  end
+  return (ut.seq_cur or 0) == (ut.seq_last or 0)
+end
+
+-- join conversion into the immediately preceding user change if
+-- the current changedtick equals the last tick we observed from a user edit
+-- (We ignore our own writes via checkmate_in_conversion.)
+local function should_attempt_join(bufnr)
+  local last_user = vim.b[bufnr].checkmate_last_user_tick
+  if not last_user then
+    return false
+  end
+  return vim.api.nvim_buf_get_changedtick(bufnr) == last_user
+end
+
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
 function M.convert_markdown_to_unicode(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  -- prevent re-entry:
+  -- so our own writes don't trigger downstream autocmds/handlers
+  -- or re-run this function (which would break join logic)
+  if vim.b[bufnr].checkmate_in_conversion then
+    return false
+  end
+  vim.b[bufnr].checkmate_in_conversion = true
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local modified = false
-  local original_modified = vim.bo[bufnr].modified
 
   local state_to_patterns = {}
   for state_name, state_def in pairs(config.options.todo_states) do
@@ -342,32 +372,31 @@ function M.convert_markdown_to_unicode(bufnr)
     end
   end
 
-  local new_lines = {}
-
-  for _, line in ipairs(lines) do
+  -- figure out which rows actually change
+  local changes = {} ---@type {row: integer, text: string}[]
+  for i, line in ipairs(lines) do
     local new_line = line
 
-    -- important! slighty hacky code that isn't immediately obvious incoming:
-    --
-    -- The markdown checkbox patterns built above include 2 variants:
-    -- 1. Patterns ending with "$" for checkboxes at end of line (e.g., "- [ ]")
-    -- 2. Patterns ending with " " for checkboxes followed by text (e.g., "- [ ] text")
-    --
-    -- For variant 2, the space is consumed by the pattern match but NOT captured,
-    -- so we must add it back explicitly in the replacement to preserve formatting.
-    --
-    -- Why do we need to do this?
-    -- this was the best way I could find to match `- [ ]` but not `- [ ]this`
-    -- i.e., if the [ ] is not at EOL, there must be a space, otherwise no space is needed
-
-    -- capture groups: 1. indent 2. list marker + 1st whitespace 3. checkbox
-
-    -- replace markdown checkboxes with unicode markers
     for _, data in pairs(state_to_patterns) do
       local patterns = data.patterns
       local unicode_marker = data.unicode
 
       for _, pat in ipairs(patterns) do
+        -- important! slighty hacky code that isn't immediately obvious incoming:
+        --
+        -- The markdown checkbox patterns built above include 2 variants:
+        -- 1. Patterns ending with "$" for checkboxes at end of line (e.g., "- [ ]")
+        -- 2. Patterns ending with " " for checkboxes followed by text (e.g., "- [ ] text")
+        --
+        -- For variant 2, the space is consumed by the pattern match but NOT captured,
+        -- so we must add it back explicitly in the replacement to preserve formatting.
+        --
+        -- Why do we need to do this?
+        -- this was the best way I could find to match `- [ ]` but not `- [ ]this`
+        -- i.e., if the [ ] is not at EOL, there must be a space, otherwise no space is needed
+
+        -- capture groups: 1. indent 2. list marker + 1st whitespace 3. checkbox
+
         if pat:sub(-1) == " " then
           new_line = new_line:gsub(pat, "%1%2" .. unicode_marker .. " ")
         else
@@ -377,24 +406,81 @@ function M.convert_markdown_to_unicode(bufnr)
     end
 
     if new_line ~= line then
-      modified = true
+      changes[#changes + 1] = { row = i - 1, text = new_line }
     end
-
-    table.insert(new_lines, new_line)
   end
 
-  if modified then
-    -- Disable undo to avoid breaking undo sequence
+  if #changes == 0 then
+    vim.b[bufnr].checkmate_in_conversion = nil
+    return false
+  end
+
+  -- Undo logic
+  -- - On open: if prior history exists and we're at head, undojoin this conversion
+  --   into the last block ("join_open"). If there is no history, suppress recording
+  --   just this first change ("suppress_open") via a temporary local undolevels=-1.
+  -- - After user inserts: join into the user's edit ("join").
+  -- - Otherwise: perform a normal, separate undo block ("normal").
+
+  if not is_at_undo_head(bufnr) then
+    vim.b[bufnr].checkmate_in_conversion = nil
+    return false
+  end
+
+  -- Detect the "true initial normalization" *and* whether there is history to join to
+  local cur_tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  local baseline = vim.b[bufnr].checkmate_baseline_tick or cur_tick
+  local no_user_edits_since_attach = (vim.b[bufnr].checkmate_user_changed ~= true) and (cur_tick == baseline)
+
+  local mode
+  if no_user_edits_since_attach then
+    if util.undo.has_prior_history(bufnr) and util.undo.at_head(bufnr) then
+      mode = "join_open" -- merge conversion into the last historical block
+    else
+      mode = "suppress_open" -- no prior history exists: suppress just this change
+    end
+  elseif should_attempt_join(bufnr) then
+    mode = "join" -- merge with the user's just-finished edit
+  else
+    mode = "normal" -- separate block (fallback)
+  end
+
+  local view = vim.fn.winsaveview()
+  local original_modified = vim.bo[bufnr].modified
+
+  local function apply_changes(join_each)
     vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd("silent! undojoin")
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
-      vim.bo[bufnr].modified = original_modified
+      if join_each then
+        ---@diagnostic disable-next-line: param-type-mismatch
+        pcall(vim.cmd, "silent undojoin")
+      end
+      for i, c in ipairs(changes) do
+        if join_each and i > 1 then
+          -- repeat undojoin to keep all line writes coalesced with the prior block
+          ---@diagnostic disable-next-line: param-type-mismatch
+          pcall(vim.cmd, "silent undojoin")
+        end
+        vim.api.nvim_buf_set_lines(bufnr, c.row, c.row + 1, false, { c.text })
+      end
     end)
-
-    return true
   end
 
-  return false
+  if mode == "join_open" then
+    apply_changes(true)
+  elseif mode == "suppress_open" then
+    util.undo.suppress_next_change(bufnr, function()
+      apply_changes(false)
+    end)
+  elseif mode == "join" then
+    apply_changes(true)
+  else -- "normal"
+    apply_changes(false)
+  end
+
+  vim.fn.winrestview(view)
+  vim.bo[bufnr].modified = original_modified
+  vim.b[bufnr].checkmate_in_conversion = nil
+  return true
 end
 
 -- Convert Unicode symbols back to standard markdown 'task list marker' syntax

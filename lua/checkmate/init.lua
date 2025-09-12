@@ -534,7 +534,6 @@ function M.create(opts)
       list_marker = opts.list_marker,
       indent = opts.indent or false,
       content = opts.content,
-      split_at_cursor = true,
       cursor_pos = { row = row, col = cursor[2] },
     })
     return
@@ -561,11 +560,6 @@ function M.create(opts)
     -- we use transaction for insert mode to maintain consistency
     -- but schedule it to avoid issues with insert mode
     vim.schedule(function()
-      if not vim.api.nvim_buf_is_valid(bufnr) then
-        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-        return
-      end
-
       local mark_pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, extmark_id, {})
       if not mark_pos or #mark_pos < 2 then
         vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
@@ -583,7 +577,6 @@ function M.create(opts)
           list_marker = opts.list_marker,
           indent = opts.indent or false,
           content = opts.content,
-          split_at_cursor = true,
           cursor_pos = { row = new_row, col = new_col },
         })
       end, function()
@@ -591,6 +584,8 @@ function M.create(opts)
         if not util.is_insert_mode() then
           vim.cmd("startinsert")
         end
+
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
       end)
     end)
 
@@ -635,7 +630,6 @@ function M.create(opts)
       list_marker = opts.list_marker,
       indent = opts.indent or false,
       content = opts.content,
-      split_at_cursor = false,
     })
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)

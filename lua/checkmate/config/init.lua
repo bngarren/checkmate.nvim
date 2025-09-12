@@ -94,8 +94,8 @@ M.options = {}
 ---@field enter_insert_after_new boolean
 ---
 ---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
----To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enalbed` option.
---- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row to set sensible defaults
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enabled` option.
+--- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row with reasonable defaults
 --- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
 ---@field list_continuation checkmate.ListContinuationSettings
 ---
@@ -234,11 +234,31 @@ M.options = {}
 --- Default: true
 ---@field enabled? boolean
 ---
+--- Control behavior when cursor is mid-line (not at the end).
+---
+--- When `true` (default):
+---   - Text after cursor moves to the new todo line
+---   - Original line is truncated at cursor position
+---   - Example: "- ☐ Buy |milk and eggs" → "- ☐ Buy" + "- ☐ milk and eggs"
+---
+--- When `false`:
+---   - List continuation only works when cursor is at end of line
+---
+--- Default: true
 ---@field split_line? boolean
 ---
---- Specify keymaps for triggering list continuation in insert mode
+--- Define which keys trigger list continuation and their behavior.
 ---
---- Important: `keys` is not deeply merged with the defaults. So, if you wish to override any keys, consider copy/pasting the defaults and making modifications.
+--- Each key can map to either:
+---   - A function that creates the new todo
+---   - A table with `rhs` (function) and optional `desc` (description)
+---
+--- Default keys:
+---   - `<CR>`: Create sibling todo (same indentation)
+---   - `<S-CR>`: Create nested todo (indented as child)
+---
+--- **Important**: This field completely replaces the default keys (no merging).
+--- To keep some defaults while adding custom keys, explicitly include them in your config.
 ---@field keys? table<string, {rhs: function, desc?: string}|function>
 ---
 -----------------------------------------------------

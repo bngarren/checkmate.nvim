@@ -31,13 +31,12 @@ local M = {}
 M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
 
 ---@class checkmate.CreateTodoOptions
----@field position "above"|"below"|"replace" Where to place the todo relative to current line
+---@field position "above"|"below" Where to place the todo relative to current line
 ---@field target_state? string Target todo state, overrides the state that would be derived if `inherit_state` is true.
 ---@field inherit_state? boolean Whether to inherit the origin/parent todo's state
 ---@field content? string Text content for the new todo (after the todo marker + space)
 ---@field list_marker string
 ---@field indent? boolean|integer|"nested" Indentation control (see public `create` API)
----@field split_at_cursor? boolean In insert mode, when `split_at_cursor` is true, `cursor_pos` determines the split point. Text after `cursor_pos.col` moves to the new line
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
@@ -256,6 +255,7 @@ function M.setup_keymaps(bufnr)
             return orig_key
           end
 
+          -- split_line behavior
           local at_eol = col >= #line
           if not at_eol and config.options.list_continuation.split_line == false then
             return orig_key
@@ -273,7 +273,7 @@ function M.setup_keymaps(bufnr)
           return "" -- swallow the key
         end
 
-        pcall(function()
+        local ok, err = pcall(function()
           vim.keymap.set("i", key, expr_fn, {
             buffer = bufnr,
             expr = true,
@@ -282,6 +282,9 @@ function M.setup_keymaps(bufnr)
           })
           table.insert(buffer_local_keys[bufnr], { "i", key })
         end)
+        if not ok then
+          log.fmt_debug("[api] Failed to set list continuation keymap for %s: %s", key, err)
+        end
       end
     end
   end
@@ -702,7 +705,9 @@ end
 
 --- Create todo in insert mode with line splitting support
 ---
---- When cursor is mid-line after a todo marker:
+--- Works on any line type (todo, list item, or plain text).
+---
+--- When cursor is mid-line:
 ---  1. Text after cursor moves to new todo line
 ---  2. `content` option prepends to this split content
 ---  3. Cursor positioned after new todo marker + space
@@ -712,7 +717,6 @@ end
 ---@param opts checkmate.CreateTodoOptions
 ---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
 ---    where col=n means cursor is after char[n-1] and before char[n]
----  - split_at_cursor: When true, splits line at cursor position
 ---  - content: Prepends to any split content
 ---@return checkmate.TextDiffHunk[] hunks
 function M.create_todo_insert(ctx, start_row, opts)
@@ -741,7 +745,7 @@ function M.create_todo_insert(ctx, start_row, opts)
   ---@type checkmate.TextDiffHunk[]
   local hunks = {}
 
-  if opts.split_at_cursor and opts.cursor_pos then
+  if opts.cursor_pos then
     local col = opts.cursor_pos.col
     if col < #line then
       content_after = line:sub(col + 1)
@@ -777,7 +781,6 @@ function M.create_todo_insert(ctx, start_row, opts)
   return hunks
 end
 
---- Normalize and validate indent option
 ---@param indent any The raw indent option value
 ---@return boolean|integer|nil normalized_indent
 local function normalize_indent_option(indent)
@@ -823,10 +826,17 @@ function M._build_todo_line(opts)
     target_state = "unchecked"
   end
 
+  local state_config = config.options.todo_states[target_state]
+  if not state_config then
+    log.fmt_error("[api] Invalid todo state: %s", target_state)
+    target_state = "unchecked"
+    state_config = config.options.todo_states[target_state]
+  end
+
   -- get appropriate todo marker for state and convert to markdown if needed
-  local todo_marker = config.options.todo_states[target_state].marker
+  local todo_marker = state_config.marker
   if parent_prefix and parent_prefix.is_markdown then
-    local markdown_char = config.options.todo_states[target_state].markdown
+    local markdown_char = state_config.markdown
     markdown_char = type(markdown_char) == "table" and markdown_char[1] or markdown_char
     todo_marker = "[" .. markdown_char .. "]"
   end
@@ -837,7 +847,7 @@ function M._build_todo_line(opts)
   if type(indent_opt) == "number" then
     -- explicit indent in spaces
     indent = indent_opt
-  elseif indent_opt == true or opts.indent == "nested" then
+  elseif indent_opt == true then
     -- nested child - calculate based on parent
     if parent_prefix then
       indent = parent_prefix.indent + #parent_prefix.list_marker + 1
@@ -845,7 +855,7 @@ function M._build_todo_line(opts)
       -- no parent
       indent = 2
     end
-  elseif indent_opt == false or opts.indent == nil then
+  elseif indent_opt == false then
     -- sibling (default) - same level as parent
     if parent_prefix then
       indent = parent_prefix.indent

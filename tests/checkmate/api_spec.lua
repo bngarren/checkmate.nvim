@@ -791,7 +791,6 @@ Some other content]]
             indent = opts.indent,
             inherit_state = opts.inherit_state,
             target_state = opts.target_state,
-            split_at_cursor = opts.split_at_cursor ~= false,
             cursor_pos = { row = opts.row or 0, col = cursor_col },
           })
         end)

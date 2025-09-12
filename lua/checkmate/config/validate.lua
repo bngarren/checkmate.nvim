@@ -194,6 +194,9 @@ local function validate_metadata(metadata)
   return true
 end
 
+---@param opts checkmate.Config
+---@return boolean
+---@return string?
 function M.validate_options(opts)
   if not opts then
     return true
@@ -214,6 +217,7 @@ function M.validate_options(opts)
     validate("disable_ts_highlights", opts.disable_ts_highlights, "boolean", true)
     validate("log", opts.log, "table", true)
     validate("ui", opts.ui, "table", true)
+    validate("list_continuation", opts.list_continuation, "table", true)
     validate("style", opts.style, "table", true)
     validate("smart_toggle", opts.smart_toggle, "table", true)
     validate("archive", opts.archive, "table", true)
@@ -238,7 +242,6 @@ function M.validate_options(opts)
     end
 
     if opts.log then
-      validate("log.use_buffer", opts.log.use_buffer, "boolean", true)
       validate("log.use_file", opts.log.use_file, "boolean", true)
       validate("log.file_path", opts.log.file_path, "string", true)
 
@@ -259,7 +262,7 @@ function M.validate_options(opts)
       end
     end
 
-    ---Remove in v0.11
+    --- TODO: remove
     ---@deprecated todo_markers
     if opts.todo_markers then
       validate("todo_markers", opts.todo_markers, "table")
@@ -301,6 +304,21 @@ function M.validate_options(opts)
         validate("ui.picker", picker, function(v)
           return type(v) == "function" or v == false
         end, "string, function, or false")
+      end
+    end
+
+    if opts.list_continuation then
+      validate("list_continuation.enabled", opts.list_continuation.enabled, "boolean", true)
+      validate("list_continuation.split_line", opts.list_continuation.split_line, "boolean", true)
+      validate("list_continuation.keys", opts.list_continuation.keys, "table", true)
+      if opts.list_continuation.keys then
+        for key, mapping in pairs(opts.list_continuation.keys) do
+          local name = string.format("list_continuation.keys '%s'", key)
+          validate(name, key, "string", true)
+          if type(mapping) ~= "function" then
+            validate(name .. " mapping", mapping, "table", true)
+          end
+        end
       end
     end
 

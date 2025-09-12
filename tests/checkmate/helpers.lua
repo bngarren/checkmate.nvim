@@ -285,4 +285,33 @@ function M.find_cursor_after_text(line, text)
   return #prefix + #text
 end
 
+---@param opts? table
+--- - indent: integer|string Indent string (whitespace) or number of spaces
+--- - list_marker: string
+--- - state: string Todo state, e.g. "unchecked" (default), "checked", "pending"
+--- - text: string Text after the todo marker + 1 space
+function M.todo_line(opts)
+  opts = opts or {}
+  local m = {
+    unchecked = M.get_unchecked_marker(),
+    checked = M.get_checked_marker(),
+    pending = M.get_pending_marker(),
+  }
+  local indent_str = ""
+  if opts.indent then
+    if type(opts.indent) == "number" then
+      indent_str = string.rep(" ", opts.indent)
+    elseif type(opts.indent) == "string" then
+      indent_str = opts.indent
+    end
+  end
+  ---@cast indent_str string
+  local marker = opts.list_marker or require("checkmate.config").get_defaults().default_list_marker
+  local state = opts.state or "unchecked"
+  local text = opts.text or ""
+
+  local state_marker = m[state] or m.unchecked
+  return indent_str .. marker .. " " .. state_marker .. " " .. text
+end
+
 return M

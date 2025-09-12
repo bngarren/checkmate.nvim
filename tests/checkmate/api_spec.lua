@@ -8,6 +8,9 @@ describe("API", function()
   ---@module "checkmate.util"
   local util
 
+  ---@type {unchecked: string, checked: string, pending: string}
+  local m -- markers
+
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
@@ -25,6 +28,12 @@ describe("API", function()
     api = require("checkmate.api")
     parser = require("checkmate.parser")
     util = require("checkmate.util")
+
+    m = {
+      unchecked = h.get_unchecked_marker(),
+      checked = h.get_checked_marker(),
+      pending = h.get_pending_marker(),
+    }
 
     h.ensure_normal_mode()
   end)
@@ -347,256 +356,712 @@ describe("API", function()
     local cm
     before_each(function()
       cm = require("checkmate")
-      cm.setup()
+      cm.setup(h.DEFAULT_TEST_CONFIG)
     end)
     after_each(function()
       cm.stop()
     end)
 
-    it("should convert a regular line to a todo item", function()
-      local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local default_list_marker = config.get_defaults().default_list_marker
+    local function test_create_scenario(opts)
+      local bufnr = h.setup_test_buffer(opts.content or opts.lines)
 
-      local content = [[
-# Todo List
-
-This is a regular line
-      ]]
-
-      local bufnr = h.setup_test_buffer(content)
-
-      -- move cursor to the regular line
-      vim.api.nvim_win_set_cursor(0, { 3, 0 })
-
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.matches(default_list_marker .. " " .. vim.pesc(unchecked) .. " This is a regular line", lines[3])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
-    end)
-
-    it("should convert a line with existing list marker to todo", function()
-      local unchecked = h.get_unchecked_marker()
-
-      local content = [[
-- Regular list item
-* Another list item
-+ Yet another
-1. Ordered item
-  - Nested list item]]
-
-      local bufnr = h.setup_test_buffer(content)
-
-      local expected = {
-        "- " .. unchecked .. " Regular list item",
-        "* " .. unchecked .. " Another list item",
-        "+ " .. unchecked .. " Yet another",
-        "1. " .. unchecked .. " Ordered item",
-        "  - " .. unchecked .. " Nested list item",
-      }
-
-      for i = 1, 5 do
-        vim.api.nvim_win_set_cursor(0, { i, 0 })
-        local success = require("checkmate").create()
-        assert.is_true(success)
+      if opts.cursor then
+        vim.api.nvim_win_set_cursor(0, opts.cursor)
       end
 
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      for i, expected_line in ipairs(expected) do
-        assert.equal(expected_line, lines[i])
+      if opts.selection then
+        h.make_selection(unpack(opts.selection))
       end
 
-      finally(function()
-        h.cleanup_buffer(bufnr)
+      require("checkmate").create(opts.create_opts or {})
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      if opts.expected then
+        h.assert_lines_equal(lines, opts.expected, opts.name)
+      end
+
+      h.cleanup_buffer(bufnr)
+      return lines
+    end
+
+    ---@param opts? table
+    --- - indent: integer|string Indent string (whitespace) or number of spaces
+    --- - list_marker: string
+    --- - state: string Todo state, e.g. "unchecked" (default), "checked", "pending"
+    --- - text: string Text after the todo marker + 1 space
+    local function todo_line(opts)
+      opts = opts or {}
+      local indent_str = ""
+      if opts.indent then
+        if type(opts.indent) == "number" then
+          indent_str = string.rep(" ", opts.indent)
+        elseif type(opts.indent) == "string" then
+          indent_str = opts.indent
+        end
+      end
+      ---@cast indent_str string
+      local marker = opts.list_marker or require("checkmate.config").get_defaults().default_list_marker
+      local state = opts.state or "unchecked"
+      local text = opts.text or ""
+
+      local state_marker = m[state] or m.unchecked
+      return indent_str .. marker .. " " .. state_marker .. " " .. text
+    end
+
+    describe("normal mode", function()
+      it("should convert lines to todos", function()
+        local test_cases = {
+          {
+            name = "plain text",
+            content = "This is a regular line",
+            expected = { todo_line({ text = "This is a regular line" }) },
+          },
+          {
+            name = "empty line",
+            content = "",
+            expected = { todo_line() },
+          },
+          {
+            name = "list item",
+            content = "- Regular list item",
+            expected = { todo_line({ text = "Regular list item" }) },
+          },
+          {
+            name = "ordered list",
+            content = "1. Ordered item",
+            expected = { todo_line({ list_marker = "1.", text = "Ordered item" }) },
+          },
+          {
+            name = "nested list",
+            content = "  - Nested list item",
+            expected = { todo_line({ indent = 2, text = "Nested list item" }) },
+          },
+        }
+
+        for _, tc in ipairs(test_cases) do
+          test_create_scenario({
+            name = tc.name,
+            content = tc.content,
+            cursor = { 1, 0 },
+            expected = tc.expected,
+          })
+        end
       end)
-    end)
 
-    it("should insert a new todo below when cursor is on existing todo", function()
-      local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local default_list_marker = config.get_defaults().default_list_marker
+      it("should create new todos from existing todos", function()
+        local parent = todo_line({ text = "Parent todo" })
 
-      local content = [[
-- ]] .. unchecked .. [[ First todo
+        local test_cases = {
+          -- default behavior for normal mode
+          {
+            name = "sibling below",
+            create_opts = {},
+            expected = { parent, todo_line() },
+          },
+          {
+            name = "sibling above",
+            create_opts = { position = "above" },
+            expected = { todo_line(), parent },
+          },
+          {
+            name = "nested child",
+            create_opts = { indent = true },
+            expected = { parent, todo_line({ indent = "  " }) },
+          },
+          {
+            name = "with content",
+            create_opts = { content = "Custom content" },
+            expected = { parent, todo_line({ text = "Custom content" }) },
+          },
+          {
+            name = "with custom state",
+            create_opts = { target_state = "checked" },
+            expected = { parent, todo_line({ state = "checked" }) },
+          },
+          {
+            name = "inherit state",
+            content = todo_line({ state = "checked", text = "Completed" }),
+            create_opts = { inherit_state = true },
+            expected = {
+              todo_line({ state = "checked", text = "Completed" }),
+              todo_line({ state = "checked" }),
+            },
+          },
+        }
+
+        for _, tc in ipairs(test_cases) do
+          test_create_scenario({
+            name = tc.name,
+            content = tc.content or parent,
+            cursor = { 1, 0 },
+            create_opts = tc.create_opts,
+            expected = tc.expected,
+          })
+        end
+      end)
+
+      it("should maintain indentation when inserting new todo", function()
+        local unchecked = m.unchecked
+
+        local content = [[
+  - ]] .. unchecked .. [[ Indented todo
 Some other content]]
 
-      local bufnr = h.setup_test_buffer(content)
-
-      vim.api.nvim_win_set_cursor(0, { 1, 0 })
-
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal(3, #lines)
-      assert.equal(default_list_marker .. " " .. unchecked .. " First todo", lines[1])
-      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
-      assert.equal("Some other content", lines[3])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
+        test_create_scenario({
+          name = "maintain indent when inserting new todo",
+          content = content,
+          cursor = { 1, 0 },
+          expected = {
+            todo_line({ indent = 2, text = "Indented todo" }),
+            todo_line({ indent = 2 }), -- match parent/origin's indent
+            "Some other content",
+          },
+        })
       end)
-    end)
 
-    it("should maintain indentation when inserting new todo", function()
-      local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local default_list_marker = config.get_defaults().default_list_marker
+      it("should handle indent option variations", function()
+        local parent = todo_line({ text = "Parent" })
 
-      local content = [[
-  - ]] .. unchecked .. [[ Indented todo
-Some other content ]]
+        local indent_tests = {
+          { indent = false, expected_indent = "" },
+          { indent = true, expected_indent = "  " },
+          { indent = "nested", expected_indent = "  " },
+          { indent = 0, expected_indent = "" },
+          { indent = 2, expected_indent = "  " },
+          { indent = 4, expected_indent = "    " },
+        }
 
-      local bufnr = h.setup_test_buffer(content)
-
-      vim.api.nvim_win_set_cursor(0, { 1, 0 })
-
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented todo", lines[1])
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " ", lines[2])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
+        for _, tc in ipairs(indent_tests) do
+          test_create_scenario({
+            name = "indent=" .. tostring(tc.indent),
+            content = parent,
+            cursor = { 1, 0 },
+            create_opts = { indent = tc.indent },
+            expected = {
+              parent,
+              todo_line({ indent = tc.expected_indent }),
+            },
+          })
+        end
       end)
-    end)
 
-    it("should increment ordered list numbers when inserting", function()
-      local unchecked = h.get_unchecked_marker()
-
-      local content = [[
-1. ]] .. unchecked .. [[ First item
-2. ]] .. unchecked .. [[ Second item
-]]
-      local bufnr = h.setup_test_buffer(content)
-
-      -- insert after first item
-      vim.api.nvim_win_set_cursor(0, { 1, 0 })
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal("1. " .. unchecked .. " First item", lines[1])
-      assert.equal("2. " .. unchecked .. " ", lines[2])
-      assert.equal("2. " .. unchecked .. " Second item", lines[3])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
+      it("should handle ordered list numbering", function()
+        test_create_scenario({
+          name = "increment ordered list",
+          content = {
+            todo_line({ marker = "1.", text = "First" }),
+            todo_line({ marker = "2.", text = "Second" }),
+          },
+          cursor = { 1, 0 },
+          expected = {
+            todo_line({ marker = "1.", text = "First" }),
+            todo_line({ marker = "2." }),
+            todo_line({ marker = "2.", text = "Second" }),
+          },
+        })
       end)
-    end)
 
-    it("should handle empty lines correctly", function()
-      local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local default_list_marker = config.get_defaults().default_list_marker
+      it("should handle position option with indent", function()
+        local unchecked = m.unchecked
 
-      local content = [[
-- Todo1
+        local content = "- " .. unchecked .. " Parent todo"
+
+        test_create_scenario({
+          name = "position with indent",
+          content = content,
+          cursor = { 1, 0 },
+          create_opts = {
+            position = "above",
+            indent = true,
+          },
+          expected = {
+            todo_line({ indent = 2 }),
+            todo_line({ text = "Parent todo" }),
+          },
+        })
+
+        test_create_scenario({
+          name = "position with indent",
+          content = content,
+          cursor = { 1, 0 },
+          create_opts = {
+            position = "above",
+            indent = 4,
+          },
+          expected = {
+            todo_line({ indent = 4 }),
+            todo_line({ text = "Parent todo" }),
+          },
+        })
+      end)
+
+      it("should handle target_state overriding inherit_state", function()
+        test_create_scenario({
+          name = "target_state overrides inherit_state",
+          content = todo_line({ state = "unchecked", text = "Parent" }),
+          cursor = { 1, 0 },
+          create_opts = {
+            inherit_state = true, -- would normally inherit "unchecked"
+            target_state = "checked", -- but this takes precedence
+          },
+          expected = {
+            todo_line({ state = "unchecked", text = "Parent" }),
+            todo_line({ state = "checked" }),
+          },
+        })
+      end)
+
+      it("should handle position option with non-todo lines", function()
+        test_create_scenario({
+          name = "create above plain text preserves original",
+          content = "Some plain text",
+          cursor = { 1, 0 },
+          create_opts = { position = "above" },
+          expected = {
+            todo_line(),
+            "Some plain text",
+          },
+        })
+
+        test_create_scenario({
+          name = "create below plain text preserves original",
+          content = "Some plain text",
+          cursor = { 1, 0 },
+          create_opts = { position = "below" },
+          expected = {
+            "Some plain text",
+            todo_line(),
+          },
+        })
+      end)
+
+      it("should replace content when converting", function()
+        test_create_scenario({
+          name = "content option replaces text",
+          content = "Original text",
+          cursor = { 1, 0 },
+          create_opts = { content = "Replaced content" },
+          expected = { todo_line({ text = "Replaced content" }) },
+        })
+      end)
+
+      it("should create in an empty line", function()
+        local content = [[
+- Parent
 
   - Child1]]
-      local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_win_set_cursor(0, { 2, 0 })
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal("- Todo1", lines[1])
-      assert.equal(default_list_marker .. " " .. unchecked .. " ", lines[2])
-      assert.equal("  - Child1", lines[3])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
+        test_create_scenario({
+          name = "create in empty line",
+          content = content,
+          cursor = { 2, 0 },
+          expected = {
+            "- Parent",
+            todo_line(),
+            "  - Child1",
+          },
+        })
       end)
-    end)
 
-    it("should handle visual selection with mixed content types", function()
-      local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local default_list_marker = config.get_defaults().default_list_marker
-
-      local content = [[
-# Header should not convert
-Regular text line
-- Already a list item
-  Indented continuation
-    - Nested list item
-1. Ordered list item
-]]
-
-      local bufnr = h.setup_test_buffer(content)
-
-      -- select lines 2-6 (skipping header)
-      h.make_selection(2, 0, 6, 0, "V")
-
-      local success = require("checkmate").create()
-      assert.is_true(success)
-
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-      assert.equal("# Header should not convert", lines[1])
-      assert.equal(default_list_marker .. " " .. unchecked .. " Regular text line", lines[2])
-      assert.equal("- " .. unchecked .. " Already a list item", lines[3])
-      assert.equal("  " .. default_list_marker .. " " .. unchecked .. " Indented continuation", lines[4])
-      assert.equal("    - " .. unchecked .. " Nested list item", lines[5])
-      assert.equal("1. " .. unchecked .. " Ordered list item", lines[6])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
-    end)
-
-    it("should convert a list item nested in another todo", function()
-      local unchecked = h.get_unchecked_marker()
-
-      local content = [[
+      it("should convert a list item nested in another todo", function()
+        local content = [[
 - [ ] Parent todo
-  - Regular list item
+  - Regular list item]]
+
+        test_create_scenario({
+          name = "convert nested list item to todo",
+          content = content,
+          cursor = { 2, 0 }, -- on "Regular list item"
+          expected = {
+            todo_line({ text = "Parent todo" }),
+            todo_line({ indent = 2, text = "Regular list item" }),
+          },
+        })
+      end)
+    end)
+
+    describe("visual mode", function()
+      it("should convert multiple lines", function()
+        test_create_scenario({
+          name = "convert selection to todos",
+          lines = {
+            "# Header",
+            "Regular text",
+            "- List item",
+            "  Indented text",
+            "1. Ordered item",
+          },
+          selection = { 2, 0, 5, 0, "V" },
+          expected = {
+            "# Header",
+            todo_line({ text = "Regular text" }),
+            todo_line({ text = "List item" }),
+            todo_line({ indent = "  ", text = "Indented text" }),
+            todo_line({ list_marker = "1.", text = "Ordered item" }),
+          },
+        })
+      end)
+
+      it("should skip existing todos", function()
+        test_create_scenario({
+          name = "skip existing todos in selection",
+          lines = {
+            "Plain text",
+            todo_line({ text = "Already todo" }),
+            "Another plain",
+          },
+          selection = { 1, 0, 3, 0, "V" },
+          expected = {
+            todo_line({ text = "Plain text" }),
+            todo_line({ text = "Already todo" }),
+            todo_line({ text = "Another plain" }),
+          },
+        })
+      end)
+
+      it("should apply visual mode options", function()
+        local lines = { "Line 1", "Line 2" }
+
+        -- target_state
+        test_create_scenario({
+          name = "apply target_state",
+          lines = lines,
+          selection = { 1, 0, 2, 0, "V" },
+          create_opts = { target_state = "checked" },
+          expected = {
+            todo_line({ state = "checked", text = "Line 1" }),
+            todo_line({ state = "checked", text = "Line 2" }),
+          },
+        })
+
+        -- list_marker
+        test_create_scenario({
+          name = "apply list_marker",
+          lines = lines,
+          selection = { 1, 0, 2, 0, "V" },
+          create_opts = { list_marker = "*" },
+          expected = {
+            todo_line({ list_marker = "*", text = "Line 1" }),
+            todo_line({ list_marker = "*", text = "Line 2" }),
+          },
+        })
+
+        -- content replacement
+        test_create_scenario({
+          name = "replace content",
+          lines = lines,
+          selection = { 1, 0, 2, 0, "V" },
+          create_opts = { content = "Replaced" },
+          expected = {
+            todo_line({ text = "Replaced" }),
+            todo_line({ text = "Replaced" }),
+          },
+        })
+      end)
+    end)
+
+    describe("insert mode", function()
+      --[[
+      Since I can't figure out how to test within INSERT mode, we don't call the public API. We test the internal
+      `create_todo_insert` api which receives the cursor pos. 
+      
+      Notably: in insert mode, cursor col represents insertion point, i.e. new char will be at that pos
+      This is like having the insertion | caret right before the normal mode position.
+
+      `create_todo_insert` expects the `col` to be relative to INSERT mode, not normal mode
+
+      Whitespace: 
+      When splitting a line in insert mode, whitespace after the cursor is preserved on the new line.
+      This matches standard editor behavior where pressing Enter preserves the text exactly as it was.
+
       ]]
 
-      local bufnr = h.setup_test_buffer(content)
+      local function test_insert_mode_create(opts)
+        local bufnr = h.setup_test_buffer(opts.line or opts.lines)
 
-      vim.api.nvim_win_set_cursor(0, { 2, 0 }) -- on Regular List item
+        local cursor_col = opts.cursor_col
+        if not cursor_col and opts.cursor_after then
+          cursor_col = h.find_cursor_after_text(opts.line or opts.lines[1], opts.cursor_after)
+        end
 
-      local success = require("checkmate").create()
-      assert.is_true(success)
+        require("checkmate.transaction").run(bufnr, function(ctx)
+          ctx.add_op(api.create_todo_insert, opts.row or 0, {
+            position = opts.position or "below",
+            indent = opts.indent,
+            inherit_state = opts.inherit_state,
+            target_state = opts.target_state,
+            cursor_pos = { row = opts.row or 0, col = cursor_col },
+          })
+        end)
 
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      assert.equal("  - " .. unchecked .. " Regular list item", lines[2])
-      assert.matches("^%s*$", lines[3])
+        if opts.expected then
+          h.assert_lines_equal(lines, opts.expected, opts.name)
+        end
 
-      finally(function()
+        if opts.expect_cursor_line then
+          local cursor = vim.api.nvim_win_get_cursor(0)
+          assert.equal(opts.expect_cursor_line, cursor[1], (opts.name or "") .. ": cursor line")
+        end
+
         h.cleanup_buffer(bufnr)
+        return lines
+      end
+
+      it("should split lines at cursor", function()
+        local test_cases = {
+          {
+            name = "split after word",
+            line = todo_line({ text = "First todo with more text" }),
+            cursor_after = "First",
+            expected = {
+              todo_line({ text = "First" }),
+              todo_line({ text = " todo with more text" }),
+            },
+          },
+          {
+            name = "split at beginning",
+            line = todo_line({ text = "Complete text" }),
+            cursor_after = "",
+            expected = {
+              todo_line(),
+              todo_line({ text = "Complete text" }),
+            },
+          },
+          {
+            name = "split at end",
+            line = todo_line({ text = "Complete" }),
+            cursor_after = "Complete",
+            expected = {
+              todo_line({ text = "Complete" }),
+              todo_line(),
+            },
+          },
+          {
+            name = "split mid-word",
+            line = todo_line({ text = "SomeLongWord" }),
+            cursor_after = "Some",
+            expected = {
+              todo_line({ text = "Some" }),
+              todo_line({ text = "LongWord" }),
+            },
+          },
+        }
+
+        for _, tc in ipairs(test_cases) do
+          test_insert_mode_create({
+            name = tc.name,
+            line = tc.line,
+            cursor_after = tc.cursor_after,
+            expected = tc.expected,
+            expect_cursor_line = 2,
+          })
+        end
       end)
-    end)
 
-    it("should handle creating todo at end of buffer with no trailing newline", function()
-      local unchecked = h.get_unchecked_marker()
+      it("should handle indentation", function()
+        local test_cases = {
+          {
+            name = "maintain indent",
+            line = todo_line({ indent = "  ", text = "Child text" }),
+            cursor_after = "Child",
+            indent = false,
+            expected = {
+              todo_line({ indent = "  ", text = "Child" }),
+              todo_line({ indent = "  ", text = " text" }),
+            },
+          },
+          {
+            name = "create nested",
+            line = todo_line({ indent = "  ", text = "Child text" }),
+            cursor_after = "Child",
+            indent = true,
+            expected = {
+              todo_line({ indent = "  ", text = "Child" }),
+              todo_line({ indent = "    ", text = " text" }),
+            },
+          },
+          {
+            name = "explicit indent",
+            line = todo_line({ text = "Text" }),
+            cursor_after = "Text",
+            indent = 4,
+            expected = {
+              todo_line({ text = "Text" }),
+              todo_line({ indent = "    " }),
+            },
+          },
+        }
 
-      local content = [[
-# My tasks
-- ]] .. unchecked .. [[ First task]] -- no trailing newline
+        for _, tc in ipairs(test_cases) do
+          test_insert_mode_create({
+            name = tc.name,
+            line = tc.line,
+            cursor_after = tc.cursor_after,
+            indent = tc.indent,
+            expected = tc.expected,
+          })
+        end
+      end)
 
-      local bufnr = h.setup_test_buffer(content)
+      it("should handle state inheritance", function()
+        local test_cases = {
+          {
+            name = "inherit checked",
+            line = todo_line({ state = "checked", text = "Done" }),
+            inherit_state = true,
+            expected_state = "checked",
+          },
+          {
+            name = "don't inherit",
+            line = todo_line({ state = "checked", text = "Done" }),
+            inherit_state = false,
+            expected_state = "unchecked",
+          },
+          {
+            name = "target overrides inherit",
+            line = todo_line({ state = "unchecked", text = "Task" }),
+            inherit_state = true,
+            target_state = "checked",
+            expected_state = "checked",
+          },
+        }
 
-      vim.api.nvim_win_set_cursor(0, { 2, 0 })
-      local success = require("checkmate").create()
-      assert.is_true(success)
+        for _, tc in ipairs(test_cases) do
+          test_insert_mode_create({
+            name = tc.name,
+            line = tc.line,
+            cursor_after = tc.line:match("(%w+)$") or "",
+            inherit_state = tc.inherit_state,
+            target_state = tc.target_state,
+            expected = {
+              tc.line,
+              todo_line({ state = tc.expected_state }),
+            },
+          })
+        end
+      end)
 
-      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-      assert.equal(3, #lines)
-      assert.matches("- " .. unchecked .. " ", lines[3])
+      it("should handle position option", function()
+        local line = todo_line({ text = "First second" })
 
-      finally(function()
-        h.cleanup_buffer(bufnr)
+        test_insert_mode_create({
+          name = "create below",
+          line = line,
+          cursor_after = "First",
+          position = "below",
+          expected = {
+            todo_line({ text = "First" }),
+            todo_line({ text = " second" }),
+          },
+          expect_cursor_line = 2,
+        })
+
+        test_insert_mode_create({
+          name = "create above",
+          line = line,
+          cursor_after = "First",
+          position = "above",
+          expected = {
+            todo_line({ text = " second" }),
+            todo_line({ text = "First" }),
+          },
+          expect_cursor_line = 1,
+        })
+      end)
+
+      it("should handle edge cases", function()
+        local test_cases = {
+          {
+            name = "empty todo",
+            line = todo_line(),
+            cursor_col = #todo_line(),
+            expected = { todo_line(), todo_line() },
+          },
+          {
+            name = "unicode characters",
+            line = todo_line({ text = "你好 世界" }),
+            cursor_after = "你好",
+            expected = {
+              todo_line({ text = "你好" }),
+              todo_line({ text = " 世界" }),
+            },
+          },
+          {
+            name = "markdown formatting",
+            line = todo_line({ text = "**bold** _italic_" }),
+            cursor_after = "**bold**",
+            expected = {
+              todo_line({ text = "**bold**" }),
+              todo_line({ text = " _italic_" }),
+            },
+          },
+          {
+            name = "metadata tags",
+            line = todo_line({ text = "Task @due(2024) text" }),
+            cursor_after = "Task",
+            expected = {
+              todo_line({ text = "Task" }),
+              todo_line({ text = " @due(2024) text" }),
+            },
+          },
+        }
+
+        for _, tc in ipairs(test_cases) do
+          test_insert_mode_create({
+            name = tc.name,
+            line = tc.line,
+            cursor_after = tc.cursor_after,
+            cursor_col = tc.cursor_col,
+            expected = tc.expected,
+          })
+        end
+      end)
+
+      it("should preserve whitespace when splitting", function()
+        test_insert_mode_create({
+          name = "preserve multiple spaces",
+          line = todo_line({ text = "First    second" }),
+          cursor_after = "First",
+          expected = {
+            todo_line({ text = "First" }),
+            todo_line({ text = "    second" }),
+          },
+        })
+      end)
+
+      it("should create todo from non-todo list item line", function()
+        test_insert_mode_create({
+          name = "non todo list item parent",
+          line = "- Parent",
+          cursor_col = 8,
+          expected = {
+            "- Parent",
+            todo_line(),
+          },
+        })
+
+        test_insert_mode_create({
+          name = "non todo list item parent (indented)",
+          line = "  - Parent",
+          cursor_col = 10,
+          expected = {
+            "  - Parent",
+            todo_line({ indent = "  " }),
+          },
+        })
+
+        test_insert_mode_create({
+          name = "non todo ordered list item parent",
+          line = "1. Parent",
+          cursor_col = 9,
+          expected = {
+            "1. Parent",
+            todo_line({ list_marker = "2." }),
+          },
+        })
       end)
     end)
   end)

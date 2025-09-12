@@ -25,8 +25,9 @@ A Markdown-based todo/task plugin for Neovim.
 - Smart toggling behavior
 - Archive completed todos
 - Todo templates with LuaSnip snippet integration
-- 🆕 Custom todo states!
+- Custom todo states
   - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
+- 🆕 Automatic todo creation (list continuation in insert mode)
 
 > [!NOTE]
 > Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
@@ -40,7 +41,6 @@ A Markdown-based todo/task plugin for Neovim.
 
 
 <img width="1200" height="341" alt="checkmate_demo_complex" src="https://github.com/user-attachments/assets/8bbb9b20-23f7-4f82-b2b3-a8e8d2d9d4c5" />
-
 
 
 https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
@@ -158,7 +158,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 |--------------|-------------|
 | `archive` | Archive all checked todo items in the buffer. See api `archive()` |
 | `check` | Mark the todo item under the cursor as checked. See api `check()`|
-| `create` | Create a new todo item at the current line or line below if a todo already exists. In visual mode, convert each line to a todo item. See api `create()`|
+| `create` | In normal mode, converts the current line into a todo (or if already a todo, creates a sibling below). In visual mode, converts each selected line into a todo. In insert mode, creates a new todo on the next line and keeps you in insert mode. For more advanced placement, indentation, and state options, see the `create(opts)` API. |
 | `cycle_next` | Cycle a todo's state to the next available. See api `cycle()` |
 | `cycle_previous` | Cycle a todo's state to the previous. See api `cycle()` |
 | `lint` | Lint this buffer for Checkmate formatting issues. See api `lint()` |
@@ -182,6 +182,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 <summary>Config definitions/annotations</summary>
 
 ```lua
+-----------------------------------------------------
 ---Checkmate configuration
 ---@class checkmate.Config
 ---
@@ -238,7 +239,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
----Note that Gith[118;1:3uub-flavored Markdown specification only includes "checked" and "unchecked".
+---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
 ---
 ---If you add additional states here, they may not work in other Markdown apps without special configuration.
 ---@field todo_states table<string, checkmate.TodoStateDefinition>
@@ -254,7 +255,14 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---@field style checkmate.StyleSettings?
 ---
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
+---Default: true
 ---@field enter_insert_after_new boolean
+---
+---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enabled` option.
+--- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row with reasonable defaults
+--- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
+---@field list_continuation checkmate.ListContinuationSettings
 ---
 ---Smart toggle provides intelligent parent-child todo state propagation
 ---
@@ -275,14 +283,14 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---@field todo_count_position checkmate.TodoCountPosition
 ---
 ---Formatter function for displaying the todo count indicator
----@field todo_count_formatter fun(completed: integer, total: integer)?: string
+---@field todo_count_formatter? fun(completed: integer, total: integer): string
 ---
 ---Whether to count child todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
 ---
----Whether to register keymappings defined in each metadata definition. If set the false,
----metadata actions need to be called programatically or otherwise mapped manually
+---Whether to register keymappings defined in each metadata definition.
+---When false, default metadata keymaps are not created; you can still call require('checkmate').toggle_metadata() or bind keys manually.
 ---@field use_metadata_keymaps boolean
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
@@ -311,6 +319,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
 ---
 --- Should print log output to a file
+--- Default: true
 ---@field use_file boolean
 ---
 --- The default path on-disk where log files will be written to.
@@ -324,16 +333,17 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 -----------------------------------------------------
 
+---The broad categories used internally that give semantic meaning to each todo state
 ---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
 
 ---@class checkmate.TodoStateDefinition
 ---
---- The text string used for a todo marker is expected to be 1 character length.
+--- The glyph or text string used for a todo marker is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@field marker string
 ---
 --- Markdown checkbox representation (custom states only)
---- For custom states, this determines how the todo state is written in Markdown syntax.
+--- For custom states, this determines how the todo state is written to file in Markdown syntax.
 --- Important:
 ---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
 ---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
@@ -381,6 +391,42 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---If a function is passed, will use this picker implementation
 ---@field picker? checkmate.Picker
 
+-----------------------------------------------------
+
+---@class checkmate.ListContinuationSettings
+---
+--- Whether to enable list continuation behavior
+---
+--- Default: true
+---@field enabled? boolean
+---
+--- Control behavior when cursor is mid-line (not at the end).
+---
+--- When `true` (default):
+---   - Text after cursor moves to the new todo line
+---   - Original line is truncated at cursor position
+---   - Example: "- ☐ Buy |milk and eggs" → "- ☐ Buy" + "- ☐ milk and eggs"
+---
+--- When `false`:
+---   - List continuation only works when cursor is at end of line
+---
+--- Default: true
+---@field split_line? boolean
+---
+--- Define which keys trigger list continuation and their behavior.
+---
+--- Each key can map to either:
+---   - A function that creates the new todo
+---   - A table with `rhs` (function) and optional `desc` (description)
+---
+--- Default keys:
+---   - `<CR>`: Create sibling todo (same indentation)
+---   - `<S-CR>`: Create nested todo (indented as child)
+---
+--- **Important**: This field completely replaces the default keys (no merging).
+--- To keep some defaults while adding custom keys, explicitly include them in your config.
+---@field keys? table<string, {rhs: function, desc?: string}|function>
+---
 -----------------------------------------------------
 
 ---@class checkmate.SmartToggleSettings
@@ -476,7 +522,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 ---i.e. what is used after insertion
 ---@field get_value? checkmate.GetValueFn
 ---
----@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]|nil
 ---
 ---Values that are populated during completion or select pickers
 ---Can be either:
@@ -655,6 +701,24 @@ return {
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
+  list_continuation = {
+    enabled = true,
+    split_line = true,
+    keys = {
+      ["<CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = false,
+        })
+      end,
+      ["<S-CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = true,
+        })
+      end,
+    },
+  },
   smart_toggle = {
     enabled = true,
     include_cycle = false,
@@ -872,7 +936,6 @@ todo_states = {
 ```
 
 <img width="800" height="145" alt="checkmate_custom_states" src="https://github.com/user-attachments/assets/b8f89d00-4523-4106-8dbe-82059b1a1334" />
-
 
 #### State types
 States have three behavior types that affect smart toggle and todo counts:
@@ -1119,7 +1182,7 @@ Planned features:
 
 - [x] **Custom todo states** - support beyond binary "checked" and "unchecked", allowing for todos to be in custom states, e.g. pending, not-planned, on-hold, etc. _Added v0.10.0_
 
-- [ ] Sorting API - user can register custom sorting functions and keymap them so that sibling todo items can be reordered quickly. e.g. `function(todo_a, todo_b)` should return an integer, and where todo_a/todo_b is a table containing data such as checked state and metadata tag/values
+- [x] **List (todo) continuation** - automatically created new todo lines in insert mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
 
 <a id="contributing"><a/>
 

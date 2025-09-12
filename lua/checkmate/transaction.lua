@@ -138,11 +138,18 @@ function M.run(bufnr, entry_fn, post_fn)
       state.op_queue = {}
 
       -- collect every diff from each op into a single array
+      ---@type checkmate.TextDiffHunk[]
       local all_hunks = {}
       for _, op in ipairs(queued) do
-        local hunks = op.fn(state.context, unpack(op.args))
-        if hunks and #hunks > 0 then
-          vim.list_extend(all_hunks, hunks)
+        ---@type checkmate.TextDiffHunk[]
+        local op_result = op.fn(state.context, unpack(op.args))
+        -- handle the op returning either a TextDiffHunk or TextDiffHunk[]
+        if type(op_result) == "table" then
+          if not vim.islist(op_result) and getmetatable(op_result) == diff.TextDiffHunk then
+            vim.list_extend(all_hunks, { op_result })
+          elseif vim.islist(op_result) then
+            vim.list_extend(all_hunks, op_result)
+          end
         end
       end
 

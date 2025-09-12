@@ -394,61 +394,244 @@ function M.cycle(opts)
   return true
 end
 
---- Creates a new todo item
+---@class checkmate.CreateOptions
 ---
---- # Behavior
---- - In normal mode:
----   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
---- - In visual mode:
----   - Will convert each line in the selection to a new todo item with the default list marker
----   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
----   additional lines will be converted to individual todos
----   - Will not append any new todo items even if all lines in the selection are already todo items
----@return boolean success
-function M.create()
+--- Text content for new todo
+--- In visual mode, replaces existing line content
+--- Modes: all
+--- Default: ""
+---@field content? string
+---
+--- Where to place new todo relative to the current line
+--- Modes: normal, insert
+--- Default: "below"
+---@field position? "above"|"below"
+---
+--- Explicit todo state, e.g. "checked", "unchecked", or custom state
+--- This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo
+--- Modes: all
+--- Default: "unchecked"
+---@field target_state? string
+---
+--- Whether to inherit state from parent/current todo
+--- The "parent" todo is is the todo on the cursor line when `create` is called
+--- Modes: normal, insert
+--- Default: false (target_state is used)
+---@field inherit_state? boolean
+---
+--- Override list marker, e.g. "-", "*", "+", "1."
+--- Modes: all
+--- Default: will use parent's type or fallback to config `default_list_marker`
+---@field list_marker? string
+---
+--- Indentation (whitespace before list marker)
+---  - `false` (default): sibling - same indent as parent
+---  - `true` or `"nested"`: child - indented under parent
+---  - `integer`: explicit indent in spaces
+--- Modes: normal, insert
+--- Default: false
+---@field indent? boolean|integer|"nested"
+
+--- Creates or converts lines to todo items based on context and mode
+---
+--- # Mode-Specific Behavior
+---
+--- ## Normal Mode
+--- - **On non-todo line**: Converts line to todo (preserves text as content)
+---   - With `position`: Creates new todo above/below, preserves original line
+--- - **On todo line**: Creates sibling todo below
+---   - With `position="above"`: Creates sibling above
+---   - With `indent=true`: Creates nested child
+---
+--- ## Visual Mode
+--- - Converts each non-todo line in selection to a todo
+--- - Ignores lines that are already todos
+--- - Options `position`, `indent`, `inherit_state` are ignored
+--- - Option `content` replaces existing line text
+---
+--- ## Insert Mode
+--- - Creates new todo below (or above with `position="above"`)
+--- - If cursor is mid-line, splits line at cursor (text after cursor moves to new todo)
+--- - Maintains insert mode after creation
+--- - When `create` is called from handlers in `list_continuation.keys`, this enables a keymap like `<CR>` to create a new todo item in Insert mode
+---
+--- # Option Precedence
+---
+--- **State precedence** (highest to lowest):
+--- 1. `target_state` - explicit state
+--- 2. `inherit_state` - copies from parent/current todo
+--- 3. "unchecked" - default
+---
+--- **List marker precedence**:
+--- 1. `list_marker` - explicit marker
+--- 2. Inherited from parent/sibling with auto-numbering
+--- 3. Config `default_list_marker`
+--- 4. "-" is fallback
+---
+--- # Examples
+--- ```lua
+--- -- Convert current line to todo or create a new todo on current line
+--- require("checkmate").create()
+---
+--- -- Create nested child todo
+--- require("checkmate").create({ indent = true })
+---
+--- -- Create todo above with custom state
+--- require("checkmate").create({ position = "above", target_state = "pending" })
+---
+--- -- Create with specific content and marker
+--- require("checkmate").create({ content = "New task", list_marker = "1." })
+--- ```
+---
+---@param opts? checkmate.CreateOptions
+function M.create(opts)
+  opts = opts or {}
+
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
+  local log = require("checkmate.log")
 
-  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
+  local mode = util.get_mode()
+  local is_insert = mode == "i"
+  local is_visual = mode == "v"
+
+  -- validate opts based on the mode
+  if is_visual then
+    -- visual mode only supports limited opts
+    local allowed_opts = {
+      target_state = true,
+      list_marker = true,
+      content = true,
+    }
+
+    local visual_opts = {}
+    for k, v in pairs(opts) do
+      if allowed_opts[k] then
+        visual_opts[k] = v
+      else
+        -- warn
+        local ignored = { "position", "indent", "inherit_state" }
+        if vim.tbl_contains(ignored, k) then
+          log.fmt_debug("[main][create] Option '%s' is ignored in visual mode", k)
+        else
+          log.fmt_warn("[main][create] Unknown option '%s' in visual mode", k)
+        end
+      end
+    end
+    opts = visual_opts
+  end
+
+  -- if we’re already inside a transaction, queue a create_todo for the current cursor row using normal mode behavior
   local ctx = transaction.current_context()
   if ctx then
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
-    ctx.add_op(api.create_todos, row, row, false)
-
-    return true
+    ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position or "below",
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state,
+      list_marker = opts.list_marker,
+      indent = opts.indent or false,
+      content = opts.content,
+      cursor_pos = { row = row, col = cursor[2] },
+    })
+    return
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  local is_visual = util.is_visual_mode()
 
-  local start_row, end_row
+  -- determine which api function to use based on current mode:
+
+  if is_insert then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+
+    -- since the buffer can change between now and when we run the below create_todo_insert, we use
+    -- an extmark to store the cursor position
+    -- For example, if the todo line is markdown like `- [ ] Test` this will be converted to unicode during
+    -- then plugin's TextChange autocmd handling, which could throw off the cursor position
+    local ns = vim.api.nvim_create_namespace("checkmate_create_temp")
+    local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row, col, {
+      right_gravity = true,
+    })
+
+    -- we use transaction for insert mode to maintain consistency
+    -- but schedule it to avoid issues with insert mode
+    vim.schedule(function()
+      local mark_pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, extmark_id, {})
+      if not mark_pos or #mark_pos < 2 then
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+        return
+      end
+
+      local new_row = mark_pos[1]
+      local new_col = mark_pos[2]
+
+      transaction.run(bufnr, function(tx_ctx)
+        tx_ctx.add_op(api.create_todo_insert, row, {
+          position = opts.position or "below",
+          target_state = opts.target_state,
+          inherit_state = opts.inherit_state,
+          list_marker = opts.list_marker,
+          indent = opts.indent or false,
+          content = opts.content,
+          cursor_pos = { row = new_row, col = new_col },
+        })
+      end, function()
+        -- ensure we stay in insert mode
+        if not util.is_insert_mode() then
+          vim.cmd("startinsert")
+        end
+
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+      end)
+    end)
+
+    return
+  end
+
   if is_visual then
+    -- exit visual mode first
     vim.cmd([[execute "normal! \<Esc>"]])
-    -- get the sel start/end row (1-based)
+
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
-    start_row = mark_start[1] - 1
-    end_row = mark_end[1] - 1
+    local start_row = mark_start[1] - 1
+    local end_row = mark_end[1] - 1
 
     if end_row < start_row then
       start_row, end_row = end_row, start_row
     end
-  else
-    local cur = vim.api.nvim_win_get_cursor(0)
-    start_row = cur[1] - 1
-    end_row = start_row
+
+    transaction.run(bufnr, function(tx_ctx)
+      tx_ctx.add_op(api.create_todos_visual, start_row, end_row, {
+        target_state = opts.target_state,
+        list_marker = opts.list_marker,
+        content = opts.content,
+      })
+    end, function()
+      require("checkmate.highlights").apply_highlighting(bufnr)
+    end)
+
+    return true
   end
 
-  if start_row == nil or end_row == nil then
-    return false
-  end
+  -- normal mode (default)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1
 
   transaction.run(bufnr, function(tx_ctx)
-    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+    tx_ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position,
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state or false,
+      list_marker = opts.list_marker,
+      indent = opts.indent or false,
+      content = opts.content,
+    })
   end, function()
     require("checkmate.highlights").apply_highlighting(bufnr)
   end)

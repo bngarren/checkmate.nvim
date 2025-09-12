@@ -91,7 +91,14 @@ M.options = {}
 ---@field style checkmate.StyleSettings?
 ---
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
+---Default: true
 ---@field enter_insert_after_new boolean
+---
+---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enabled` option.
+--- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row with reasonable defaults
+--- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
+---@field list_continuation checkmate.ListContinuationSettings
 ---
 ---Smart toggle provides intelligent parent-child todo state propagation
 ---
@@ -112,14 +119,14 @@ M.options = {}
 ---@field todo_count_position checkmate.TodoCountPosition
 ---
 ---Formatter function for displaying the todo count indicator
----@field todo_count_formatter fun(completed: integer, total: integer)?: string
+---@field todo_count_formatter? fun(completed: integer, total: integer): string
 ---
 ---Whether to count child todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
 ---
----Whether to register keymappings defined in each metadata definition. If set the false,
----metadata actions need to be called programatically or otherwise mapped manually
+---Whether to register keymappings defined in each metadata definition.
+---When false, default metadata keymaps are not created; you can still call require('checkmate').toggle_metadata() or bind keys manually.
 ---@field use_metadata_keymaps boolean
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
@@ -162,16 +169,17 @@ M.options = {}
 
 -----------------------------------------------------
 
+---The broad categories used internally that give semantic meaning to each todo state
 ---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
 
 ---@class checkmate.TodoStateDefinition
 ---
---- The text string used for a todo marker is expected to be 1 character length.
+--- The glyph or text string used for a todo marker is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@field marker string
 ---
 --- Markdown checkbox representation (custom states only)
---- For custom states, this determines how the todo state is written in Markdown syntax.
+--- For custom states, this determines how the todo state is written to file in Markdown syntax.
 --- Important:
 ---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
 ---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
@@ -219,6 +227,42 @@ M.options = {}
 ---If a function is passed, will use this picker implementation
 ---@field picker? checkmate.Picker
 
+-----------------------------------------------------
+
+---@class checkmate.ListContinuationSettings
+---
+--- Whether to enable list continuation behavior
+---
+--- Default: true
+---@field enabled? boolean
+---
+--- Control behavior when cursor is mid-line (not at the end).
+---
+--- When `true` (default):
+---   - Text after cursor moves to the new todo line
+---   - Original line is truncated at cursor position
+---   - Example: "- ☐ Buy |milk and eggs" → "- ☐ Buy" + "- ☐ milk and eggs"
+---
+--- When `false`:
+---   - List continuation only works when cursor is at end of line
+---
+--- Default: true
+---@field split_line? boolean
+---
+--- Define which keys trigger list continuation and their behavior.
+---
+--- Each key can map to either:
+---   - A function that creates the new todo
+---   - A table with `rhs` (function) and optional `desc` (description)
+---
+--- Default keys:
+---   - `<CR>`: Create sibling todo (same indentation)
+---   - `<S-CR>`: Create nested todo (indented as child)
+---
+--- **Important**: This field completely replaces the default keys (no merging).
+--- To keep some defaults while adding custom keys, explicitly include them in your config.
+---@field keys? table<string, {rhs: function, desc?: string}|function>
+---
 -----------------------------------------------------
 
 ---@class checkmate.SmartToggleSettings
@@ -314,7 +358,7 @@ M.options = {}
 ---i.e. what is used after insertion
 ---@field get_value? checkmate.GetValueFn
 ---
----@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]|nil
 ---
 ---Values that are populated during completion or select pickers
 ---Can be either:
@@ -492,6 +536,10 @@ function M.setup(opts)
         for meta_name, meta_props in pairs(opts.metadata) do
           config.metadata[meta_name] = vim.deepcopy(meta_props)
         end
+      end
+
+      if opts.list_continuation and opts.list_continuation.keys then
+        config.list_continuation.keys = vim.deepcopy(opts.list_continuation.keys)
       end
     end
 

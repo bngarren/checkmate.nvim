@@ -1,5 +1,10 @@
 describe("Parser Helpers", function()
-  local h, ph
+  ---@module "tests.checkmate.helpers"
+  local h
+  ---@module "checkmate.parser.helpers"
+  local ph
+  ---@module "checkmate"
+  local cm
 
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
@@ -16,6 +21,12 @@ describe("Parser Helpers", function()
 
     h = require("tests.checkmate.helpers")
     ph = require("checkmate.parser.helpers")
+    cm = require("checkmate")
+    cm.setup(h.DEFAULT_TEST_CONFIG)
+  end)
+
+  after_each(function()
+    cm.stop()
   end)
 
   describe("create_list_item_patterns", function()
@@ -488,6 +499,180 @@ describe("Parser Helpers", function()
 
       local result = ph.match_first(checked_box, "- [X]No space")
       assert.is_not_true(result.matched)
+    end)
+  end)
+
+  describe("match markdown checkbox", function()
+    it("should match GFM markdown todos", function()
+      local cases = {
+        {
+          line = "- [ ] Unchecked",
+          expected = {
+            indent = 0,
+            list_marker = "-",
+            todo_marker = "[ ]",
+            is_markdown = true,
+            state = "unchecked",
+          },
+        },
+        {
+          line = "  - [x] Checked",
+          expected = {
+            indent = 2,
+            list_marker = "-",
+            todo_marker = "[x]",
+            is_markdown = true,
+            state = "checked",
+          },
+        },
+        {
+          line = "    1. [X] Big Checked",
+          expected = {
+            indent = 4,
+            list_marker = "1.",
+            todo_marker = "[X]",
+            is_markdown = true,
+            state = "checked",
+          },
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local result = ph.match_markdown_checkbox(case.line)
+        assert.same(case.expected, result)
+      end
+    end)
+
+    it("should match custom state markdown todos", function()
+      -- pending state is defined in the top level `cm.setup()` with defaults
+      local cases = {
+        {
+          line = "- [.] Pending",
+          expected = {
+            indent = 0,
+            list_marker = "-",
+            todo_marker = "[.]",
+            is_markdown = true,
+            state = "pending",
+          },
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local result = ph.match_markdown_checkbox(case.line)
+        assert.same(case.expected, result)
+      end
+    end)
+
+    it("should respect opts.state and only match this state", function()
+      local cases = {
+        {
+          line = "- [x] Checked",
+          expected = {
+            indent = 0,
+            list_marker = "-",
+            todo_marker = "[x]",
+            is_markdown = true,
+            state = "checked",
+          },
+        },
+        {
+          line = "- [ ] Unchecked",
+          expected = nil,
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local result = ph.match_markdown_checkbox(case.line, { state = "checked" })
+        assert.same(case.expected, result)
+      end
+    end)
+  end)
+
+  describe("match todo", function()
+    it("should match a Checkmate todo line", function()
+      local unchecked = h.get_unchecked_marker()
+      local checked = h.get_checked_marker()
+      local pending = h.get_pending_marker()
+
+      local cases = {
+        {
+          line = "- " .. unchecked .. " Todo A",
+          expected = {
+            indent = 0,
+            list_marker = "-",
+            todo_marker = unchecked,
+            state = "unchecked",
+            is_markdown = false,
+          },
+        },
+        {
+          line = "* " .. checked .. " Todo B",
+          expected = {
+            indent = 0,
+            list_marker = "*",
+            todo_marker = checked,
+            state = "checked",
+            is_markdown = false,
+          },
+        },
+        {
+          line = "  1. " .. pending .. " Todo C",
+          expected = {
+            indent = 2,
+            list_marker = "1.",
+            todo_marker = pending,
+            state = "pending",
+            is_markdown = false,
+          },
+        },
+        {
+          line = "- [ ] Todo D",
+          expected = {
+            indent = 0,
+            list_marker = "-",
+            todo_marker = "[ ]",
+            state = "unchecked",
+            is_markdown = true,
+          },
+        },
+        {
+          line = "  + [x] Todo E",
+          expected = {
+            indent = 2,
+            list_marker = "+",
+            state = "checked",
+            is_markdown = true,
+            todo_marker = "[x]",
+          },
+        },
+        {
+          line = "    10) [.] Todo F", --pending
+          expected = {
+            indent = 4,
+            list_marker = "10)",
+            state = "pending",
+            is_markdown = true,
+            todo_marker = "[.]",
+          },
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local result = h.exists(ph.match_todo(case.line))
+        assert.same(case.expected, result)
+      end
+
+      local nil_cases = {
+        "-[ ] Missing space",
+        "-  [ ] Too much space",
+        "- [#] Unknown markdown",
+        unchecked .. " No list marker",
+      }
+
+      for _, case in ipairs(nil_cases) do
+        assert.is_nil(ph.match_todo(case))
+      end
     end)
   end)
 end)

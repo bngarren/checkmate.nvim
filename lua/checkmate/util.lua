@@ -3,6 +3,12 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+--- Gets a buffer local variable in the `_checkmate` namespace
+function M.buf_local(bufnr)
+  vim.b[bufnr]._checkmate = vim.b[bufnr]._checkmate or {}
+  return vim.b[bufnr]._checkmate
+end
+
 function M.tbl_isempty_or_nil(t)
   if t == nil then
     return true
@@ -10,11 +16,40 @@ function M.tbl_isempty_or_nil(t)
   return vim.tbl_isempty(t)
 end
 
----Returns true is current mode is VISUAL, false otherwise
----@return boolean
-function M.is_visual_mode()
-  local mode = vim.fn.mode()
-  return mode:match("^[vV]") or mode == "\22"
+-- Return a normalized family: "n" | "v" | "i" | nil (if none of those)
+---@param m? string  -- optional raw mode (for testing); defaults to current
+---@return "n"|"v"|"i"|nil
+function M.mode_family(m)
+  m = m or vim.api.nvim_get_mode().mode
+  -- visual family: visual char/line/block, and select modes behave like visual
+  if m:find("^[vV\022]") or m:find("^s") then
+    return "v"
+  end
+  -- insert family: insert + its variants (ic, ix, etc.)
+  if m:find("^i") then
+    return "i"
+  end
+  -- normal family: normal + operator-pending + normal-insert variants (niI, no, nov, nt…)
+  if m:find("^n") then
+    return "n"
+  end
+  return nil
+end
+
+function M.is_normal_mode(m)
+  return M.mode_family(m) == "n"
+end
+function M.is_visual_mode(m)
+  return M.mode_family(m) == "v"
+end
+function M.is_insert_mode(m)
+  return M.mode_family(m) == "i"
+end
+
+---@return "n"|"v"|"i"|string
+function M.get_mode()
+  local raw = vim.api.nvim_get_mode().mode
+  return M.mode_family(raw) or raw
 end
 
 ---Calls vim.notify with the given message and log_level depending on if config.options.notify enabled
@@ -142,6 +177,53 @@ end
 ---@return string indent
 function M.get_line_indent(line)
   return line:match("^(%s*)") or ""
+end
+
+--- Returns true if the col (0-based) is at the end of the trimmed line
+--- The 'end' is the position of the last character of the line
+---@param line string
+---@param col integer (0-based)
+---@param opts? {include_whitespace?: boolean}
+--- - include_whitespace: Default is true
+---@return boolean
+function M.is_end_of_line(line, col, opts)
+  opts = opts or {}
+  local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
+  return col + 1 == line_length
+end
+
+--- Returns the next ordered marker (incremented)
+--- e.g. if `1.` is passed, will return `2.`
+--- If the passed string does not match an ordered list marker, will return nil
+--- Pass `restart = true` if the numbering should start at 1, i.e. for a nested list item
+---@param li_marker_str string Current marker like "1." or "2)"
+---@param restart? boolean If true, reset to "1.", e.g., for nested items
+---@return string|nil
+function M.get_next_ordered_marker(li_marker_str, restart)
+  local num, delimiter = li_marker_str:match("^%s*(%d+)([%.%)])")
+  local result = nil
+  if num then
+    if not restart then
+      -- same level: increment
+      result = tostring(tonumber(num) + 1) .. delimiter
+    else
+      -- nested: start from 1
+      result = "1" .. delimiter
+    end
+  end
+  return result
+end
+
+--- Check if cursor position is valid for list continuation
+--- The cursor must be after the checkbox/todo marker to trigger continuation
+---@param col integer 0-based cursor column in insert mode
+---@param todo_prefix checkmate.TodoPrefix Todo prefix from match_todo
+---@return boolean
+function M.is_valid_list_continuation_position(col, todo_prefix)
+  -- this is the position after: indent + list_marker + space + todo_marker
+  local threshold = todo_prefix.indent + #todo_prefix.list_marker + 1 + #todo_prefix.todo_marker
+
+  return col >= threshold
 end
 
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
@@ -534,6 +616,34 @@ function M.build_todo(todo_item)
   }
 end
 
+-- Undo helper
+local U = {}
+
+-- True if the buffer has any prior undo history (from this or a previous session)
+function U.has_prior_history(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local ut = vim.fn.undotree(bufnr)
+  return type(ut) == "table" and (ut.seq_last or 0) > 0
+end
+
+-- True if we are at the head of the current branch
+function U.at_head(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local ut = vim.fn.undotree(bufnr)
+  return type(ut) ~= "table" or (ut.seq_cur or 0) == (ut.seq_last or 0)
+end
+
+-- Temporarily set local 'undolevels' to -1 for the duration of fn(), then restore.
+-- use ONLY when there is no prior history (e.g. no undofile)
+function U.suppress_next_change(bufnr, fn)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local prev = vim.bo[bufnr].undolevels
+  vim.bo[bufnr].undolevels = -1
+  local ok, err = pcall(fn)
+  vim.bo[bufnr].undolevels = prev
+  return ok, err
+end
+
 -- Cursor helper
 M.Cursor = {}
 
@@ -585,5 +695,7 @@ function M.Cursor.restore(state)
 
   return success
 end
+
+M.undo = U
 
 return M

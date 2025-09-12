@@ -92,6 +92,24 @@ return {
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
+  list_continuation = {
+    enabled = true,
+    split_line = true,
+    keys = {
+      ["<CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = false,
+        })
+      end,
+      ["<S-CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = true,
+        })
+      end,
+    },
+  },
   smart_toggle = {
     enabled = true,
     include_cycle = false,

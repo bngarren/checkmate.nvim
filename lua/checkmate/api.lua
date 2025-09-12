@@ -913,6 +913,8 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
         list_marker = opts.list_marker or list_item.marker,
         is_markdown = false,
       },
+      -- pass the list marker here to avoid auto incrementing by _build_todo_line
+      list_marker = opts.list_marker or list_item.marker,
       target_state = target_state,
       inherit_state = false,
       content = opts.content or vim.trim(line:gsub("^%s*" .. vim.pesc(list_item.marker) .. "%s*", "")),

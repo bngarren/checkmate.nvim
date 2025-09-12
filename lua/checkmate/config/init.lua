@@ -91,6 +91,7 @@ M.options = {}
 ---@field style checkmate.StyleSettings?
 ---
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
+---Default: true
 ---@field enter_insert_after_new boolean
 ---
 ---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
@@ -118,14 +119,14 @@ M.options = {}
 ---@field todo_count_position checkmate.TodoCountPosition
 ---
 ---Formatter function for displaying the todo count indicator
----@field todo_count_formatter fun(completed: integer, total: integer)?: string
+---@field todo_count_formatter? fun(completed: integer, total: integer): string
 ---
 ---Whether to count child todo items recursively in the todo_count
 ---If true, all nested todo items will count towards the parent todo's count
 ---@field todo_count_recursive boolean
 ---
----Whether to register keymappings defined in each metadata definition. If set the false,
----metadata actions need to be called programatically or otherwise mapped manually
+---Whether to register keymappings defined in each metadata definition.
+---When false, default metadata keymaps are not created; you can still call require('checkmate').toggle_metadata() or bind keys manually.
 ---@field use_metadata_keymaps boolean
 ---
 ---Custom @tag(value) fields that can be toggled on todo items
@@ -168,16 +169,17 @@ M.options = {}
 
 -----------------------------------------------------
 
+---The broad categories used internally that give semantic meaning to each todo state
 ---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
 
 ---@class checkmate.TodoStateDefinition
 ---
---- The text string used for a todo marker is expected to be 1 character length.
+--- The glyph or text string used for a todo marker is expected to be 1 character length.
 --- Multiple characters _may_ work but are not currently supported and could lead to unexpected results.
 ---@field marker string
 ---
 --- Markdown checkbox representation (custom states only)
---- For custom states, this determines how the todo state is written in Markdown syntax.
+--- For custom states, this determines how the todo state is written to file in Markdown syntax.
 --- Important:
 ---   - Must be unique among all todo states. If two states share the same Markdown representation, there will
 ---   be unpredictable behavior when parsing the Markdown into the Checkmate buffer
@@ -356,7 +358,7 @@ M.options = {}
 ---i.e. what is used after insertion
 ---@field get_value? checkmate.GetValueFn
 ---
----@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]?
+---@alias checkmate.ChoicesFn fun(context?: checkmate.MetadataContext, cb?: fun(items: string[])): string[]|nil
 ---
 ---Values that are populated during completion or select pickers
 ---Can be either:

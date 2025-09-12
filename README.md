@@ -168,6 +168,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `metadata remove` | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)` |
 | `metadata select_value` | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()` |
 | `metadata toggle` | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)` |
+| `remove` | Convert a todo line back to regular text. See api `remove(opts)`. By default, will preserve the list item marker and remove any metadata. This can be configured via `opts`.
 | `remove_all_metadata` | Remove *all* metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()` |
 | `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. This command only toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands. |
 | `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
@@ -657,6 +658,11 @@ return {
     ["<leader>Tn"] = {
       rhs = "<cmd>Checkmate create<CR>",
       desc = "Create todo item",
+      modes = { "n", "v" },
+    },
+    ["<leader>Tr"] = {
+      rhs = "<cmd>Checkmate remove<CR>",
+      desc = "Remove todo marker (convert to text)",
       modes = { "n", "v" },
     },
     ["<leader>TR"] = {

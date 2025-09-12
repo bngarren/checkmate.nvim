@@ -43,7 +43,7 @@ local util = require("checkmate.util")
 ---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
 ---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
 ---@field add_op fun(fn: function, ...)
----@field add_cb fun(fn: function, ...)
+---@field add_cb fun(fn: fun(ctx: checkmate.TransactionContext, ...), ...)
 ---@field get_buf fun(): integer Returns the buffer
 
 M._states = {} -- bufnr -> state
@@ -66,7 +66,7 @@ end
 
 --- Starts a transaction for a buffer
 ---@param bufnr number Buffer number
----@param entry_fn function Function to start the transaction
+---@param entry_fn fun(ctx: checkmate.TransactionContext) Function to start the transaction
 ---@param post_fn function? Function to run after transaction completes
 function M.run(bufnr, entry_fn, post_fn)
   assert(not M._states[bufnr], "Nested transactions are not supported for buffer " .. bufnr)

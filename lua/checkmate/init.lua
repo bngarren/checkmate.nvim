@@ -639,6 +639,118 @@ function M.create(opts)
   return true
 end
 
+---@class checkmate.RemoveOptions
+---
+---If true, keep the list marker (e.g. "- Text"); if false, remove list marker also ("Text")
+---Default: true
+---@field preserve_list_marker? boolean
+---
+---Removes all metadata associated with the todo
+---Default: true
+---@field remove_metadata? boolean
+
+--- Remove todo from the current line (or all todos in a visual selection)
+--- In other words, this converts a todo line back to a non-todo line
+--- Can use `opts` to specify keeping/removing list marker and metadata
+--- @param opts? checkmate.RemoveOptions
+function M.remove(opts)
+  opts = opts or {}
+  local preserve_list_marker = opts.preserve_list_marker ~= false
+  local strip_meta = opts.remove_metadata ~= false
+
+  local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+  local highlights = require("checkmate.highlights")
+  local parser = require("checkmate.parser")
+
+  -- a gotcha of this code is that when you remove metadata first that spans multiple lines, this will
+  -- perform a line replace (instead of text replace), losing the stable todo id extmark. So we cover this
+  -- by also linking on the todo's start_row. I'm not sure how fragile this will be, but working for now...
+
+  local ctx = transaction.current_context()
+  if ctx then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
+    if not item then
+      util.notify("No todo items found at cursor position", vim.log.levels.INFO)
+      return false
+    end
+
+    local start_row = item.range.start.row
+    if strip_meta then
+      ctx.add_op(api.remove_metadata, { { id = item.id, meta_names = true } })
+      ctx.add_cb(function(c)
+        local refreshed = c.get_todo_by_id(item.id) or c.get_todo_by_row(start_row, true)
+        if refreshed then
+          c.add_op(api.remove_todo, { { id = item.id, remove_list_marker = not preserve_list_marker } })
+        end
+      end)
+    else
+      ctx.add_op(api.remove_todo, { { id = item.id, remove_list_marker = not preserve_list_marker } })
+    end
+    return true
+  end
+
+  -- normal/visual path: collect once, then run both phases in a single transaction
+  local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local items = api.collect_todo_items_from_selection(is_visual)
+
+  if #items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return false
+  end
+
+  -- capture stable targets (IDs may change after multi-line metadata edits)
+  local targets = {}
+  for _, it in ipairs(items) do
+    targets[#targets + 1] = { id = it.id, start_row = it.range.start.row }
+  end
+
+  local meta_ops = {}
+  if strip_meta then
+    for _, t in ipairs(targets) do
+      meta_ops[#meta_ops + 1] = { id = t.id, meta_names = true } -- true = remove all
+    end
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    if strip_meta and #meta_ops > 0 then
+      _ctx.add_op(api.remove_metadata, meta_ops)
+      _ctx.add_cb(function(c)
+        local rm_ops = {}
+        for _, t in ipairs(targets) do
+          local found = c.get_todo_by_id(t.id) or c.get_todo_by_row(t.start_row, true)
+          if found then
+            rm_ops[#rm_ops + 1] = {
+              id = found.id,
+              remove_list_marker = not preserve_list_marker,
+            }
+          end
+        end
+        if #rm_ops > 0 then
+          c.add_op(api.remove_todo, rm_ops)
+        end
+      end)
+    else
+      -- no metadata stripping: remove prefixes immediately
+      local rm_ops = {}
+      for _, t in ipairs(targets) do
+        rm_ops[#rm_ops + 1] = {
+          id = t.id,
+          remove_list_marker = not preserve_list_marker,
+        }
+      end
+      _ctx.add_op(api.remove_todo, rm_ops)
+    end
+  end, function()
+    highlights.apply_highlighting(bufnr)
+  end)
+end
+
 --- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 ---@param value string? Value contained in the tag
@@ -925,7 +1037,6 @@ function M.lint(opts)
   end
 
   local linter = require("checkmate.linter")
-  local log = require("checkmate.log")
   local util = require("checkmate.util")
 
   local results = linter.lint_buffer(bufnr)

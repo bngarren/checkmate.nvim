@@ -75,6 +75,14 @@ local top_commands = {
     end,
   },
 
+  remove = {
+    desc = "Convert a todo item back to a regular list item",
+    nargs = "0",
+    handler = function()
+      require("checkmate").remove()
+    end,
+  },
+
   lint = {
     desc = "Lint this buffer for Checkmate formatting issues",
     nargs = "0",

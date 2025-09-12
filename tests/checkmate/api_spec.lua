@@ -354,9 +354,11 @@ describe("API", function()
 
   describe("todo creation", function()
     local cm
+    local todo_line
     before_each(function()
       cm = require("checkmate")
       cm.setup(h.DEFAULT_TEST_CONFIG)
+      todo_line = h.todo_line
     end)
     after_each(function()
       cm.stop()
@@ -383,30 +385,6 @@ describe("API", function()
 
       h.cleanup_buffer(bufnr)
       return lines
-    end
-
-    ---@param opts? table
-    --- - indent: integer|string Indent string (whitespace) or number of spaces
-    --- - list_marker: string
-    --- - state: string Todo state, e.g. "unchecked" (default), "checked", "pending"
-    --- - text: string Text after the todo marker + 1 space
-    local function todo_line(opts)
-      opts = opts or {}
-      local indent_str = ""
-      if opts.indent then
-        if type(opts.indent) == "number" then
-          indent_str = string.rep(" ", opts.indent)
-        elseif type(opts.indent) == "string" then
-          indent_str = opts.indent
-        end
-      end
-      ---@cast indent_str string
-      local marker = opts.list_marker or require("checkmate.config").get_defaults().default_list_marker
-      local state = opts.state or "unchecked"
-      local text = opts.text or ""
-
-      local state_marker = m[state] or m.unchecked
-      return indent_str .. marker .. " " .. state_marker .. " " .. text
     end
 
     describe("normal mode", function()
@@ -1060,6 +1038,184 @@ Some other content]]
           expected = {
             "1. Parent",
             todo_line({ list_marker = "2." }),
+          },
+        })
+      end)
+    end)
+  end)
+
+  describe("todo removal", function()
+    local cm
+    local todo_line
+    before_each(function()
+      cm = require("checkmate")
+      cm.setup(h.DEFAULT_TEST_CONFIG)
+      todo_line = h.todo_line
+    end)
+    after_each(function()
+      cm.stop()
+    end)
+
+    local function test_remove_scenario(opts)
+      local bufnr = h.setup_test_buffer(opts.content or opts.lines)
+
+      if opts.cursor then
+        vim.api.nvim_win_set_cursor(0, opts.cursor)
+      end
+
+      if opts.selection then
+        h.make_selection(unpack(opts.selection))
+      end
+
+      require("checkmate").remove(opts.remove_opts or {})
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      if opts.expected then
+        h.assert_lines_equal(lines, opts.expected, opts.name)
+      end
+
+      h.cleanup_buffer(bufnr)
+      return lines
+    end
+
+    describe("normal mode", function()
+      it("should remove checkbox and keep list item and strip metadata (default)", function()
+        local line = todo_line({ text = "Task @due(2025-10-01) @priority(high)" })
+        test_remove_scenario({
+          name = "default remove: preserve list, strip metadata",
+          content = line,
+          cursor = { 1, 0 },
+          expected = { "- Task" },
+        })
+      end)
+
+      it("should remove checkbox and list item when preserve_list_marker=false", function()
+        local line = todo_line({ text = "Write tests" })
+        test_remove_scenario({
+          name = "remove list marker also",
+          content = line,
+          cursor = { 1, 0 },
+          remove_opts = { preserve_list_marker = false },
+          expected = { "Write tests" },
+        })
+      end)
+
+      it("should preserve indentation when keeping list marker", function()
+        local line = todo_line({ indent = 2, text = "Child work @tag(val)" })
+        test_remove_scenario({
+          name = "preserve indent",
+          content = line,
+          cursor = { 1, 0 },
+          expected = { "  - Child work" },
+        })
+      end)
+
+      it("should handle ordered list markers", function()
+        local line = todo_line({ list_marker = "3.", text = "Numbered thing @x(1)" })
+        test_remove_scenario({
+          name = "ordered list preserved",
+          content = line,
+          cursor = { 1, 0 },
+          expected = { "3. Numbered thing" },
+        })
+      end)
+
+      it("should no-op on non-todo line", function()
+        local content = "Plain text"
+        test_remove_scenario({
+          name = "non-todo no-op",
+          content = content,
+          cursor = { 1, 0 },
+          expected = { "Plain text" },
+        })
+      end)
+
+      it("should keep metadata when requested", function()
+        local line = todo_line({ text = "Keep meta @due(2026-01-01)" })
+        test_remove_scenario({
+          name = "preserve metadata by option",
+          content = line,
+          cursor = { 1, 0 },
+          remove_opts = { remove_metadata = false },
+          expected = { "- Keep meta @due(2026-01-01)" },
+        })
+      end)
+
+      it("should remove a multi-line todo block and strip metadata across its body (default)", function()
+        local lines = {
+          todo_line({ text = "Main @due(2025-10-01)" }),
+          "  More details @priority(high)",
+          "  trailing text",
+        }
+        test_remove_scenario({
+          name = "remove multi-line todo, strip meta",
+          lines = lines,
+          cursor = { 1, 0 },
+          expected = {
+            "- Main",
+            "  More details",
+            "  trailing text",
+          },
+        })
+      end)
+
+      it("should strip a metadata entry that spans across lines", function()
+        local lines = {
+          -- metadata starts on line 1 and closes on line 2
+          todo_line({ text = "Complex @x(This spans" }),
+          "  multiple lines) and more",
+        }
+        test_remove_scenario({
+          name = "remove split-across-lines metadata",
+          lines = lines,
+          cursor = { 1, 0 },
+          expected = {
+            "- Complex",
+            "  and more",
+          },
+        })
+      end)
+    end)
+
+    describe("visual mode", function()
+      it("should remove across a multi-line selection, skipping non-todos", function()
+        local lines = {
+          "# Header",
+          todo_line({ text = "A @due(2024)" }),
+          "Plain",
+          todo_line({ indent = 2, text = "B @x(1)" }),
+          todo_line({ list_marker = "1.", text = "C" }),
+        }
+        test_remove_scenario({
+          name = "visual multi-line",
+          lines = lines,
+          selection = { 2, 0, 5, 0, "V" },
+          expected = {
+            "# Header",
+            "- A",
+            "Plain",
+            "  - B",
+            "1. C",
+          },
+        })
+      end)
+
+      it("should support preserve_list_marker=false in visual mode", function()
+        local lines = {
+          todo_line({ text = "One @tag(yes)" }),
+          todo_line({ text = "Two" }),
+          "Not a todo",
+        }
+        test_remove_scenario({
+          name = "visual remove list markers",
+          lines = lines,
+          selection = { 1, 0, 2, 0, "V" },
+          remove_opts = { preserve_list_marker = false },
+          expected = {
+            "One",
+            "Two",
+            "Not a todo",
           },
         })
       end)

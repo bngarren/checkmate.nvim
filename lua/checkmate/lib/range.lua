@@ -11,6 +11,14 @@ function M.new(start_pos, end_pos)
   return setmetatable({ start = start_pos, ["end"] = end_pos }, M)
 end
 
+---Returns a checkmate.Range from a TSNode:range
+---@param node TSNode
+---@return checkmate.Range
+function M.range_from_tsnode(node)
+  local sr, sc, er, ec = node:range()
+  return M.new({ row = sr, col = sc }, { row = er, col = ec })
+end
+
 ---Returns true if (row, col) is within [start, end], inclusive.
 ---May pass either (row, col) or a position table {row=…, col=…}.
 ---@param self checkmate.Range

@@ -966,6 +966,57 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
   return diff.make_line_replace(row, new_line)
 end
 
+--- Remove todo marker from items (convert todo → non-todo line)
+--- @param ctx checkmate.TransactionContext
+--- @param operations table[] array of { id: integer, remove_list_marker?: boolean }
+--- @return checkmate.TextDiffHunk[] hunks
+function M.remove_todo(ctx, operations)
+  local bufnr = ctx.get_buf()
+  local hunks = {}
+
+  for _, op in ipairs(operations or {}) do
+    local item = ctx.get_todo_by_id(op.id)
+    if item then
+      local h = M.compute_diff_strip_todo_prefix(bufnr, item, not op.remove_list_marker)
+      if h then
+        table.insert(hunks, h)
+      end
+    end
+  end
+
+  return hunks
+end
+
+---@param bufnr integer
+---@param item checkmate.TodoItem
+---@param preserve_list_marker? boolean Whether to keep list marker. Default: true
+---@return checkmate.TextDiffHunk
+function M.compute_diff_strip_todo_prefix(bufnr, item, preserve_list_marker)
+  local r = require("checkmate.lib.range")
+  local row = item.range.start.row
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+  local start_col
+  if preserve_list_marker ~= false then
+    -- keep "<indent><lm><space>", remove the todo marker (and its trailing space)
+    local lm_range = r.range_from_tsnode(item.list_marker.node)
+    start_col = lm_range["end"].col -- after the single space following list marker
+  else
+    -- remove the full list prefix as well
+    start_col = item.range.start.col -- from beginning of indent/list
+  end
+
+  -- end of the todo marker token
+  local end_col = item.todo_marker.position.col + #item.todo_marker.text
+
+  -- include exactly one trailing space after the todo marker if present
+  if line:sub(end_col + 1, end_col + 1) == " " then
+    end_col = end_col + 1
+  end
+
+  return diff.make_text_delete(row, start_col, end_col)
+end
+
 --- Toggle state of todo item(s)
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param operations table[] Array of {id: integer, target_state: string}

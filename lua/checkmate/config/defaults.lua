@@ -50,6 +50,11 @@ return {
       desc = "Create todo item",
       modes = { "n", "v" },
     },
+    ["<leader>Tr"] = {
+      rhs = "<cmd>Checkmate remove<CR>",
+      desc = "Remove todo marker (convert to text)",
+      modes = { "n", "v" },
+    },
     ["<leader>TR"] = {
       rhs = "<cmd>Checkmate remove_all_metadata<CR>",
       desc = "Remove all metadata from a todo item",

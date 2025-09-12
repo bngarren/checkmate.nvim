@@ -1031,6 +1031,38 @@ Some other content]]
           },
         })
       end)
+
+      it("should create todo from non-todo list item line", function()
+        test_insert_mode_create({
+          name = "non todo list item parent",
+          line = "- Parent",
+          cursor_col = 8,
+          expected = {
+            "- Parent",
+            todo_line(),
+          },
+        })
+
+        test_insert_mode_create({
+          name = "non todo list item parent (indented)",
+          line = "  - Parent",
+          cursor_col = 10,
+          expected = {
+            "  - Parent",
+            todo_line({ indent = "  " }),
+          },
+        })
+
+        test_insert_mode_create({
+          name = "non todo ordered list item parent",
+          line = "1. Parent",
+          cursor_col = 9,
+          expected = {
+            "1. Parent",
+            todo_line({ list_marker = "2." }),
+          },
+        })
+      end)
     end)
   end)
 

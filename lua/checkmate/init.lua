@@ -453,6 +453,7 @@ end
 --- - Creates new todo below (or above with `position="above"`)
 --- - If cursor is mid-line, splits line at cursor (text after cursor moves to new todo)
 --- - Maintains insert mode after creation
+--- - When `create` is called from handlers in `list_continuation.keys`, this enables a keymap like `<CR>` to create a new todo item in Insert mode
 ---
 --- # Option Precedence
 ---

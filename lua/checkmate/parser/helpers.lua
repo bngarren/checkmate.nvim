@@ -4,9 +4,11 @@ local config = require("checkmate.config")
 
 local M = {}
 
----@class checkmate.TodoPrefix
+---@class checkmate.ListItemPrefix
 ---@field indent integer
 ---@field list_marker string
+
+---@class checkmate.TodoPrefix : checkmate.ListItemPrefix
 ---@field state string Todo state
 ---@field is_markdown boolean If true, todo is represented as raw Markdown rather than unicode or other
 ---@field todo_marker string

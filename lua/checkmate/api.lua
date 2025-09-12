@@ -30,13 +30,7 @@ local M = {}
 
 M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
 
----@class checkmate.CreateTodoOptions
----@field position "above"|"below" Where to place the todo relative to current line
----@field target_state? string Target todo state, overrides the state that would be derived if `inherit_state` is true.
----@field inherit_state? boolean Whether to inherit the origin/parent todo's state
----@field content? string Text content for the new todo (after the todo marker + space)
----@field list_marker string
----@field indent? boolean|integer|"nested" Indentation control (see public `create` API)
+---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
 --- Validates that the buffer is valid (per nvim) and Markdown filetype
@@ -619,7 +613,7 @@ end
 --- If current line is not a todo and no `opts.position` is passed, the line will be converted to a todo in place
 ---@param ctx checkmate.TransactionContext
 ---@param start_row integer Origin/parent row (0-based)
----@param opts? checkmate.CreateTodoOptions
+---@param opts? checkmate.CreateOptionsInternal
 ---@return checkmate.TextDiffHunk[]
 function M.create_todo_normal(ctx, start_row, opts)
   opts = opts or {}
@@ -714,7 +708,7 @@ end
 ---
 ---@param ctx checkmate.TransactionContext
 ---@param start_row integer Origin/parent row (not the new row). 0-based
----@param opts checkmate.CreateTodoOptions
+---@param opts checkmate.CreateOptionsInternal
 ---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
 ---    where col=n means cursor is after char[n-1] and before char[n]
 ---  - content: Prepends to any split content
@@ -723,17 +717,17 @@ function M.create_todo_insert(ctx, start_row, opts)
   local bufnr = ctx.get_buf()
   local line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
 
-  -- TODO: should we be excluding non todo lines?
+  -- try to match a todo line first, then try to match a regular list item
+  ---@type checkmate.TodoPrefix | checkmate.ListItemPrefix | nil
   local current_prefix = ph.match_todo(line)
   if not current_prefix then
-    return {} -- not on a todo line, do nothing
-  end
-
-  -- TODO: i dont think we need this either, this should be handled by list continuation code, i.e. where keymaps are set
-  if opts.cursor_pos then
-    local col = opts.cursor_pos.col
-    if not util.is_valid_list_continuation_position(col, current_prefix) then
-      return {} -- cursor before checkbox, don't trigger
+    local li = ph.match_list_item(line)
+    if li then
+      ---@type checkmate.ListItemPrefix
+      current_prefix = {
+        indent = li.indent,
+        list_marker = li.marker,
+      }
     end
   end
 
@@ -797,7 +791,7 @@ local function normalize_indent_option(indent)
 end
 
 ---@class BuildTodoLineOpts
----@field parent_prefix? checkmate.TodoPrefix Context from parent todo (optional)
+---@field parent_prefix? checkmate.TodoPrefix | checkmate.ListItemPrefix Context from parent todo or list item (optional)
 ---@field target_state? string Explicit todo state (overrides `inherit_state`)
 ---@field inherit_state? boolean Inherit parent/current todo state
 ---@field content? string Text after the todo marker
@@ -913,17 +907,18 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
 
   local new_line
   if list_item then
-    -- already a list item, just add the todo marker
-    local marker_to_use = opts.list_marker or list_item.marker
-    new_line =
-      line:gsub("^(%s*)" .. vim.pesc(list_item.marker) .. "(%s+)", "%1" .. marker_to_use .. "%2" .. todo_marker .. " ")
-
-    if opts.content then
-      local prefix_end = new_line:find(todo_marker, 1, true)
-      if prefix_end then
-        new_line = new_line:sub(1, prefix_end + #todo_marker) .. " " .. opts.content
-      end
-    end
+    local new_todo = M._build_todo_line({
+      parent_prefix = {
+        indent = list_item.indent,
+        list_marker = opts.list_marker or list_item.marker,
+        is_markdown = false,
+      },
+      target_state = target_state,
+      inherit_state = false,
+      content = opts.content or vim.trim(line:gsub("^%s*" .. vim.pesc(list_item.marker) .. "%s*", "")),
+      indent = false, -- honor existing indentation; caller can override in opts
+    })
+    new_line = new_todo.line
   else
     -- not a list item - build from scratch
     local existing_indent = util.get_line_indent(line)
@@ -967,48 +962,6 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
   end
 
   return diff.make_line_replace(row, new_line)
-end
-
---- Insert a new, empty “unchecked” todo directly below the given row.
----
----@param bufnr integer Buffer number
----@param row integer  -- 0-based row where we want to insert below
----@return checkmate.TextDiffHunk
-function M.compute_diff_insert_todo_below(bufnr, row)
-  local todo_map = parser.get_todo_map(bufnr)
-  local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
-
-  local indent, marker_text
-  if cur_todo then
-    local list_node = cur_todo.list_marker and cur_todo.list_marker.node
-    if list_node then
-      -- list_node:range() → { start_row, start_col, end_row, end_col }
-      local sr, sc, _, ec = list_node:range()
-      indent = string.rep(" ", sc)
-      -- marker_text = text of the marker, e.g. "-" or "1."
-      marker_text = vim.api.nvim_buf_get_text(bufnr, sr, sc, sr, ec - 1, {})[1]
-
-      -- handle ordered lists by incrementing the number
-      local num = marker_text:match("^(%d+)[.)]")
-      if num then
-        local delimiter = marker_text:match("[.)]")
-        marker_text = tostring(tonumber(num) + 1) .. delimiter
-      end
-    else
-      -- shouldn't get here..but oh well, a fallback
-      indent = string.rep(" ", cur_todo.range.start.col)
-      marker_text = config.options.default_list_marker or "-"
-    end
-  else
-    indent = ""
-    marker_text = config.options.default_list_marker or "-"
-  end
-
-  local new_row = row + 1
-  local unchecked = config.options.todo_markers.unchecked or "□"
-  local new_line = indent .. marker_text .. " " .. unchecked .. " "
-
-  return diff.make_line_insert(new_row, new_line)
 end
 
 --- Toggle state of todo item(s)

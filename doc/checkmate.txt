@@ -223,6 +223,12 @@ USER COMMANDS
                                        :Checkmate metadata toggle <key> [value].
                                        See api toggle_metadata(key, value)
 
+  remove                               Convert a todo line back to regular text.
+                                       See api remove(opts). By default, will
+                                       preserve the list item marker and remove
+                                       any metadata. This can be configured via
+                                       opts.
+
   remove_all_metadata                  Remove all metadata tags from the todo
                                        under the cursor or within the selection.
                                        See api remove_all_metadata()
@@ -724,6 +730,11 @@ DEFAULTS ~
         ["<leader>Tn"] = {
           rhs = "<cmd>Checkmate create<CR>",
           desc = "Create todo item",
+          modes = { "n", "v" },
+        },
+        ["<leader>Tr"] = {
+          rhs = "<cmd>Checkmate remove<CR>",
+          desc = "Remove todo marker (convert to text)",
           modes = { "n", "v" },
         },
         ["<leader>TR"] = {

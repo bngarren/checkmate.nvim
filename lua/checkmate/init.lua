@@ -998,21 +998,58 @@ function M.jump_previous_metadata()
   api.move_cursor_to_metadata(bufnr, todo_items[1], true)
 end
 
----Returns a `checkmate.Todo` or nil
----Will use the current buffer and cursor pos unless overriden in `opts`
---- - `row` is 0-based
----@param opts? {bufnr?: integer, row?: integer}
----@return checkmate.Todo? todo
+--- Get the todo under the cursor (or the first line of a visual selection)
+---
+--- Behavior:
+--- - Uses current buffer and cursor row by default
+--- - In visual mode, resolves the todo at the *first* line of the selection (`'<`)
+--- - If `root_only=true`, only returns a todo when the resolved row is the todo's first line (i.e., with list item and todo marker)
+--- - If the buffer is not an active Checkmate buffer, returns nil
+---
+--- Options:
+---   - bufnr?: integer            Buffer to inspect (default: current)
+---   - row?:   integer (0-based)  Explicit row to inspect (overrides cursor/visual)
+---   - root_only?: boolean        Only match if row is the todo’s first line
+---
+--- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
+--- @return checkmate.Todo? todo
 function M.get_todo(opts)
   opts = opts or {}
-  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
-  local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
 
-  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, 0)
-  if not todo then
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local api = require("checkmate.api")
+  if not api.is_valid_buffer(bufnr) then
     return nil
   end
-  return require("checkmate.util").build_todo(todo)
+
+  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+  local transaction = require("checkmate.transaction")
+
+  local row
+  if type(opts.row) == "number" then
+    row = opts.row
+  else
+    if util.is_visual_mode() then
+      vim.cmd([[execute "normal! \<Esc>"]])
+      local mark = vim.api.nvim_buf_get_mark(bufnr, "<") -- 1-based
+      row = (mark and mark[1] or vim.api.nvim_win_get_cursor(0)[1]) - 1
+    else
+      row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    end
+  end
+
+  local ctx = transaction.current_context(bufnr)
+  local parse_opts = { root_only = opts.root_only == true }
+  if ctx then
+    parse_opts.todo_map = ctx.get_todo_map()
+  end
+
+  local item = parser.get_todo_item_at_position(bufnr, row, 0, parse_opts)
+  if not item then
+    return nil
+  end
+  return util.build_todo(item)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

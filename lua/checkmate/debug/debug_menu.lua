@@ -39,6 +39,14 @@ local menu = {
     end,
     rtxt = "c",
   },
+  {
+    name = "ℬ Show Buffer Local Vars",
+    hl = "Normal",
+    cmd = function()
+      require("checkmate").debug.print_buf_local_vars(0)
+    end,
+    rtxt = "b",
+  },
   { name = "separator" },
   {
     name = "☀︎ Highlight",

@@ -336,9 +336,10 @@ end
 
 -- join conversion into the immediately preceding user change if
 -- the current changedtick equals the last tick we observed from a user edit
--- (We ignore our own writes via checkmate_in_conversion.)
+-- (We ignore our own writes via _checkmate_in_conversion.)
 local function should_attempt_join(bufnr)
-  local last_user = vim.b[bufnr].checkmate_last_user_tick
+  local bl = require("checkmate.buf_local").handle(bufnr)
+  local last_user = bl:get("last_user_tick")
   if not last_user then
     return false
   end
@@ -352,13 +353,15 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
   -- prevent re-entry:
   -- so our own writes don't trigger downstream autocmds/handlers
   -- or re-run this function (which would break join logic)
-  if vim.b[bufnr].checkmate_in_conversion then
+  if bl:get("in_conversion") then
     return false
   end
-  vim.b[bufnr].checkmate_in_conversion = true
+  bl:set("in_conversion", true)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -411,7 +414,7 @@ function M.convert_markdown_to_unicode(bufnr)
   end
 
   if #changes == 0 then
-    vim.b[bufnr].checkmate_in_conversion = nil
+    bl:del("in_conversion")
     return false
   end
 
@@ -423,14 +426,14 @@ function M.convert_markdown_to_unicode(bufnr)
   -- - Otherwise: perform a normal, separate undo block ("normal").
 
   if not is_at_undo_head(bufnr) then
-    vim.b[bufnr].checkmate_in_conversion = nil
+    bl:del("in_conversion")
     return false
   end
 
   -- Detect the "true initial normalization" *and* whether there is history to join to
   local cur_tick = vim.api.nvim_buf_get_changedtick(bufnr)
-  local baseline = vim.b[bufnr].checkmate_baseline_tick or cur_tick
-  local no_user_edits_since_attach = (vim.b[bufnr].checkmate_user_changed ~= true) and (cur_tick == baseline)
+  local baseline = bl:get("baseline_tick", cur_tick)
+  local no_user_edits_since_attach = (bl:get("user_changed") ~= true) and (cur_tick == baseline)
 
   local mode
   if no_user_edits_since_attach then
@@ -479,7 +482,7 @@ function M.convert_markdown_to_unicode(bufnr)
 
   vim.fn.winrestview(view)
   vim.bo[bufnr].modified = original_modified
-  vim.b[bufnr].checkmate_in_conversion = nil
+  bl:del("in_conversion")
   return true
 end
 

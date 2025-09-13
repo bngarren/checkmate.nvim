@@ -1205,6 +1205,13 @@ function M.debug.print_config()
   require("checkmate.util").scratch_buf_or_print(config.options, { name = "checkmate.nvim config" })
 end
 
+function M.debug.print_buf_local_vars(bufnr)
+  require("checkmate.util").scratch_buf_or_print(
+    vim.fn.getbufvar(bufnr or 0, ""),
+    { name = "checkmate.nvim buffer vars" }
+  )
+end
+
 ----- END API -----
 
 function M.get_user_opts()

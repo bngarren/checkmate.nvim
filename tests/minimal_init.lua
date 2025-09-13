@@ -70,6 +70,7 @@ _G.reset_state = function(close_buffers)
     "checkmate.theme",
     "checkmate.transaction",
     "checkmate.profiler",
+    "checkmate.buf_local",
     "checkmate.init",
   }
 

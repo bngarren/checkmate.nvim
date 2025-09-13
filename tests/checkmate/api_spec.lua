@@ -2692,41 +2692,96 @@ Some other content]]
     end)
   end)
 
-  describe("get todo", function()
-    it("should return a Todo", function()
-      local cm = require("checkmate")
+  describe("get_todo()", function()
+    local cm
+    before_each(function()
+      cm = require("checkmate")
       cm.setup()
+      h.ensure_normal_mode()
+    end)
+    after_each(function()
+      cm.stop()
+    end)
 
-      local content = [[
-# Todos
-- [ ] Test todo @priority(high) @issue(#10)
-  Continuation text
-  - [ ] Sub todo
-    ]]
-
+    it("should return todo under cursor in normal mode", function()
+      local content = "- " .. m.unchecked .. " Task A"
       local bufnr = h.setup_test_buffer(content)
 
-      local todo1 = h.exists(cm.get_todo({ bufnr = bufnr, row = 1 }))
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-      assert.equal("unchecked", todo1.state)
-      assert.equal("-", todo1.list_marker)
-      assert.equal(h.get_unchecked_marker(), todo1.todo_marker)
-      assert.equal(0, todo1.indent)
-      assert.is_false(todo1.is_checked())
-      assert.equal(2, #todo1.metadata)
-      local p_tag, p_value = todo1.get_metadata("priority")
-      assert.equal("priority", p_tag)
-      assert.equal("high", p_value)
-      local i_tag, i_value = todo1.get_metadata("issue")
-      assert.equal("issue", i_tag)
-      assert.equal("#10", i_value)
-
-      local todo2 = h.exists(cm.get_todo({ bufnr = bufnr, row = 3 }))
-
-      assert.same(todo1._todo_item, todo2.get_parent()._todo_item)
+      local todo = h.exists(require("checkmate").get_todo())
+      assert.equal("unchecked", todo.state)
+      assert.matches("Task A", todo.text)
 
       finally(function()
-        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should return nil on non-todo line", function()
+      local bufnr = h.setup_test_buffer("Plain text line")
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      local todo = require("checkmate").get_todo()
+      assert.is_nil(todo)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should resolve using the FIRST line of the selection in visual mode", function()
+      local unchecked = h.get_unchecked_marker()
+      local content = {
+        "- " .. unchecked .. " First",
+        "- " .. unchecked .. " Second",
+      }
+      local bufnr = h.setup_test_buffer(content)
+
+      -- select both lines, linewise
+      h.make_selection(1, 0, 2, 0, "V")
+
+      local todo = h.exists(require("checkmate").get_todo())
+      assert.matches("First", todo.text)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should resolve from a continuation line; with root_only=true returns nil", function()
+      local content = [[
+- [ ] Todo item @test1(foo)
+      @test3(baz)
+]]
+      local bufnr = h.setup_test_buffer(content)
+
+      -- cursor on the continuation line (2nd line)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      -- should resolve to the same todo
+      local todo = h.exists(require("checkmate").get_todo())
+      assert.matches("Todo item", todo.text)
+
+      -- root_only=true: should not resolve from continuation line
+      local root_only_todo = require("checkmate").get_todo({ root_only = true })
+      assert.is_nil(root_only_todo)
+
+      finally(function()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should return nil for non-active buffers (non-markdown)", function()
+      -- scratch buffer with a non-markdown ft so Checkmate doesn't activate it
+      local bufnr = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Looks like a todo, but in lua ft" })
+      vim.bo[bufnr].filetype = "lua"
+
+      local todo = require("checkmate").get_todo({ bufnr = bufnr })
+      assert.is_nil(todo)
+
+      finally(function()
         h.cleanup_buffer(bufnr)
       end)
     end)

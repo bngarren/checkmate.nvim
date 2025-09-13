@@ -103,7 +103,7 @@ function M.setup_buffer(bufnr)
     return false
   end
 
-  if checkmate.is_buffer_active(bufnr) and bl:get("setup_complete") then
+  if checkmate.is_buffer_active(bufnr) and bl:get("setup_complete") == true then
     return true
   end
 
@@ -127,15 +127,13 @@ function M.setup_buffer(bufnr)
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
-  local bl = require("checkmate.buf_local").handle(bufnr)
-
   setup_undo_tracking(bufnr)
 
   M.setup_keymaps(bufnr)
   M.setup_autocmds(bufnr)
 
   bl:set("setup_complete", true)
-  vim.b[bufnr].checkmate_cleaned_up = false
+  bl:set("cleaned_up", false)
 
   log.fmt_debug("[api] Setup complete for bufnr %d", bufnr)
 
@@ -321,7 +319,8 @@ function M.setup_keymaps(bufnr)
 end
 
 function M.setup_autocmds(bufnr)
-  if not vim.b[bufnr].checkmate_autocmds_setup then
+  local bl = require("checkmate.buf_local").handle(bufnr)
+  if not bl:get("autocmds_setup") then
     -- This implementation addresses several subtle behavior issues:
     --   1. Atomic write operation - ensures data integrity (either complete write success or
     -- complete failure, with preservation of the original buffer) by using temp file with a
@@ -469,7 +468,7 @@ function M.setup_autocmds(bufnr)
         M.shutdown(bufnr)
       end,
     })
-    vim.b[bufnr].checkmate_autocmds_setup = true
+    bl:set("autocmds_setup", true)
   end
 end
 
@@ -551,8 +550,12 @@ end
 
 -- Cleans up all checkmate state associated with a buffer
 function M.shutdown(bufnr)
-  if vim.api.nvim_buf_is_valid(bufnr) and not vim.b[bufnr].checkmate_cleaned_up then
+  if vim.api.nvim_buf_is_valid(bufnr) then
     local bl = require("checkmate.buf_local").handle(bufnr)
+
+    if bl:get("cleaned_up") then
+      return
+    end
 
     -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
     pcall(parser.convert_unicode_to_markdown, bufnr)
@@ -580,12 +583,8 @@ function M.shutdown(bufnr)
 
     require("checkmate").unregister_buffer(bufnr)
 
-    bl:del("setup_complete")
-    vim.b[bufnr].checkmate_autocmds_setup = nil
-    bl:del("baseline_tick")
-    bl:del("last_user_tick")
-    bl:del("user_changed")
-    vim.b[bufnr].checkmate_cleaned_up = true
+    bl:clear()
+    bl:set("cleaned_up", true)
   end
 end
 

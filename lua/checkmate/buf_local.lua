@@ -1,30 +1,40 @@
--- all buffer-local plugin state lives under vim.b[bufnr][<namespace>]
+-- made this module to help manage checkmate buffer local state consistently
+--
+-- each field is stored at: vim.b[bufnr]["<ns>_<name>"]
+-- eg: with ns="_checkmate", key "user_changed" -> b:_checkmate_user_changed
 
 ---@class checkmate.BufferLocalHandle
 ---@field get fun(self, name: string, default?: any): any
 ---@field set fun(self, name: string, value: any)
 ---@field update fun(self: checkmate.BufferLocalHandle, name: string, fn: fun(prev: any): any, default: any|nil): any
 ---@field del fun(self, name: string)
+---@field clear fun(self)
 ---@field table fun(self): table
 
 local M = {}
 
-local BL_NS ---@type string|nil
-local function get_ns()
-  if BL_NS ~= nil then
-    return BL_NS
+local BL_NS ---@type string
+local BL_PREFIX ---@type string
+
+local function load_ns()
+  if BL_NS and BL_PREFIX then
+    return
   end
   local ok, cfg = pcall(require, "checkmate.config")
-  if ok and cfg then
-    BL_NS = cfg.buffer_local_ns
-  end
-  BL_NS = "_checkmate"
-  return BL_NS
+  local ns = (ok and cfg and cfg.buffer_local_ns) or "_checkmate"
+  BL_NS = ns
+  BL_PREFIX = ns .. "_"
 end
 
 ---@return string
 function M.get_namespace()
-  return get_ns()
+  load_ns()
+  return BL_NS
+end
+
+local function get_prefix()
+  load_ns()
+  return BL_PREFIX
 end
 
 local function resolve_bufnr(bufnr)
@@ -37,21 +47,37 @@ local function assert_valid_buf(bufnr)
   end
 end
 
--- public
+local function make_key(name)
+  return get_prefix() .. name
+end
 
----Get the buffer-local state table (creates if missing)
+local function matches_prefix(key)
+  local prefix = get_prefix()
+  return type(key) == "string" and key:sub(1, #prefix) == prefix
+end
+
+local function strip_prefix(key)
+  return key:sub(#get_prefix() + 1)
+end
+
+-- Public API
+
+---Mutating the returned table will NOT persist
+---Use set/update/del/clear to persist
 ---@param bufnr? integer
----@return table bl
+---@return table
 function M.get_table(bufnr)
   bufnr = resolve_bufnr(bufnr)
   assert_valid_buf(bufnr)
-  local ns = get_ns()
-  local tbl = vim.b[bufnr][ns]
-  if tbl == nil then
-    tbl = {}
-    vim.b[bufnr][ns] = tbl
+  local all = vim.fn.getbufvar(bufnr, "")
+  local out = {}
+  local prefix = get_prefix()
+  for k, v in pairs(all) do
+    if type(k) == "string" and k:sub(1, #prefix) == prefix then
+      out[k:sub(#prefix + 1)] = v
+    end
   end
-  return tbl
+  return out
 end
 
 ---@param bufnr? integer
@@ -60,95 +86,80 @@ function M.bl(bufnr)
   return M.get_table(bufnr)
 end
 
----Get a value from the buffer-local state
 ---@param name string
----@param opts? {bufnr?: integer, default?: any, create?: boolean}
----@return any
+---@param opts? { bufnr?: integer, default?: any }
 function M.get(name, opts)
-  vim.validate({ name = { name, "string" } })
   opts = opts or {}
   local bufnr = resolve_bufnr(opts.bufnr)
-
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return opts.default
-  end
-
-  -- non-creating lookup if requested
-  if opts.create == false then
-    local ns = get_ns()
-    local tbl = vim.b[bufnr][ns]
-    return (tbl and tbl[name]) ~= nil and tbl[name] or opts.default
-  end
-
-  local tbl = M.get_table(bufnr)
-  local v = tbl[name]
+  local v = vim.b[bufnr][make_key(name)]
   if v == nil then
     return opts.default
   end
   return v
 end
 
----Set a value in the buffer-local state
 ---@param name string
 ---@param value any
----@param opts? {bufnr?: integer}
+---@param opts? { bufnr?: integer }
 function M.set(name, value, opts)
   vim.validate({ name = { name, "string" } })
   opts = opts or {}
   local bufnr = resolve_bufnr(opts.bufnr)
   assert_valid_buf(bufnr)
-  M.get_table(bufnr)[name] = value
+  vim.b[bufnr][make_key(name)] = value
 end
 
----Update a value via a function: next = fn(prev). If fn returns nil, the key is deleted
 ---@param name string
 ---@param fn fun(prev:any): any
----@param opts? {bufnr?: integer, default?: any}
----@return any new_value
+---@param opts? { bufnr?: integer, default?: any }
+---@return any next
 function M.update(name, fn, opts)
-  vim.validate({
-    name = { name, "string" },
-    fn = { fn, "function" },
-  })
+  vim.validate({ name = { name, "string" }, fn = { fn, "function" } })
   opts = opts or {}
   local bufnr = resolve_bufnr(opts.bufnr)
   assert_valid_buf(bufnr)
-
-  local tbl = M.get_table(bufnr)
-  local prev = (tbl[name] ~= nil) and tbl[name] or opts.default
+  local key = make_key(name)
+  local prev = vim.b[bufnr][key]
+  if prev == nil then
+    prev = opts.default
+  end
   local nextv = fn(prev)
   if nextv == nil then
-    tbl[name] = nil
+    vim.b[bufnr][key] = nil
   else
-    tbl[name] = nextv
+    vim.b[bufnr][key] = nextv
   end
   return nextv
 end
 
----Delete a key from the buffer-local state
 ---@param name string
----@param opts? {bufnr?: integer}
+---@param opts? { bufnr?: integer }
 function M.del(name, opts)
   vim.validate({ name = { name, "string" } })
   opts = opts or {}
   local bufnr = resolve_bufnr(opts.bufnr)
   assert_valid_buf(bufnr)
-  M.get_table(bufnr)[name] = nil
+  vim.b[bufnr][make_key(name)] = nil
 end
 
----Clear the entire buffer-local state table (keeps the namespace table but empties it)
----@param opts? {bufnr?: integer}
+---Remove all namespaced buffer-local keys
+---@param opts? { bufnr?: integer }
 function M.clear(opts)
   opts = opts or {}
   local bufnr = resolve_bufnr(opts.bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
-  local ns = get_ns()
-  vim.b[bufnr][ns] = {}
+  local all = vim.fn.getbufvar(bufnr, "")
+  local prefix = get_prefix()
+  for k, _ in pairs(all) do
+    if type(k) == "string" and k:sub(1, #prefix) == prefix then
+      vim.b[bufnr][k] = nil
+    end
+  end
 end
 
----Return a small handle bound to a specific buffer for easy access
+---Return a handle bound to a specific buffer
 ---@param bufnr? integer
 ---@return checkmate.BufferLocalHandle
 function M.handle(bufnr)
@@ -167,6 +178,9 @@ function M.handle(bufnr)
       end,
       del = function(_, name)
         M.del(name, { bufnr = bufnr })
+      end,
+      clear = function(_)
+        M.clear({ bufnr = bufnr })
       end,
       table = function(_)
         return M.get_table(bufnr)

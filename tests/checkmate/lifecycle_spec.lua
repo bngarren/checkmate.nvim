@@ -13,7 +13,6 @@ describe("checkmate init and lifecycle", function()
     vim.api.nvim_echo:revert()
 
     _G.reset_state()
-    buf_local = nil
   end)
 
   before_each(function()
@@ -129,7 +128,7 @@ describe("checkmate init and lifecycle", function()
 
       local bl = buf_local.handle(bufnr)
 
-      assert.is_truthy(bl:get("setup_complete"))
+      assert.is_true(bl:get("setup_complete"))
 
       checkmate.stop()
     end)
@@ -284,7 +283,7 @@ describe("checkmate init and lifecycle", function()
 
       local bl = buf_local.handle(bufnr)
 
-      assert.is_truthy(bl:get("setup_complete"))
+      assert.is_true(bl:get("setup_complete"))
 
       checkmate.stop()
 
@@ -564,7 +563,7 @@ describe("checkmate init and lifecycle", function()
 
     local bl = buf_local.handle(bufnr)
 
-    assert.is_truthy(bl:get("setup_complete"))
+    assert.is_true(bl:get("setup_complete"))
 
     vim.bo[bufnr].filetype = "text"
 
@@ -582,7 +581,6 @@ describe("checkmate init and lifecycle", function()
 
   pending("should handle configuration changes while running", function()
     local checkmate = require("checkmate")
-    local file_matcher = require("checkmate.file_matcher")
 
     -- Initial setup
     ---@diagnostic disable-next-line: missing-fields
@@ -600,7 +598,7 @@ describe("checkmate init and lifecycle", function()
 
     local bl2 = buf_local.handle(buf2)
 
-    assert.is_truthy(bl1:get("setup_complete"))
+    assert.is_true(bl1:get("setup_complete"))
     assert.is_falsy(bl2:get("setup_complete"))
 
     -- Change configuration

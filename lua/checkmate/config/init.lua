@@ -9,6 +9,10 @@ local M = {}
 M.ns = vim.api.nvim_create_namespace("checkmate")
 M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
+-- Buffer local checkmate state
+-- e.g. `vim.b[bufnr]._checkmate`
+M.buffer_local_ns = "_checkmate"
+
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
 }

@@ -50,6 +50,11 @@ return {
       desc = "Create todo item",
       modes = { "n", "v" },
     },
+    ["<leader>Tr"] = {
+      rhs = "<cmd>Checkmate remove<CR>",
+      desc = "Remove todo marker (convert to text)",
+      modes = { "n", "v" },
+    },
     ["<leader>TR"] = {
       rhs = "<cmd>Checkmate remove_all_metadata<CR>",
       desc = "Remove all metadata from a todo item",
@@ -92,6 +97,24 @@ return {
   },
   style = {}, -- override defaults
   enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
+  list_continuation = {
+    enabled = true,
+    split_line = true,
+    keys = {
+      ["<CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = false,
+        })
+      end,
+      ["<S-CR>"] = function()
+        require("checkmate").create({
+          position = "below",
+          indent = true,
+        })
+      end,
+    },
+  },
   smart_toggle = {
     enabled = true,
     include_cycle = false,

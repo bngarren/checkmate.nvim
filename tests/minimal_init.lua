@@ -8,6 +8,19 @@ vim.g.loaded_logiPat = 1
 vim.g.loaded_rrhelper = 1
 vim.g.loaded_netrwPlugin = 1
 
+-- DEBUG enable
+if vim.env.DEBUG == "1" then
+  local ok, res = pcall(function()
+    -- blocking: will freeze the instance until a client is connected
+    require("osv").launch({ host = "127.0.0.1", port = 8086, blocking = true })
+  end)
+  if not ok then
+    vim.notify("Failed to launch debug. " .. tostring(res))
+  else
+    print("DAP listening on 127.0.0.1:8086 – waiting for client to attach…")
+  end
+end
+
 -- This function can be called by tests to reset the state between test runs
 ---@param close_buffers boolean? Closes all buffers (default true)
 _G.reset_state = function(close_buffers)
@@ -57,6 +70,7 @@ _G.reset_state = function(close_buffers)
     "checkmate.theme",
     "checkmate.transaction",
     "checkmate.profiler",
+    "checkmate.buf_local",
     "checkmate.init",
   }
 

@@ -33,6 +33,7 @@ remember...
 
 local M = {}
 local parser = require("checkmate.parser")
+local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 
 ---the exposed transaction state is referred to as "context"
@@ -42,7 +43,7 @@ local util = require("checkmate.util")
 ---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
 ---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
 ---@field add_op fun(fn: function, ...)
----@field add_cb fun(fn: function, ...)
+---@field add_cb fun(fn: fun(ctx: checkmate.TransactionContext, ...), ...)
 ---@field get_buf fun(): integer Returns the buffer
 
 M._states = {} -- bufnr -> state
@@ -65,7 +66,7 @@ end
 
 --- Starts a transaction for a buffer
 ---@param bufnr number Buffer number
----@param entry_fn function Function to start the transaction
+---@param entry_fn fun(ctx: checkmate.TransactionContext) Function to start the transaction
 ---@param post_fn function? Function to run after transaction completes
 function M.run(bufnr, entry_fn, post_fn)
   assert(not M._states[bufnr], "Nested transactions are not supported for buffer " .. bufnr)
@@ -137,16 +138,23 @@ function M.run(bufnr, entry_fn, post_fn)
       state.op_queue = {}
 
       -- collect every diff from each op into a single array
+      ---@type checkmate.TextDiffHunk[]
       local all_hunks = {}
       for _, op in ipairs(queued) do
-        local hunks = op.fn(state.context, unpack(op.args))
-        if hunks and #hunks > 0 then
-          vim.list_extend(all_hunks, hunks)
+        ---@type checkmate.TextDiffHunk[]
+        local op_result = op.fn(state.context, unpack(op.args))
+        -- handle the op returning either a TextDiffHunk or TextDiffHunk[]
+        if type(op_result) == "table" then
+          if not vim.islist(op_result) and getmetatable(op_result) == diff.TextDiffHunk then
+            vim.list_extend(all_hunks, { op_result })
+          elseif vim.islist(op_result) then
+            vim.list_extend(all_hunks, op_result)
+          end
         end
       end
 
       if #all_hunks > 0 then
-        util.apply_diff(bufnr, all_hunks)
+        diff.apply_diff(bufnr, all_hunks)
         state.todo_map = parser.discover_todos(bufnr)
       end
     end

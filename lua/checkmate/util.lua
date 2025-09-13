@@ -3,12 +3,6 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
---- Gets a buffer local variable in the `_checkmate` namespace
-function M.buf_local(bufnr)
-  vim.b[bufnr]._checkmate = vim.b[bufnr]._checkmate or {}
-  return vim.b[bufnr]._checkmate
-end
-
 function M.tbl_isempty_or_nil(t)
   if t == nil then
     return true

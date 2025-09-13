@@ -70,6 +70,23 @@ local function validate_keymap(mapping, key)
     return false, string.format("keys.%s.rhs must be string or function", key)
   end
 
+  local desc = mapping.desc or mapping[2]
+  if desc ~= nil and type(desc) ~= "string" then
+    return false, string.format("keys.%s.desc must be string if provided", key)
+  end
+
+  local modes = mapping.modes or mapping[3]
+  if modes ~= nil then
+    if type(modes) ~= "table" then
+      return false, string.format("keys.%s.modes must be a table of strings", key)
+    end
+    for i, m in ipairs(modes) do
+      if type(m) ~= "string" then
+        return false, string.format("keys.%s.modes[%d] must be string", key, i)
+      end
+    end
+  end
+
   return true
 end
 
@@ -180,7 +197,23 @@ local function validate_metadata(metadata)
     end
 
     if props.key then
-      validate(name .. ".key", props.key, { "string", "table" }, "string or table")
+      local kt = type(props.key)
+      if kt == "string" then
+        -- ok
+      elseif kt == "table" then
+        -- allow string[], or a single tuple { "<key>", "desc" }
+        if #props.key == 2 and type(props.key[1]) == "string" and type(props.key[2]) == "string" then
+          -- tuple form
+        else
+          for i, k in ipairs(props.key) do
+            if type(k) ~= "string" then
+              return false, string.format("%s.key[%d] must be string", name, i)
+            end
+          end
+        end
+      else
+        return false, string.format("%s.key must be string or table", name)
+      end
     end
 
     if props.aliases then
@@ -194,6 +227,9 @@ local function validate_metadata(metadata)
   return true
 end
 
+---@param opts checkmate.Config
+---@return boolean
+---@return string?
 function M.validate_options(opts)
   if not opts then
     return true
@@ -214,6 +250,7 @@ function M.validate_options(opts)
     validate("disable_ts_highlights", opts.disable_ts_highlights, "boolean", true)
     validate("log", opts.log, "table", true)
     validate("ui", opts.ui, "table", true)
+    validate("list_continuation", opts.list_continuation, "table", true)
     validate("style", opts.style, "table", true)
     validate("smart_toggle", opts.smart_toggle, "table", true)
     validate("archive", opts.archive, "table", true)
@@ -232,13 +269,16 @@ function M.validate_options(opts)
     end
 
     if opts.files then
+      validate("files", opts.files, "table")
       for i, pattern in ipairs(opts.files) do
         validate("files[" .. i .. "]", pattern, "string")
+        if pattern:match("^%s*$") then
+          error("files[" .. i .. "] cannot be empty")
+        end
       end
     end
 
     if opts.log then
-      validate("log.use_buffer", opts.log.use_buffer, "boolean", true)
       validate("log.use_file", opts.log.use_file, "boolean", true)
       validate("log.file_path", opts.log.file_path, "string", true)
 
@@ -252,6 +292,9 @@ function M.validate_options(opts)
     if opts.keys and opts.keys ~= false then
       validate("keys", opts.keys, "table")
       for lhs, mapping in pairs(opts.keys) do
+        if type(lhs) ~= "string" then
+          error("keys.* lhs must be a string (got " .. type(lhs) .. ")")
+        end
         local keymap_ok, keymap_err = validate_keymap(mapping, lhs)
         if not keymap_ok then
           error(keymap_err)
@@ -259,7 +302,7 @@ function M.validate_options(opts)
       end
     end
 
-    ---Remove in v0.11
+    --- TODO: remove
     ---@deprecated todo_markers
     if opts.todo_markers then
       validate("todo_markers", opts.todo_markers, "table")
@@ -301,6 +344,38 @@ function M.validate_options(opts)
         validate("ui.picker", picker, function(v)
           return type(v) == "function" or v == false
         end, "string, function, or false")
+      end
+    end
+
+    -- list_continuation
+    if opts.list_continuation then
+      validate("list_continuation.enabled", opts.list_continuation.enabled, "boolean", true)
+      validate("list_continuation.split_line", opts.list_continuation.split_line, "boolean", true)
+      validate("list_continuation.keys", opts.list_continuation.keys, "table", true)
+      if opts.list_continuation and opts.list_continuation.keys then
+        validate("list_continuation.keys", opts.list_continuation.keys, "table", true)
+
+        for key, mapping in pairs(opts.list_continuation.keys) do
+          if type(key) ~= "string" then
+            error("list_continuation.keys: key must be a string (got " .. type(key) .. ")")
+          end
+
+          local t = type(mapping)
+          if t == "function" then
+            -- ok
+          elseif t == "table" then
+            local rhs = mapping.rhs or mapping[1]
+            if type(rhs) ~= "function" then
+              error("list_continuation.keys[" .. key .. "]: rhs must be a function")
+            end
+            local desc = mapping.desc or mapping[2]
+            if desc ~= nil and type(desc) ~= "string" then
+              error("list_continuation.keys[" .. key .. "]: desc must be string if provided")
+            end
+          else
+            error("list_continuation.keys[" .. key .. "]: must be function or {rhs=function, desc?=string}")
+          end
+        end
       end
     end
 

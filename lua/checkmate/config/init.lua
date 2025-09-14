@@ -9,6 +9,10 @@ local M = {}
 M.ns = vim.api.nvim_create_namespace("checkmate")
 M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
+-- new highlights namespaces for double buffering
+M.ns_hl_a = vim.api.nvim_create_namespace("checkmate_hl_a")
+M.ns_hl_b = vim.api.nvim_create_namespace("checkmate_hl_b")
+
 -- Buffer local checkmate state
 -- e.g. `vim.b[bufnr]._checkmate`
 M.buffer_local_ns = "_checkmate"

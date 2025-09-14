@@ -486,7 +486,7 @@ M.PROCESS_CONFIGS = {
     include_highlighting = true,
   },
   highlight_only = {
-    debounce_ms = 100,
+    debounce_ms = 30,
     include_conversion = false,
     include_linting = false,
     include_highlighting = true,
@@ -567,6 +567,8 @@ function M.shutdown(bufnr)
     require("checkmate.metadata.picker").cleanup_ui(bufnr)
 
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl_a, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl_b, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 
     if package.loaded["checkmate.linter"] then

@@ -8,6 +8,9 @@ local profiler = require("checkmate.profiler")
 ---@class checkmate.Highlights
 local M = {}
 
+M._front_ns = config.ns_hl_a
+M._back_ns = config.ns_hl_b
+
 --- Highlight priority levels
 ---@enum HighlightPriority
 M.PRIORITY = {
@@ -16,6 +19,26 @@ M.PRIORITY = {
   CONTENT = 202,
   TODO_MARKER = 203,
 }
+
+local function swap_hl_ns(bufnr)
+  -- after finishing pass into back_ns, swap and clear the old back (now hidden)
+  M._front_ns, M._back_ns = M._back_ns, M._front_ns
+  -- clear the now-back namespace
+  vim.api.nvim_buf_clear_namespace(bufnr, M._back_ns, 0, -1)
+end
+
+local function ns()
+  return M._back_ns
+end
+
+function M.get_front_hls(bufnr)
+  return vim.api.nvim_buf_get_extmarks(bufnr, M._front_ns, 0, -1, { details = true })
+end
+
+function M.clear_hl_ns(bufnr)
+  vim.api.nvim_buf_clear_namespace(bufnr, M._front_ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, M._back_ns, 0, -1)
+end
 
 --- Get highlight group for todo content based on state and relation
 ---@param todo_state string
@@ -188,8 +211,6 @@ function M.apply_highlighting(bufnr, opts)
     -- could log here...
   end
 
-  vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
-
   -- line cache for this highlighting pass
   M._current_line_cache = util.create_line_cache(bufnr)
 
@@ -204,6 +225,8 @@ function M.apply_highlighting(bufnr, opts)
   end
 
   M._current_line_cache = nil
+
+  swap_hl_ns(bufnr)
 
   profiler.stop("highlights.apply_highlighting")
 end
@@ -323,7 +346,7 @@ function M.highlight_todo_marker(bufnr, todo_item)
 
     -- marker_pos.col is already in bytes (0-indexed)
     -- for extmarks, end_col is exclusive, so we add the byte length
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_pos.row, marker_pos.col, {
+    vim.api.nvim_buf_set_extmark(bufnr, ns(), marker_pos.row, marker_pos.col, {
       end_row = marker_pos.row,
       end_col = marker_pos.col + #marker_text, -- end col is the last col of marker + 1 (end exclusive)
       hl_group = hl_group,
@@ -349,7 +372,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
       local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
         or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
+      vim.api.nvim_buf_set_extmark(bufnr, ns(), start_row, start_col, {
         end_row = start_row,
         end_col = start_col + #marker_text,
         hl_group = hl_group,
@@ -376,7 +399,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
         local marker_type = parser.get_marker_type_from_capture_name(capture_name)
         local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
-        vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+        vim.api.nvim_buf_set_extmark(bufnr, ns(), marker_start_row, marker_start_col, {
           end_row = marker_start_row,
           end_col = marker_end_col - 1, -- ts includes trailing space after list marker, we exclude it here
           hl_group = hl_group,
@@ -435,7 +458,7 @@ function M.highlight_metadata(bufnr, todo_item)
         highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, entry.range.start.row, entry.range.start.col, {
+      vim.api.nvim_buf_set_extmark(bufnr, ns(), entry.range.start.row, entry.range.start.col, {
         end_row = entry.range["end"].row,
         end_col = entry.range["end"].col, -- end exclusive
         hl_group = highlight_group,
@@ -477,7 +500,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     if child:type() == "setext_heading" then
       local sr, _, er, _ = child:range()
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, sr, 0, {
+      vim.api.nvim_buf_set_extmark(bufnr, ns(), sr, 0, {
         end_row = er,
         end_col = 0,
         hl_group = "CheckmateNormal",
@@ -514,7 +537,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         local content_start = get_content_start(line, search_start)
 
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -527,7 +550,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       else
         local content_start = get_content_start(line, 0)
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -572,7 +595,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         end
 
         if content_start and content_start < #row_line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
             end_row = row,
             end_col = #row_line,
             hl_group = additional_content_hl,
@@ -620,13 +643,13 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
 
   if config.options.todo_count_position == "inline" then
     local extmark_start_col = todo_item.todo_marker.position.col + #todo_item.todo_marker.text + 1
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, extmark_start_col, {
+    vim.api.nvim_buf_set_extmark(bufnr, ns(), todo_item.range.start.row, extmark_start_col, {
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" }, { " ", "Normal" } },
       virt_text_pos = "inline",
       priority = M.PRIORITY.TODO_MARKER + 1,
     })
   elseif config.options.todo_count_position == "eol" then
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, 0, {
+    vim.api.nvim_buf_set_extmark(bufnr, ns(), todo_item.range.start.row, 0, {
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" } },
       virt_text_pos = "eol",
       priority = M.PRIORITY.CONTENT,

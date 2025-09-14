@@ -19,7 +19,6 @@ describe("Highlights", function()
 
   describe("list marker", function()
     it("should correctly highlight the todo LIST marker", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -33,11 +32,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
       local got = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
@@ -65,7 +64,6 @@ describe("Highlights", function()
     end)
 
     it("should correctly highlight within-todo list markers", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
 
@@ -78,11 +76,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
 
       -- UNORDERED
 
@@ -132,7 +130,6 @@ describe("Highlights", function()
     end)
 
     it("should correctly highlight the todo marker", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -146,11 +143,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
 
       -- UNCHECKED marker
 
@@ -203,7 +200,6 @@ describe("Highlights", function()
 
   describe("content", function()
     it("should correctly highlight main and additional content", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -221,9 +217,9 @@ describe("Highlights", function()
 ]]
 
       local bufnr, file_path = h.setup_test_buffer(content)
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
 
       -- MAIN CONTENT
       local got_main = {}
@@ -324,7 +320,6 @@ describe("Highlights", function()
 
   describe("metadata", function()
     it("should apply metadata tag highlights", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_checked_marker()
 
@@ -338,7 +333,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
 
       local found_metadata = false
 
@@ -379,7 +374,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_front_hls(bufnr)
 
       local found_count = false
 

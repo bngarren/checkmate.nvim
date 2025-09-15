@@ -9,13 +9,17 @@ local M = {}
 M.ns = vim.api.nvim_create_namespace("checkmate")
 M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
--- new highlights namespaces for double buffering
-M.ns_hl_a = vim.api.nvim_create_namespace("checkmate_hl_a")
-M.ns_hl_b = vim.api.nvim_create_namespace("checkmate_hl_b")
+-- primary highlights namespace
+M.ns_hl = vim.api.nvim_create_namespace("checkmate_hl")
 
 -- Buffer local checkmate state
 -- e.g. `vim.b[bufnr]._checkmate`
 M.buffer_local_ns = "_checkmate"
+
+function M.get_region_limit(bufnr)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  return math.max(200, math.floor(line_count * 0.25))
+end
 
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)

@@ -69,6 +69,10 @@ function M.notify(msg, log_level, once)
   end
 end
 
+function M.ranges_overlap(a1, a2, b1, b2)
+  return not (a2 < b1 or b2 < a1)
+end
+
 ---@generic T
 ---@param fn T
 ---@param opts? {ms?:number}

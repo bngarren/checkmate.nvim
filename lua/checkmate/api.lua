@@ -521,6 +521,64 @@ function M.process_buffer(bufnr, process_type, reason)
 
       local todo_map = parser.get_todo_map(bufnr)
 
+      -- region-scoped highlighting
+      local region
+      if process_type == "highlight_only" then
+        -- get last change marks (1-based rows)
+        local s = vim.api.nvim_buf_get_mark(bufnr, "[")
+        local e = vim.api.nvim_buf_get_mark(bufnr, "]")
+        if s and e and s[1] > 0 and e[1] > 0 then
+          local start_row = s[1] - 1
+          local end_row = e[1] - 1
+          if end_row < start_row then
+            start_row, end_row = end_row, start_row
+          end
+
+          -- small padding for setext/line lookahead/whitespace
+          start_row = math.max(0, start_row - 1)
+          end_row = end_row + 1
+
+          -- find all root todos that intersect or are contained within the region
+          local affected_roots = {}
+          for _, it in pairs(todo_map) do
+            if not it.parent_id then
+              local todo_start = it.range.start.row
+              local todo_end = it.range["end"].row
+
+              -- Include if: overlapping OR entirely contained within region
+              if
+                util.ranges_overlap(todo_start, todo_end, start_row, end_row)
+                or (todo_start >= start_row and todo_end <= end_row)
+              then
+                table.insert(affected_roots, it)
+              end
+            end
+          end
+
+          if #affected_roots > 0 then
+            -- expand region to encompass all affected root todos
+            local min_row = start_row
+            local max_row = end_row
+
+            for _, root in ipairs(affected_roots) do
+              min_row = math.min(min_row, root.range.start.row)
+              max_row = math.max(max_row, root.range["end"].row)
+            end
+
+            -- total span for size check
+            -- if span is too big, we do a full re-highlight, not region-scoped
+            local total_span = 0
+            for _, root in ipairs(affected_roots) do
+              total_span = total_span + (root.range["end"].row - root.range.start.row + 1)
+            end
+
+            if total_span <= config.get_region_limit(bufnr) then
+              region = { start_row = min_row, end_row = max_row }
+            end
+          end
+        end
+      end
+
       if process_config.include_conversion then
         parser.convert_markdown_to_unicode(bufnr)
       end
@@ -528,7 +586,7 @@ function M.process_buffer(bufnr, process_type, reason)
       if process_config.include_highlighting then
         require("checkmate.highlights").apply_highlighting(
           bufnr,
-          { todo_map = todo_map, debug_reason = "api process_buffer (" .. process_type .. ")" }
+          { todo_map = todo_map, region = region, debug_reason = "api process_buffer (" .. process_type .. ")" }
         )
       end
 
@@ -563,12 +621,13 @@ function M.shutdown(bufnr)
 
     M.clear_keymaps(bufnr)
 
+    require("checkmate.highlights").clear_buf_line_cache(bufnr)
+
     require("checkmate.debug.debug_highlights").dispose(bufnr)
     require("checkmate.metadata.picker").cleanup_ui(bufnr)
 
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
-    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl_a, 0, -1)
-    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl_b, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 
     if package.loaded["checkmate.linter"] then

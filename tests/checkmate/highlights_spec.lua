@@ -36,7 +36,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
       local got = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
@@ -80,7 +80,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- UNORDERED
 
@@ -147,7 +147,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- UNCHECKED marker
 
@@ -219,7 +219,7 @@ describe("Highlights", function()
       local bufnr, file_path = h.setup_test_buffer(content)
       highlights.clear_hl_ns(bufnr)
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- MAIN CONTENT
       local got_main = {}
@@ -333,7 +333,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       local found_metadata = false
 
@@ -374,7 +374,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = highlights.get_front_hls(bufnr)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       local found_count = false
 

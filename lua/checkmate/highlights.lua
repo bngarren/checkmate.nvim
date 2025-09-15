@@ -194,7 +194,7 @@ end
 
 ---@class ApplyHighlightingOpts
 ---@field todo_map? table<integer, checkmate.TodoItem> Will use this todo_map instead of running discover_todos
----@field region? {start_row: integer, end_row: integer}
+---@field region? {start_row: integer, end_row: integer, affected_roots: checkmate.TodoItem[]}
 ---@field debug_reason? string Reason for call (to help debug why highlighting update was called)
 
 ---
@@ -222,10 +222,19 @@ function M.apply_highlighting(bufnr, opts)
     vim.api.nvim_buf_clear_namespace(bufnr, ns(), srow, erow + 1)
 
     -- render only affected root todos
-    local roots = get_affected_roots(srow, erow, todo_map)
+    local roots = opts.region.affected_roots or {}
     for _, root in ipairs(roots) do
       M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
     end
+
+    -- DEBUG
+    local msg = string.format(
+      "Region highlight: [%d, %d], affected roots: %d",
+      opts.region.start_row,
+      opts.region.end_row,
+      #roots
+    )
+    vim.notify(msg, vim.log.levels.DEBUG)
   else
     -- full pass: clear + render all
     M.clear_hl_ns(bufnr)

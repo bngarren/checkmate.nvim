@@ -87,6 +87,46 @@ local function mark_user_change(bufnr)
   bl:set("user_changed", true)
 end
 
+-- Tracks edited row-span precisely via on_lines, coalescing rapid edits
+local function attach_change_watcher(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  if bl:get("change_watcher_attached") then
+    return
+  end
+
+  bl:set("last_changed_region", nil)
+
+  vim.api.nvim_buf_attach(bufnr, false, {
+    on_lines = function(_, _, changedtick, firstline, lastline, new_lastline)
+      -- ignore our own writes
+      if bl:get("in_conversion") then
+        return
+      end
+
+      -- firstline is 0-based. Replaced old [firstline, lastline) with new [firstline, new_lastline).
+      -- Compute an inclusive end row that covers either the removed or the inserted span.
+      local old_end = (lastline > firstline) and (lastline - 1) or firstline
+      local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
+      local srow = firstline
+      local erow = math.max(old_end, new_end)
+
+      -- Overwrite every time: "clean slate" per on_lines call
+      bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
+    end,
+    on_detach = function()
+      bl:set("change_watcher_attached", nil)
+      bl:set("last_changed_region", nil)
+    end,
+    utf_sizes = false,
+  })
+
+  bl:set("change_watcher_attached", true)
+end
+
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
   if not M.is_valid_buffer(bufnr) then
@@ -130,6 +170,9 @@ function M.setup_buffer(bufnr)
   setup_undo_tracking(bufnr)
 
   M.setup_keymaps(bufnr)
+
+  attach_change_watcher(bufnr)
+
   M.setup_autocmds(bufnr)
 
   bl:set("setup_complete", true)
@@ -526,50 +569,77 @@ function M.process_buffer(bufnr, process_type, reason)
       local affected_roots
 
       if process_type == "highlight_only" then
-        local s = vim.api.nvim_buf_get_mark(bufnr, "[")
-        local e = vim.api.nvim_buf_get_mark(bufnr, "]")
+        local changed = bl:get("last_changed_region")
 
-        if s and e and s[1] > 0 and e[1] > 0 and s[1] <= vim.api.nvim_buf_line_count(bufnr) then
-          local start_row = s[1] - 1
-          local end_row = e[1] - 1
-          if end_row < start_row then
-            start_row, end_row = end_row, start_row
-          end
+        if changed and changed.s ~= nil and changed.e ~= nil then
+          -- consume the changed region
+          bl:set("last_changed_region", nil)
 
-          start_row = math.max(0, start_row - 2)
-          end_row = math.min(vim.api.nvim_buf_line_count(bufnr) - 1, end_row + 2)
+          local line_count = vim.api.nvim_buf_line_count(bufnr)
+          local start_row = math.max(0, changed.s - 1) -- small pad
+          local end_row = math.min(line_count - 1, changed.e + 1)
 
+          -- find roots overlapping this span
           affected_roots = {}
           for _, it in pairs(todo_map) do
             if not it.parent_id then
-              local todo_start = it.range.start.row
-              local todo_end = it.range["end"].row
-              if util.ranges_overlap(todo_start, todo_end, start_row, end_row) then
-                table.insert(affected_roots, it)
+              local a = it.range.start.row
+              local b = it.range["end"].row
+              if require("checkmate.util").ranges_overlap(a, b, start_row, end_row) then
+                affected_roots[#affected_roots + 1] = it
               end
             end
           end
 
           if #affected_roots > 0 then
-            local min_row = start_row
-            local max_row = end_row
-
+            -- expand to cover the full extents of the affected roots
+            local min_row, max_row = start_row, end_row
+            local total_span = 0
             for _, root in ipairs(affected_roots) do
               min_row = math.min(min_row, root.range.start.row)
               max_row = math.max(max_row, root.range["end"].row)
-            end
-
-            local total_span = 0
-            for _, root in ipairs(affected_roots) do
               total_span = total_span + (root.range["end"].row - root.range.start.row + 1)
             end
 
-            if total_span <= config.get_region_limit(bufnr) then
+            if total_span <= require("checkmate.config").get_region_limit(bufnr) then
               region = {
                 start_row = min_row,
                 end_row = max_row,
                 affected_roots = affected_roots,
               }
+            end
+          else
+            -- limit churn when editing outside any todo:
+            --  - if nearest root above is within 'window' lines, refresh just that root.
+            --  - otherwise, skip highlight work entirely for this tick.
+            local WINDOW = 5
+            local nearest_above, nearest_dist = nil, math.huge
+            for _, it in pairs(todo_map) do
+              if not it.parent_id then
+                local a = it.range.start.row
+                if a <= start_row then
+                  local d = start_row - a
+                  if d < nearest_dist then
+                    nearest_dist = d
+                    nearest_above = it
+                  end
+                end
+              end
+            end
+
+            if nearest_above and nearest_dist <= WINDOW then
+              local min_row = nearest_above.range.start.row
+              local max_row = nearest_above.range["end"].row
+              if (max_row - min_row + 1) <= require("checkmate.config").get_region_limit(bufnr) then
+                region = {
+                  start_row = min_row,
+                  end_row = max_row,
+                  affected_roots = { nearest_above },
+                }
+              end
+            else
+              -- no nearby todo context, do nothing to avoid unnecessary highlight passes
+              -- fall through with region=nil
             end
           end
         end
@@ -580,10 +650,14 @@ function M.process_buffer(bufnr, process_type, reason)
       end
 
       if process_config.include_highlighting then
-        require("checkmate.highlights").apply_highlighting(
-          bufnr,
-          { todo_map = todo_map, region = region, debug_reason = "api process_buffer (" .. process_type .. ")" }
-        )
+        if process_type == "highlight_only" and not region then
+          -- no affected region (likely editing outside todos); skip work
+        else
+          require("checkmate.highlights").apply_highlighting(
+            bufnr,
+            { todo_map = todo_map, region = region, debug_reason = "api process_buffer (" .. process_type .. ")" }
+          )
+        end
       end
 
       if process_config.include_linting and config.options.linter and config.options.linter.enabled then

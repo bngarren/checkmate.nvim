@@ -29,20 +29,6 @@ function M.clear_hl_ns(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns(), 0, -1)
 end
 
-local function get_affected_roots(srow, erow, todo_map)
-  local roots = {}
-  for _, it in pairs(todo_map) do
-    if not it.parent_id then
-      local a, b = it.range.start.row, it.range["end"].row
-      -- Include if overlapping OR entirely contained
-      if util.ranges_overlap(a, b, srow, erow) or (a >= srow and b <= erow) then
-        roots[#roots + 1] = it
-      end
-    end
-  end
-  return roots
-end
-
 --- Get highlight group for todo content based on state and relation
 ---@param todo_state string
 ---@param is_main_content boolean Whether this is main content or additional content
@@ -197,7 +183,6 @@ end
 ---@field region? {start_row: integer, end_row: integer, affected_roots: checkmate.TodoItem[]}
 ---@field debug_reason? string Reason for call (to help debug why highlighting update was called)
 
----
 --- @param bufnr? integer
 --- @param opts?  ApplyHighlightingOpts
 function M.apply_highlighting(bufnr, opts)
@@ -212,11 +197,9 @@ function M.apply_highlighting(bufnr, opts)
 
   local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
 
-  local use_region = opts.region
-
   M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
 
-  if use_region then
+  if opts.region then
     -- region pass: clear only the affected range, then render
     local srow, erow = opts.region.start_row, opts.region.end_row
     vim.api.nvim_buf_clear_namespace(bufnr, ns(), srow, erow + 1)
@@ -228,13 +211,13 @@ function M.apply_highlighting(bufnr, opts)
     end
 
     -- DEBUG
-    local msg = string.format(
-      "Region highlight: [%d, %d], affected roots: %d",
-      opts.region.start_row,
-      opts.region.end_row,
-      #roots
-    )
-    vim.notify(msg, vim.log.levels.DEBUG)
+    -- local msg = string.format(
+    --   "Region highlight: [%d, %d], affected roots: %d",
+    --   opts.region.start_row,
+    --   opts.region.end_row,
+    --   #roots
+    -- )
+    -- vim.notify(msg, vim.log.levels.DEBUG)
   else
     -- full pass: clear + render all
     M.clear_hl_ns(bufnr)

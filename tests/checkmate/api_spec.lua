@@ -1176,6 +1176,22 @@ Some other content]]
           },
         })
       end)
+
+      -- regression test
+      -- remove() first queues remove_metadata then (via callback) queues remove_todo
+      -- the metadata engine’s on_remove handler also enqueues a state toggle
+      -- ensuring the final remove_todo runs after all on_remove-driven ops prevents prefix corruption
+      it("should remove todo cleanly when metadata has on_remove callback e.g., @done", function()
+        local line = todo_line({
+          text = "Item 6 @priority(high) @started(today) @done(09/16/25 08:23)",
+        })
+        test_remove_scenario({
+          name = "remove with @done on_remove",
+          content = line,
+          cursor = { 1, 0 },
+          expected = { "- Item 6" },
+        })
+      end)
     end)
 
     describe("visual mode", function()

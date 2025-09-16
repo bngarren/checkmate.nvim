@@ -682,10 +682,13 @@ function M.remove(opts)
     if strip_meta then
       ctx.add_op(api.remove_metadata, { { id = item.id, meta_names = true } })
       ctx.add_cb(function(c)
-        local refreshed = c.get_todo_by_id(item.id) or c.get_todo_by_row(start_row, true)
-        if refreshed then
-          c.add_op(api.remove_todo, { { id = item.id, remove_list_marker = not preserve_list_marker } })
-        end
+        -- queue another cb so metadata's on_remove callbacks can run and their ops can apply first
+        c.add_cb(function(cc)
+          local refreshed = cc.get_todo_by_id(item.id) or cc.get_todo_by_row(start_row, true)
+          if refreshed then
+            cc.add_op(api.remove_todo, { { id = refreshed.id, remove_list_marker = not preserve_list_marker } })
+          end
+        end)
       end)
     else
       ctx.add_op(api.remove_todo, { { id = item.id, remove_list_marker = not preserve_list_marker } })
@@ -721,19 +724,18 @@ function M.remove(opts)
     if strip_meta and #meta_ops > 0 then
       _ctx.add_op(api.remove_metadata, meta_ops)
       _ctx.add_cb(function(c)
-        local rm_ops = {}
-        for _, t in ipairs(targets) do
-          local found = c.get_todo_by_id(t.id) or c.get_todo_by_row(t.start_row, true)
-          if found then
-            rm_ops[#rm_ops + 1] = {
-              id = found.id,
-              remove_list_marker = not preserve_list_marker,
-            }
+        c.add_cb(function(cc)
+          local rm_ops = {}
+          for _, t in ipairs(targets) do
+            local found = cc.get_todo_by_id(t.id) or cc.get_todo_by_row(t.start_row, true)
+            if found then
+              rm_ops[#rm_ops + 1] = { id = found.id, remove_list_marker = not preserve_list_marker }
+            end
           end
-        end
-        if #rm_ops > 0 then
-          c.add_op(api.remove_todo, rm_ops)
-        end
+          if #rm_ops > 0 then
+            cc.add_op(api.remove_todo, rm_ops)
+          end
+        end)
       end)
     else
       -- no metadata stripping: remove prefixes immediately

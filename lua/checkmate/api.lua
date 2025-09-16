@@ -87,7 +87,8 @@ local function mark_user_change(bufnr)
   bl:set("user_changed", true)
 end
 
--- Tracks edited row-span precisely via on_lines, coalescing rapid edits
+-- Tracks edited row-span via on_lines
+-- this is used in `process_buffer` to region-scope highlight only passes
 local function attach_change_watcher(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
@@ -107,14 +108,13 @@ local function attach_change_watcher(bufnr)
         return
       end
 
-      -- firstline is 0-based. Replaced old [firstline, lastline) with new [firstline, new_lastline).
-      -- Compute an inclusive end row that covers either the removed or the inserted span.
+      -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
+      -- inclusive end row that covers either the removed or the inserted span
       local old_end = (lastline > firstline) and (lastline - 1) or firstline
       local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
       local srow = firstline
       local erow = math.max(old_end, new_end)
 
-      -- Overwrite every time: "clean slate" per on_lines call
       bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
     end,
     on_detach = function()
@@ -568,6 +568,8 @@ function M.process_buffer(bufnr, process_type, reason)
       local region
       local affected_roots
 
+      -- this type is used by TextChangedI (insert mode), thus we
+      -- try to optimize by only re-highlighting a region rather than full buffer
       if process_type == "highlight_only" then
         local changed = bl:get("last_changed_region")
 
@@ -576,10 +578,11 @@ function M.process_buffer(bufnr, process_type, reason)
           bl:set("last_changed_region", nil)
 
           local line_count = vim.api.nvim_buf_line_count(bufnr)
-          local start_row = math.max(0, changed.s - 1) -- small pad
+          -- add some small padding around the changed region to be extra conservative
+          local start_row = math.max(0, changed.s - 1)
           local end_row = math.min(line_count - 1, changed.e + 1)
 
-          -- find roots overlapping this span
+          -- find root todos overlapping this span
           affected_roots = {}
           for _, it in pairs(todo_map) do
             if not it.parent_id then
@@ -601,7 +604,7 @@ function M.process_buffer(bufnr, process_type, reason)
               total_span = total_span + (root.range["end"].row - root.range.start.row + 1)
             end
 
-            if total_span <= require("checkmate.config").get_region_limit(bufnr) then
+            if total_span <= config.get_region_limit(bufnr) then
               region = {
                 start_row = min_row,
                 end_row = max_row,
@@ -630,7 +633,7 @@ function M.process_buffer(bufnr, process_type, reason)
             if nearest_above and nearest_dist <= WINDOW then
               local min_row = nearest_above.range.start.row
               local max_row = nearest_above.range["end"].row
-              if (max_row - min_row + 1) <= require("checkmate.config").get_region_limit(bufnr) then
+              if (max_row - min_row + 1) <= config.get_region_limit(bufnr) then
                 region = {
                   start_row = min_row,
                   end_row = max_row,

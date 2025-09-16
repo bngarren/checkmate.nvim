@@ -17,10 +17,17 @@ M.PRIORITY = {
   TODO_MARKER = 203,
 }
 
+-- helper that returns the primary highlights namespace
 local function ns()
   return config.ns_hl
 end
 
+---@return vim.api.keyset.get_extmark_item[]
+---e.g. each {} has:
+--- [1] integer extmark_id
+--- [2] integer row
+--- [3] integer col
+--- [4] vim.api.keyset.extmark_details?
 function M.get_hl_marks(bufnr)
   return vim.api.nvim_buf_get_extmarks(bufnr, ns(), 0, -1, { details = true })
 end

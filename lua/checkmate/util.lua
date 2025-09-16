@@ -69,6 +69,9 @@ function M.notify(msg, log_level, once)
   end
 end
 
+--- Returns true if two ranges overlap
+--- a1..a2 is the first range, b1..b2 is the second
+--- Overlap means they share at least one point; false if they are disjoint
 function M.ranges_overlap(a1, a2, b1, b2)
   return not (a2 < b1 or b2 < a1)
 end

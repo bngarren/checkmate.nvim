@@ -10,7 +10,7 @@ describe("Highlights", function()
     checkmate = require("checkmate")
     h = require("tests.checkmate.helpers")
 
-    checkmate.setup()
+    checkmate.setup(h.DEFAULT_TEST_CONFIG)
   end)
 
   after_each(function()
@@ -395,6 +395,147 @@ describe("Highlights", function()
 
       finally(function()
         vim.api.nvim_buf_delete(bufnr, { force = true })
+      end)
+    end)
+  end)
+  describe("performance", function()
+    it("should region-scope highlights on insert edits (TextChangedI path) for large files", function()
+      local config = require("checkmate.config")
+      local api = require("checkmate.api")
+      local highlights = require("checkmate.highlights")
+      local parser = require("checkmate.parser")
+
+      -- large markdown-todo buffer: 2,000 top-level todos
+      local unchecked = h.get_unchecked_marker()
+      local lines = {}
+      for i = 1, 2000 do
+        lines[#lines + 1] = ("- %s Item %d %s %s"):format(unchecked, i, "@priority(high)", "@started(today)")
+      end
+      local content = table.concat(lines, "\n") .. "\n"
+
+      local bufnr = h.setup_test_buffer(content)
+      assert.is_true(api.setup_buffer(bufnr))
+
+      -- initial extmarks
+      local before_marks = highlights.get_hl_marks(bufnr)
+      assert.truthy(#before_marks > 0)
+
+      local spy_process_buffer = spy.on(api, "process_buffer")
+
+      local orig_apply = highlights.apply_highlighting
+      local captured_opts = nil
+      local call_count_apply = 0
+      local stub_apply_highlighting = stub(highlights, "apply_highlighting", function(buf, opts)
+        captured_opts = opts
+        call_count_apply = call_count_apply + 1
+        return orig_apply(buf, opts)
+      end)
+      local call_count_before = call_count_apply
+      call_count_apply = 0
+
+      -- stub clear_hl_ns to detect any full-buffer clears during the post-edit pass
+      local orig_clear_ns = highlights.clear_hl_ns
+      local clear_calls = 0
+      local stub_clear_hl_ns = stub(highlights, "clear_hl_ns", function(buf)
+        clear_calls = clear_calls + 1
+        return orig_clear_ns(buf)
+      end)
+
+      -- edit in the middle of the file
+      local edit_row = 1000
+      local edit_col = 6
+      vim.api.nvim_buf_set_text(bufnr, edit_row, edit_col, edit_row, edit_col, { "X" })
+
+      -- so our debounced highlight_only path runs
+      vim.api.nvim_exec_autocmds("TextChangedI", { buffer = bufnr, modeline = false })
+
+      local saw_call = vim.wait(800, function()
+        local called, _ = spy_process_buffer:called(1)
+        return called
+      end, 10)
+      assert.is_true(saw_call)
+      assert.spy(spy_process_buffer).called_with(bufnr, "highlight_only", "TextChangedI")
+
+      -- get extmark id far away to verify it survives (no full clear)
+      local ns = config.ns_hl
+      local far_row = 1995
+      local far_id = nil
+      for _, m in ipairs(before_marks) do
+        if m[2] >= far_row then
+          far_id = m[1]
+          break
+        end
+      end
+      far_id = h.exists(far_id)
+
+      local ok = vim.wait(800, function()
+        return (call_count_apply > call_count_before)
+      end, 10)
+      assert.is_true(ok)
+
+      assert.truthy(captured_opts)
+      ---@diagnostic disable-next-line: need-check-nil, undefined-field
+      assert.truthy(captured_opts.region)
+
+      assert.equal(0, clear_calls, "expected no full namespace clear in region pass")
+
+      local got = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, far_id, { details = true })
+      assert.no.same({}, got, "far extmark should persist (no full clear)")
+
+      local region_marks = vim.api.nvim_buf_get_extmarks(
+        bufnr,
+        ns,
+        { edit_row - 1, 0 },
+        { edit_row + 1, -1 },
+        { details = true }
+      )
+      assert.truthy(#region_marks > 0)
+
+      -- Benchmark (informational)
+      local RUN_BENCHMARK = false
+      if RUN_BENCHMARK then
+        local todo_map = parser.get_todo_map(bufnr)
+
+        local target_root
+        for _, it in pairs(todo_map) do
+          if not it.parent_id and it.range.start.row == edit_row then
+            target_root = it
+            break
+          end
+        end
+
+        if target_root then
+          local region = {
+            start_row = target_root.range.start.row,
+            end_row = target_root.range["end"].row,
+            affected_roots = { target_root },
+          }
+
+          local t1 = vim.uv.hrtime()
+          orig_apply(bufnr, { todo_map = todo_map })
+          local full_ms = (vim.uv.hrtime() - t1) / 1e6
+
+          local t2 = vim.uv.hrtime()
+          orig_apply(bufnr, { todo_map = todo_map, region = region })
+          local region_ms = (vim.uv.hrtime() - t2) / 1e6
+
+          print(
+            string.format(
+              "[checkmate bench] (highlights unit) full=%.2fms  region=%.2fms  span=%d line(s)",
+              full_ms,
+              region_ms,
+              region.end_row - region.start_row + 1
+            )
+          )
+        end
+      end
+
+      finally(function()
+        spy_process_buffer:revert()
+        stub_apply_highlighting:revert()
+        stub_clear_hl_ns:revert()
+
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)

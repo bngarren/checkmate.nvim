@@ -1,5 +1,8 @@
 -- [[
---  - All row spans passed into this module are 0-based, end-exclusive: [start, end_excl)
+-- # Adaptive and progressive highlighting
+-- "adaptive" - we pick a highlighting strategy based on the size of the region that needs updating (i.e. for region-scoped highlighting passes during TextChangedI) as well as the size of the buffer and number of root todos present.
+-- "progressive" - a partially asynchronous strategy in which the viewport is prioritized first (synchronously) and the rest of the buffer is updated in batches
+--
 --  - All extmarks set here must pass end_col as exclusive (Neovim API)
 --  - Callers using `util.get_semantic_range()` MUST convert end.row (inclusive) to end-exclusive:
 --     `local row_end_excl = range["end"].row + 1`
@@ -23,6 +26,12 @@ M.PRIORITY = {
   TODO_MARKER = 203,
 }
 
+-- minimum buffer lines before a progressive highlighting strategy is used
+-- If less than this, will perform an "immediate" (synchronous) highlighting pass only
+M.MIN_LINE_COUNT_PROGRESSIVE = 500
+-- minimum number of root level todos before a progressive highlighting strategy is used
+M.MIN_ROOT_TODOS_PROGRESSIVE = 30
+
 -- helper that returns the primary highlights namespace
 local function ns()
   return config.ns_hl
@@ -42,9 +51,17 @@ function M.clear_hl_ns(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns(), 0, -1)
 end
 
---- Clear namespace over an end-exclusive row span [start_row, end_row_excl)
+--- clear namespace over an end-exclusive row span [start_row, end_row_excl)
 function M.clear_hl_ns_range(bufnr, start_row, end_row)
   vim.api.nvim_buf_clear_namespace(bufnr, ns(), start_row, end_row)
+end
+
+--- clear highlight namespace over the todo's range
+---@param bufnr any
+---@param todo checkmate.TodoItem
+function M.clear_todo_hls(bufnr, todo)
+  -- convert the todo's end inclusive row to end exclusive by +1
+  M.clear_hl_ns_range(bufnr, todo.range.start.row, todo.range["end"].row + 1)
 end
 
 -- -------- Progressive highlighting ---------
@@ -88,7 +105,7 @@ function M._apply_region(bufnr, todo_map, region)
   M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
 
   -- clear only the affected range
-  -- region should already have end-exclusive rows
+  -- note: region has end-exclusive rows
   M.clear_hl_ns_range(bufnr, region.start_row, region.end_row)
 
   for _, root in ipairs(region.affected_roots) do
@@ -152,12 +169,11 @@ function M._apply_progressive(bufnr, todo_map, opts)
 
   M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
 
-  -- process viewport's root todos immediately; this is synchronous
+  -- process viewport's root todos immediately (synchronous)
   if #immediate_roots > 0 then
-    for _, root in ipairs(immediate_roots) do
-      -- convert todo.range (semantic range) to end-exclusive (+1)
-      M.clear_hl_ns_range(bufnr, root.range.start.row, root.range["end"].row + 1)
-      M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
+    for _, root_todo in ipairs(immediate_roots) do
+      M.clear_todo_hls(bufnr, root_todo)
+      M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
     end
   end
 
@@ -172,8 +188,8 @@ end
 --- start the progressive highlighting timer
 ---@private
 function M._start_progressive_timer(bufnr, roots, todo_map)
-  local timer = assert((vim.uv or vim.loop).new_timer())
-  local gen = ((vim.uv or vim.loop).hrtime() or 0)
+  local timer = assert(vim.uv.new_timer())
+  local gen = vim.uv.hrtime() or 0
   local idx = 1
   -- scale with # of root todos
   local batch_size = math.min(20 + #roots / 100, 400)
@@ -188,32 +204,12 @@ function M._start_progressive_timer(bufnr, roots, todo_map)
       return
     end
 
-    -- batch size based on viewport distance
-    local viewport_start, viewport_end = util.get_viewport_bounds(0, 5)
-    local current_batch_size = batch_size
-
-    if viewport_start and roots[idx] then
-      -- double batch size for off-screen content
-      if
-        -- convert todo.range (semantic range) to end-exclusive (+1)
-        not util.ranges_overlap(
-          roots[idx].range.start.row,
-          roots[idx].range["end"].row + 1,
-          viewport_start,
-          viewport_end
-        )
-      then
-        current_batch_size = batch_size * 2
-      end
-    end
-
-    local batch_end = math.min(idx + current_batch_size - 1, #roots)
+    local batch_end = math.min(idx + batch_size - 1, #roots)
     for i = idx, batch_end do
-      local root = roots[i]
-      if root then
-        -- clear rows end-exclusive; semantic end.row is inclusive
-        M.clear_hl_ns_range(bufnr, root.range.start.row, root.range["end"].row + 1)
-        M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
+      local root_todo = roots[i]
+      if root_todo then
+        M.clear_todo_hls(bufnr, root_todo)
+        M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
       end
     end
 
@@ -399,11 +395,11 @@ function M.apply_highlighting(bufnr, opts)
   local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
   local strategy = opts.strategy or "adaptive"
 
-  -- Handle regional updates first (always immediate)
+  -- regional updates first (always immediate +/- a full progressive update)
   if opts.region then
     M._apply_region(bufnr, todo_map, opts.region)
 
-    -- For larger regions, also queue a full update for consistency
+    -- for larger regions, also queue a full update for consistency
     local region_size = opts.region.end_row - opts.region.start_row
     if region_size > config.get_region_limit(bufnr) and strategy == "adaptive" then
       vim.defer_fn(function()
@@ -418,7 +414,7 @@ function M.apply_highlighting(bufnr, opts)
     return
   end
 
-  -- Full buffer update
+  -- full buffer update
   if strategy == "immediate" then
     M._apply_immediate(bufnr, todo_map)
   else -- adaptive
@@ -430,8 +426,8 @@ function M.apply_highlighting(bufnr, opts)
       end
     end
 
-    -- Use progressive for large buffers, immediate for small
-    if line_count > 500 or root_count > 30 then
+    -- use progressive for large buffers, immediate for small
+    if line_count > M.MIN_LINE_COUNT_PROGRESSIVE or root_count > M.MIN_ROOT_TODOS_PROGRESSIVE then
       M._apply_progressive(bufnr, todo_map)
     else
       M._apply_immediate(bufnr, todo_map)

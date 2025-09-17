@@ -1147,16 +1147,14 @@ function M.remove_todo(ctx, operations)
   local bufnr = ctx.get_buf()
   local hunks = {}
 
-  local removal_ranges = {}
+  ---@type checkmate.TodoItem[]
+  local removed_todos = {}
 
   for _, op in ipairs(operations or {}) do
     local item = ctx.get_todo_by_id(op.id)
     if item then
       -- store the range for clearing highlights later
-      table.insert(removal_ranges, {
-        start_row = item.range.start.row,
-        end_row_excl = item.range["end"].row + 1, -- convert to end exclusive
-      })
+      table.insert(removed_todos, item)
       local h = M.compute_diff_strip_todo_prefix(bufnr, item, not op.remove_list_marker)
       if h then
         table.insert(hunks, h)
@@ -1164,13 +1162,13 @@ function M.remove_todo(ctx, operations)
     end
   end
 
-  -- we go ahead a directly remove the todo extmarks here as a removed todo won't be collected in
+  -- we go ahead and directly remove the todo extmarks here as a removed todo won't be collected in
   -- the apply_highlighting pass
-  if #removal_ranges > 0 then
+  if #removed_todos > 0 then
     ctx.add_cb(function()
       local highlights = require("checkmate.highlights")
-      for _, range in ipairs(removal_ranges) do
-        highlights.clear_hl_ns_range(bufnr, range.start_row, range.end_row_excl)
+      for _, removed_todo in ipairs(removed_todos) do
+        highlights.clear_todo_hls(bufnr, removed_todo)
       end
     end)
   end

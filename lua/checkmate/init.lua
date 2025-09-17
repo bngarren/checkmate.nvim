@@ -237,7 +237,7 @@ function M.toggle(target_state)
       end
     end
   end, function()
-    highlights.apply_highlighting(bufnr)
+    -- post_fn
   end)
   profiler.stop("M.toggle")
   return true
@@ -292,7 +292,7 @@ function M.set_todo_item(todo_item, target_state)
       } })
     end
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   return true
@@ -388,7 +388,7 @@ function M.cycle(opts)
       end
     end
   end, function()
-    highlights.apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   return true
@@ -612,8 +612,6 @@ function M.create(opts)
         list_marker = opts.list_marker,
         content = opts.content,
       })
-    end, function()
-      require("checkmate.highlights").apply_highlighting(bufnr)
     end)
 
     return true
@@ -633,7 +631,7 @@ function M.create(opts)
       content = opts.content,
     })
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    --post_fn
   end)
 
   return true
@@ -744,7 +742,7 @@ function M.remove(opts)
       _ctx.add_op(api.remove_todo, rm_ops)
     end
   end, function()
-    highlights.apply_highlighting(bufnr)
+    --post_fn
   end)
 end
 
@@ -799,7 +797,7 @@ function M.add_metadata(metadata_name, value)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.add_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
   return true
 end
@@ -846,7 +844,7 @@ function M.remove_metadata(metadata_name)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    --post_fn
   end)
   return true
 end
@@ -892,7 +890,7 @@ function M.remove_all_metadata()
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
   return true
 end
@@ -945,7 +943,7 @@ function M.toggle_metadata(meta_name, custom_value)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.toggle_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   profiler.stop("M.toggle_metadata")
@@ -972,7 +970,7 @@ function M.select_metadata_value()
     transaction.run(bufnr, function(_ctx)
       _ctx.add_op(api.set_metadata_value, metadata, choice)
     end, function()
-      require("checkmate.highlights").apply_highlighting(bufnr)
+      -- post_fn
     end)
   end)
 end

@@ -14,6 +14,14 @@ INDEXING CONVENTIONS:
 OPERATIONS:
 Called from the public API, within a transaction, and should return array `TextDiffHunk[]` for consistency.
 The transaction handles batching and applying the diff hunks to the buffer and calling callbacks with updated parse.
+
+
+HIGHLIGHTING:
+To minimize highlighting churn, we don't need to manually call `highlights.apply_highlighting()` for most public API's.
+Note: we used to do this in the transaction's post_fn for each transaction.
+Instead, if the API is expected to modify the buffer, then we will let our TextChanged and TextChangedI events run `process_buffer`
+to perform the highlighting.
+If an API is non-editing, then this will need to call apply_highlighting manually.
 --]]
 
 local config = require("checkmate.config")
@@ -24,6 +32,7 @@ local meta_module = require("checkmate.metadata")
 local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
+local transaction = require("checkmate.transaction")
 
 ---@class checkmate.Api
 local M = {}
@@ -116,6 +125,13 @@ local function attach_change_watcher(bufnr)
       local srow = firstline
       local erow = math.max(old_end, new_end)
 
+      -- keep and merge 1 span for the entire debounce window
+      -- when process_buffer eventually runs, it will clear "last_changed_region"
+      local prev = bl:get("last_changed_region")
+      if prev then
+        srow = math.min(srow, prev.s)
+        erow = math.max(erow, prev.e)
+      end
       bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
     end,
     on_detach = function()
@@ -489,6 +505,9 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        if transaction.is_active(bufnr) then
+          return
+        end
         mark_user_change(bufnr)
         M.process_buffer(bufnr, "full", "TextChanged")
       end,
@@ -498,6 +517,9 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        if transaction.is_active(bufnr) then
+          return
+        end
         mark_user_change(bufnr)
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
       end,

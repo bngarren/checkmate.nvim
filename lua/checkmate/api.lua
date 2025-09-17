@@ -643,7 +643,7 @@ function M.process_buffer(bufnr, process_type, reason)
               total_span = total_span + (r_e_excl - r_s)
             end
 
-            if total_span <= require("checkmate.config").get_region_limit(bufnr) then
+            if total_span <= config.get_region_limit(bufnr) then
               region = {
                 start_row = min_row,
                 end_row = max_row_excl, -- end-exclusive
@@ -670,7 +670,7 @@ function M.process_buffer(bufnr, process_type, reason)
               if nearest_above and nearest_dist <= WINDOW then
                 min_row = nearest_above.range.start.row
                 max_row_excl = nearest_above.range["end"].row + 1 -- inclusive -> exclusive
-                if (max_row_excl - min_row) <= require("checkmate.config").get_region_limit(bufnr) then
+                if (max_row_excl - min_row) <= config.get_region_limit(bufnr) then
                   region = {
                     start_row = min_row,
                     end_row = max_row_excl, -- end-exclusive

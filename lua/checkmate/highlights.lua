@@ -33,7 +33,7 @@ M.MIN_LINE_COUNT_PROGRESSIVE = 500
 M.MIN_ROOT_TODOS_PROGRESSIVE = 30
 
 -- helper that returns the primary highlights namespace
-local function ns()
+local function hl_ns()
   return config.ns_hl
 end
 
@@ -44,16 +44,16 @@ end
 --- [3] integer col
 --- [4] vim.api.keyset.extmark_details?
 function M.get_hl_marks(bufnr)
-  return vim.api.nvim_buf_get_extmarks(bufnr, ns(), 0, -1, { details = true })
+  return vim.api.nvim_buf_get_extmarks(bufnr, hl_ns(), 0, -1, { details = true })
 end
 
 function M.clear_hl_ns(bufnr)
-  vim.api.nvim_buf_clear_namespace(bufnr, ns(), 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, hl_ns(), 0, -1)
 end
 
 --- clear namespace over an end-exclusive row span [start_row, end_row_excl)
 function M.clear_hl_ns_range(bufnr, start_row, end_row)
-  vim.api.nvim_buf_clear_namespace(bufnr, ns(), start_row, end_row)
+  vim.api.nvim_buf_clear_namespace(bufnr, hl_ns(), start_row, end_row)
 end
 
 --- clear highlight namespace over the todo's range
@@ -96,6 +96,7 @@ function M._apply_immediate(bufnr, todo_map)
 end
 
 --- apply regional highlighting
+--- `region` should have end exclusive row
 ---@private
 function M._apply_region(bufnr, todo_map, region)
   if not region or not region.affected_roots then
@@ -554,7 +555,7 @@ function M.highlight_todo_marker(bufnr, todo_item)
 
     -- marker_pos.col is already in bytes (0-indexed)
     -- for extmarks, end_col is exclusive, so we add the byte length
-    vim.api.nvim_buf_set_extmark(bufnr, ns(), marker_pos.row, marker_pos.col, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), marker_pos.row, marker_pos.col, {
       end_row = marker_pos.row,
       end_col = marker_pos.col + #marker_text, -- end col is the last col of marker + 1 (end exclusive)
       hl_group = hl_group,
@@ -580,7 +581,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
       local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
         or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, ns(), start_row, start_col, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
         end_row = start_row,
         end_col = start_col + #marker_text,
         hl_group = hl_group,
@@ -607,7 +608,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
         local marker_type = parser.get_marker_type_from_capture_name(capture_name)
         local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
-        vim.api.nvim_buf_set_extmark(bufnr, ns(), marker_start_row, marker_start_col, {
+        vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), marker_start_row, marker_start_col, {
           end_row = marker_start_row,
           end_col = marker_end_col - 1, -- ts includes trailing space after list marker, we exclude it here
           hl_group = hl_group,
@@ -666,7 +667,7 @@ function M.highlight_metadata(bufnr, todo_item)
         highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
-      vim.api.nvim_buf_set_extmark(bufnr, ns(), entry.range.start.row, entry.range.start.col, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), entry.range.start.row, entry.range.start.col, {
         end_row = entry.range["end"].row,
         end_col = entry.range["end"].col, -- end exclusive
         hl_group = highlight_group,
@@ -708,7 +709,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     if child:type() == "setext_heading" then
       local sr, _, er, _ = child:range()
 
-      vim.api.nvim_buf_set_extmark(bufnr, ns(), sr, 0, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), sr, 0, {
         end_row = er,
         end_col = 0,
         hl_group = "CheckmateNormal",
@@ -745,7 +746,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         local content_start = get_content_start(line, search_start)
 
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -758,7 +759,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       else
         local content_start = get_content_start(line, 0)
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -803,7 +804,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         end
 
         if content_start and content_start < #row_line then
-          vim.api.nvim_buf_set_extmark(bufnr, ns(), row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #row_line,
             hl_group = additional_content_hl,
@@ -851,14 +852,14 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
 
   if config.options.todo_count_position == "inline" then
     local extmark_start_col = todo_item.todo_marker.position.col + #todo_item.todo_marker.text + 1
-    vim.api.nvim_buf_set_extmark(bufnr, ns(), todo_item.range.start.row, extmark_start_col, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), todo_item.range.start.row, extmark_start_col, {
       end_col = extmark_start_col + #indicator_text,
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" }, { " ", "Normal" } },
       virt_text_pos = "inline",
       priority = M.PRIORITY.TODO_MARKER + 1,
     })
   elseif config.options.todo_count_position == "eol" then
-    vim.api.nvim_buf_set_extmark(bufnr, ns(), todo_item.range.start.row, 0, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), todo_item.range.start.row, 0, {
       end_col = #indicator_text,
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" } },
       virt_text_pos = "eol",

@@ -120,6 +120,7 @@ end
 function M._apply_progressive(bufnr, todo_map, opts)
   opts = opts or {}
 
+  M.clear_buf_line_cache(bufnr)
   M.cancel_progressive(bufnr)
 
   local all_roots = {}
@@ -192,7 +193,7 @@ function M._start_progressive_timer(bufnr, roots, todo_map)
   local gen = vim.uv.hrtime() or 0
   local idx = 1
   -- scale with # of root todos
-  local batch_size = math.min(20 + #roots / 100, 400)
+  local batch_size = math.floor(math.min(20 + #roots / 100, 400))
   local interval = 20
 
   M._progressive[bufnr] = { timer = timer, running = true, gen = gen }
@@ -200,6 +201,7 @@ function M._start_progressive_timer(bufnr, roots, todo_map)
   local function tick()
     local ctx = M._progressive[bufnr]
     if not ctx or ctx.gen ~= gen or not vim.api.nvim_buf_is_valid(bufnr) then
+      pcall(M.clear_buf_line_cache, bufnr)
       M.cancel_progressive(bufnr)
       return
     end
@@ -216,7 +218,7 @@ function M._start_progressive_timer(bufnr, roots, todo_map)
     idx = batch_end + 1
 
     if idx > #roots then
-      M._line_cache_by_buf[bufnr] = nil
+      M.clear_buf_line_cache(bufnr)
       M.cancel_progressive(bufnr)
     end
   end

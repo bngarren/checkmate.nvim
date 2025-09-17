@@ -565,6 +565,9 @@ function M.process_buffer(bufnr, process_type, reason)
 
       local todo_map = parser.get_todo_map(bufnr)
 
+      ---@type "none" | "regional" | "adaptive_full"
+      local highlight_plan = "none"
+
       -- region-scoped highlighting
       ---@type { start_row: integer, end_row: integer, affected_roots: checkmate.TodoItem[] }|nil
       local region
@@ -582,8 +585,9 @@ function M.process_buffer(bufnr, process_type, reason)
           -- add some small padding around the changed region to be extra conservative
           local PADDING = 1
           local line_count = vim.api.nvim_buf_line_count(bufnr)
+          local max_row = math.max(0, line_count - 1)
           local start_row = math.max(0, changed.s - PADDING)
-          local end_row = math.min(line_count - PADDING, changed.e + PADDING)
+          local end_row = math.min(max_row, changed.e + PADDING)
           local end_row_excl = end_row + 1
 
           -- find root todos overlapping this span
@@ -599,8 +603,10 @@ function M.process_buffer(bufnr, process_type, reason)
             end
           end
 
-          if #affected_roots > 0 then
-            -- Expand region to cover full extents of affected roots (end-exclusive)
+          if #affected_roots == 0 then
+            highlight_plan = "none"
+          else
+            -- expand region to cover full extents of affected roots (end-exclusive)
             local min_row, max_row_excl = start_row, end_row_excl
             local total_span = 0
             for _, root in ipairs(affected_roots) do
@@ -621,39 +627,43 @@ function M.process_buffer(bufnr, process_type, reason)
                 end_row = max_row_excl, -- end-exclusive
                 affected_roots = affected_roots,
               }
-            end
-          else
-            -- No overlapping roots: consider nearest root above within a small window
-            local WINDOW = 5
-            local nearest_above, nearest_dist = nil, math.huge
-            for _, it in pairs(todo_map) do
-              if not it.parent_id then
-                local a = it.range.start.row
-                if a <= start_row then
-                  local d = start_row - a
-                  if d < nearest_dist then
-                    nearest_dist = d
-                    nearest_above = it
+              highlight_plan = "regional"
+            else
+              -- no overlapping roots: consider nearest root above within a small window
+              local WINDOW = 5
+              local nearest_above, nearest_dist = nil, math.huge
+              for _, it in pairs(todo_map) do
+                if not it.parent_id then
+                  local a = it.range.start.row
+                  if a <= start_row then
+                    local d = start_row - a
+                    if d < nearest_dist then
+                      nearest_dist = d
+                      nearest_above = it
+                    end
                   end
                 end
               end
-            end
 
-            if nearest_above and nearest_dist <= WINDOW then
-              local min_row = nearest_above.range.start.row
-              local max_row_excl = nearest_above.range["end"].row + 1 -- inclusive -> exclusive
-              if (max_row_excl - min_row) <= require("checkmate.config").get_region_limit(bufnr) then
-                region = {
-                  start_row = min_row,
-                  end_row = max_row_excl, -- end-exclusive
-                  affected_roots = { nearest_above },
-                }
+              if nearest_above and nearest_dist <= WINDOW then
+                min_row = nearest_above.range.start.row
+                max_row_excl = nearest_above.range["end"].row + 1 -- inclusive -> exclusive
+                if (max_row_excl - min_row) <= require("checkmate.config").get_region_limit(bufnr) then
+                  region = {
+                    start_row = min_row,
+                    end_row = max_row_excl, -- end-exclusive
+                    affected_roots = { nearest_above },
+                  }
+                end
+                highlight_plan = "regional"
               end
-            else
-              -- No nearby context; skip regional highlighting this tick
-              region = nil
+
+              highlight_plan = "adaptive_full"
             end
           end
+        else
+          -- no change info recorded for this debounce window
+          highlight_plan = "none"
         end
       end
 
@@ -665,20 +675,22 @@ function M.process_buffer(bufnr, process_type, reason)
         local highlights = require("checkmate.highlights")
 
         if process_type == "full" then
-          -- Full update with adaptive strategy
-          highlights.apply_highlighting(bufnr, {
-            todo_map = todo_map,
-            debug_reason = "process_buffer full",
-          })
-        elseif process_type == "highlight_only" and region then
-          -- Regional update for insert mode
-          highlights.apply_highlighting(bufnr, {
-            todo_map = todo_map,
-            region = region,
-            debug_reason = "process_buffer highlight_only",
-          })
+          highlights.apply_highlighting(bufnr, { debug_reason = "process_buffer full" })
+        else -- highlight_only
+          if highlight_plan == "regional" and region then
+            highlights.apply_highlighting(bufnr, {
+              region = region,
+              debug_reason = "process_buffer highlight_only (regional)",
+            })
+          elseif highlight_plan == "adaptive_full" then
+            highlights.apply_highlighting(bufnr, {
+              -- no region => adaptive strategy chooses immediate vs progressive
+              debug_reason = "process_buffer highlight_only (adaptive full)",
+            })
+          else
+            -- highlight_plan == "none": do nothing here
+          end
         end
-        -- If highlight_only with no region, skip work entirely
       end
 
       if process_config.include_linting and config.options.linter and config.options.linter.enabled then

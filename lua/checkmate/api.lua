@@ -89,6 +89,7 @@ end
 
 -- Tracks edited row-span via on_lines
 -- this is used in `process_buffer` to region-scope highlight only passes
+-- Important: this returns as INCLUSIVE end row. Callers should +1 to get end-exclusive row
 local function attach_change_watcher(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
@@ -157,7 +158,8 @@ function M.setup_buffer(bufnr)
   end
 
   local highlights = require("checkmate.highlights")
-  highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
+  -- don't use adaptive strategy for first pass on buffer setup--run it synchronously
+  highlights.apply_highlighting(bufnr, { strategy = "immediate", debug_reason = "api buffer setup" })
 
   -- User can opt out of TS highlighting if desired
   if config.options.disable_ts_highlights == true then
@@ -472,15 +474,13 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
-    vim.api.nvim_create_autocmd({ "InsertLeave", "InsertEnter" }, {
+    vim.api.nvim_create_autocmd({ "InsertLeave" }, {
       group = M.buffer_augroup,
       buffer = bufnr,
-      callback = function(args)
-        if vim.bo[bufnr].modified then
-          if args.event == "InsertLeave" then
-            mark_user_change(bufnr)
-          end
-          M.process_buffer(bufnr, "full", args.event)
+      callback = function()
+        if vim.b[bufnr].modified then
+          mark_user_change(bufnr)
+          M.process_buffer(bufnr, "full", "InsertLeave")
         end
       end,
     })
@@ -516,6 +516,7 @@ function M.setup_autocmds(bufnr)
 end
 
 -- functions that process the buffer need to be debounced and stored
+---@type table<number, table<string, Debounced>>
 M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
 -- we can "process" the buffer different ways depending on the need, the frequency we expect it
@@ -523,7 +524,7 @@ M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 -- e.g. we don't want to convert during TextChangedI
 M.PROCESS_CONFIGS = {
   full = {
-    debounce_ms = 50,
+    debounce_ms = 100,
     include_conversion = true,
     include_linting = true,
     include_highlighting = true,
@@ -565,8 +566,8 @@ function M.process_buffer(bufnr, process_type, reason)
       local todo_map = parser.get_todo_map(bufnr)
 
       -- region-scoped highlighting
+      ---@type { start_row: integer, end_row: integer, affected_roots: checkmate.TodoItem[] }|nil
       local region
-      local affected_roots
 
       -- this type is used by TextChangedI (insert mode), thus we
       -- try to optimize by only re-highlighting a region rather than full buffer
@@ -577,44 +578,52 @@ function M.process_buffer(bufnr, process_type, reason)
           -- consume the changed region
           bl:set("last_changed_region", nil)
 
-          local line_count = vim.api.nvim_buf_line_count(bufnr)
+          -- `changed.s` is 0-based start row; `changed.e` is an INCLUSIVE end row from on_lines
           -- add some small padding around the changed region to be extra conservative
-          local start_row = math.max(0, changed.s - 1)
-          local end_row = math.min(line_count - 1, changed.e + 1)
+          local PADDING = 1
+          local line_count = vim.api.nvim_buf_line_count(bufnr)
+          local start_row = math.max(0, changed.s - PADDING)
+          local end_row = math.min(line_count - PADDING, changed.e + PADDING)
+          local end_row_excl = end_row + 1
 
           -- find root todos overlapping this span
-          affected_roots = {}
+          local affected_roots = {}
           for _, it in pairs(todo_map) do
             if not it.parent_id then
-              local a = it.range.start.row
-              local b = it.range["end"].row
-              if require("checkmate.util").ranges_overlap(a, b, start_row, end_row) then
+              local a_start = it.range.start.row
+              -- semantic range has end.row inclusive -> convert to exclusive
+              local a_end_excl = it.range["end"].row + 1
+              if require("checkmate.util").ranges_overlap(a_start, a_end_excl, start_row, end_row_excl) then
                 affected_roots[#affected_roots + 1] = it
               end
             end
           end
 
           if #affected_roots > 0 then
-            -- expand to cover the full extents of the affected roots
-            local min_row, max_row = start_row, end_row
+            -- Expand region to cover full extents of affected roots (end-exclusive)
+            local min_row, max_row_excl = start_row, end_row_excl
             local total_span = 0
             for _, root in ipairs(affected_roots) do
-              min_row = math.min(min_row, root.range.start.row)
-              max_row = math.max(max_row, root.range["end"].row)
-              total_span = total_span + (root.range["end"].row - root.range.start.row + 1)
+              local r_s = root.range.start.row
+              local r_e_excl = root.range["end"].row + 1 -- inclusive -> exclusive
+              if r_s < min_row then
+                min_row = r_s
+              end
+              if r_e_excl > max_row_excl then
+                max_row_excl = r_e_excl
+              end
+              total_span = total_span + (r_e_excl - r_s)
             end
 
-            if total_span <= config.get_region_limit(bufnr) then
+            if total_span <= require("checkmate.config").get_region_limit(bufnr) then
               region = {
                 start_row = min_row,
-                end_row = max_row,
+                end_row = max_row_excl, -- end-exclusive
                 affected_roots = affected_roots,
               }
             end
           else
-            -- limit churn when editing outside any todo:
-            --  - if nearest root above is within 'window' lines, refresh just that root.
-            --  - otherwise, skip highlight work entirely for this tick.
+            -- No overlapping roots: consider nearest root above within a small window
             local WINDOW = 5
             local nearest_above, nearest_dist = nil, math.huge
             for _, it in pairs(todo_map) do
@@ -632,17 +641,17 @@ function M.process_buffer(bufnr, process_type, reason)
 
             if nearest_above and nearest_dist <= WINDOW then
               local min_row = nearest_above.range.start.row
-              local max_row = nearest_above.range["end"].row
-              if (max_row - min_row + 1) <= config.get_region_limit(bufnr) then
+              local max_row_excl = nearest_above.range["end"].row + 1 -- inclusive -> exclusive
+              if (max_row_excl - min_row) <= require("checkmate.config").get_region_limit(bufnr) then
                 region = {
                   start_row = min_row,
-                  end_row = max_row,
+                  end_row = max_row_excl, -- end-exclusive
                   affected_roots = { nearest_above },
                 }
               end
             else
-              -- no nearby todo context, do nothing to avoid unnecessary highlight passes
-              -- fall through with region=nil
+              -- No nearby context; skip regional highlighting this tick
+              region = nil
             end
           end
         end
@@ -653,14 +662,23 @@ function M.process_buffer(bufnr, process_type, reason)
       end
 
       if process_config.include_highlighting then
-        if process_type == "highlight_only" and not region then
-          -- no affected region (likely editing outside todos); skip work
-        else
-          require("checkmate.highlights").apply_highlighting(
-            bufnr,
-            { todo_map = todo_map, region = region, debug_reason = "api process_buffer (" .. process_type .. ")" }
-          )
+        local highlights = require("checkmate.highlights")
+
+        if process_type == "full" then
+          -- Full update with adaptive strategy
+          highlights.apply_highlighting(bufnr, {
+            todo_map = todo_map,
+            debug_reason = "process_buffer full",
+          })
+        elseif process_type == "highlight_only" and region then
+          -- Regional update for insert mode
+          highlights.apply_highlighting(bufnr, {
+            todo_map = todo_map,
+            region = region,
+            debug_reason = "process_buffer highlight_only",
+          })
         end
+        -- If highlight_only with no region, skip work entirely
       end
 
       if process_config.include_linting and config.options.linter and config.options.linter.enabled then
@@ -673,7 +691,7 @@ function M.process_buffer(bufnr, process_type, reason)
 
     M._debounced_processors[bufnr][process_type] = util.debounce(process_impl, {
       ms = process_config.debounce_ms,
-      -- run first call immediately, e.g., to make insert mode feel snappy
+      -- run first call immediately
       leading = process_type == "highlight_only",
       trailing = true,
     })
@@ -697,7 +715,9 @@ function M.shutdown(bufnr)
 
     M.clear_keymaps(bufnr)
 
-    require("checkmate.highlights").clear_buf_line_cache(bufnr)
+    local highlights = require("checkmate.highlights")
+    highlights.clear_buf_line_cache(bufnr)
+    highlights.cancel_progressive(bufnr)
 
     require("checkmate.debug.debug_highlights").dispose(bufnr)
     require("checkmate.metadata.picker").cleanup_ui(bufnr)
@@ -715,6 +735,13 @@ function M.shutdown(bufnr)
     vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
 
     if M._debounced_processors and M._debounced_processors[bufnr] then
+      for _, d in pairs(M._debounced_processors[bufnr]) do
+        if type(d) == "table" and d.close then
+          pcall(function()
+            d:close()
+          end)
+        end
+      end
       M._debounced_processors[bufnr] = nil
     end
 
@@ -1120,14 +1147,32 @@ function M.remove_todo(ctx, operations)
   local bufnr = ctx.get_buf()
   local hunks = {}
 
+  local removal_ranges = {}
+
   for _, op in ipairs(operations or {}) do
     local item = ctx.get_todo_by_id(op.id)
     if item then
+      -- store the range for clearing highlights later
+      table.insert(removal_ranges, {
+        start_row = item.range.start.row,
+        end_row_excl = item.range["end"].row + 1, -- convert to end exclusive
+      })
       local h = M.compute_diff_strip_todo_prefix(bufnr, item, not op.remove_list_marker)
       if h then
         table.insert(hunks, h)
       end
     end
+  end
+
+  -- we go ahead a directly remove the todo extmarks here as a removed todo won't be collected in
+  -- the apply_highlighting pass
+  if #removal_ranges > 0 then
+    ctx.add_cb(function()
+      local highlights = require("checkmate.highlights")
+      for _, range in ipairs(removal_ranges) do
+        highlights.clear_hl_ns_range(bufnr, range.start_row, range.end_row_excl)
+      end
+    end)
   end
 
   return hunks

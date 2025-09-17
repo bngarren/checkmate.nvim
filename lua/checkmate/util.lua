@@ -71,9 +71,50 @@ end
 
 --- Returns true if two ranges overlap
 --- a1..a2 is the first range, b1..b2 is the second
+--- These are end-exclusive ranges!
 --- Overlap means they share at least one point; false if they are disjoint
 function M.ranges_overlap(a1, a2, b1, b2)
-  return not (a2 < b1 or b2 < a1)
+  return not (a2 <= b1 or b2 <= a1)
+end
+
+--- Get the visible viewport bounds for a window
+--- Returns 0-based, end exclusive row indices
+---@param win? integer  -- window handle (defaults to current window)
+---@param pad? integer  -- optional number of extra lines above/below
+---@return integer? start_row, integer? end_row
+function M.get_viewport_bounds(win, pad)
+  pad = tonumber(pad) or 0
+
+  local target = (win and win ~= 0) and win or vim.api.nvim_get_current_win()
+  if not vim.api.nvim_win_is_valid(target) then
+    local cur = vim.api.nvim_get_current_win()
+    if not vim.api.nvim_win_is_valid(cur) then
+      return nil, nil
+    end
+    target = cur
+  end
+
+  local ok, bounds = pcall(vim.api.nvim_win_call, target, function()
+    return {
+      top = vim.fn.line("w0"), -- 1-based buffer line at top of window
+      bot = vim.fn.line("w$"), -- 1-based buffer line at bottom of window
+      bufnr = vim.api.nvim_win_get_buf(0),
+    }
+  end)
+  if not ok or type(bounds) ~= "table" then
+    return nil, nil
+  end
+
+  local linecount = vim.api.nvim_buf_line_count(bounds.bufnr)
+  local top, bot = bounds.top, bounds.bot
+  if type(top) ~= "number" or type(bot) ~= "number" then
+    return nil, nil
+  end
+
+  -- convert to 0-based, clamp with padding
+  local start0 = math.max(0, top - 1 - pad)
+  local end0 = math.min(linecount - 1, bot - 1 + pad) + 1 -- end exclusive
+  return start0, end0
 end
 
 -- --------------------- Debounce --------------------------
@@ -358,9 +399,15 @@ end
 --- - When end_col=0, it means "end of previous line" rather than "start of current line"
 --- - For multi-line ranges, ensures the end position captures the entire line content
 ---
+--- - Returns end-inclusive for the row, end-exclusive for the column:
+---   start = {row, col}, end = {row_inclusive, col_exclusive}
+---   - Callers must treat end.row as inclusive and end.col as exclusive.
+---   - If passing to helpers expecting end-exclusive rows, convert with:
+---     `local row_end_excl = semantic.end.row + 1`
+---
 --- @param range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Raw TreeSitter range (0-indexed, end-exclusive)
 --- @param bufnr integer Buffer number
---- @return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Adjusted range suitable for semantic operations
+--- @return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} range
 function M.get_semantic_range(range, bufnr)
   -- Create a new range object to avoid modifying the original
   local new_range = {

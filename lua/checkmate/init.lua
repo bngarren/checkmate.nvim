@@ -1209,6 +1209,22 @@ function M.debug.print_buf_local_vars(bufnr)
   )
 end
 
+function M.debug.insert_todos(bufnr, opts)
+  local config = require("checkmate.config")
+  local lines = {}
+  for i = 1, opts.count ~= nil and opts.count or 2000 do
+    lines[#lines + 1] = ("- %s Item %d %s %s"):format(
+      config.get_defaults().todo_states.unchecked.marker,
+      i,
+      "@priority(high)",
+      "@started(today)"
+    )
+  end
+  vim.api.nvim_buf_call(bufnr, function()
+    vim.api.nvim_put(lines, "l", true, false)
+  end)
+end
+
 ----- END API -----
 
 function M.get_user_opts()

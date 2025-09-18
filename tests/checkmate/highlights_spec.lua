@@ -10,7 +10,7 @@ describe("Highlights", function()
     checkmate = require("checkmate")
     h = require("tests.checkmate.helpers")
 
-    checkmate.setup()
+    checkmate.setup(h.DEFAULT_TEST_CONFIG)
   end)
 
   after_each(function()
@@ -19,7 +19,6 @@ describe("Highlights", function()
 
   describe("list marker", function()
     it("should correctly highlight the todo LIST marker", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -33,11 +32,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
       local got = {}
       for _, mark in ipairs(extmarks) do
         local d = mark[4]
@@ -65,7 +64,6 @@ describe("Highlights", function()
     end)
 
     it("should correctly highlight within-todo list markers", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
 
@@ -78,11 +76,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- UNORDERED
 
@@ -132,7 +130,6 @@ describe("Highlights", function()
     end)
 
     it("should correctly highlight the todo marker", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -146,11 +143,11 @@ describe("Highlights", function()
 
       local bufnr = h.setup_test_buffer(content)
 
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- UNCHECKED marker
 
@@ -203,7 +200,6 @@ describe("Highlights", function()
 
   describe("content", function()
     it("should correctly highlight main and additional content", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_unchecked_marker()
       local checked = h.get_checked_marker()
@@ -221,9 +217,9 @@ describe("Highlights", function()
 ]]
 
       local bufnr, file_path = h.setup_test_buffer(content)
-      vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+      highlights.clear_hl_ns(bufnr)
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       -- MAIN CONTENT
       local got_main = {}
@@ -324,7 +320,6 @@ describe("Highlights", function()
 
   describe("metadata", function()
     it("should apply metadata tag highlights", function()
-      local config = require("checkmate.config")
       local highlights = require("checkmate.highlights")
       local unchecked = h.get_checked_marker()
 
@@ -338,7 +333,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       local found_metadata = false
 
@@ -379,7 +374,7 @@ describe("Highlights", function()
 
       highlights.apply_highlighting(bufnr, { debug_reason = "test" })
 
-      local extmarks = h.get_extmarks(bufnr, config.ns)
+      local extmarks = highlights.get_hl_marks(bufnr)
 
       local found_count = false
 
@@ -400,6 +395,132 @@ describe("Highlights", function()
 
       finally(function()
         vim.api.nvim_buf_delete(bufnr, { force = true })
+      end)
+    end)
+  end)
+  describe("performance", function()
+    it("should region-scope highlights on insert edits (TextChangedI path) for large files", function()
+      local config = require("checkmate.config")
+      local api = require("checkmate.api")
+      local highlights = require("checkmate.highlights")
+
+      -- large markdown-todo buffer: 2,000 top-level todos
+      local unchecked = h.get_unchecked_marker()
+      local lines = {}
+      for i = 1, 2000 do
+        lines[#lines + 1] = ("- %s Item %d %s %s"):format(unchecked, i, "@priority(high)", "@started(today)")
+      end
+      local content = table.concat(lines, "\n") .. "\n"
+
+      local bufnr = h.setup_test_buffer(content)
+      assert.is_true(api.setup_buffer(bufnr))
+
+      -- initial extmarks
+      local before_marks = highlights.get_hl_marks(bufnr)
+      assert.truthy(#before_marks > 0)
+
+      -- Track actual apply_highlighting calls
+      local orig_apply = highlights.apply_highlighting
+      local captured_opts = nil
+      local apply_called = false
+      local stub_apply_highlighting = stub(highlights, "apply_highlighting", function(buf, opts)
+        captured_opts = opts
+        apply_called = true
+        return orig_apply(buf, opts)
+      end)
+
+      -- Track clearing operations
+      local orig_clear_ns = highlights.clear_hl_ns
+      local full_clear_calls = 0
+      local stub_clear_hl_ns = stub(highlights, "clear_hl_ns", function(buf)
+        full_clear_calls = full_clear_calls + 1
+        return orig_clear_ns(buf)
+      end)
+
+      local orig_clear_range = highlights.clear_hl_ns_range
+      local range_clear_calls = 0
+      local cleared_ranges = {}
+      local stub_clear_hl_ns_range = stub(highlights, "clear_hl_ns_range", function(buf, start_row, end_row)
+        range_clear_calls = range_clear_calls + 1
+        table.insert(cleared_ranges, { start_row = start_row, end_row = end_row })
+        return orig_clear_range(buf, start_row, end_row)
+      end)
+
+      -- Get extmark far away to verify it survives
+      local ns = config.ns_hl
+      local far_row = 1995
+      local far_marks = vim.api.nvim_buf_get_extmarks(bufnr, ns, { far_row, 0 }, { far_row, 0 }, { details = true })
+      assert.truthy(#far_marks > 0)
+      local far_id = far_marks[1][1]
+
+      -- Edit in the middle of the file
+      local edit_row = 1000
+      local edit_col = 6
+      vim.api.nvim_buf_set_text(bufnr, edit_row, edit_col, edit_row, edit_col, { "X" })
+
+      -- Trigger TextChangedI autocmd
+      vim.api.nvim_exec_autocmds("TextChangedI", { buffer = bufnr, modeline = false })
+
+      if api._debounced_processors and api._debounced_processors[bufnr] then
+        local processor = api._debounced_processors[bufnr]["highlight_only"]
+        if processor and processor.flush then
+          processor:flush()
+        end
+      else
+        -- Option 2: Wait for the debounce timeout (50ms for highlight_only)
+        vim.wait(100)
+      end
+
+      -- Now wait for apply_highlighting to actually be called
+      local ok = vim.wait(500, function()
+        return apply_called
+      end, 10)
+      assert.is_true(ok)
+
+      -- Verify the call had a region
+      captured_opts = h.exists(captured_opts)
+      assert.truthy(captured_opts.region)
+
+      -- Strategy should be nil or "adaptive" (both default to adaptive)
+      if captured_opts.strategy then
+        assert.equal("adaptive", captured_opts.strategy)
+      end
+
+      -- Should NOT have done a full clear
+      assert.equal(0, full_clear_calls, "expected no full namespace clear in region pass")
+
+      -- Should have done a regional clear
+      assert.truthy(range_clear_calls > 0)
+
+      -- Verify the cleared range includes our edit
+      local found_relevant_clear = false
+      for _, range in ipairs(cleared_ranges) do
+        if range.start_row <= edit_row and range.end_row >= edit_row then
+          found_relevant_clear = true
+          break
+        end
+      end
+      assert.is_true(found_relevant_clear)
+
+      -- Far extmark should still exist
+      local got = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, far_id, { details = true })
+      assert.no.same({}, got, "far extmark should persist (no full clear)")
+
+      -- Should have highlights in the edited region
+      local region_marks = vim.api.nvim_buf_get_extmarks(
+        bufnr,
+        ns,
+        { edit_row - 1, 0 },
+        { edit_row + 1, -1 },
+        { details = true }
+      )
+      assert.truthy(#region_marks > 0)
+
+      finally(function()
+        stub_apply_highlighting:revert()
+        stub_clear_hl_ns:revert()
+        stub_clear_hl_ns_range:revert()
+        h.cleanup_buffer(bufnr)
       end)
     end)
   end)

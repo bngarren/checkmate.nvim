@@ -1,3 +1,12 @@
+-- [[
+-- # Adaptive and progressive highlighting
+-- "adaptive" - we pick a highlighting strategy based on the size of the region that needs updating (i.e. for region-scoped highlighting passes during TextChangedI) as well as the size of the buffer and number of root todos present.
+-- "progressive" - a partially asynchronous strategy in which the viewport is prioritized first (synchronously) and the rest of the buffer is updated in batches
+--
+--  - All extmarks set here must pass end_col as exclusive (Neovim API)
+--  - Callers using `util.get_semantic_range()` MUST convert end.row (inclusive) to end-exclusive:
+--     `local row_end_excl = range["end"].row + 1`
+-- ]]
 local util = require("checkmate.util")
 local config = require("checkmate.config")
 local api = require("checkmate.api")
@@ -17,6 +26,207 @@ M.PRIORITY = {
   TODO_MARKER = 203,
 }
 
+-- minimum buffer lines before a progressive highlighting strategy is used
+-- If less than this, will perform an "immediate" (synchronous) highlighting pass only
+M.MIN_LINE_COUNT_PROGRESSIVE = 500
+-- minimum number of root level todos before a progressive highlighting strategy is used
+M.MIN_ROOT_TODOS_PROGRESSIVE = 30
+
+-- helper that returns the primary highlights namespace
+local function hl_ns()
+  return config.ns_hl
+end
+
+---@return vim.api.keyset.get_extmark_item[]
+---e.g. each {} has:
+--- [1] integer extmark_id
+--- [2] integer row
+--- [3] integer col
+--- [4] vim.api.keyset.extmark_details?
+function M.get_hl_marks(bufnr)
+  return vim.api.nvim_buf_get_extmarks(bufnr, hl_ns(), 0, -1, { details = true })
+end
+
+function M.clear_hl_ns(bufnr)
+  vim.api.nvim_buf_clear_namespace(bufnr, hl_ns(), 0, -1)
+end
+
+--- clear namespace over an end-exclusive row span [start_row, end_row_excl)
+function M.clear_hl_ns_range(bufnr, start_row, end_row)
+  vim.api.nvim_buf_clear_namespace(bufnr, hl_ns(), start_row, end_row)
+end
+
+--- clear highlight namespace over the todo's range
+---@param bufnr any
+---@param todo checkmate.TodoItem
+function M.clear_todo_hls(bufnr, todo)
+  -- convert the todo's end inclusive row to end exclusive by +1
+  M.clear_hl_ns_range(bufnr, todo.range.start.row, todo.range["end"].row + 1)
+end
+
+-- -------- Progressive highlighting ---------
+
+-- per-buffer progressive highlighting task
+M._progressive = {} -- bufnr -> {timer, running:boolean, gen:integer}
+
+--- cancel any in-flight progressive pass for a buffer
+function M.cancel_progressive(bufnr)
+  local t = M._progressive[bufnr]
+  if t and t.timer and not t.timer:is_closing() then
+    t.timer:stop()
+    t.timer:close()
+  end
+  M._progressive[bufnr] = nil
+end
+
+--- apply immediate full-buffer highlighting (synchronous)
+---@private
+function M._apply_immediate(bufnr, todo_map)
+  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+
+  M.clear_hl_ns(bufnr)
+
+  for _, todo_item in pairs(todo_map) do
+    if not todo_item.parent_id then
+      M.highlight_todo_item(bufnr, todo_item, todo_map, { recursive = true })
+    end
+  end
+
+  M._line_cache_by_buf[bufnr] = nil
+end
+
+--- apply regional highlighting
+--- `region` should have end exclusive row
+---@private
+function M._apply_region(bufnr, todo_map, region)
+  if not region or not region.affected_roots then
+    return
+  end
+
+  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+
+  -- clear only the affected range
+  -- note: region has end-exclusive rows
+  M.clear_hl_ns_range(bufnr, region.start_row, region.end_row)
+
+  for _, root in ipairs(region.affected_roots) do
+    M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
+  end
+
+  M._line_cache_by_buf[bufnr] = nil
+end
+
+--- apply progressive highlighting, prioritizing the viewport
+---@private
+function M._apply_progressive(bufnr, todo_map, opts)
+  opts = opts or {}
+
+  M.clear_buf_line_cache(bufnr)
+  M.cancel_progressive(bufnr)
+
+  local all_roots = {}
+  for _, item in pairs(todo_map) do
+    if not item.parent_id then
+      -- skip_region is end-exclusive
+      -- we convert todo.range (semantic range) to end exclusive (+1)
+      local should_skip = opts.skip_region
+        and util.ranges_overlap(
+          item.range.start.row,
+          item.range["end"].row + 1,
+          opts.skip_region.start_row,
+          opts.skip_region.end_row
+        )
+
+      if not should_skip then
+        table.insert(all_roots, item)
+      end
+    end
+  end
+
+  if #all_roots == 0 then
+    return
+  end
+
+  table.sort(all_roots, function(a, b)
+    return a.range.start.row < b.range.start.row
+  end)
+
+  local viewport_start, viewport_end = util.get_viewport_bounds(0, 5)
+  local immediate_roots = {}
+  local deferred_roots = {}
+
+  if viewport_start then
+    for _, root in ipairs(all_roots) do
+      -- convert todo.range (semantic range) to end-exclusive (+1)
+      if util.ranges_overlap(root.range.start.row, root.range["end"].row + 1, viewport_start, viewport_end) then
+        table.insert(immediate_roots, root)
+      else
+        table.insert(deferred_roots, root)
+      end
+    end
+  else
+    -- no viewport info, process all progressively
+    deferred_roots = all_roots
+  end
+
+  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+
+  -- process viewport's root todos immediately (synchronous)
+  if #immediate_roots > 0 then
+    for _, root_todo in ipairs(immediate_roots) do
+      M.clear_todo_hls(bufnr, root_todo)
+      M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
+    end
+  end
+
+  -- remaining root todos progressively
+  if #deferred_roots > 0 then
+    M._start_progressive_timer(bufnr, deferred_roots, todo_map)
+  else
+    M._line_cache_by_buf[bufnr] = nil
+  end
+end
+
+--- start the progressive highlighting timer
+---@private
+function M._start_progressive_timer(bufnr, roots, todo_map)
+  local timer = assert(vim.uv.new_timer())
+  local gen = vim.uv.hrtime() or 0
+  local idx = 1
+  -- scale with # of root todos
+  local batch_size = math.floor(math.min(20 + #roots / 100, 400))
+  local interval = 20
+
+  M._progressive[bufnr] = { timer = timer, running = true, gen = gen }
+
+  local function tick()
+    local ctx = M._progressive[bufnr]
+    if not ctx or ctx.gen ~= gen or not vim.api.nvim_buf_is_valid(bufnr) then
+      pcall(M.clear_buf_line_cache, bufnr)
+      M.cancel_progressive(bufnr)
+      return
+    end
+
+    local batch_end = math.min(idx + batch_size - 1, #roots)
+    for i = idx, batch_end do
+      local root_todo = roots[i]
+      if root_todo then
+        M.clear_todo_hls(bufnr, root_todo)
+        M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
+      end
+    end
+
+    idx = batch_end + 1
+
+    if idx > #roots then
+      M.clear_buf_line_cache(bufnr)
+      M.cancel_progressive(bufnr)
+    end
+  end
+
+  timer:start(0, interval, vim.schedule_wrap(tick))
+end
+
 --- Get highlight group for todo content based on state and relation
 ---@param todo_state string
 ---@param is_main_content boolean Whether this is main content or additional content
@@ -32,18 +242,20 @@ end
 
 -- Caching
 -- To avoid redundant nvim_buf_get_lines calls during highlighting passes
----@type LineCache|nil
-M._current_line_cache = nil
+---@type table<integer, LineCache>
+M._line_cache_by_buf = {}
 
 function M.get_buffer_line(bufnr, row)
-  if M._current_line_cache then
-    return M._current_line_cache:get(row)
+  local cache = M._line_cache_by_buf[bufnr]
+  if cache then
+    return cache:get(row)
   end
+  -- fallback: create a throwaway cache for isolated calls
+  return util.create_line_cache(bufnr):get(row)
+end
 
-  -- fallback: create a temporary cache just for this call
-  -- this shouldn't happen in normal flow but provides safety
-  local cache = util.create_line_cache(bufnr)
-  return cache:get(row)
+function M.clear_buf_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = nil
 end
 
 -- Maps hash -> { highlight_group, style }
@@ -165,45 +377,65 @@ function M.setup_highlights()
 end
 
 ---@class ApplyHighlightingOpts
----@field todo_map table<integer, checkmate.TodoItem>? Will use this todo_map instead of running discover_todos
----@field debug_reason string? Reason for call (to help debug why highlighting update was called)
+---@field todo_map? table<integer, checkmate.TodoItem> Pre-computed todo map
+---@field region? {start_row: integer, end_row: integer, affected_roots?: checkmate.TodoItem[]} Regional update bounds
+---@field strategy? "immediate"|"adaptive" Highlighting strategy (default: "adaptive")
+---@field debug_reason? string Debug context
 
---- TODO: This redraws all highlights and can be expensive for large files.
---- For future optimization, consider implementing incremental updates.
----
----@param bufnr integer Buffer number
----@param opts ApplyHighlightingOpts? Options
+--- Apply highlighting with intelligent strategy selection
+--- @param bufnr? integer
+--- @param opts? ApplyHighlightingOpts
 function M.apply_highlighting(bufnr, opts)
   profiler.start("highlights.apply_highlighting")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    profiler.stop("highlights.apply_highlighting")
     return
   end
 
   opts = opts or {}
+  local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
+  local strategy = opts.strategy or "adaptive"
 
-  if opts.debug_reason then
-    -- could log here...
+  -- regional updates first (always immediate +/- a full progressive update)
+  if opts.region then
+    M._apply_region(bufnr, todo_map, opts.region)
+
+    -- for larger regions, also queue a full update for consistency
+    local region_size = opts.region.end_row - opts.region.start_row
+    if region_size > config.get_region_limit(bufnr) and strategy == "adaptive" then
+      vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(bufnr) then
+          M._apply_progressive(bufnr, todo_map, {
+            skip_region = opts.region,
+          })
+        end
+      end, 100)
+    end
+    profiler.stop("highlights.apply_highlighting")
+    return
   end
 
-  vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+  -- full buffer update
+  if strategy == "immediate" then
+    M._apply_immediate(bufnr, todo_map)
+  else -- adaptive
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+    local root_count = 0
+    for _, item in pairs(todo_map) do
+      if not item.parent_id then
+        root_count = root_count + 1
+      end
+    end
 
-  -- line cache for this highlighting pass
-  M._current_line_cache = util.create_line_cache(bufnr)
-
-  ---@type table<integer, checkmate.TodoItem>
-  local todo_map = opts.todo_map or parser.get_todo_map(bufnr)
-
-  for _, todo_item in pairs(todo_map) do
-    if not todo_item.parent_id then
-      -- only process top-level todo items (children handled recursively)
-      M.highlight_todo_item(bufnr, todo_item, todo_map, { recursive = true })
+    -- use progressive for large buffers, immediate for small
+    if line_count > M.MIN_LINE_COUNT_PROGRESSIVE or root_count > M.MIN_ROOT_TODOS_PROGRESSIVE then
+      M._apply_progressive(bufnr, todo_map)
+    else
+      M._apply_immediate(bufnr, todo_map)
     end
   end
-
-  M._current_line_cache = nil
 
   profiler.stop("highlights.apply_highlighting")
 end
@@ -323,7 +555,7 @@ function M.highlight_todo_marker(bufnr, todo_item)
 
     -- marker_pos.col is already in bytes (0-indexed)
     -- for extmarks, end_col is exclusive, so we add the byte length
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_pos.row, marker_pos.col, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), marker_pos.row, marker_pos.col, {
       end_row = marker_pos.row,
       end_col = marker_pos.col + #marker_text, -- end col is the last col of marker + 1 (end exclusive)
       hl_group = hl_group,
@@ -349,7 +581,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
       local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
         or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, start_row, start_col, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
         end_row = start_row,
         end_col = start_col + #marker_text,
         hl_group = hl_group,
@@ -376,7 +608,7 @@ function M.highlight_list_markers(bufnr, todo_item, todo_rows)
         local marker_type = parser.get_marker_type_from_capture_name(capture_name)
         local hl_group = marker_type == "ordered" and "CheckmateListMarkerOrdered" or "CheckmateListMarkerUnordered"
 
-        vim.api.nvim_buf_set_extmark(bufnr, config.ns, marker_start_row, marker_start_col, {
+        vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), marker_start_row, marker_start_col, {
           end_row = marker_start_row,
           end_col = marker_end_col - 1, -- ts includes trailing space after list marker, we exclude it here
           hl_group = hl_group,
@@ -435,7 +667,7 @@ function M.highlight_metadata(bufnr, todo_item)
         highlight_group = "CheckmateMeta_" .. canonical_name
       end
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, entry.range.start.row, entry.range.start.col, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), entry.range.start.row, entry.range.start.col, {
         end_row = entry.range["end"].row,
         end_col = entry.range["end"].col, -- end exclusive
         hl_group = highlight_group,
@@ -477,7 +709,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
     if child:type() == "setext_heading" then
       local sr, _, er, _ = child:range()
 
-      vim.api.nvim_buf_set_extmark(bufnr, config.ns, sr, 0, {
+      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), sr, 0, {
         end_row = er,
         end_col = 0,
         hl_group = "CheckmateNormal",
@@ -514,7 +746,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         local content_start = get_content_start(line, search_start)
 
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -527,7 +759,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
       else
         local content_start = get_content_start(line, 0)
         if content_start and content_start < #line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #line, -- byte length
             hl_group = main_content_hl,
@@ -572,7 +804,7 @@ function M.highlight_content(bufnr, todo_item, todo_map)
         end
 
         if content_start and content_start < #row_line then
-          vim.api.nvim_buf_set_extmark(bufnr, config.ns, row, content_start, {
+          vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), row, content_start, {
             end_row = row,
             end_col = #row_line,
             hl_group = additional_content_hl,
@@ -620,13 +852,15 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
 
   if config.options.todo_count_position == "inline" then
     local extmark_start_col = todo_item.todo_marker.position.col + #todo_item.todo_marker.text + 1
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, extmark_start_col, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), todo_item.range.start.row, extmark_start_col, {
+      end_col = extmark_start_col + #indicator_text,
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" }, { " ", "Normal" } },
       virt_text_pos = "inline",
       priority = M.PRIORITY.TODO_MARKER + 1,
     })
   elseif config.options.todo_count_position == "eol" then
-    vim.api.nvim_buf_set_extmark(bufnr, config.ns, todo_item.range.start.row, 0, {
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), todo_item.range.start.row, 0, {
+      end_col = #indicator_text,
       virt_text = { { indicator_text, "CheckmateTodoCountIndicator" } },
       virt_text_pos = "eol",
       priority = M.PRIORITY.CONTENT,

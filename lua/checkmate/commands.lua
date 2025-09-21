@@ -297,26 +297,46 @@ local top_commands = {
           },
         },
       },
-      profiler_on = {
-        desc = "Start profiler",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").start_session()
-        end,
-      },
-      profiler_off = {
-        desc = "Stop profiler",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").stop_session()
-        end,
-      },
-      report = {
-        desc = "Show profiler report",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").show_report()
-        end,
+      profiler = {
+        desc = "Profiler",
+        subcommands = {
+          enable = {
+            desc = "Enable profiling",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").enable()
+            end,
+          },
+          disable = {
+            desc = "Disable profiling",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").disable()
+            end,
+          },
+
+          start = {
+            desc = "Start profiler session",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").start_session()
+            end,
+          },
+          stop = {
+            desc = "Stop profiler session",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").stop_session()
+            end,
+          },
+          report = {
+            desc = "Show profiler report",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").show_report()
+            end,
+          },
+        },
       },
     },
   },

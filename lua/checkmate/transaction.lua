@@ -163,7 +163,7 @@ function M.run(bufnr, entry_fn, post_fn)
 
       if #all_hunks > 0 then
         diff.apply_diff(bufnr, all_hunks)
-        state.todo_map = parser.discover_todos(bufnr)
+        state.todo_map = parser.get_todo_map(bufnr)
       end
     elseif #state.cb_micro_queue > 0 then
       local cbs = state.cb_micro_queue

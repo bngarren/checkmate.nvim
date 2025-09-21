@@ -10,6 +10,8 @@ Buffer manipulation via diff hunks
 ]]
 local M = {}
 
+local profiler = require("checkmate.profiler")
+
 ---@class checkmate.TextDiffHunk
 ---@field start_row integer 0-based row
 ---@field start_col integer 0-based col
@@ -233,10 +235,13 @@ end
 ---@param new_marker string
 ---@return checkmate.TextDiffHunk
 function M.make_marker_replace(todo_item, new_marker)
+  profiler.start("diff.make_marker_replace")
   local row = todo_item.todo_marker.position.row
   local col = todo_item.todo_marker.position.col
   local old_marker_len = #todo_item.todo_marker.text
   -- end_col is exclusive, so we add the length to get the position after the marker
+  profiler.stop("diff.make_marker_replace")
+
   return M.make_text_replace(row, col, col + old_marker_len, new_marker)
 end
 
@@ -267,6 +272,7 @@ function M.apply_diff(bufnr, hunks)
   if not hunks or #hunks == 0 then
     return
   end
+  profiler.start("diff.apply_diff")
 
   local valid_hunks = {}
   for _, hunk in ipairs(hunks) do
@@ -292,6 +298,7 @@ function M.apply_diff(bufnr, hunks)
       end
     end
   end)
+  profiler.stop("diff.apply_diff")
 end
 
 M.TextDiffHunk = TextDiffHunk

@@ -127,6 +127,36 @@ local menu = {
       },
     },
   },
+  {
+    name = "⌚︎ Profiler...",
+    hl = "Normal",
+    items = {
+      {
+        name = "▶︎ Start Profiling Session",
+        hl = "Normal",
+        cmd = function()
+          require("checkmate.profiler").start_session()
+        end,
+        rtxt = "1",
+      },
+      {
+        name = "◼︎ Stop Profiling Session",
+        hl = "Normal",
+        cmd = function()
+          require("checkmate.profiler").stop_session()
+        end,
+        rtxt = "2",
+      },
+      {
+        name = "⎘ Show Report",
+        hl = "Normal",
+        cmd = function()
+          require("checkmate.profiler").show_report()
+        end,
+        rtxt = "3",
+      },
+    },
+  },
 }
 
 function M.open()

@@ -1245,6 +1245,7 @@ end
 ---@param operations table[] Array of {id: integer, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_state(ctx, operations)
+  profiler.start("api.toggle_state")
   local hunks = {}
 
   for _, op in ipairs(operations) do
@@ -1255,6 +1256,7 @@ function M.toggle_state(ctx, operations)
       table.insert(hunks, hunk)
     end
   end
+  profiler.stop("api.toggle_state")
 
   return hunks
 end
@@ -1273,6 +1275,8 @@ end
 ---@param todo_map table<integer, checkmate.TodoItem>
 ---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
+  profiler.start("api.propagate_toggle")
+
   local smart_config = config.options.smart_toggle
 
   -- holds which todo's need their state updated
@@ -1528,6 +1532,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   if #operations > 0 then
     ctx.add_op(M.toggle_state, operations)
   end
+  profiler.stop("api.propagate_toggle")
 end
 
 --- Get the next todo state in the cycle

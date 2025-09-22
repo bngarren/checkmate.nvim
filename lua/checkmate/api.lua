@@ -745,7 +745,7 @@ function M.shutdown(bufnr)
 
     -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
     pcall(parser.convert_unicode_to_markdown, bufnr)
-    parser.todo_map_cache[bufnr] = nil
+    parser.buf_todo_cache[bufnr] = nil
 
     M.clear_keymaps(bufnr)
 

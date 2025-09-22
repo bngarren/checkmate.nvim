@@ -78,8 +78,13 @@ M.list_item_markers = { "-", "+", "*" }
 M.markdown_checked_checkbox = "%[[xX]%]"
 M.markdown_unchecked_checkbox = "%[ %]"
 
--- [buffer] -> {version: integer, current: table<integer, checkmate.TodoItem> }
-M.todo_map_cache = {}
+---@class checkmate.TodoCache
+---@field version integer
+---@field map table<integer, checkmate.TodoItem> Todo map
+---@field node_index table<string, integer> TSNode id -> Todo id (extmark id)
+
+---@type table<integer, checkmate.TodoCache>
+M.buf_todo_cache = {}
 
 -- [marker] -> state name
 M.todo_marker_to_state = {}
@@ -99,7 +104,7 @@ local pattern_cache = {
 local todo_states_cache = nil
 
 function M.clear_parser_cache()
-  M.todo_map_cache = {}
+  M.buf_todo_cache = {}
   M.todo_marker_to_state = {}
 
   pattern_cache = {
@@ -257,33 +262,50 @@ function M.get_todo_state_by_marker(marker)
   return M.todo_marker_to_state[marker]
 end
 
----Returns a todo map of the current buffer
----Will hit cache if buffer has not changed since last full parse,
----according to `:changedtick`
----@param bufnr integer Buffer number
----@return table<integer, checkmate.TodoItem>
-function M.get_todo_map(bufnr)
+function M.get_buf_todo_cache(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
-    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    log.error("[parser] Invalid buffer")
     return {}
   end
 
   local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
-  local cache = M.todo_map_cache[bufnr]
+  local cache = M.buf_todo_cache[bufnr]
 
-  -- Cache hit - no changes since last parse
+  -- cache hit - no changes since last parse
   if cache and changedtick == cache.version then
-    return cache.current or {}
+    return cache or {}
   end
 
-  -- Buffer changed - need fresh parse
+  -- buffer changed - need fresh parse
   local fresh_todo_map = M.discover_todos(bufnr)
-  M.todo_map_cache[bufnr] = {
+
+  -- also cache a node_id -> todo_id (used by `get_todo_item_at_position`)
+  local idx = {}
+  for id, item in pairs(fresh_todo_map) do
+    idx[item.node:id()] = id
+  end
+
+  M.buf_todo_cache[bufnr] = {
     version = changedtick,
-    current = fresh_todo_map,
+    map = fresh_todo_map,
+    node_index = idx,
   }
 
-  return fresh_todo_map
+  return M.buf_todo_cache[bufnr]
+end
+
+---Returns a todo map of the current buffer
+---Will hit cache if buffer has not changed since last full parse,
+---according to `:changedtick`
+---See `get_buf_todo_cache`
+---@param bufnr integer Buffer number
+---@return table<integer, checkmate.TodoItem>
+function M.get_todo_map(bufnr)
+  return M.get_buf_todo_cache(bufnr).map
+end
+
+function M.get_node_todo_index(bufnr)
+  return M.get_buf_todo_cache(bufnr).node_index
 end
 
 --- Given a line (string), returns the todo state, e.g. "checked" or "unchecked"
@@ -562,13 +584,13 @@ function M.convert_unicode_to_markdown(bufnr)
 end
 
 ---@class GetTodoItemAtPositionOpts
----@field todo_map? table<integer, checkmate.TodoItem> Pre-parsed todo item map to use instead of performing within function
+---@field todo_map? table<integer, checkmate.TodoItem>
 ---@field root_only? boolean If true, only matches to the todo item's first line
 
 -- Function to find a todo item at a given buffer position
 --  - If on a blank line, will return nil
 --  - If on the same line as a todo item, will return the todo item
---  - If on a line that is contained within a parent todo item, may return the todo item depending on the allowed max_depth
+--  - If on a line that is contained within a parent todo item, may return the todo item depending on `opts.root_only`
 --  - Otherwise if no todo item is found, will return nil
 ---@param bufnr integer? Buffer number
 ---@param row integer? 0-indexed row
@@ -595,21 +617,23 @@ function M.get_todo_item_at_position(bufnr, row, col, opts)
     end
   end
 
+  log.fmt_debug(
+    "[parser][get_todo_item_at_position] could not find todo by extmark position for 0-indexed row=%d col=%, attempting TS search for closest list_item",
+    row,
+    col
+  )
+
   -- we are here because the row did not match a todo's first row (tracked by the extmark)...but we could still be within a todo's scope
   -- use TS to find the smallest list_item containing this position
   local root = M.get_markdown_tree_root(bufnr)
   local node = root:named_descendant_for_range(row, col, row, col)
 
-  -- reverse lookup: node -> todo_item
-  local node_to_todo = {}
-  for _, todo_item in pairs(todo_map) do
-    node_to_todo[todo_item.node:id()] = todo_item
-  end
+  local node_index = M.get_node_todo_index(bufnr)
 
   -- walk up from the current node to find the closest list_item that's a todo
   while node do
-    if node:type() == "list_item" then
-      local todo_item = node_to_todo[node:id()]
+    if node:type() == "list_item" and node_index then
+      local todo_item = todo_map[node_index[node:id()]]
       -- limit to the semantic end row (TS range's will include a blank line at the end of the node as part of the node)
       if todo_item and row <= todo_item.range["end"].row then
         if opts.root_only ~= true then

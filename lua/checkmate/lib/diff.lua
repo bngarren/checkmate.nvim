@@ -10,6 +10,9 @@ Buffer manipulation via diff hunks
 ]]
 local M = {}
 
+local vapi = vim.api
+local cmd = vim.cmd
+
 local profiler = require("checkmate.profiler")
 
 ---@class checkmate.TextDiffHunk
@@ -72,6 +75,7 @@ end
 ---@param bufnr integer
 ---@param opts? {undojoin?: boolean}
 function TextDiffHunk:apply(bufnr, opts)
+  profiler.start("diff.hunk:apply")
   opts = opts or {}
 
   -- skip no-op
@@ -80,22 +84,21 @@ function TextDiffHunk:apply(bufnr, opts)
   end
 
   if opts.undojoin ~= false then
-    pcall(function()
-      vim.cmd("silent! undojoin")
-    end)
+    cmd("silent! undojoin")
   end
 
   if self._type == "line_insert" then
     -- pure line insertion at row boundary
-    vim.api.nvim_buf_set_lines(bufnr, self.start_row, self.start_row, false, self.insert)
+    vapi.nvim_buf_set_lines(bufnr, self.start_row, self.start_row, false, self.insert)
   elseif self._type == "line_replace" then
     -- full line replacement - end_row is exclusive for lines
-    vim.api.nvim_buf_set_lines(bufnr, self.start_row, self.end_row, false, self.insert)
+    vapi.nvim_buf_set_lines(bufnr, self.start_row, self.end_row, false, self.insert)
   else
     -- preserves extmarks outside the modified range
     -- end_row is exclusive
-    vim.api.nvim_buf_set_text(bufnr, self.start_row, self.start_col, self.end_row, self.end_col, self.insert)
+    vapi.nvim_buf_set_text(bufnr, self.start_row, self.start_col, self.end_row, self.end_col, self.insert)
   end
+  profiler.stop("diff.hunk:apply")
 end
 
 --- Transform input text to string array format
@@ -220,7 +223,7 @@ end
 ---@param bufnr integer
 ---@return checkmate.TextDiffHunk
 function M.make_line_append(row, text, bufnr)
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+  local line = vapi.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
   return M.make_text_insert(row, #line, text)
 end
 
@@ -289,13 +292,11 @@ function M.apply_diff(bufnr, hunks)
     return a.start_col > b.start_col
   end)
 
-  vim.api.nvim_buf_call(bufnr, function()
+  vapi.nvim_buf_call(bufnr, function()
     -- apply hunks (first one creates undo entry, rest join)
     for i, hunk in ipairs(valid_hunks) do
       local undojoin = i > 1 -- join all operations after the first
-      if not vim.tbl_isempty(hunk) then
-        hunk:apply(bufnr, { undojoin = undojoin })
-      end
+      hunk:apply(bufnr, { undojoin = undojoin })
     end
   end)
   profiler.stop("diff.apply_diff")

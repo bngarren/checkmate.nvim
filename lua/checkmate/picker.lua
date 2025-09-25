@@ -19,7 +19,7 @@ local function get_preferred_picker()
   return ui.picker
 end
 
--- Default window dimensions
+-- default picker window dimensions
 local DEFAULT_WIDTH = 0.4
 local DEFAULT_HEIGHT = 20
 local DEFAULT_MIN_WIDTH = 40

@@ -1,4 +1,3 @@
--- lua/checkmate/theme.lua
 local M = {}
 
 -- Validate hex color format (#RRGGBB)

@@ -11,14 +11,15 @@ function M.check()
 
   start("Checkmate health check")
 
-  -- Check Neovim version
+  -- Neovim version
   if vim.fn.has("nvim-0.10.2") == 1 then
     ok("Using Neovim >= 0.10.2")
   else
     error("Checkmate requires Neovim >= 0.10.2")
   end
 
-  -- Check markdown parser
+  -- check markdown parser
+  -- though i think neovim includes Markdown by default
   local has_md_parser, _ = vim.treesitter.language.add("markdown")
   if has_md_parser then
     ok("Markdown parser present")

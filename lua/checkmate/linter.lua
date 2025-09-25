@@ -1,5 +1,4 @@
 --[[
--- Validator-Based Markdown Linter
 --
 -- This linter enforces two critical CommonMark list indentation rules (spec 0.31.2 §6):
 --
@@ -11,13 +10,13 @@
 -- It also warns when ordered & unordered markers are mixed at the same indent.
 
 -- Design:
--- The linter uses a validator-based architecture where each rule is encapsulated
--- in a separate validator object implementing a common interface.
+-- Uses a validator-based approach where each rule is encapsulated
+-- in a validator object that implements an expected interface
 --
 -- Each validator receives a LintContext containing all necessary information to
--- perform validation and report issues through a simplified reporting function.
+-- perform validation and report issues
 --
--- Key Terms:
+-- note:
 -- - marker_col: The column position (0-indexed) where a list marker (-,*,+,1.) begins
 -- - content_col: The column position where the actual content of a list item begins
 --                (after the marker and any whitespace)
@@ -29,15 +28,15 @@ local log = require("checkmate.log")
 local M = {}
 local cfg = {} ---@type table<string,any>
 
--- Internal-only type that extends the user-facing config
+-- internal-only type that extends the user-facing config
 ---@class checkmate.InternalLinterConfig : checkmate.LinterConfig
----@field namespace string? -- Which diagnostic namespace to use
----@field virtual_text vim.diagnostic.Opts.VirtualText -- Virtual text options
----@field underline vim.diagnostic.Opts.Underline -- Underline options
+---@field namespace string? -- diagnostic namespace to use
+---@field virtual_text vim.diagnostic.Opts.VirtualText -- virtual text options
+---@field underline vim.diagnostic.Opts.Underline -- underline options
 
 M.ns = vim.api.nvim_create_namespace("checkmate_lint")
 
--- Define linter rules
+-- linter rules
 M.RULES = {
   INCONSISTENT_MARKER = {
     id = "INCONSISTENT_MARKER",
@@ -56,28 +55,28 @@ M.RULES = {
   },
 }
 
--- Default configuration
+-- default configuration
 ---@type checkmate.InternalLinterConfig
 M._defaults = {
   enabled = true,
   virtual_text = { prefix = "▸" },
-  underline = { severity = "WARN" },
+  underline = { severity = 2 }, -- 2 == WARN
   severity = {}, -- will be initialized from M.RULES
   verbose = false,
 }
 
--- Initialize default severities from rules
+-- default severities from rules
 for id, rule in pairs(M.RULES) do
   M._defaults.severity[id] = rule.severity
 end
 
---- Helpers
+--- helpers
 ------------------------------------------------------------
 
 ---Return the 0‑based column of the first non‑blank char after `idx`
----@param line string The line to examine
----@param idx integer The 0-based starting position
----@return integer The column of the first non-blank character
+---@param line string line to examine
+---@param idx integer 0-based starting position
+---@return integer col the column of the first non-blank character
 local function first_non_space(line, idx)
   local pos = line:find("[^ \t]", idx + 1)
   return pos and (pos - 1) or #line
@@ -149,13 +148,13 @@ end
 ------------------------------------------------------------
 
 ---Create a diagnostic in the diagnostics table
----@param bufnr integer Buffer number
----@param diags table Table of diagnostics
----@param rule_id string The rule ID from M.RULES
----@param row integer The 0-based row number
----@param col integer The 0-based column number
----@param extra_info? string Optional context to append to message
----@return boolean success Whether a diagnostic was added
+---@param bufnr integer buffer number
+---@param diags table table of diagnostics
+---@param rule_id string the rule ID from M.RULES
+---@param row integer 0-based row number
+---@param col integer 0-based column number
+---@param extra_info? string optional context to append to message
+---@return boolean success whether a diagnostic was added
 local function create_diagnostic(bufnr, diags, rule_id, row, col, extra_info)
   local rule = M.RULES[rule_id]
   if not rule then
@@ -186,17 +185,17 @@ end
 ------------------------------------------------------------
 
 ---@class LinterListItem
----@field row integer Row position (0-indexed) of this list item
----@field marker_col integer Column position (0-indexed) where the list marker begins
----@field content_col integer Column position where the content begins (after marker and whitespace)
----@field marker_type "ordered"|"unordered" Type of list marker (ordered = 1., unordered = -,*,+)
+---@field row integer row position (0-indexed) of this list item
+---@field marker_col integer column position (0-indexed) where the list marker begins
+---@field content_col integer column position where the content begins (after marker and whitespace)
+---@field marker_type "ordered"|"unordered" type of list marker (ordered = 1., unordered = -,*,+)
 
 ---Context provided to lint validators when checking a list item
 ---@class LintContext
----@field bufnr integer Buffer being linted
----@field diags table Collection of diagnostics so far in this buffer
----@field list_item LinterListItem Current list item being validated
----@field row integer Current row being validated (0-indexed)
+---@field bufnr integer buffer being linted
+---@field diags table collection of diagnostics so far in this buffer
+---@field list_item LinterListItem current list item being validated
+---@field row integer current row being validated (0-indexed)
 ---@field indent_marker_map table<integer,{type:string,row:integer}> Maps indent positions to marker types
 ---@field parent LinterListItem|nil Parent list item (if any)
 ---@field report fun(rule_id:string, col:integer, extra_info?:string):boolean Function to report an issue
@@ -218,34 +217,33 @@ local Validator = {}
 ---
 ---@return LinterRuleValidator
 function Validator.inconsistent_marker()
-  -- Track markers by parent ID and indentation level
+  -- track markers by parent ID and indentation level
   local parent_indent_map = {}
 
   return {
     ---@param ctx LintContext
     validate = function(ctx)
-      -- Skip validation for top-level list items (allow variety at document root)
+      -- skip validation for top-level list items (allow variety at document root)
       if not ctx.parent then
         return false
       end
 
-      -- Create a unique key based on parent row and marker column
-      -- This ensures we only compare siblings (items with the same parent)
+      -- create a unique key based on parent row and marker column
+      -- i.e. ensures we only compare siblings (items with the same parent)
       local parent_key = string.format("%d:%d", ctx.parent.row, ctx.parent.marker_col)
       local indent_key = ctx.list_item.marker_col
 
-      -- Initialize parent map if needed
       parent_indent_map[parent_key] = parent_indent_map[parent_key] or {}
 
-      -- Check if we've seen a different marker type for siblings at this indent level
+      -- check if we've seen a different marker type for siblings at this indent level
       local existing = parent_indent_map[parent_key][indent_key]
 
       if existing and existing ~= ctx.list_item.marker_type then
-        -- We found siblings with different marker types
+        -- we found siblings with different marker types
         ctx.report("INCONSISTENT_MARKER", ctx.list_item.marker_col)
         return true
       else
-        -- Remember this marker type for siblings at this indent level
+        -- remember this marker type for siblings at this indent level
         parent_indent_map[parent_key][indent_key] = ctx.list_item.marker_type
         return false
       end
@@ -267,21 +265,20 @@ function Validator.indent_shallow()
   return {
     ---@param ctx LintContext
     validate = function(ctx)
-      -- Skip if parent already has an indent issue (to avoid redundant errors)
+      -- skip if parent already has an indent issue (to avoid redundant errors)
       if ctx.parent then
-        -- Check if parent marker position has an existing indent diagnostic
         for _, diag in ipairs(ctx.diags) do
           if
             (diag.code == "INDENT_SHALLOW" or diag.code == "INDENT_DEEP")
             and diag.col == ctx.parent.marker_col
             and diag.lnum == ctx.parent.row
           then
-            return false -- Skip validation
+            return false -- skip validation
           end
         end
       end
 
-      -- Check if this list item's marker is positioned before its parent's content
+      -- check if this list item's marker is positioned before its parent's content
       if ctx.parent and ctx.list_item.marker_col < ctx.parent.content_col then
         local extra_info = string.format("(should be at column %d or greater)", ctx.parent.content_col)
         ctx.report("INDENT_SHALLOW", ctx.list_item.marker_col, extra_info)
@@ -306,21 +303,20 @@ function Validator.indent_deep()
   return {
     ---@param ctx LintContext
     validate = function(ctx)
-      -- Skip if parent already has an indent issue (to avoid redundant errors)
+      -- skip if parent already has an indent issue (to avoid redundant errors)
       if ctx.parent then
-        -- Check if parent marker position has an existing indent diagnostic
         for _, diag in ipairs(ctx.diags) do
           if
             (diag.code == "INDENT_SHALLOW" or diag.code == "INDENT_DEEP")
             and diag.col == ctx.parent.marker_col
             and diag.lnum == ctx.parent.row
           then
-            return false -- Skip validation
+            return false -- skip validation
           end
         end
       end
 
-      -- Check if this list item's marker is more than 3 spaces to the right of parent's content
+      -- check if this list item's marker is more than 3 spaces to the right of parent's content
       if ctx.parent and ctx.list_item.marker_col > ctx.parent.content_col + 3 then
         local extra_info = string.format("(maximum allowed is column %d)", ctx.parent.content_col + 3)
         ctx.report("INDENT_DEEP", ctx.list_item.marker_col, extra_info)
@@ -331,7 +327,6 @@ function Validator.indent_deep()
   }
 end
 
--- The list of validators to run
 local validators = {
   Validator.inconsistent_marker(),
   Validator.indent_shallow(),
@@ -386,14 +381,14 @@ function M.lint_buffer(bufnr)
     if list_item then
       list_item.row = row
 
-      -- Get parent (if any) for nested list item checks
+      -- get parent (if any) for nested list item checks
       local parent = pop_parent(stack, list_item.marker_col)
 
       if parent then
         parent.row = parent.row or row - 1 -- Estimate if not set
       end
 
-      -- Create a context for validation
+      -- create a context for validation
       local ctx = {
         bufnr = bufnr,
         diags = diags,
@@ -401,18 +396,18 @@ function M.lint_buffer(bufnr)
         row = row,
         indent_marker_map = indent_marker_map,
         parent = parent,
-        -- Pre-bound report function for this row
+        -- report function for this row
         report = function(rule_id, col, extra_info)
           return create_diagnostic(bufnr, diags, rule_id, row, col, extra_info)
         end,
       }
 
-      -- Run all validators
+      -- run all validators
       for _, validator in ipairs(validators) do
         validator.validate(ctx)
       end
 
-      -- Add this item to the stack for future children
+      -- add this item to the stack for future children
       push(stack, list_item)
     end
   end
@@ -440,15 +435,15 @@ function M.register_validator(factory, opts)
   local validator = factory()
 
   if opts.priority and opts.priority < 0 then
-    -- Insert at beginning
+    -- insert at beginning
     table.insert(validators, 1, validator)
     return 1
   elseif opts.priority and opts.priority > 0 then
-    -- Insert at specific position
+    -- insert at specific position
     table.insert(validators, opts.priority, validator)
     return opts.priority
   else
-    -- Default: append at end
+    -- default: append at end
     table.insert(validators, validator)
     return #validators
   end
@@ -468,14 +463,14 @@ function M.register_rule(id, rule)
     severity = rule.severity or vim.diagnostic.severity.WARN,
   }
 
-  -- Set default severity
+  -- set default severity
   if not cfg.severity then
     cfg.severity = {}
   end
   cfg.severity[id] = rule.severity
 end
 
--- Export Validator for API use
+-- export Validator for API use
 M.Validator = Validator
 
 -- For testing - get validators

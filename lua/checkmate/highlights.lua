@@ -31,6 +31,8 @@ M.PRIORITY = {
 M.MIN_LINE_COUNT_PROGRESSIVE = 500
 -- minimum number of root level todos before a progressive highlighting strategy is used
 M.MIN_ROOT_TODOS_PROGRESSIVE = 30
+-- number of millesconds allowed for each progressive step
+M.MS_PER_PROGRESSIVE_STEP = 8000
 
 -- helper that returns the primary highlights namespace
 local function hl_ns()
@@ -66,17 +68,19 @@ end
 
 -- -------- Progressive highlighting ---------
 
--- per-buffer progressive highlighting task
-M._progressive = {} -- bufnr -> {timer, running:boolean, gen:integer}
+-- per-buffer progressive highlighting state
+-- bufnr -> { running:boolean, gen:integer, idx:integer, roots:checkmate.TodoItem[], max_slice_time:integer, max_batch:integer }
+M._progressive = {}
 
 --- cancel any in-flight progressive pass for a buffer
 function M.cancel_progressive(bufnr)
-  local t = M._progressive[bufnr]
-  if t and t.timer and not t.timer:is_closing() then
-    t.timer:stop()
-    t.timer:close()
+  local st = M._progressive[bufnr]
+  if st then
+    st.running = false
+    -- bump gen to invalidate any in-flight steps
+    st.gen = (st.gen or 0) + 1
+    M._progressive[bufnr] = nil
   end
-  M._progressive[bufnr] = nil
 end
 
 --- apply immediate full-buffer highlighting (synchronous)
@@ -181,50 +185,77 @@ function M._apply_progressive(bufnr, todo_map, opts)
 
   -- remaining root todos progressively
   if #deferred_roots > 0 then
-    M._start_progressive_timer(bufnr, deferred_roots, todo_map)
+    M._start_progressive_loop(bufnr, deferred_roots, todo_map)
   else
     M._line_cache_by_buf[bufnr] = nil
   end
 end
 
---- start the progressive highlighting timer
 ---@private
-function M._start_progressive_timer(bufnr, roots, todo_map)
-  local timer = assert(vim.uv.new_timer())
-  local gen = vim.uv.hrtime() or 0
-  local idx = 1
-  -- scale with # of root todos
-  local batch_size = math.floor(math.min(20 + #roots / 100, 400))
-  local interval = 20
+local function _progressive_step(bufnr, todo_map, cur_gen)
+  local st = M._progressive[bufnr]
+  if not st or st.gen ~= cur_gen or not vim.api.nvim_buf_is_valid(bufnr) then
+    M.clear_buf_line_cache(bufnr)
+    M.cancel_progressive(bufnr)
+    return
+  end
 
-  M._progressive[bufnr] = { timer = timer, running = true, gen = gen }
+  local start = vim.uv.hrtime()
+  local processed = 0
+  local roots = st.roots
 
-  local function tick()
-    local ctx = M._progressive[bufnr]
-    if not ctx or ctx.gen ~= gen or not vim.api.nvim_buf_is_valid(bufnr) then
-      pcall(M.clear_buf_line_cache, bufnr)
-      M.cancel_progressive(bufnr)
-      return
+  -- process until either we hit the batch cap OR the time budget
+  while st.idx <= #roots do
+    local root = roots[st.idx]
+    st.idx = st.idx + 1
+
+    if root then
+      M.clear_todo_hls(bufnr, root)
+      M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
+      processed = processed + 1
     end
 
-    local batch_end = math.min(idx + batch_size - 1, #roots)
-    for i = idx, batch_end do
-      local root_todo = roots[i]
-      if root_todo then
-        M.clear_todo_hls(bufnr, root_todo)
-        M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
-      end
+    if processed >= st.max_batch then
+      break
     end
 
-    idx = batch_end + 1
-
-    if idx > #roots then
-      M.clear_buf_line_cache(bufnr)
-      M.cancel_progressive(bufnr)
+    if (vim.uv.hrtime() - start) >= st.budget_us then
+      break
     end
   end
 
-  timer:start(0, interval, vim.schedule_wrap(tick))
+  if st.idx > #roots then
+    -- done
+    M.clear_buf_line_cache(bufnr)
+    M.cancel_progressive(bufnr)
+    return
+  end
+
+  -- yield to UI, then schedule the next slice
+  vim.schedule(function()
+    _progressive_step(bufnr, todo_map, cur_gen)
+  end)
+end
+
+--- start the progressive highlighting loop
+---@private
+function M._start_progressive_loop(bufnr, roots, todo_map)
+  local budget_us = M.MS_PER_PROGRESSIVE_STEP -- ms per UI slice
+  local max_batch = math.max(50, math.floor(math.min(20 + #roots / 100, 400)))
+
+  local gen = vim.uv.hrtime() or 0
+  M._progressive[bufnr] = {
+    running = true,
+    gen = gen,
+    idx = 1,
+    roots = roots,
+    budget_us = budget_us,
+    max_batch = max_batch,
+  }
+
+  vim.schedule(function()
+    _progressive_step(bufnr, todo_map, gen)
+  end)
 end
 
 --- Get highlight group for todo content based on state and relation

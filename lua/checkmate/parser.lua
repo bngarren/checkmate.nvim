@@ -18,10 +18,6 @@ local M = {}
 --- @field type "ordered"|"unordered" Type of list marker
 --- @field text string e.g. -, *, +, or 1. or 1)
 
---- @class ContentNodeInfo
---- @field node TSNode Treesitter node containing content (uses 0-indexed row/col coordinates)
---- @field type string Type of content node (e.g., "paragraph")
-
 ---@class checkmate.MetadataEntry
 ---@field tag string The tag name
 ---@field value string The value
@@ -79,16 +75,25 @@ M.markdown_checked_checkbox = "%[[xX]%]"
 M.markdown_unchecked_checkbox = "%[ %]"
 
 ---@class checkmate.TodoCache
----@field version integer
+---@field version integer buffer's `changedtick`
 ---@field map table<integer, checkmate.TodoItem> Todo map
 ---@field node_index table<string, integer> TSNode id -> Todo id (extmark id)
 
+---stores the parsed buffer data (todos), i.e. from `discover_todos`
+---per-buffer cache keyed by bufnr
 ---@type table<integer, checkmate.TodoCache>
 M.buf_todo_cache = {}
 
+-- module level cache based on user config
 -- [marker] -> state name
-M.todo_marker_to_state = {}
+local todo_marker_to_state_cache = {}
 
+-- module level cache of the todo states defined by the user
+-- ordered according to `order` field, which dictates how they are cycled
+-- [integer] - > {name: string, marker: string, order: number}[]
+local todo_states_cache = nil
+
+-- module level cache where computed lua patterns, based on user config, are stored/reused
 local pattern_cache = {
   list_item_with_captures = nil,
   list_item_without_captures = nil,
@@ -99,13 +104,9 @@ local pattern_cache = {
   markdown_checkbox_patterns_by_state = {},
 }
 
--- Ordered according to `order` field
--- [integer] - > {name: string, marker: string, order: number}[]
-local todo_states_cache = nil
-
 function M.clear_parser_cache()
   M.buf_todo_cache = {}
-  M.todo_marker_to_state = {}
+  todo_marker_to_state_cache = {}
 
   pattern_cache = {
     list_item_with_captures = nil,
@@ -245,23 +246,24 @@ end
 
 ---Returns the todo state associated with a marker, or nil
 ---
----Cached in `todo_marker_to_state` lookup table
+---Cached in `todo_marker_to_state_cache` lookup table
 ---
 ---This assumes that markers are unique amongst all todo states
 ---@param marker string
 ---@return string|nil state
 function M.get_todo_state_by_marker(marker)
-  if not M.todo_marker_to_state[marker] then
+  if not todo_marker_to_state_cache[marker] then
     for state_name, state in pairs(config.options.todo_states) do
       if state.marker == marker then
-        M.todo_marker_to_state[marker] = state_name
+        todo_marker_to_state_cache[marker] = state_name
         break
       end
     end
   end
-  return M.todo_marker_to_state[marker]
+  return todo_marker_to_state_cache[marker]
 end
 
+---@return checkmate.TodoCache
 function M.get_buf_todo_cache(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     log.error("[parser] Invalid buffer")
@@ -452,7 +454,7 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
-  -- Detect the "true initial normalization" *and* whether there is history to join to
+  -- detect if a "true initial normalization" and whether there is history to join to
   local cur_tick = vim.api.nvim_buf_get_changedtick(bufnr)
   local baseline = bl:get("baseline_tick", cur_tick)
   local no_user_edits_since_attach = (bl:get("user_changed") ~= true) and (cur_tick == baseline)
@@ -694,8 +696,9 @@ function M.find_first_inline_in_list_item(list_item_node)
 end
 
 --- Discovers all todo items in a buffer and builds a node map
+--- this is the main parsing code
 ---@param bufnr number Buffer number
----@return table<integer, checkmate.TodoItem>  Map of all todo items with their relationships
+---@return table<integer, checkmate.TodoItem> map Map of all todo items with their relationships
 function M.discover_todos(bufnr)
   profiler.start("parser.discover_todos")
 
@@ -948,93 +951,137 @@ function M.get_markdown_tree_root(bufnr)
   return root
 end
 
---- Extract all @tag(value) metadata from the first‐inline range of a todo.
+--- Extract all @tag(value) metadata from the first‐inline range of a todo
 --- @param bufnr number
 --- @param range checkmate.Range
 --- @return table{entries:checkmate.MetadataEntry[], by_tag:table<string,checkmate.MetadataEntry>}
 function M.extract_metadata(bufnr, range)
-  local lines = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range["end"].row + 1, false)
-  local raw = table.concat(lines, "\n")
+  local meta_mod = require("checkmate.metadata")
+  local range_mod = require("checkmate.lib.range")
 
-  -- map a byte‐offset of the joined string back to (row,col) in the original lines
-  -- precompute cumulative byte‐lengths for each line
-  -- i.e. each line contributes `#ln + 1` bytes to the offset
-  local cum = { 0 }
-  for i, ln in ipairs(lines) do
-    cum[i + 1] = cum[i] + #ln + 1 -- +1 for the "\n"
+  -- early return if definitely no metadata on a single line
+  if range.start.row == range["end"].row then
+    local line = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range.start.row + 1, false)[1]
+    if not line or not line:find("@", 1, true) then
+      return { entries = {}, by_tag = {} }
+    end
   end
-  -- convert a 1-based raw byte-offset → 0-based {row, col}
-  local offset_to_pos = function(off)
-    for i = 1, #lines do
-      if off <= cum[i + 1] then
-        return {
-          row = range.start.row + i - 1,
-          col = off - cum[i] - 1,
-        }
+
+  local entries, by_tag = {}, {}
+
+  -- i hate Lua string indexing + Neovim...seriously wtf
+
+  --- we make a mapper from 1-based byte offset in "raw" string → 0-based {row,col}
+  --- notes for indexing:
+  --- - lua strings are 1-based, neovim buffer positions are 0-based
+  --- - we keep `s,e` from `string.find` as 1-based INCLUSIVE offsets
+  --- - all returned {row,col} are 0-based; "end exclusive" = col just past the last byte
+  local raw, mapper, idx0, idx_limit
+
+  if range.start.row == range["end"].row then
+    -- single-line fast path:
+    -- "raw" is the entire line; scanning window is [start.col+1, end.col] in 1-based raw offsets
+    local line = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range.start.row + 1, false)[1] or ""
+    raw = line
+
+    local base_row = range.start.row
+    local base_col = 0
+
+    mapper = function(offset)
+      -- offset is 1-based within "raw" (the whole line)
+      -- convert to 0-based column: (offset - 1)
+      return { row = base_row, col = base_col + (offset - 1) }
+    end
+
+    -- 1-based start within raw
+    idx0 = range.start.col + 1
+    -- inclusive limit within raw
+    idx_limit = range["end"].col
+  else
+    -- multi-line fallback:
+    -- 1) concat lines with "\n" so each original line contributes (#ln + 1) bytes
+    -- 2) precompute cumulative byte lengths so we can map raw offsets back to (row,col)
+    local lines = vim.api.nvim_buf_get_lines(bufnr, range.start.row, range["end"].row + 1, false)
+    raw = table.concat(lines, "\n")
+
+    -- cum[i] = total bytes up to the start of line i (1-based line index in "lines")
+    -- cum[i+1] = cum[i] + #lines[i] + 1 (for the '\n')
+    local cum = { 0 }
+    for i, ln in ipairs(lines) do
+      cum[i + 1] = cum[i] + #ln + 1
+    end
+
+    mapper = function(offset)
+      -- map 1-based raw byte offset -> 0-based {row,col} in original buffer
+      for i = 1, #lines do
+        if offset <= cum[i + 1] then
+          -- col is (offset - cum[i] - 1) in 0-based coords
+          return { row = range.start.row + i - 1, col = offset - cum[i] - 1 }
+        end
       end
+      return { row = range["end"].row, col = range["end"].col }
     end
-    -- fallback to the end of the range
-    return { row = range["end"].row, col = range["end"].col }
+
+    idx0 = 1
+    idx_limit = #raw -- inclusive limit across the entire joined string
   end
 
-  local entries = {}
-  local by_tag = {}
+  --- make a metadata entry from a pattern match
+  --- s,e: 1-based INCLUSIVE offsets of the entire "@tag(...)" substring within `raw`
+  --- tag: capture of tag name from METADATA_PATTERN
+  --- group: capture of "(...)" including the parentheses
+  local function build_entry(s, e, tag, group)
+    -- find the '(' and ')' within the full match using `group` length
+    local open_off = e - #group + 1 -- byte position of '(' (1-based)
+    local close_off = e -- byte position of ')' (1-based)
 
-  -- iterate all "@tag(...)" matches
-  local idx = 1
-  while true do
-    -- s,e are the 1-based INCLUSIVE byte‐offsets of the entire "@tag(...)" substring
-    -- tag is the name; group is "(...)" including parens
-    local s, e, tag, group = raw:find(METADATA_PATTERN, idx)
-    if not s then
-      break
-    end
-
-    -- i hate Lua string indexing + Neovim...seriously wtf
-
-    -- find the "(" and ")" -- these are both 1-based, inclusive
-    local open_off = e - #group + 1 -- byte of "("
-    local close_off = e -- byte of ")"
-
-    -- get 1-based range of the value inside
+    -- value is inside the parens, we get the 1-based bounds of the value slice
     local val_start_off = open_off + 1 -- first byte of value
-    local val_end_off = close_off - 1 -- last byte of value
+    local val_end_off = close_off - 1 -- last byte of value (inclusive)
 
-    -- extract and normalize the text
+    -- for multi-line values we collapse line breaks
     local raw_value = raw:sub(val_start_off, val_end_off)
     local clean_value = raw_value:gsub("\n%s*", " ")
 
-    -- full "@tag(value)" range:
-    local tag_start_pos = offset_to_pos(s) -- at "@"
-    local tag_end_incl = offset_to_pos(e) -- at ")"
-    local tag_end_excl = {
-      row = tag_end_incl.row,
-      col = tag_end_incl.col + 1, -- one past ")"
-    }
+    -- map match and value ranges from raw offsets to buffer positions.
+    local tag_start_pos = mapper(s) -- at '@' (inclusive)
+    local tag_end_incl = mapper(e) -- at ')' (inclusive)
+    local tag_end_excl = { row = tag_end_incl.row, col = tag_end_incl.col + 1 } -- one past ')'
 
-    local val_start_pos = offset_to_pos(val_start_off) -- at first byte of value
-    local val_end_excl = offset_to_pos(val_end_off + 1) -- maps to the ")" byte
+    local val_start_pos = mapper(val_start_off) -- at first byte of value
+    local val_end_excl = mapper(val_end_off + 1) -- one past last byte of value (maps to ')')
 
     local entry = {
       tag = tag,
       value = clean_value,
-      range = require("checkmate.lib.range").new(tag_start_pos, tag_end_excl),
-      value_range = {
-        start = val_start_pos,
-        ["end"] = val_end_excl,
-      },
-      alias_for = nil, -- will be set later
+      range = range_mod.new(tag_start_pos, tag_end_excl),
+      value_range = { start = val_start_pos, ["end"] = val_end_excl },
     }
 
-    -- check if this is an alias and map to canonical name
-    local meta_module = require("checkmate.metadata")
-    local canonical_name = meta_module.get_canonical_name(tag)
-    if canonical_name and canonical_name ~= tag then
-      entry.alias_for = canonical_name
+    -- handle aliases
+    local canonical = meta_mod.get_canonical_name(tag)
+    if canonical and canonical ~= tag then
+      entry.alias_for = canonical
     end
 
-    table.insert(entries, entry)
-    by_tag[tag] = entry
+    return entry
+  end
+
+  -- scan over `raw` for "@tag(...)" matches
+  -- NOTE: `idx_limit` is inclusive, we stop if a match extends past it.
+  local idx = idx0
+  while true do
+    local s, e, tag, group = raw:find(METADATA_PATTERN, idx)
+    if not s then
+      break
+    end
+    if e > idx_limit then
+      break
+    end
+
+    local entry = build_entry(s, e, tag, group)
+    entries[#entries + 1] = entry
+    by_tag[entry.tag] = entry
 
     idx = e + 1
   end
@@ -1042,7 +1089,7 @@ function M.extract_metadata(bufnr, range)
   return { entries = entries, by_tag = by_tag }
 end
 
--- Helper function to find the parent list_item node of a given list_item node
+-- find the parent list_item node of a given list_item node
 ---@param node TSNode The list_item node to find the parent for
 ---@return TSNode|nil parent_node The parent list_item node, if any
 function M.find_parent_list_item(node)
@@ -1089,13 +1136,13 @@ function M.get_all_list_items(bufnr)
     local marker_node = nil
     local marker_type = nil
 
-    -- Find direct children that are list markers
+    -- find direct children that are list markers
     local marker_query = M.FULL_TODO_QUERY
     for marker_id, marker, _ in marker_query:iter_captures(node, bufnr, 0, -1) do
       local name = marker_query.captures[marker_id]
       local m_type = M.get_marker_type_from_capture_name(name)
 
-      -- Verify this marker is a direct child
+      -- verify this marker is a direct child
       if marker:parent() == node then
         marker_node = marker
         marker_type = m_type
@@ -1103,7 +1150,7 @@ function M.get_all_list_items(bufnr)
       end
     end
 
-    -- Only add if we found a marker
+    -- only add if we found a marker
     if marker_node then
       table.insert(list_items, {
         node = node,
@@ -1116,8 +1163,8 @@ function M.get_all_list_items(bufnr)
           type = marker_type,
         },
         text = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1],
-        -- Find parent relationship
-        parent_node = M.find_parent_list_item(node), -- List item's parent is usually two levels up
+        -- find parent relationship
+        parent_node = M.find_parent_list_item(node), -- list item's parent is usually two levels up
       })
     end
   end

@@ -733,6 +733,15 @@ function M.discover_todos(bufnr)
     first_inlines_by_list_item = {}, -- list_item node id -> first inline node
   }
 
+  -- stack to track ancestor list items during traversal
+  -- used to determine parent-child relationships based on TS structure
+  ---@type TSNode[]
+  local ancestor_stack = {}
+
+  -- map from TSNode to todo_item for hierarchy building
+  ---@type table<string, integer> node_id -> extmark_id
+  local node_to_id = {}
+
   local current_list_item = nil
 
   for id, node, _ in M.FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
@@ -741,6 +750,17 @@ function M.discover_todos(bufnr)
     if capture_name == "list_item" then
       current_list_item = node
 
+      -- pop ancestors that are not actually ancestors of this node
+      while #ancestor_stack > 0 do
+        local potential_ancestor = ancestor_stack[#ancestor_stack]
+        -- check if this node is actually a descendant of the stack top
+        if not M.is_descendant_of(node, potential_ancestor) then
+          table.remove(ancestor_stack)
+        else
+          break
+        end
+      end
+
       local start_row, start_col, end_row, end_col = node:range()
       table.insert(node_info.list_items, {
         node = node,
@@ -748,7 +768,11 @@ function M.discover_todos(bufnr)
         start_col = start_col,
         end_row = end_row,
         end_col = end_col,
+        parent = ancestor_stack[#ancestor_stack],
       })
+
+      -- add current node to stack for potential children
+      table.insert(ancestor_stack, node)
     elseif capture_name == "list_marker" or capture_name == "list_marker_ordered" then
       local parent = node:parent()
       if parent then
@@ -790,6 +814,7 @@ function M.discover_todos(bufnr)
   end
   local first_lines = util.batch_get_lines(bufnr, rows_needed)
 
+  -- now process collected list items and build todo map with parent-child hierarchy
   for _, item in ipairs(node_info.list_items) do
     local first_line = first_lines[item.start_row] or ""
     local todo_state = M.get_todo_item_state(first_line)
@@ -797,7 +822,7 @@ function M.discover_todos(bufnr)
     if todo_state then
       local start_row = item.start_row
 
-      -- get marker position
+      -- get marker position for extmark (stable todo id) placement
       local todo_marker = config.options.todo_states[todo_state].marker
       local marker_col = 0
       local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
@@ -825,7 +850,6 @@ function M.discover_todos(bufnr)
       ---@type checkmate.ListMarkerInfo
       local list_marker = nil
       local node_id = item.node:id()
-      -- TODO: verify this is the list mark for the todo item?
       local markers = node_info.markers_by_list_item[node_id]
 
       if markers and #markers > 0 then
@@ -869,8 +893,20 @@ function M.discover_todos(bufnr)
         list_marker = list_marker,
         metadata = {},
         children = {},
-        parent_id = nil,
+        parent_id = nil, -- will be set below
       }
+
+      -- track node to ID mapping for parent lookup
+      node_to_id[item.node:id()] = extmark_id
+
+      -- set parent if it exists and is also a todo
+      if item.parent then
+        local parent_id = node_to_id[item.parent:id()]
+        if parent_id and todo_map[parent_id] then
+          todo_map[extmark_id].parent_id = parent_id
+          table.insert(todo_map[parent_id].children, extmark_id)
+        end
+      end
     end
   end
 
@@ -884,8 +920,6 @@ function M.discover_todos(bufnr)
     vim.api.nvim_buf_del_extmark(bufnr, config.ns_todos, orphaned_id)
   end
 
-  M.build_todo_hierarchy(todo_map)
-
   profiler.stop("parser.discover_todos")
   return todo_map
 end
@@ -896,32 +930,6 @@ end
 function M.get_marker_type_from_capture_name(capture_name)
   local is_ordered = capture_name:match("ordered") ~= nil
   return is_ordered and "ordered" or "unordered"
-end
-
----Build the hierarchy of todo items based on Treesitter's parsing of markdown structure
----@param todo_map table<integer, checkmate.TodoItem>
----@return table<integer, checkmate.TodoItem> result The updated todo map with hierarchy information
-function M.build_todo_hierarchy(todo_map)
-  -- Build node->todo lookup table once
-  local node_to_todo = {}
-  for id, todo in pairs(todo_map) do
-    node_to_todo[todo.node:id()] = id
-    todo.children = {}
-    todo.parent_id = nil
-  end
-
-  for id, todo in pairs(todo_map) do
-    local parent_node = M.find_parent_list_item(todo.node)
-    if parent_node then
-      local parent_id = node_to_todo[parent_node:id()]
-      if parent_id then
-        todo.parent_id = parent_id
-        table.insert(todo_map[parent_id].children, id)
-      end
-    end
-  end
-
-  return todo_map
 end
 
 --- Get current position of a todo item via its extmark
@@ -1089,93 +1097,108 @@ function M.extract_metadata(bufnr, range)
   return { entries = entries, by_tag = by_tag }
 end
 
--- find the parent list_item node of a given list_item node
----@param node TSNode The list_item node to find the parent for
----@return TSNode|nil parent_node The parent list_item node, if any
-function M.find_parent_list_item(node)
-  -- In markdown, the hierarchy is typically:
-  -- list_item -> list -> list_item (parent)
+--- check if a TS node is a descendant of another node
+---@param node TSNode potential descendant node
+---@param ancestor TSNode potential ancestor node
+---@return boolean
+function M.is_descendant_of(node, ancestor)
+  local current = node:parent()
 
-  local parent = node:parent()
-
-  -- no parent or parent is root
-  if not parent or parent:type() == "document" then
-    return nil
-  end
-
-  -- in CommonMark, list items are nested inside lists
-  if parent:type() == "list" then
-    local grandparent = parent:parent()
-    if grandparent and grandparent:type() == "list_item" then
-      return grandparent
+  while current do
+    if current == ancestor then
+      return true
     end
+    -- in markdown, list items are nested as: list_item -> list -> list_item (parent)
+    -- so we need to check the parent's parent as well for list structures
+    if current:type() == "list" then
+      local grandparent = current:parent()
+      if grandparent == ancestor then
+        return true
+      end
+    end
+    current = current:parent()
   end
 
-  return nil
+  return false
 end
 
 function M.get_all_list_items(bufnr)
   local list_items = {}
-
   local root = M.get_markdown_tree_root(bufnr)
   if not root then
     return {}
   end
 
-  local list_query = vim.treesitter.query.parse(
-    "markdown",
-    [[
-    (list_item) @list_item
-    ]]
-  )
+  local query = M.FULL_TODO_QUERY
 
-  -- collect all list items and their marker information
-  for _, node, _ in list_query:iter_captures(root, bufnr, 0, -1) do
-    local start_row, start_col, end_row, end_col = node:range()
+  -- stack to track ancestor list items during traversal
+  ---@type TSNode[]
+  local ancestor_stack = {}
 
-    local marker_node = nil
-    local marker_type = nil
+  -- map node to its index in list_items array for parent lookup
+  ---@type table<string, integer> -- node:id() -> index in list_items
+  local node_to_index = {}
 
-    -- find direct children that are list markers
-    local marker_query = M.FULL_TODO_QUERY
-    for marker_id, marker, _ in marker_query:iter_captures(node, bufnr, 0, -1) do
-      local name = marker_query.captures[marker_id]
-      local m_type = M.get_marker_type_from_capture_name(name)
+  local current_list_item = nil
+  local current_item_data = nil
 
-      -- verify this marker is a direct child
-      if marker:parent() == node then
-        marker_node = marker
-        marker_type = m_type
-        break
+  -- single pass through the tree
+  for id, node, _ in query:iter_captures(root, bufnr, 0, -1) do
+    local capture_name = query.captures[id]
+
+    if capture_name == "list_item" then
+      while #ancestor_stack > 0 do
+        local potential_ancestor = ancestor_stack[#ancestor_stack]
+        if not M.is_descendant_of(node, potential_ancestor) then
+          table.remove(ancestor_stack)
+        else
+          break
+        end
       end
-    end
 
-    -- only add if we found a marker
-    if marker_node then
-      table.insert(list_items, {
+      local start_row, start_col, end_row, end_col = node:range()
+
+      current_item_data = {
         node = node,
         range = {
           start = { row = start_row, col = start_col },
           ["end"] = { row = end_row, col = end_col },
         },
-        list_marker = {
-          node = marker_node,
-          type = marker_type,
-        },
+        list_marker = nil, -- will be filled when we encounter the marker
         text = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1],
-        -- find parent relationship
-        parent_node = M.find_parent_list_item(node), -- list item's parent is usually two levels up
-      })
+        parent_node = ancestor_stack[#ancestor_stack],
+        children = {}, -- will be populated after all items are collected
+      }
+
+      current_list_item = node
+
+      -- don't add to list_items yet - wait until we confirm it has a marker
+    elseif (capture_name == "list_marker" or capture_name == "list_marker_ordered") and current_list_item then
+      -- check if this marker belongs to the current list item
+      if node:parent() == current_list_item and current_item_data then
+        current_item_data.list_marker = {
+          node = node,
+          type = M.get_marker_type_from_capture_name(capture_name),
+        }
+
+        -- now we can add the complete item
+        table.insert(list_items, current_item_data)
+        node_to_index[current_list_item:id()] = #list_items
+
+        -- add to ancestor stack for potential children
+        table.insert(ancestor_stack, current_list_item)
+
+        current_item_data = nil
+      end
     end
   end
 
-  -- parent-child relationships
+  -- build children arrays using the parent_node relationships
   for _, item in ipairs(list_items) do
-    item.children = {}
-
-    for _, other in ipairs(list_items) do
-      if item.node:id() ~= other.node:id() and other.parent_node == item.node then
-        table.insert(item.children, other.node:id())
+    if item.parent_node then
+      local parent_index = node_to_index[item.parent_node:id()]
+      if parent_index then
+        table.insert(list_items[parent_index].children, item.node:id())
       end
     end
   end

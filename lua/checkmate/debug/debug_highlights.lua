@@ -95,7 +95,7 @@ function M.clear_buffer(bufnr)
   M._active[bufnr] = nil
 end
 
----Clear *all* highlights (or only one buffer if you pass bufnr)
+---Clear all highlights (or only one buffer pass bufnr)
 ---@param bufnr? integer
 function M.clear_all(bufnr)
   if bufnr then

@@ -183,6 +183,9 @@ function M._apply_progressive(bufnr, todo_map, opts)
     end
   end
 
+  -- force a repaint for the immediate roots before we proceed with deferred roots
+  vim.cmd("redraw")
+
   -- remaining root todos progressively
   if #deferred_roots > 0 then
     M._start_progressive_loop(bufnr, deferred_roots, todo_map)

@@ -726,7 +726,7 @@ function M.process_buffer(bufnr, process_type, reason)
     M._debounced_processors[bufnr][process_type] = util.debounce(process_impl, {
       ms = process_config.debounce_ms,
       -- run first call immediately
-      leading = process_type == "highlight_only",
+      leading = true,
       trailing = true,
     })
   end

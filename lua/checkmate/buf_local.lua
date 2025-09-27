@@ -1,7 +1,7 @@
 -- made this module to help manage checkmate buffer local state consistently
 --
 -- each field is stored at: vim.b[bufnr]["<ns>_<name>"]
--- eg: with ns="_checkmate", key "user_changed" -> b:_checkmate_user_changed
+-- eg: with ns="_checkmate", key "in_conversion" -> b:_checkmate_in_conversion
 
 ---@class checkmate.BufferLocalHandle
 ---@field get fun(self, name: string, default?: any): any

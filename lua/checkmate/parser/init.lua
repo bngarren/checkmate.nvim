@@ -348,28 +348,6 @@ function M.setup()
   log.info("[parser] Setup complete")
 end
 
--- Undo-head check: only join/suppress when sitting at the branch head
--- If undotree() returns a non-table (e.g. no history), treat as "at head"
-local function is_at_undo_head(bufnr)
-  local ut = vim.fn.undotree(bufnr)
-  if type(ut) ~= "table" then
-    return true
-  end
-  return (ut.seq_cur or 0) == (ut.seq_last or 0)
-end
-
--- join conversion into the immediately preceding user change if
--- the current changedtick equals the last tick we observed from a user edit
--- (We ignore our own writes via _checkmate_in_conversion.)
-local function should_attempt_join(bufnr)
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  local last_user = bl:get("last_user_tick")
-  if not last_user then
-    return false
-  end
-  return vim.api.nvim_buf_get_changedtick(bufnr) == last_user
-end
-
 -- Convert standard markdown 'task list marker' syntax to Unicode symbols
 function M.convert_markdown_to_unicode(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -442,48 +420,45 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
-  -- Undo logic
-  -- - On open: if prior history exists and we're at head, undojoin this conversion
-  --   into the last block ("join_open"). If there is no history, suppress recording
-  --   just this first change ("suppress_open") via a temporary local undolevels=-1.
-  -- - After user inserts: join into the user's edit ("join").
-  -- - Otherwise: perform a normal, separate undo block ("normal").
+  --[[
+Undo logic
 
-  if not is_at_undo_head(bufnr) then
-    bl:del("in_conversion")
-    return false
-  end
+- On buffer load, the initial Markdown→Unicode normalization should NOT create an
+  undo step. 
+- When a user edit triggers our conversions (via TextChanged/TextChangedI), we try to
+  coalesce these "conversion" writes into that edit using `:undojoin` if the current changedtick
+  equals the last observed user changedtick. Otherwise, we write normally.
+]]
 
-  -- detect if a "true initial normalization" and whether there is history to join to
-  local cur_tick = vim.api.nvim_buf_get_changedtick(bufnr)
-  local baseline = bl:get("baseline_tick", cur_tick)
-  local no_user_edits_since_attach = (bl:get("user_changed") ~= true) and (cur_tick == baseline)
+  -- initial conversion = before any user edit
+  local is_initial = bl:get("last_user_tick") == bl:get("baseline_tick")
 
-  local mode
-  if no_user_edits_since_attach then
-    if util.undo.has_prior_history(bufnr) and util.undo.at_head(bufnr) then
-      mode = "join_open" -- merge conversion into the last historical block
-    else
-      mode = "suppress_open" -- no prior history exists: suppress just this change
-    end
-  elseif should_attempt_join(bufnr) then
-    mode = "join" -- merge with the user's just-finished edit
-  else
-    mode = "normal" -- separate block (fallback)
-  end
+  -- for edits after the initial conversion, coalesce this conversion write into the user's last edit when ticks match
+  local should_join = not is_initial
+    and bl:get("last_user_tick") ~= nil
+    and (vim.api.nvim_buf_get_changedtick(bufnr) == bl:get("last_user_tick"))
 
   local view = vim.fn.winsaveview()
   local original_modified = vim.bo[bufnr].modified
 
-  local function apply_changes(join_each)
+  -- prevent this write from creating any undo entry
+  local function write_changes_suppressed()
+    local old_ul = vim.bo[bufnr].undolevels
+    vim.bo[bufnr].undolevels = -1
+    for _, c in ipairs(changes) do
+      vim.api.nvim_buf_set_lines(bufnr, c.row, c.row + 1, false, { c.text })
+    end
+    vim.bo[bufnr].undolevels = old_ul
+  end
+
+  local function write_changes_joined_or_normal(join)
     vim.api.nvim_buf_call(bufnr, function()
-      if join_each then
+      if join then
         ---@diagnostic disable-next-line: param-type-mismatch
         pcall(vim.cmd, "silent undojoin")
       end
       for i, c in ipairs(changes) do
-        if join_each and i > 1 then
-          -- repeat undojoin to keep all line writes coalesced with the prior block
+        if join and i > 1 then
           ---@diagnostic disable-next-line: param-type-mismatch
           pcall(vim.cmd, "silent undojoin")
         end
@@ -492,16 +467,10 @@ function M.convert_markdown_to_unicode(bufnr)
     end)
   end
 
-  if mode == "join_open" then
-    apply_changes(true)
-  elseif mode == "suppress_open" then
-    util.undo.suppress_next_change(bufnr, function()
-      apply_changes(false)
-    end)
-  elseif mode == "join" then
-    apply_changes(true)
-  else -- "normal"
-    apply_changes(false)
+  if is_initial then
+    write_changes_suppressed()
+  else
+    write_changes_joined_or_normal(should_join)
   end
 
   vim.fn.winrestview(view)

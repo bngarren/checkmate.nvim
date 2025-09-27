@@ -64,7 +64,7 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
-local function setup_undo_tracking(bufnr)
+local function setup_undo(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
@@ -81,19 +81,6 @@ local function setup_undo_tracking(bufnr)
   -- Baseline tick at attach/first setup; used to infer "no edits since attach".
   -- This lets us distinguish the first "conversion" pass on open from later edits.
   bl:set("baseline_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-  bl:set("user_changed", false)
-end
-
-local function mark_user_change(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  if bl:get("in_conversion") then
-    return
-  end -- ignore our own writes
-  bl:set("last_user_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-  bl:set("user_changed", true)
 end
 
 -- Tracks edited row-span via on_lines
@@ -117,6 +104,9 @@ local function attach_change_watcher(bufnr)
       if bl:get("in_conversion") then
         return
       end
+
+      -- record last user changedtick for potential :undojoin by the parser during conversion
+      bl:set("last_user_tick", changedtick)
 
       -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
       -- inclusive end row that covers either the removed or the inserted span
@@ -185,7 +175,7 @@ function M.setup_buffer(bufnr)
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
-  setup_undo_tracking(bufnr)
+  setup_undo(bufnr)
 
   M.setup_keymaps(bufnr)
 
@@ -495,7 +485,6 @@ function M.setup_autocmds(bufnr)
       buffer = bufnr,
       callback = function()
         if vim.b[bufnr].modified then
-          mark_user_change(bufnr)
           M.process_buffer(bufnr, "full", "InsertLeave")
         end
       end,
@@ -508,7 +497,6 @@ function M.setup_autocmds(bufnr)
         if transaction.is_active(bufnr) then
           return
         end
-        mark_user_change(bufnr)
         M.process_buffer(bufnr, "full", "TextChanged")
       end,
     })
@@ -520,7 +508,6 @@ function M.setup_autocmds(bufnr)
         if transaction.is_active(bufnr) then
           return
         end
-        mark_user_change(bufnr)
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
       end,
     })

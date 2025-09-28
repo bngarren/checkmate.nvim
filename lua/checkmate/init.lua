@@ -183,7 +183,6 @@ function M.toggle(target_state)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
-  local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
 
   local profiler = require("checkmate.profiler")
@@ -328,7 +327,6 @@ function M.cycle(opts)
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
-  local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
 
   opts = opts or {}
@@ -659,7 +657,6 @@ function M.remove(opts)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
-  local highlights = require("checkmate.highlights")
   local parser = require("checkmate.parser")
 
   -- a gotcha of this code is that when you remove metadata first that spans multiple lines, this will

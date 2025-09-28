@@ -2194,8 +2194,6 @@ end
 --- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
 --- @return boolean success Whether any items were archived
 function M.archive_todos(opts)
-  local highlights = require("checkmate.highlights")
-
   opts = opts or {}
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
@@ -2440,11 +2438,9 @@ function M.archive_todos(opts)
   end
 
   -- write buffer
-
-  local cursor_state = util.Cursor.save()
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
-  util.Cursor.restore(cursor_state)
-  highlights.apply_highlighting(bufnr, { debug_reason = "archive_todos" })
+  util.with_preserved_view(function()
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
+  end)
 
   util.notify(
     ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
@@ -2507,7 +2503,7 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
 end
 
 --- Collect todo items under cursor or visual selection
----@param is_visual boolean Whether to collect items in visual selection (true) or under cursor (false)
+---@param is_visual boolean whether to collect items in visual selection (true) or under cursor (false)
 ---@return checkmate.TodoItem[] items
 ---@return table<integer, checkmate.TodoItem> todo_map
 function M.collect_todo_items_from_selection(is_visual)
@@ -2516,54 +2512,64 @@ function M.collect_todo_items_from_selection(is_visual)
   local bufnr = vim.api.nvim_get_current_buf()
   local items = {}
 
-  -- Pre-parse all todos once
   local full_map = parser.get_todo_map(bufnr)
 
   if is_visual then
-    -- Exit visual mode first
+    -- exit visual to freeze `'<`/`'>`
     vim.cmd([[execute "normal! \<Esc>"]])
-    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
-    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
 
-    -- convert from 1-based mark to 0-based rows
-    local start_line = mark_start[1] - 1
-    local end_line = mark_end[1] - 1
+    -- returns 1-based line/col
+    local s = vim.fn.getpos("'<")
+    local e = vim.fn.getpos("'>")
 
-    -- pre-build lookup table for faster todo item location
-    local row_to_todo = {}
-    for _, todo_item in pairs(full_map) do
-      for row = todo_item.range.start.row, todo_item.range["end"].row do
-        if not row_to_todo[row] or row == todo_item.range.start.row then
-          row_to_todo[row] = todo_item
-        end
-      end
+    -- convert to 0-based rows
+    local s_row = (s[2] > 0 and s[2] - 1 or 0)
+    local e_row = (e[2] > 0 and e[2] - 1 or 0)
+
+    -- normalize order
+    local start_row, end_row = s_row, e_row
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
     end
 
+    -- clamp to buffer bounds
+    local max_row = math.max(0, vim.api.nvim_buf_line_count(bufnr) - 1)
+    if start_row < 0 then
+      start_row = 0
+    end
+    if end_row > max_row then
+      end_row = max_row
+    end
+
+    -- include todos whose todo first line lies within [start_row, end_row]
     local seen = {}
-    for row = start_line, end_line do
-      local todo = row_to_todo[row]
-      if todo then
-        local key = string.format("%d:%d", todo.todo_marker.position.row, todo.todo_marker.position.col)
-        if not seen[key] then
-          seen[key] = true
-          table.insert(items, todo)
-        end
+    for id, todo in pairs(full_map) do
+      local mr = todo.todo_marker.position
+      if mr.row >= start_row and mr.row <= end_row and not seen[id] then
+        seen[id] = true
+        items[#items + 1] = todo
       end
     end
+
+    -- deterministic order
+    table.sort(items, function(a, b)
+      local ar, br = a.todo_marker.position.row, b.todo_marker.position.row
+      if ar == br then
+        return a.todo_marker.position.col < b.todo_marker.position.col
+      end
+      return ar < br
+    end)
   else
-    -- Normal mode: single item at cursor
-    local cursor = util.Cursor.save()
-    local row = cursor.cursor[1] - 1
-    local col = cursor.cursor[2]
+    local c = vim.api.nvim_win_get_cursor(0)
+    local row = c[1] - 1 -- to 0-based
+    local col = c[2]
     local todo = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = full_map })
-    util.Cursor.restore(cursor)
     if todo then
-      table.insert(items, todo)
+      items[#items + 1] = todo
     end
   end
 
   profiler.stop("api.collect_todo_items_from_selection")
-
   return items, full_map
 end
 

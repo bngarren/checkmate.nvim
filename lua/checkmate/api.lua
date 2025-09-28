@@ -177,9 +177,9 @@ function M.setup_buffer(bufnr)
 
   setup_undo(bufnr)
 
-  M.setup_keymaps(bufnr)
-
   attach_change_watcher(bufnr)
+
+  M.setup_keymaps(bufnr)
 
   M.setup_autocmds(bufnr)
 
@@ -480,11 +480,21 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
+    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+      group = M.buffer_augroup,
+      buffer = bufnr,
+      callback = function()
+        bl:set("insert_enter_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+      end,
+    })
+
     vim.api.nvim_create_autocmd({ "InsertLeave" }, {
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
-        if vim.b[bufnr].modified then
+        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+        local modified = bl:get("insert_enter_tick") ~= tick
+        if modified then
           M.process_buffer(bufnr, "full", "InsertLeave")
         end
       end,
@@ -563,16 +573,30 @@ function M.process_buffer(bufnr, process_type, reason)
     M._debounced_processors[bufnr] = {}
   end
 
+  -- store runner-specific things in here to avoid process_impl() using stale closure
+  M._last_call_ctx = M._last_call_ctx or {}
+  M._last_call_ctx[bufnr] = M._last_call_ctx[bufnr] or {}
+  M._last_call_ctx[bufnr][process_type] = {
+    reason = reason,
+  }
+
   if not M._debounced_processors[bufnr][process_type] then
     local function process_impl()
+      bl = require("checkmate.buf_local").handle(bufnr)
+
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_processors[bufnr] = nil
+        M._last_call_ctx[bufnr] = nil
         return
       end
 
-      local start_time = vim.uv.hrtime() / 1000000
+      -- pull outside data from ctx to avoid stale closure
+      local ctx = (M._last_call_ctx[bufnr] and M._last_call_ctx[bufnr][process_type]) or {}
+      local run_reason = ctx.reason or "unknown"
 
-      local todo_map = parser.get_todo_map(bufnr)
+      -- vim.notify(string.format("running process_buffer '%s' due to %s", process_type, run_reason))
+
+      local start_time = vim.uv.hrtime() / 1000000
 
       ---@type "none" | "regional" | "adaptive_full"
       local highlight_plan = "none"
@@ -598,6 +622,8 @@ function M.process_buffer(bufnr, process_type, reason)
           local start_row = math.max(0, changed.s - PADDING)
           local end_row = math.min(max_row, changed.e + PADDING)
           local end_row_excl = end_row + 1
+
+          local todo_map = parser.get_todo_map(bufnr)
 
           -- find root todos overlapping this span
           local affected_roots = {}
@@ -663,11 +689,13 @@ function M.process_buffer(bufnr, process_type, reason)
                     end_row = max_row_excl, -- end-exclusive
                     affected_roots = { nearest_above },
                   }
+                  highlight_plan = "regional"
+                else
+                  highlight_plan = "adaptive_full"
                 end
-                highlight_plan = "regional"
+              else
+                highlight_plan = "adaptive_full"
               end
-
-              highlight_plan = "adaptive_full"
             end
           end
         else
@@ -714,10 +742,12 @@ function M.process_buffer(bufnr, process_type, reason)
       ms = process_config.debounce_ms,
       -- run first call immediately
       leading = true,
-      trailing = true,
+      trailing = process_type ~= "full",
     })
   end
 
+  -- update context then trigger the runner
+  M._last_call_ctx[bufnr][process_type] = { reason = reason }
   M._debounced_processors[bufnr][process_type]()
 end
 

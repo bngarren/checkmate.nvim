@@ -438,7 +438,6 @@ Undo logic
     and bl:get("last_user_tick") ~= nil
     and (vim.api.nvim_buf_get_changedtick(bufnr) == bl:get("last_user_tick"))
 
-  local view = vim.fn.winsaveview()
   local original_modified = vim.bo[bufnr].modified
 
   -- prevent this write from creating any undo entry
@@ -467,14 +466,16 @@ Undo logic
     end)
   end
 
-  if is_initial then
-    write_changes_suppressed()
-  else
-    write_changes_joined_or_normal(should_join)
-  end
+  util.with_preserved_view(function()
+    if is_initial then
+      write_changes_suppressed()
+    else
+      write_changes_joined_or_normal(should_join)
+    end
+  end)
 
-  vim.fn.winrestview(view)
   vim.bo[bufnr].modified = original_modified
+  bl:set("last_conversion_tick", vim.api.nvim_buf_get_changedtick(bufnr))
   bl:del("in_conversion")
   return true
 end

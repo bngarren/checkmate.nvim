@@ -713,7 +713,7 @@ function M.get_todo(opts)
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
   local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
 
-  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, 0)
+  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row - 1, 0)
   if not todo then
     return nil
   end

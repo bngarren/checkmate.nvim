@@ -2104,6 +2104,10 @@ Regular text line
 
       assert.same(todo1._todo_item, todo2.get_parent()._todo_item)
 
+      -- make sure it works with cursor pos (not passing a row)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      todo1 = h.exists(cm.get_todo({ bufnr = bufnr }))
+
       finally(function()
         cm.stop()
         h.cleanup_buffer(bufnr)

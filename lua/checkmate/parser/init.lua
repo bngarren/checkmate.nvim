@@ -53,6 +53,11 @@ local M = {}
 --- @field children integer[] IDs of child todo items
 --- @field parent_id integer? ID of parent todo item
 
+--- This struct represents the result of a parsed checkmate buffer
+--- Generated via `discover_todos`
+--- todo extmark id -> TodoItem
+--- @alias checkmate.TodoMap table<integer, checkmate.TodoItem>
+
 M.FULL_TODO_QUERY = vim.treesitter.query.parse(
   "markdown",
   [[
@@ -76,7 +81,7 @@ M.markdown_unchecked_checkbox = "%[ %]"
 
 ---@class checkmate.TodoCache
 ---@field version integer buffer's `changedtick`
----@field map table<integer, checkmate.TodoItem> Todo map
+---@field map checkmate.TodoMap Todo map
 ---@field node_index table<string, integer> TSNode id -> Todo id (extmark id)
 
 ---stores the parsed buffer data (todos), i.e. from `discover_todos`
@@ -301,7 +306,7 @@ end
 ---according to `:changedtick`
 ---See `get_buf_todo_cache`
 ---@param bufnr integer Buffer number
----@return table<integer, checkmate.TodoItem>
+---@return checkmate.TodoMap
 function M.get_todo_map(bufnr)
   return M.get_buf_todo_cache(bufnr).map
 end
@@ -556,7 +561,7 @@ function M.convert_unicode_to_markdown(bufnr)
 end
 
 ---@class GetTodoItemAtPositionOpts
----@field todo_map? table<integer, checkmate.TodoItem>
+---@field todo_map? checkmate.TodoMap
 ---@field root_only? boolean If true, only matches to the todo item's first line
 
 -- Function to find a todo item at a given buffer position
@@ -667,8 +672,8 @@ end
 
 --- Discovers all todo items in a buffer and builds a node map
 --- this is the main parsing code
----@param bufnr number Buffer number
----@return table<integer, checkmate.TodoItem> map Map of all todo items with their relationships
+---@param bufnr number
+---@return checkmate.TodoMap map Map of all todo items with their relationships
 function M.discover_todos(bufnr)
   profiler.start("parser.discover_todos")
 
@@ -677,6 +682,7 @@ function M.discover_todos(bufnr)
 
   local parser = vim.treesitter.get_parser(bufnr, "markdown")
   if not parser then
+    profiler.stop("parser.discover_todos")
     return todo_map
   end
 
@@ -684,6 +690,7 @@ function M.discover_todos(bufnr)
   if not tree then
     vim.notify("Checkmate: Failed to parse buffer", vim.log.levels.ERROR)
     log.error("[parser] Failed to parse buffer in `discover_todos`")
+    profiler.stop("parser.discover_todos")
     return todo_map
   end
 
@@ -696,72 +703,61 @@ function M.discover_todos(bufnr)
 
   local root = tree:root()
 
-  -- grab all nodes we need in a single pass
-  local node_info = {
-    list_items = {},
-    markers_by_list_item = {}, -- list_item node id -> marker node
-    first_inlines_by_list_item = {}, -- list_item node id -> first inline node
-  }
+  local list_items = {}
+  local ancestor_stack = {} -- {node, item_idx}
 
-  -- stack to track ancestor list items during traversal
-  -- used to determine parent-child relationships based on TS structure
-  ---@type TSNode[]
-  local ancestor_stack = {}
-
-  -- map from TSNode to todo_item for hierarchy building
-  ---@type table<string, integer> node_id -> extmark_id
-  local node_to_id = {}
+  local markers_by_list = {} -- list_item node id -> marker nodes array
+  local first_inlines_by_list = {} -- list_item node id -> first inline node
 
   local current_list_item = nil
+  local current_list_idx = nil
 
   for id, node, _ in M.FULL_TODO_QUERY:iter_captures(root, bufnr, 0, -1) do
     local capture_name = M.FULL_TODO_QUERY.captures[id]
 
     if capture_name == "list_item" then
-      current_list_item = node
-
-      -- pop ancestors that are not actually ancestors of this node
-      while #ancestor_stack > 0 do
-        local potential_ancestor = ancestor_stack[#ancestor_stack]
-        -- check if this node is actually a descendant of the stack top
-        if not M.is_descendant_of(node, potential_ancestor) then
-          table.remove(ancestor_stack)
+      local stack_size = #ancestor_stack
+      while stack_size > 0 do
+        local ancestor_entry = ancestor_stack[stack_size]
+        if not M.is_descendant_of(node, ancestor_entry.node) then
+          ancestor_stack[stack_size] = nil
+          stack_size = stack_size - 1
         else
           break
         end
       end
 
       local start_row, start_col, end_row, end_col = node:range()
-      table.insert(node_info.list_items, {
+      local parent_idx = #ancestor_stack > 0 and ancestor_stack[#ancestor_stack].item_idx or nil
+
+      local item_data = {
         node = node,
         start_row = start_row,
         start_col = start_col,
         end_row = end_row,
         end_col = end_col,
-        parent = ancestor_stack[#ancestor_stack],
-      })
+        parent_idx = parent_idx,
+      }
 
-      -- add current node to stack for potential children
-      table.insert(ancestor_stack, node)
+      table.insert(list_items, item_data)
+      current_list_idx = #list_items
+      current_list_item = node
+
+      table.insert(ancestor_stack, { node = node, item_idx = current_list_idx })
     elseif capture_name == "list_marker" or capture_name == "list_marker_ordered" then
       local parent = node:parent()
       if parent then
         local parent_id = parent:id()
-        node_info.markers_by_list_item[parent_id] = node_info.markers_by_list_item[parent_id] or {}
-        table.insert(node_info.markers_by_list_item[parent_id], {
+        markers_by_list[parent_id] = markers_by_list[parent_id] or {}
+        table.insert(markers_by_list[parent_id], {
           node = node,
           type = M.get_marker_type_from_capture_name(capture_name),
         })
       end
     elseif capture_name == "first_inline" and current_list_item then
-      -- The "first inline" node of a list item node is almost always within a enclosing paragraph node
-      -- There are some non-paragraph nodes that will break this assumption, such as ATX headings, thematic breaks, HTML blocks, etc
-      -- However, since we only care about inline nodes on lines with todo markers, these are always parsed as paragraph and inline nodes
-      -- because the todo marker (or GFM task marker) after the list marker makes the list item content parse as a paragraph
-      local parent = node:parent() -- should be paragraph
+      local parent = node:parent()
       if parent then
-        parent = parent:parent() -- should be list_item or something between
-        -- walk up to find the containing list_item
+        parent = parent:parent()
         local enclosing_list_item = parent
         while enclosing_list_item and enclosing_list_item:type() ~= "list_item" do
           enclosing_list_item = enclosing_list_item:parent()
@@ -769,8 +765,8 @@ function M.discover_todos(bufnr)
 
         if enclosing_list_item == current_list_item then
           local list_item_id = current_list_item:id()
-          if not node_info.first_inlines_by_list_item[list_item_id] then
-            node_info.first_inlines_by_list_item[list_item_id] = node
+          if not first_inlines_by_list[list_item_id] then
+            first_inlines_by_list[list_item_id] = node
           end
         end
       end
@@ -779,27 +775,31 @@ function M.discover_todos(bufnr)
 
   -- batch read all needed lines
   local rows_needed = {}
-  for _, item in ipairs(node_info.list_items) do
-    table.insert(rows_needed, item.start_row)
+  local n_items = #list_items
+  for i = 1, n_items do
+    rows_needed[i] = list_items[i].start_row
   end
   local first_lines = util.batch_get_lines(bufnr, rows_needed)
 
-  -- now process collected list items and build todo map with parent-child hierarchy
-  for _, item in ipairs(node_info.list_items) do
+  -- map to track node_id -> extmark_id for hierarchy building
+  local node_to_extmark = {}
+
+  for _, item in ipairs(list_items) do
     local first_line = first_lines[item.start_row] or ""
     local todo_state = M.get_todo_item_state(first_line)
 
     if todo_state then
       local start_row = item.start_row
-
-      -- get marker position for extmark (stable todo id) placement
       local todo_marker = config.options.todo_states[todo_state].marker
+
+      -- todo extmark is placed right before todo marker
       local marker_col = 0
       local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
       if todo_marker_byte_pos then
         marker_col = todo_marker_byte_pos - 1
       end
 
+      -- reuse or create extmark
       local extmark_col = marker_col
       local pos_key = start_row .. ":" .. extmark_col
       local extmark_id = extmark_by_pos[pos_key]
@@ -809,7 +809,7 @@ function M.discover_todos(bufnr)
           right_gravity = false,
         })
       end
-      extmark_by_pos[pos_key] = nil
+      extmark_by_pos[pos_key] = nil -- mark as used
 
       local raw_range = {
         start = { row = start_row, col = item.start_col },
@@ -817,22 +817,21 @@ function M.discover_todos(bufnr)
       }
       local semantic_range = util.get_semantic_range(raw_range, bufnr)
 
-      ---@type checkmate.ListMarkerInfo
+      -- get list marker info
       local list_marker = nil
       local node_id = item.node:id()
-      local markers = node_info.markers_by_list_item[node_id]
+      local markers = markers_by_list[node_id]
 
-      if markers and #markers > 0 then
-        local line_from_marker = first_line:gsub("^%s+", "")
-        local marker_text = line_from_marker:match("^[%-%*%+]") or line_from_marker:match("^%d+[%.%)]")
-        list_marker = {
-          node = markers[1].node,
-          type = markers[1].type,
-          text = marker_text,
-        }
-      end
+      local line_from_marker = first_line:gsub("^%s+", "")
+      local marker_text = line_from_marker:match("^[%-%*%+]") or line_from_marker:match("^%d+[%.%)]")
+      list_marker = {
+        node = markers[1].node,
+        type = markers[1].type,
+        text = marker_text,
+      }
 
-      local first_inline_node = node_info.first_inlines_by_list_item[item.node:id()]
+      -- get first inline range
+      local first_inline_node = first_inlines_by_list[node_id]
       local first_inline_range = nil
 
       if first_inline_node then
@@ -842,12 +841,14 @@ function M.discover_todos(bufnr)
           ["end"] = { row = inline_end_row, col = inline_end_col },
         }
       else
-        -- fallback to semantic range
         first_inline_range = semantic_range
       end
 
+      local metadata = M.extract_metadata(bufnr, first_inline_range)
+
+      -- create todo item
       ---@type checkmate.TodoItem
-      todo_map[extmark_id] = {
+      local todo_item = {
         id = extmark_id,
         state = todo_state,
         state_type = config.get_todo_state_type(todo_state),
@@ -861,31 +862,28 @@ function M.discover_todos(bufnr)
           text = todo_marker,
         },
         list_marker = list_marker,
-        metadata = {},
+        metadata = metadata,
         children = {},
-        parent_id = nil, -- will be set below
+        parent_id = nil,
       }
 
-      -- track node to ID mapping for parent lookup
-      node_to_id[item.node:id()] = extmark_id
+      todo_map[extmark_id] = todo_item
+      node_to_extmark[node_id] = extmark_id
 
-      -- set parent if it exists and is also a todo
-      if item.parent then
-        local parent_id = node_to_id[item.parent:id()]
-        if parent_id and todo_map[parent_id] then
-          todo_map[extmark_id].parent_id = parent_id
-          table.insert(todo_map[parent_id].children, extmark_id)
+      -- set parent relationship
+      if item.parent_idx then
+        local parent_item = list_items[item.parent_idx]
+        local parent_extmark_id = node_to_extmark[parent_item.node:id()]
+
+        if parent_extmark_id and todo_map[parent_extmark_id] then
+          todo_item.parent_id = parent_extmark_id
+          table.insert(todo_map[parent_extmark_id].children, extmark_id)
         end
       end
     end
   end
 
-  -- extract metadata using the inline range
-  for _, todo_item in pairs(todo_map) do
-    todo_item.metadata = M.extract_metadata(bufnr, todo_item.first_inline_range)
-  end
-
-  -- Clean up orphaned extmarks
+  -- clean up orphaned extmarks
   for _, orphaned_id in pairs(extmark_by_pos) do
     vim.api.nvim_buf_del_extmark(bufnr, config.ns_todos, orphaned_id)
   end

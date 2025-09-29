@@ -1312,7 +1312,7 @@ end
 ---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
----@param todo_map table<integer, checkmate.TodoItem>
+---@param todo_map checkmate.TodoMap
 ---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
   profiler.start("api.propagate_toggle")
@@ -2213,7 +2213,7 @@ end
 
 --- Count completed and total (non-inactive type) child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
----@param todo_map table<integer, checkmate.TodoItem> Full todo map
+---@param todo_map checkmate.TodoMap Full todo map
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
@@ -2558,7 +2558,7 @@ end
 --- Collect todo items under cursor or visual selection
 ---@param is_visual boolean whether to collect items in visual selection (true) or under cursor (false)
 ---@return checkmate.TodoItem[] items
----@return table<integer, checkmate.TodoItem> todo_map
+---@return checkmate.TodoMap todo_map
 function M.collect_todo_items_from_selection(is_visual)
   profiler.start("api.collect_todo_items_from_selection")
 

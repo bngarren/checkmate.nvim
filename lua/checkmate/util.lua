@@ -371,7 +371,7 @@ function M.escape_for_char_class(s)
 end
 
 ---Returns a todo_map table sorted by start row
----@generic T: table<integer, checkmate.TodoItem>
+---@generic T: checkmate.TodoMap
 ---@param todo_map T
 ---@return {id: integer, item: checkmate.TodoItem}
 function M.get_sorted_todo_list(todo_map)

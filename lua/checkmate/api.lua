@@ -1732,7 +1732,7 @@ function M.archive_todos(opts)
       and todo.range.start.row > archive_start_row
       and todo.range["end"].row <= (archive_end_row or -1)
 
-    if not in_arch and todo.state == "checked" and not todo.parent_id and not todos_to_archive[id] then
+    if not in_arch and todo.state_type == "complete" and not todo.parent_id and not todos_to_archive[id] then
       -- mark root
       todos_to_archive[id] = true
       archived_root_cnt = archived_root_cnt + 1

@@ -224,7 +224,7 @@ function M.verify_content_lines(content, expected_lines, start_line)
 end
 
 --- Finds the first todo item in a todo_map whose `todo_text` matches the given Lua pattern.
---- @param todo_map? table<integer, checkmate.TodoItem> Map of extmark IDs to todo item objects
+--- @param todo_map? checkmate.TodoMap Map of extmark IDs to todo item objects
 --- @param pattern string Lua pattern to match against each item's `todo_text`
 --- @return checkmate.TodoItem? todo The matching todo item, or `nil` if none found
 function M.find_todo_by_text(todo_map, pattern)

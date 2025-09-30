@@ -371,7 +371,7 @@ function M.escape_for_char_class(s)
 end
 
 ---Returns a todo_map table sorted by start row
----@generic T: table<integer, checkmate.TodoItem>
+---@generic T: checkmate.TodoMap
 ---@param todo_map T
 ---@return {id: integer, item: checkmate.TodoItem}
 function M.get_sorted_todo_list(todo_map)
@@ -748,56 +748,56 @@ function M.build_todo(todo_item)
   }
 end
 
--- Cursor helper
-M.Cursor = {}
-
----@class CursorState
----@field win integer Window handle
----@field cursor integer[] Cursor position as [row, col] (1-indexed row)
----@field bufnr integer Buffer number
-
----Saves the current cursor state
----@return CursorState Current cursor position information
-function M.Cursor.save()
-  return {
-    win = vim.api.nvim_get_current_win(),
-    cursor = vim.api.nvim_win_get_cursor(0),
-    bufnr = vim.api.nvim_get_current_buf(),
-  }
-end
-
----Restores a previously saved cursor state
----@param state CursorState The cursor state returned by Cursor.save()
----@return boolean success Whether restoration was successful
-function M.Cursor.restore(state)
-  -- Make sure we have a valid state
-  if not state or not state.win or not state.cursor or not state.bufnr then
-    return false
+--- Run `fn` with the given window as current and always restore its view
+--- - saves & restores everything tracked by winsaveview() (cursor, topline, etc.)
+--- - safe if `fn` errors (rethrows after restore)
+--- - default `win` is the current window (0)
+---@param fn fun()
+---@param win? integer
+function M.with_preserved_view(fn, win)
+  win = win or 0
+  if type(fn) ~= "function" then
+    return
   end
 
-  -- Make sure the window and buffer still exist
-  if not (vim.api.nvim_win_is_valid(state.win) and vim.api.nvim_buf_is_valid(state.bufnr)) then
-    return false
+  -- a specific window was requested but it no longer exists, just run fn
+  if win ~= 0 and not vim.api.nvim_win_is_valid(win) then
+    return fn()
   end
 
-  -- Ensure the cursor position is valid for the buffer
-  local line_count = vim.api.nvim_buf_line_count(state.bufnr)
-  if state.cursor[1] > line_count then
-    state.cursor[1] = line_count
+  local ok, err
+  local w = (win == 0) and vim.api.nvim_get_current_win() or win
+
+  if not vim.api.nvim_win_is_valid(w) then
+    return fn()
   end
 
-  -- Get the line at the cursor position
-  local line = vim.api.nvim_buf_get_lines(state.bufnr, state.cursor[1] - 1, state.cursor[1], false)[1] or ""
+  ok, err = xpcall(function()
+    vim.api.nvim_win_call(w, function()
+      local bufnr = vim.api.nvim_win_get_buf(w)
+      local view = vim.fn.winsaveview()
 
-  -- Ensure cursor column is valid for the line
-  if state.cursor[2] >= #line then
-    state.cursor[2] = math.max(0, #line - 1)
+      local uok, uerr = xpcall(fn, debug.traceback)
+
+      -- try to restore even if user code failed
+      if vim.api.nvim_win_is_valid(w) then
+        vim.api.nvim_win_call(w, function()
+          if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(w) ~= bufnr then
+            pcall(vim.api.nvim_win_set_buf, w, bufnr)
+          end
+          pcall(vim.fn.winrestview, view)
+        end)
+      end
+
+      if not uok then
+        error(uerr)
+      end
+    end)
+  end, debug.traceback)
+
+  if not ok then
+    error(err)
   end
-
-  -- Restore cursor
-  local success = pcall(vim.api.nvim_win_set_cursor, state.win, state.cursor)
-
-  return success
 end
 
 return M

@@ -18,7 +18,7 @@ local menu = {
     name = "꛷ What's here?",
     hl = "Exblue",
     cmd = function()
-      require("checkmate").debug.at_cursor()
+      require("checkmate.debug").at_cursor()
     end,
     rtxt = "w",
   },
@@ -27,7 +27,7 @@ local menu = {
     name = "⏿ Show Todo Map",
     hl = "Normal",
     cmd = function()
-      require("checkmate").debug.print_todo_map()
+      require("checkmate.debug").print_todo_map()
     end,
     rtxt = "t",
   },
@@ -35,7 +35,7 @@ local menu = {
     name = "⏿ Show Config",
     hl = "Normal",
     cmd = function()
-      require("checkmate").debug.print_config()
+      require("checkmate.debug").print_config()
     end,
     rtxt = "c",
   },
@@ -43,7 +43,7 @@ local menu = {
     name = "ℬ Show Buffer Local Vars",
     hl = "Normal",
     cmd = function()
-      require("checkmate").debug.print_buf_local_vars(0)
+      require("checkmate.debug").print_buf_local_vars(0)
     end,
     rtxt = "b",
   },
@@ -81,7 +81,7 @@ local menu = {
         name = "🆇  Clear highlight under cursor",
         hl = "ExRed",
         cmd = function()
-          require("checkmate").debug.clear_highlight()
+          require("checkmate.debug").clear_highlight()
         end,
         rtxt = "c",
       },
@@ -89,7 +89,7 @@ local menu = {
         name = "🆇  Clear all highlights",
         hl = "ExRed",
         cmd = function()
-          require("checkmate").debug.clear_all_highlights()
+          require("checkmate.debug").clear_all_highlights()
         end,
         rtxt = "a",
       },
@@ -100,7 +100,7 @@ local menu = {
     name = "🔍 Open Log File (floating)",
     hl = "Normal",
     cmd = function()
-      require("checkmate").debug.log({ type = "floating" })
+      require("checkmate.debug").log({ type = "floating" })
     end,
     rtxt = "L",
   },
@@ -112,7 +112,7 @@ local menu = {
         name = "🔍 Open Log File (split)",
         hl = "Normal",
         cmd = function()
-          require("checkmate").debug.log({ type = "split" })
+          require("checkmate.debug").log({ type = "split" })
         end,
         rtxt = "S",
       },
@@ -121,7 +121,7 @@ local menu = {
         name = "🔄 Clear Log File",
         hl = "Normal",
         cmd = function()
-          require("checkmate").debug.clear_log()
+          require("checkmate.debug").clear_log()
         end,
         rtxt = "C",
       },

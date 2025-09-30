@@ -2797,6 +2797,10 @@ Some other content]]
       local todo = require("checkmate").get_todo({ bufnr = bufnr })
       assert.is_nil(todo)
 
+      -- make sure it works with cursor pos (not passing a row)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      todo1 = h.exists(cm.get_todo({ bufnr = bufnr }))
+
       finally(function()
         h.cleanup_buffer(bufnr)
       end)

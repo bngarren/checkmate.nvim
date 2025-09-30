@@ -3411,8 +3411,7 @@ Some other content]]
 
       local bufnr = h.setup_test_buffer(content)
 
-      local success = require("checkmate").archive()
-      assert.is_false(success) -- should return false when nothing to archive
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3467,12 +3466,10 @@ Some content here
       local bufnr = h.setup_test_buffer(content)
 
       local heading_title = "Completed Todos"
-      local success = require("checkmate").archive({ heading = { title = heading_title } })
+      require("checkmate").archive({ heading = { title = heading_title } })
 
       vim.wait(10)
       vim.cmd("redraw")
-
-      assert.is_true(success)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3542,11 +3539,9 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      local success = require("checkmate").archive()
+      require("checkmate").archive()
       vim.wait(10)
       vim.cmd("redraw")
-
-      assert.is_true(success)
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3599,8 +3594,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      local success = require("checkmate").archive()
-      assert.is_true(success)
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3660,10 +3654,9 @@ Some content here
 
         local bufnr = h.setup_test_buffer(content)
 
-        local success = require("checkmate").archive()
+        require("checkmate").archive()
         vim.wait(20)
         vim.cmd("redraw")
-        assert.equal(true, success, "Archive failed for parent_spacing = " .. spacing)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local buffer_content = table.concat(lines, "\n")
@@ -3748,8 +3741,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      local arch_success = require("checkmate").archive()
-      assert.is_true(arch_success)
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3798,8 +3790,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      local arch_success = require("checkmate").archive()
-      assert.is_true(arch_success)
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3843,8 +3834,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      local arch_success = require("checkmate").archive()
-      assert.is_true(arch_success)
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3906,8 +3896,7 @@ Final content.
 
       local bufnr = h.setup_test_buffer(content)
 
-      local arch_success = require("checkmate").archive()
-      assert.is_true(arch_success)
+      require("checkmate").archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")

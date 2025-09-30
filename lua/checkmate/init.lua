@@ -975,19 +975,55 @@ end
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present
 function M.jump_next_metadata()
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- during a transaction, schedule cursor movement as a cb
+    ctx.add_cb(function()
+      local bufnr = ctx.get_buf()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local todo_item = ctx.get_todo_by_row(cursor[1] - 1)
+      if todo_item then
+        api.move_cursor_to_metadata(bufnr, todo_item, false)
+      end
+    end)
+    return
+  end
+
+  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(false)
-
-  api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+  if #todo_items > 0 then
+    api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+  end
 end
 
 --- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
 function M.jump_previous_metadata()
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- during a transaction, schedule cursor movement as a cb
+    ctx.add_cb(function()
+      local bufnr = ctx.get_buf()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local todo_item = ctx.get_todo_by_row(cursor[1] - 1)
+      if todo_item then
+        api.move_cursor_to_metadata(bufnr, todo_item, true)
+      end
+    end)
+    return
+  end
+
+  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(false)
-
-  api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+  if #todo_items > 0 then
+    api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+  end
 end
 
 --- Get the todo under the cursor (or the first line of a visual selection)
@@ -1094,7 +1130,22 @@ end
 function M.archive(opts)
   opts = opts or {}
   local api = require("checkmate.api")
-  return api.archive_todos(opts)
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- already in a transaction, queue the operation
+    ctx.add_op(api.archive_todos, opts)
+    return true
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.archive_todos, opts)
+  end, function()
+    -- post_fn
+  end)
 end
 
 ----------------------------------------------------------------------

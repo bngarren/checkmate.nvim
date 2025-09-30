@@ -411,7 +411,7 @@ function M.setup_highlights()
 end
 
 ---@class ApplyHighlightingOpts
----@field todo_map? table<integer, checkmate.TodoItem> Pre-computed todo map
+---@field todo_map? checkmate.TodoMap Pre-computed todo map
 ---@field region? {start_row: integer, end_row: integer, affected_roots?: checkmate.TodoItem[]} Regional update bounds
 ---@field strategy? "immediate"|"adaptive" Highlighting strategy (default: "adaptive")
 ---@field debug_reason? string Debug context
@@ -481,7 +481,7 @@ end
 ---Process a todo item (and, if requested via `opts.recursive`, its descendants).
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem The todo item to highlight.
----@param todo_map table<integer, checkmate.TodoItem> Todo map from `discover_todos`
+---@param todo_map checkmate.TodoMap Todo map from `discover_todos`
 ---@param opts HighlightTodoOpts? Optional settings.
 ---@return nil
 function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
@@ -604,7 +604,7 @@ end
 ---Highlight list markers for todo items and their child list items
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
----@param todo_rows table<integer, checkmate.TodoItem> row to todo lookup table
+---@param todo_rows checkmate.TodoMap row to todo lookup table
 function M.highlight_list_markers(bufnr, todo_item, todo_rows)
   -- highlight the todo item's own marker
   if todo_item.list_marker and todo_item.list_marker.node then
@@ -858,7 +858,7 @@ end
 ---Show todo count indicator
 ---@param bufnr integer Buffer number
 ---@param todo_item checkmate.TodoItem
----@param todo_map table<integer, checkmate.TodoItem>
+---@param todo_map checkmate.TodoMap
 function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
   if not config.options.show_todo_count then
     return

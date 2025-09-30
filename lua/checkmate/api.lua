@@ -42,98 +42,6 @@ M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = fal
 ---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
---- Validates that the buffer is valid (per nvim) and Markdown filetype
-function M.is_valid_buffer(bufnr)
-  if not bufnr or type(bufnr) ~= "number" then
-    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
-    return false
-  end
-
-  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
-  if not ok or not is_valid then
-    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
-    log.fmt_error("[api] Invalid buffer %d", bufnr)
-    return false
-  end
-
-  if vim.bo[bufnr].filetype ~= "markdown" then
-    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
-    return false
-  end
-
-  return true
-end
-
-local function setup_undo(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local bl = require("checkmate.buf_local").handle(bufnr)
-
-  -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
-  -- Rationale:
-  --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
-  --    undofiles whose hash matches file bytes; mismatch => undofile ignored.
-  --  - We still provide correct in-session undo/redo; persistent undo is off by design.
-  vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
-
-  -- Baseline tick at attach/first setup; used to infer "no edits since attach".
-  -- This lets us distinguish the first "conversion" pass on open from later edits.
-  bl:set("baseline_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-end
-
--- Tracks edited row-span via on_lines
--- this is used in `process_buffer` to region-scope highlight only passes
--- Important: this returns as INCLUSIVE end row. Callers should +1 to get end-exclusive row
-local function attach_change_watcher(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-  local bl = require("checkmate.buf_local").handle(bufnr)
-
-  if bl:get("change_watcher_attached") then
-    return
-  end
-
-  bl:set("last_changed_region", nil)
-
-  vim.api.nvim_buf_attach(bufnr, false, {
-    on_lines = function(_, _, changedtick, firstline, lastline, new_lastline)
-      -- ignore our own writes
-      if bl:get("in_conversion") then
-        return
-      end
-
-      -- record last user changedtick for potential :undojoin by the parser during conversion
-      bl:set("last_user_tick", changedtick)
-
-      -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
-      -- inclusive end row that covers either the removed or the inserted span
-      local old_end = (lastline > firstline) and (lastline - 1) or firstline
-      local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
-      local srow = firstline
-      local erow = math.max(old_end, new_end)
-
-      -- keep and merge 1 span for the entire debounce window
-      -- when process_buffer eventually runs, it will clear "last_changed_region"
-      local prev = bl:get("last_changed_region")
-      if prev then
-        srow = math.min(srow, prev.s)
-        erow = math.max(erow, prev.e)
-      end
-      bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
-    end,
-    on_detach = function()
-      bl:set("change_watcher_attached", nil)
-      bl:set("last_changed_region", nil)
-    end,
-    utf_sizes = false,
-  })
-
-  bl:set("change_watcher_attached", true)
-end
-
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
   if not M.is_valid_buffer(bufnr) then
@@ -141,7 +49,6 @@ function M.setup_buffer(bufnr)
   end
 
   local bl = require("checkmate.buf_local").handle(bufnr)
-
   local checkmate = require("checkmate")
 
   -- bail early if we're not running
@@ -154,8 +61,11 @@ function M.setup_buffer(bufnr)
     return true
   end
 
+  -- the main module tracks active checkmate buffers
   checkmate.register_buffer(bufnr)
 
+  -- initial conversion of on-disk raw markdown to our in-buffer representation
+  -- "unicode" term is loosely applied
   parser.convert_markdown_to_unicode(bufnr)
 
   if config.options.linter and config.options.linter.enabled ~= false then
@@ -175,12 +85,9 @@ function M.setup_buffer(bufnr)
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
-  setup_undo(bufnr)
-
+  M.setup_undo(bufnr)
+  M.setup_change_watcher(bufnr)
   M.setup_keymaps(bufnr)
-
-  attach_change_watcher(bufnr)
-
   M.setup_autocmds(bufnr)
 
   bl:set("setup_complete", true)
@@ -191,22 +98,45 @@ function M.setup_buffer(bufnr)
   return true
 end
 
--- { bufnr = {mode, key}[] }
-local buffer_local_keys = {}
+function M.setup_undo(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
+  -- Rationale:
+  --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
+  --    undofiles whose hash matches file bytes; mismatch => undofile ignored.
+  --  - We still provide correct in-session undo/redo; persistent undo is off by design.
+  vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
+
+  -- Baseline tick at attach/first setup; used to infer "no edits since attach".
+  -- This lets us distinguish the first "conversion" pass on open from later edits.
+  bl:set("baseline_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+end
+
+---{mode, lhs}
+---@alias checkmate.BufferKeymapItem {[1]: string, [2]: string}
+---@alias checkmate.BufferKeymapList checkmate.BufferKeymapItem[]
 
 function M.clear_keymaps(bufnr)
-  -- clear buffer local keymaps
-  local items = buffer_local_keys[bufnr]
+  local bl = require("checkmate.buf_local").handle(bufnr)
+  ---@type checkmate.BufferKeymapList|nil
+  local items = bl:get("keymaps")
   if not items or #items == 0 then
     return
   end
   for _, item in ipairs(items) do
+    -- item = { mode, lhs }
     vim.api.nvim_buf_del_keymap(bufnr, item[1], item[2])
   end
-  buffer_local_keys[bufnr] = {}
+  bl:set("keymaps", {} --[[@as checkmate.BufferKeymapList]])
 end
 
 function M.setup_keymaps(bufnr)
+  local bl = require("checkmate.buf_local").handle(bufnr)
   local keys = config.options.keys or {}
 
   local function buffer_map(_bufnr, mode, lhs, rhs, desc)
@@ -226,7 +156,7 @@ function M.setup_keymaps(bufnr)
     })
   end
 
-  buffer_local_keys[bufnr] = {}
+  bl:set("keyamps", {})
 
   local DEFAULT_DESC = "Checkmate <unnamed>"
   local DEFAULT_MODES = { "n" }
@@ -262,7 +192,12 @@ function M.setup_keymaps(bufnr)
           end
 
           if success then
-            table.insert(buffer_local_keys[bufnr], { mode, key })
+            bl:update("keymaps", function(prev)
+              prev = prev or {}
+              ---@cast prev checkmate.BufferKeymapList
+              prev[#prev + 1] = { mode, key }
+              return prev
+            end)
           end
         end
       end
@@ -330,7 +265,13 @@ function M.setup_keymaps(bufnr)
             silent = true,
             desc = desc,
           })
-          table.insert(buffer_local_keys[bufnr], { "i", key })
+
+          bl:update("keymaps", function(prev)
+            prev = prev or {}
+            ---@cast prev checkmate.BufferKeymapList
+            prev[#prev + 1] = { "i", key }
+            return prev
+          end)
         end)
         if not ok then
           log.fmt_debug("[api] Failed to set list continuation keymap for %s: %s", key, err)
@@ -362,7 +303,13 @@ function M.setup_keymaps(bufnr)
           end
 
           buffer_map(bufnr, mode, key, rhs, desc)
-          table.insert(buffer_local_keys[bufnr], { mode, key })
+
+          bl:update("keymaps", function(prev)
+            prev = prev or {}
+            ---@cast prev checkmate.BufferKeymapList
+            prev[#prev + 1] = { mode, key }
+            return prev
+          end)
         end
       end
     end
@@ -480,11 +427,21 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
+    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+      group = M.buffer_augroup,
+      buffer = bufnr,
+      callback = function()
+        bl:set("insert_enter_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+      end,
+    })
+
     vim.api.nvim_create_autocmd({ "InsertLeave" }, {
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
-        if vim.b[bufnr].modified then
+        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+        local modified = bl:get("insert_enter_tick") ~= tick
+        if modified then
           M.process_buffer(bufnr, "full", "InsertLeave")
         end
       end,
@@ -494,7 +451,8 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
-        if transaction.is_active(bufnr) then
+        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+        if transaction.is_active(bufnr) or bl:get("last_conversion_tick") == tick then
           return
         end
         M.process_buffer(bufnr, "full", "TextChanged")
@@ -522,6 +480,58 @@ function M.setup_autocmds(bufnr)
     })
     bl:set("autocmds_setup", true)
   end
+end
+
+-- Tracks edited row-span via on_lines
+-- this is used in `process_buffer` to region-scope highlight only passes
+-- Important: this returns as INCLUSIVE end row. Callers should +1 to get end-exclusive row
+-- also tracks a `last_user_tick` which is a changedtick that doesn't occur during markdown<->unicode conversion
+function M.setup_change_watcher(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  if bl:get("change_watcher_attached") then
+    return
+  end
+
+  bl:set("last_changed_region", nil)
+
+  vim.api.nvim_buf_attach(bufnr, false, {
+    on_lines = function(_, _, changedtick, firstline, lastline, new_lastline)
+      -- ignore our own writes
+      if bl:get("in_conversion") then
+        return
+      end
+
+      -- record last user changedtick for potential :undojoin by the parser during conversion
+      bl:set("last_user_tick", changedtick)
+
+      -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
+      -- inclusive end row that covers either the removed or the inserted span
+      local old_end = (lastline > firstline) and (lastline - 1) or firstline
+      local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
+      local srow = firstline
+      local erow = math.max(old_end, new_end)
+
+      -- keep and merge 1 span for the entire debounce window
+      -- when process_buffer eventually runs, it will clear "last_changed_region"
+      local prev = bl:get("last_changed_region")
+      if prev then
+        srow = math.min(srow, prev.s)
+        erow = math.max(erow, prev.e)
+      end
+      bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
+    end,
+    on_detach = function()
+      bl:set("change_watcher_attached", nil)
+      bl:set("last_changed_region", nil)
+    end,
+    utf_sizes = false,
+  })
+
+  bl:set("change_watcher_attached", true)
 end
 
 -- functions that process the buffer need to be debounced and stored
@@ -563,16 +573,31 @@ function M.process_buffer(bufnr, process_type, reason)
     M._debounced_processors[bufnr] = {}
   end
 
+  -- store runner-specific things in here to avoid process_impl() using stale closure
+  M._last_call_ctx = M._last_call_ctx or {}
+  M._last_call_ctx[bufnr] = M._last_call_ctx[bufnr] or {}
+  M._last_call_ctx[bufnr][process_type] = {
+    reason = reason,
+  }
+
   if not M._debounced_processors[bufnr][process_type] then
     local function process_impl()
+      bl = require("checkmate.buf_local").handle(bufnr)
+
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_processors[bufnr] = nil
+        M._last_call_ctx[bufnr] = nil
         return
       end
 
-      local start_time = vim.uv.hrtime() / 1000000
+      -- pull outside data from ctx to avoid stale closure
+      local ctx = (M._last_call_ctx[bufnr] and M._last_call_ctx[bufnr][process_type]) or {}
+      local run_reason = ctx.reason or "unknown"
 
-      local todo_map = parser.get_todo_map(bufnr)
+      log.fmt_trace("process_buffer (debounced), type '%s', due to %s", process_type, run_reason)
+      -- vim.notify(string.format("running process_buffer '%s' due to %s", process_type, run_reason))
+
+      local start_time = vim.uv.hrtime() / 1000000
 
       ---@type "none" | "regional" | "adaptive_full"
       local highlight_plan = "none"
@@ -598,6 +623,8 @@ function M.process_buffer(bufnr, process_type, reason)
           local start_row = math.max(0, changed.s - PADDING)
           local end_row = math.min(max_row, changed.e + PADDING)
           local end_row_excl = end_row + 1
+
+          local todo_map = parser.get_todo_map(bufnr)
 
           -- find root todos overlapping this span
           local affected_roots = {}
@@ -663,11 +690,13 @@ function M.process_buffer(bufnr, process_type, reason)
                     end_row = max_row_excl, -- end-exclusive
                     affected_roots = { nearest_above },
                   }
+                  highlight_plan = "regional"
+                else
+                  highlight_plan = "adaptive_full"
                 end
-                highlight_plan = "regional"
+              else
+                highlight_plan = "adaptive_full"
               end
-
-              highlight_plan = "adaptive_full"
             end
           end
         else
@@ -718,6 +747,8 @@ function M.process_buffer(bufnr, process_type, reason)
     })
   end
 
+  -- update context then trigger the runner
+  M._last_call_ctx[bufnr][process_type] = { reason = reason }
   M._debounced_processors[bufnr][process_type]()
 end
 
@@ -771,6 +802,28 @@ function M.shutdown(bufnr)
     bl:clear()
     bl:set("cleaned_up", true)
   end
+end
+
+--- Validates that the buffer is valid (per nvim) and Markdown filetype
+function M.is_valid_buffer(bufnr)
+  if not bufnr or type(bufnr) ~= "number" then
+    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
+    return false
+  end
+
+  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
+  if not ok or not is_valid then
+    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    log.fmt_error("[api] Invalid buffer %d", bufnr)
+    return false
+  end
+
+  if vim.bo[bufnr].filetype ~= "markdown" then
+    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
+    return false
+  end
+
+  return true
 end
 
 --- Creates todo(s) by converting non-todo lines within the range
@@ -1259,7 +1312,7 @@ end
 ---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
----@param todo_map table<integer, checkmate.TodoItem>
+---@param todo_map checkmate.TodoMap
 ---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
   profiler.start("api.propagate_toggle")
@@ -2160,7 +2213,7 @@ end
 
 --- Count completed and total (non-inactive type) child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
----@param todo_map table<integer, checkmate.TodoItem> Full todo map
+---@param todo_map checkmate.TodoMap Full todo map
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
@@ -2194,8 +2247,6 @@ end
 --- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
 --- @return boolean success Whether any items were archived
 function M.archive_todos(opts)
-  local highlights = require("checkmate.highlights")
-
   opts = opts or {}
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
@@ -2440,11 +2491,9 @@ function M.archive_todos(opts)
   end
 
   -- write buffer
-
-  local cursor_state = util.Cursor.save()
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
-  util.Cursor.restore(cursor_state)
-  highlights.apply_highlighting(bufnr, { debug_reason = "archive_todos" })
+  util.with_preserved_view(function()
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
+  end)
 
   util.notify(
     ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
@@ -2507,63 +2556,73 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
 end
 
 --- Collect todo items under cursor or visual selection
----@param is_visual boolean Whether to collect items in visual selection (true) or under cursor (false)
+---@param is_visual boolean whether to collect items in visual selection (true) or under cursor (false)
 ---@return checkmate.TodoItem[] items
----@return table<integer, checkmate.TodoItem> todo_map
+---@return checkmate.TodoMap todo_map
 function M.collect_todo_items_from_selection(is_visual)
   profiler.start("api.collect_todo_items_from_selection")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local items = {}
 
-  -- Pre-parse all todos once
   local full_map = parser.get_todo_map(bufnr)
 
   if is_visual then
-    -- Exit visual mode first
+    -- exit visual to freeze `'<`/`'>`
     vim.cmd([[execute "normal! \<Esc>"]])
-    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
-    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
 
-    -- convert from 1-based mark to 0-based rows
-    local start_line = mark_start[1] - 1
-    local end_line = mark_end[1] - 1
+    -- returns 1-based line/col
+    local s = vim.fn.getpos("'<")
+    local e = vim.fn.getpos("'>")
 
-    -- pre-build lookup table for faster todo item location
-    local row_to_todo = {}
-    for _, todo_item in pairs(full_map) do
-      for row = todo_item.range.start.row, todo_item.range["end"].row do
-        if not row_to_todo[row] or row == todo_item.range.start.row then
-          row_to_todo[row] = todo_item
-        end
-      end
+    -- convert to 0-based rows
+    local s_row = (s[2] > 0 and s[2] - 1 or 0)
+    local e_row = (e[2] > 0 and e[2] - 1 or 0)
+
+    -- normalize order
+    local start_row, end_row = s_row, e_row
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
     end
 
+    -- clamp to buffer bounds
+    local max_row = math.max(0, vim.api.nvim_buf_line_count(bufnr) - 1)
+    if start_row < 0 then
+      start_row = 0
+    end
+    if end_row > max_row then
+      end_row = max_row
+    end
+
+    -- include todos whose todo first line lies within [start_row, end_row]
     local seen = {}
-    for row = start_line, end_line do
-      local todo = row_to_todo[row]
-      if todo then
-        local key = string.format("%d:%d", todo.todo_marker.position.row, todo.todo_marker.position.col)
-        if not seen[key] then
-          seen[key] = true
-          table.insert(items, todo)
-        end
+    for id, todo in pairs(full_map) do
+      local mr = todo.todo_marker.position
+      if mr.row >= start_row and mr.row <= end_row and not seen[id] then
+        seen[id] = true
+        items[#items + 1] = todo
       end
     end
+
+    -- deterministic order
+    table.sort(items, function(a, b)
+      local ar, br = a.todo_marker.position.row, b.todo_marker.position.row
+      if ar == br then
+        return a.todo_marker.position.col < b.todo_marker.position.col
+      end
+      return ar < br
+    end)
   else
-    -- Normal mode: single item at cursor
-    local cursor = util.Cursor.save()
-    local row = cursor.cursor[1] - 1
-    local col = cursor.cursor[2]
+    local c = vim.api.nvim_win_get_cursor(0)
+    local row = c[1] - 1 -- to 0-based
+    local col = c[2]
     local todo = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = full_map })
-    util.Cursor.restore(cursor)
     if todo then
-      table.insert(items, todo)
+      items[#items + 1] = todo
     end
   end
 
   profiler.stop("api.collect_todo_items_from_selection")
-
   return items, full_map
 end
 

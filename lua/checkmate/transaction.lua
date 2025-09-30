@@ -35,12 +35,11 @@ remember...
 local M = {}
 local parser = require("checkmate.parser")
 local diff = require("checkmate.lib.diff")
-local util = require("checkmate.util")
 
 ---the exposed transaction state is referred to as "context"
 ---the internal state is M._states[bufnr]
 ---@class checkmate.TransactionContext
----@field get_todo_map fun(): table<integer, checkmate.TodoItem>
+---@field get_todo_map fun(): checkmate.TodoMap
 ---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
 ---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
 ---@field add_op fun(fn: function, ...)

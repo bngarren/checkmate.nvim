@@ -2251,18 +2251,14 @@ function M.archive_todos(ctx, opts)
   opts = opts or {}
 
   local bufnr = ctx.get_buf()
-  local diff = require("checkmate.lib.diff")
-  local util = require("checkmate.util")
-  local config = require("checkmate.config")
-  local parser = require("checkmate.parser")
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
   local archive_heading_string = util.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )
-  local include_children = opts.include_children ~= false -- default: true
-  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false -- default: true
+  local include_children = opts.include_children ~= false
+  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
   -- helpers
@@ -2280,8 +2276,6 @@ function M.archive_todos(ctx, opts)
     end
   end
 
-  -- discover todos and current archive block boundaries
-
   local todo_map = ctx.get_todo_map()
   local sorted_todos = util.get_sorted_todo_list(todo_map)
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -2290,7 +2284,7 @@ function M.archive_todos(ctx, opts)
   do
     local heading_level = archive_heading_string:match("^(#+)")
     local heading_level_len = heading_level and #heading_level or 0
-    -- The 'next' heading level is a heading at the same or higher level
+    -- the 'next' heading level is a heading at the same or higher level
     -- which represents a new section
     local next_heading_pat = heading_level
         and ("^%s*" .. string.rep("#", heading_level_len, heading_level_len) .. "+%s")
@@ -2359,7 +2353,7 @@ function M.archive_todos(ctx, opts)
     return a.start_row < b.start_row
   end)
 
-  -- Collect archived lines (to insert into archive section) and build a deletion plan for main doc
+  -- collect archived lines (to insert into archive section)
 
   local newly_archived_lines = {}
   local to_delete = {} ---@type table<integer, boolean>
@@ -2383,27 +2377,29 @@ function M.archive_todos(ctx, opts)
   end
 
   -- blank-line cleanup: avoid leaving stray empty lines after deletions
-  -- For each archived block, if the *immediately following* line is blank,
-  -- delete it when it would create double-blank or preserve an existing blank above.
+  -- For each archived block, if the immediately following line is blank,
+  -- delete it when it would create double-blank or preserve an existing blank above
   for _, r in ipairs(archived_ranges) do
     local after = r.end_row + 1
     local before = r.start_row - 1
 
     if after <= #current_buf_lines - 1 and current_buf_lines[after + 1] == "" then
-      -- Find the nearest surviving line above
+      -- find the nearest surviving line above
       while before >= 0 and to_delete[before] do
         before = before - 1
       end
       local has_blank_before = (before >= 0) and (current_buf_lines[before + 1] == "")
 
-      -- If we already have a blank above (or the top is blank), remove the trailing blank
+      -- if we already have a blank above (or the top is blank), remove the trailing blank
       if has_blank_before then
         to_delete[after] = true
       end
     end
   end
 
-  -- Turn deletion bitmap into contiguous hunk ranges (reverse-safe; apply_diff sorts bottom→top)
+  -- make contiguous delete hunks rows marked in `to_delete`
+  -- Idea: scan the buffer once, whenever we see a run of deletable lines, start it...
+  -- when the run ends, emit one delete hunk covering [run_start, last_row]
   local delete_hunks = {}
   do
     local run_start ---@type integer|nil
@@ -2428,16 +2424,15 @@ function M.archive_todos(ctx, opts)
     flush_run(#current_buf_lines - 1)
   end
 
-  -- Prepare archive section insertion/merge hunks
+  -- prepare archive section insertion/merge hunks
 
-  -- trim trailing blanks from payload (no more than parent_spacing at the end)
   trim_trailing_blank(newly_archived_lines)
 
   local archive_hunks = {}
 
   if #newly_archived_lines > 0 then
     if not archive_start_row then
-      -- No archive section exists yet: append at end of buffer
+      -- no archive section exists yet: append at end of buffer
       local line_count = #current_buf_lines
 
       local insertion = {} --- heading + required blank + content
@@ -2455,7 +2450,7 @@ function M.archive_todos(ctx, opts)
       archive_hunks[#archive_hunks + 1] = diff.make_line_insert(line_count, insertion)
     else
       -- Archive section exists: normalize a single blank after heading,
-      -- then insert at top (newest_first) or append at bottom (!newest_first).
+      -- then insert at top (newest_first) or append at bottom (!newest_first)
 
       -- 1) normalize the run of blanks after the heading to exactly one
       local first_nonblank_after = archive_start_row + 1
@@ -2467,7 +2462,6 @@ function M.archive_todos(ctx, opts)
         archive_hunks[#archive_hunks + 1] = diff.make_line_insert(archive_start_row + 1, { "" })
       else
         -- there is at least one blank; compress to a single blank
-        -- replace [archive_start_row+1 .. first_nonblank_after-1] with a single ""
         archive_hunks[#archive_hunks + 1] = diff.make_line_replace(
           { archive_start_row + 1, first_nonblank_after - 1 },
           { "" }
@@ -2475,14 +2469,14 @@ function M.archive_todos(ctx, opts)
       end
 
       if newest_first then
-        -- Insert just after the (now single) blank line under the heading
+        -- insert just after the single blank line under the heading
         local insert_row = archive_start_row + 2
         local payload = {}
         for _, l in ipairs(newly_archived_lines) do
           payload[#payload + 1] = l
         end
 
-        -- If existing archive content exists and spacing requested, add spacer between new and existing
+        -- if archive content already exists and spacing requested, add spacer between new and existing
         local has_existing = (archive_end_row and (archive_end_row >= archive_start_row + 1))
           and (archive_end_row >= insert_row)
         if has_existing and parent_spacing > 0 then
@@ -2493,17 +2487,16 @@ function M.archive_todos(ctx, opts)
       else
         -- Append to bottom of existing archive content
         -- Find the last non-blank line inside the archive section to avoid
-        -- inserting after a stray trailing blank (which would create a gap).
+        -- inserting after a stray trailing blank
         local tail = archive_end_row or (archive_start_row + 1)
         while tail > archive_start_row and current_buf_lines[tail + 1] == "" do
           tail = tail - 1
         end
 
-        -- We will insert *after* the last non-blank archive content
         local append_at = tail + 1
         local payload = {}
 
-        -- If there is existing content and spacing requested, add spacer first
+        -- if there is existing content and spacing requested, add spacer first
         local has_existing = tail > archive_start_row
         if has_existing and parent_spacing > 0 then
           add_spacing(payload)

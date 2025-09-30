@@ -102,9 +102,9 @@ describe("API", function()
       assert.equal("- [ ]", lines[19]:gsub("%s+$", ""))
 
       -- verify unicode symbols are NOT present in the saved file
-      assert.no.matches(vim.pesc(unchecked), saved_content)
-      assert.no.matches(vim.pesc(checked), saved_content)
-      assert.no.matches(vim.pesc(pending), saved_content)
+      assert.no.matches(unchecked, saved_content)
+      assert.no.matches(checked, saved_content)
+      assert.no.matches(pending, saved_content)
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -1416,7 +1416,7 @@ Some other content]]
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task without metadata @priority%(high%)", lines[3])
+        assert.matches("- " .. unchecked .. " Task without metadata @priority%(high%)", lines[3])
 
         vim.cmd("write")
         vim.cmd("sleep 10m")
@@ -1456,9 +1456,9 @@ Some other content]]
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent todo", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child todo A @priority%(high%)", lines[2])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child todo B", lines[3])
+        assert.matches("- " .. unchecked .. " Parent todo", lines[1])
+        assert.matches("- " .. unchecked .. " Child todo A @priority%(high%)", lines[2])
+        assert.matches("- " .. unchecked .. " Child todo B", lines[3])
 
         -- Now repeat for the parent todo
 
@@ -1472,8 +1472,8 @@ Some other content]]
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent todo @priority%(medium%)", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child todo", lines[2])
+        assert.matches("- " .. unchecked .. " Parent todo @priority%(medium%)", lines[1])
+        assert.matches("- " .. unchecked .. " Child todo", lines[2])
 
         finally(function()
           cm.stop()
@@ -1658,7 +1658,7 @@ Some other content]]
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@issue", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task", lines[1])
+        assert.matches("- " .. unchecked .. " Task", lines[1])
 
         finally(function()
           cm.stop()
@@ -1717,7 +1717,7 @@ Some other content]]
         assert.no.matches("@priority", lines[3])
         assert.no.matches("@due", lines[3])
         assert.no.matches("@tags", lines[3])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task with", lines[3])
+        assert.matches("- " .. unchecked .. " Task with", lines[3])
 
         assert.is_true(tags_on_removed_called)
 
@@ -2468,7 +2468,7 @@ Some other content]]
 
           lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           local checked = h.get_checked_marker()
-          assert.matches("- " .. vim.pesc(checked) .. " Task for testing", lines[1])
+          assert.matches("- " .. checked .. " Task for testing", lines[1])
 
           finally(function()
             cm.stop()
@@ -2508,7 +2508,7 @@ Some other content]]
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[3])
+      assert.matches("- " .. checked .. " Parent task", lines[3])
 
       vim.cmd("write")
       vim.cmd("sleep 10m")
@@ -2572,9 +2572,9 @@ Some other content]]
       local checked = h.get_checked_marker()
       local unchecked = h.get_unchecked_marker()
 
-      assert.matches("- " .. vim.pesc(checked) .. " Task 1", lines[3])
-      assert.matches("- " .. vim.pesc(unchecked) .. " Task 2 @priority%(high%)", lines[4])
-      assert.matches("- " .. vim.pesc(checked) .. " Task 3", lines[5])
+      assert.matches("- " .. checked .. " Task 1", lines[3])
+      assert.matches("- " .. unchecked .. " Task 2 @priority%(high%)", lines[4])
+      assert.matches("- " .. checked .. " Task 3", lines[5])
 
       vim.cmd("write")
       vim.cmd("sleep 10m")
@@ -2664,7 +2664,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Child 1", lines[2])
         assert.matches("- " .. checked .. " Child 2", lines[3])
         -- grandchild should NOT be checked (only direct children)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -2688,17 +2688,17 @@ Some other content]]
         -- cycle forward (unchecked -> checked)
         cm.cycle()
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked), lines[1])
+        assert.matches("- " .. checked, lines[1])
 
         -- cycle forward again (checked -> unchecked, wrapping)
         cm.cycle()
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked), lines[1])
+        assert.matches("- " .. unchecked, lines[1])
 
         -- cycle backward (unchecked -> checked, wrapping)
         cm.cycle({ backward = true })
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked), lines[1])
+        assert.matches("- " .. checked, lines[1])
 
         finally(function()
           cm.stop()
@@ -2914,11 +2914,11 @@ Some other content]]
         vim.wait(20)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
         -- grandchild should NOT be checked (only direct children)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -2947,11 +2947,11 @@ Some other content]]
 
         -- all descendants should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
-        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
-        assert.matches("- " .. vim.pesc(checked) .. " Great%-grandchild 1", lines[5])
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
+        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. checked .. " Great%-grandchild 1", lines[5])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -2978,9 +2978,9 @@ Some other content]]
 
         -- only parent is checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. unchecked .. " Child 2", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3007,11 +3007,11 @@ Some other content]]
         vim.wait(20)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
+        assert.matches("- " .. unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. unchecked .. " Child 2", lines[3])
         -- grandchild should remain checked (only direct children affected)
-        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3041,10 +3041,10 @@ Some other content]]
 
         -- parent should now be checked since all direct children are checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 3", lines[4])
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
+        assert.matches("- " .. checked .. " Child 3", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3074,7 +3074,7 @@ Some other content]]
 
         -- parent should NOT be checked yet (grandchild 2 is still unchecked)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
+        assert.matches("- " .. unchecked .. " Parent task", lines[1])
 
         -- now check Grandchild 2
         vim.api.nvim_win_set_cursor(0, { 5, 0 })
@@ -3083,11 +3083,11 @@ Some other content]]
 
         -- now parent should be checked (all descendants are checked)
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
-        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 1", lines[4])
-        assert.matches("- " .. vim.pesc(checked) .. " Grandchild 2", lines[5])
+        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
+        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. checked .. " Grandchild 2", lines[5])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3115,9 +3115,9 @@ Some other content]]
 
         -- parent should be unchecked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2", lines[3])
+        assert.matches("- " .. unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. checked .. " Child 2", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3146,11 +3146,11 @@ Some other content]]
 
         -- parent should be unchecked (because a descendant is unchecked)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Parent task", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1", lines[2])
+        assert.matches("- " .. unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. checked .. " Child 1", lines[2])
         -- child 2 is unchecked as it is a parent of Grandchild 1
-        assert.matches("- " .. vim.pesc(unchecked) .. " Child 2", lines[3])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Grandchild 1", lines[4])
+        assert.matches("- " .. unchecked .. " Child 2", lines[3])
+        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3183,14 +3183,14 @@ Some other content]]
 
         -- all tasks should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Task A", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Task B", lines[3])
-        assert.matches("- " .. vim.pesc(checked) .. " Task B%.1", lines[4])
+        assert.matches("- " .. checked .. " Task A", lines[1])
+        assert.matches("- " .. checked .. " Task A%.1", lines[2])
+        assert.matches("- " .. checked .. " Task B", lines[3])
+        assert.matches("- " .. checked .. " Task B%.1", lines[4])
         -- should not propagate check to grandchild if check_down = "direct_children"
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task B%.1%.1", lines[5])
+        assert.matches("- " .. unchecked .. " Task B%.1%.1", lines[5])
         -- should not check sibling parent Task C
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task C", lines[6])
+        assert.matches("- " .. unchecked .. " Task C", lines[6])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3220,10 +3220,10 @@ Some other content]]
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         -- A and B now checked, so Parent should check
-        assert.matches("- " .. vim.pesc(checked) .. " Parent", lines[1])
+        assert.matches("- " .. checked .. " Parent", lines[1])
         assert.matches("A", lines[2])
         assert.matches("B", lines[3])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Other", lines[4])
+        assert.matches("- " .. unchecked .. " Other", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3256,12 +3256,12 @@ Some other content]]
 
         -- should check Child 1.2, Parent 1, and Grandparent
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Grandparent", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Parent 1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1%.1", lines[3])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 1%.2", lines[4])
-        assert.matches("- " .. vim.pesc(checked) .. " Parent 2", lines[5])
-        assert.matches("- " .. vim.pesc(checked) .. " Child 2%.1", lines[6])
+        assert.matches("- " .. checked .. " Grandparent", lines[1])
+        assert.matches("- " .. checked .. " Parent 1", lines[2])
+        assert.matches("- " .. checked .. " Child 1%.1", lines[3])
+        assert.matches("- " .. checked .. " Child 1%.2", lines[4])
+        assert.matches("- " .. checked .. " Parent 2", lines[5])
+        assert.matches("- " .. checked .. " Child 2%.1", lines[6])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3332,10 +3332,10 @@ Some other content]]
 
         -- only first task should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(checked) .. " Task A", lines[1])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task A%.1", lines[2])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task A%.2", lines[3])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task B", lines[4])
+        assert.matches("- " .. checked .. " Task A", lines[1])
+        assert.matches("- " .. unchecked .. " Task A%.1", lines[2])
+        assert.matches("- " .. unchecked .. " Task A%.2", lines[3])
+        assert.matches("- " .. unchecked .. " Task B", lines[4])
 
         -- reset first task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -3349,10 +3349,10 @@ Some other content]]
 
         -- first task should not be checked (no propagation from children)
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task A", lines[1])
-        assert.matches("- " .. vim.pesc(checked) .. " Task A%.1", lines[2])
-        assert.matches("- " .. vim.pesc(checked) .. " Task A%.2", lines[3])
-        assert.matches("- " .. vim.pesc(unchecked) .. " Task B", lines[4])
+        assert.matches("- " .. unchecked .. " Task A", lines[1])
+        assert.matches("- " .. checked .. " Task A%.1", lines[2])
+        assert.matches("- " .. checked .. " Task A%.2", lines[3])
+        assert.matches("- " .. unchecked .. " Task B", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr, file_path)
@@ -3411,7 +3411,7 @@ Some other content]]
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3466,7 +3466,7 @@ Some content here
       local bufnr = h.setup_test_buffer(content)
 
       local heading_title = "Completed Todos"
-      require("checkmate").archive({ heading = { title = heading_title } })
+      cm.archive({ heading = { title = heading_title } })
 
       vim.wait(10)
       vim.cmd("redraw")
@@ -3479,12 +3479,12 @@ Some content here
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       -- checked top-level tasks were removed
-      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 1", main_section)
-      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task 2", main_section)
+      assert.no.matches("- " .. checked .. " Checked task 1", main_section)
+      assert.no.matches("- " .. checked .. " Checked task 2", main_section)
 
       -- unchecked tasks remain
-      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 1", main_section)
-      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task 2", main_section)
+      assert.matches("- " .. unchecked .. " Unchecked task 1", main_section)
+      assert.matches("- " .. unchecked .. " Unchecked task 2", main_section)
 
       -- archive section was created
       assert.matches(archive_heading_string, buffer_content)
@@ -3539,7 +3539,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
       vim.wait(10)
       vim.cmd("redraw")
 
@@ -3554,7 +3554,7 @@ Some content here
       -- content was archived correctly
       local archive_section = buffer_content:match("#### Completed Items" .. ".*$")
       assert.is_not_nil(archive_section)
-      assert.matches("- " .. vim.pesc(checked) .. " Checked task", archive_section)
+      assert.matches("- " .. checked .. " Checked task", archive_section)
 
       finally(function()
         cm.stop()
@@ -3594,7 +3594,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3602,10 +3602,10 @@ Some content here
       -- checked task was removed from main content
       local main_content = buffer_content:match("^(.-)" .. archive_heading_string)
       assert.is_not_nil(main_content)
-      assert.no.matches("- " .. vim.pesc(checked) .. " Checked task to archive", main_content)
+      assert.no.matches("- " .. checked .. " Checked task to archive", main_content)
 
       -- unchecked task remains in main content
-      assert.matches("- " .. vim.pesc(unchecked) .. " Unchecked task", main_content)
+      assert.matches("- " .. unchecked .. " Unchecked task", main_content)
 
       local archive_section = buffer_content:match(archive_heading_string .. ".*$")
       assert.is_not_nil(archive_section)
@@ -3654,7 +3654,7 @@ Some content here
 
         local bufnr = h.setup_test_buffer(content)
 
-        require("checkmate").archive()
+        cm.archive()
         vim.wait(20)
         vim.cmd("redraw")
 
@@ -3741,7 +3741,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3790,7 +3790,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3834,7 +3834,7 @@ Some content here
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3896,7 +3896,7 @@ Final content.
 
       local bufnr = h.setup_test_buffer(content)
 
-      require("checkmate").archive()
+      cm.archive()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       local buffer_content = table.concat(lines, "\n")
@@ -3931,6 +3931,28 @@ Final content.
 
       local success, err = h.verify_content_lines(main_section, expected_main_content)
       assert.equal(success, true, err)
+
+      finally(function()
+        cm.stop()
+        h.cleanup_buffer(bufnr)
+      end)
+    end)
+
+    it("should be idempotent when run twice", function()
+      local cm = require("checkmate")
+      cm.setup()
+      local checked = h.get_checked_marker()
+      local content = [[
+- ]] .. checked .. [[ A
+]]
+      local bufnr = h.setup_test_buffer(content)
+
+      cm.archive()
+      local once = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+      cm.archive()
+      local twice = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+
+      assert.equal(once, twice, "Second archive changed buffer")
 
       finally(function()
         cm.stop()

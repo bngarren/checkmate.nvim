@@ -21,7 +21,7 @@ local profiler = require("checkmate.profiler")
 ---@field end_row integer 0-based row
 ---@field end_col integer 0-based col (exclusive - char at end_col is not included)
 ---@field insert string[] Lines/text to insert
----@field _type? "line_insert" | "line_replace" | "text_replace" | "text_insert" | "text_delete" | "buffer_replace" Internal type hint
+---@field _type? "line_insert" | "line_replace" | "text_replace" | "text_insert" | "text_delete" Internal type hint
 local TextDiffHunk = {}
 TextDiffHunk.__index = TextDiffHunk
 
@@ -87,10 +87,7 @@ function TextDiffHunk:apply(bufnr, opts)
     cmd("silent! undojoin")
   end
 
-  if self._type == "buffer_replace" then
-    -- full buffer replacement
-    vapi.nvim_buf_set_lines(bufnr, 0, -1, false, self.insert)
-  elseif self._type == "line_insert" then
+  if self._type == "line_insert" then
     -- pure line insertion at row boundary
     vapi.nvim_buf_set_lines(bufnr, self.start_row, self.start_row, false, self.insert)
   elseif self._type == "line_replace" then
@@ -217,19 +214,6 @@ function M.make_text_delete(row, start_col, end_col)
   end
   local hunk = TextDiffHunk:_new(row, start_col, row, end_col, {})
   hunk._type = "text_delete"
-  return hunk
-end
-
---- Create a hunk for replacing the entire buffer content
----@param lines string[] the new buffer content
----@return checkmate.TextDiffHunk
-function M.make_buffer_replace(lines)
-  if type(lines) ~= "table" then
-    error("make_buffer_replace requires a table of lines")
-  end
-
-  local hunk = TextDiffHunk:_new(0, 0, -1, -1, lines)
-  hunk._type = "buffer_replace"
   return hunk
 end
 

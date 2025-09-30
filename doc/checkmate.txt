@@ -1,4 +1,4 @@
-*checkmate.txt*       For Neovim >= 0.10.0      Last change: 2025 September 12
+*checkmate.txt*       For Neovim >= 0.10.0      Last change: 2025 September 30
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -87,7 +87,7 @@ USING LAZY.NVIM ~
 <
 
 If you’d like _stable-ish_ version during pre-release, can add a minor
-version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>
+version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>:
 
 >
     {
@@ -1033,10 +1033,10 @@ CUSTOM STATES ~
 
 Add custom states to track tasks more precisely. Each state needs:
 
-- `marker`How it appears in Neovim (must be unique)
-- `markdown`How it’s saved to disk (must be unique)
-    _and optionally_
-- `type`How it behaves in the task hierarchy
+- `marker`: How it appears in Neovim (must be unique)
+- `markdown`: How it’s saved to disk (must be unique)
+    _and optionally_:
+- `type`: How it behaves in the task hierarchy
 
 >lua
     todo_states = {
@@ -1152,9 +1152,9 @@ your configuration.
 
 HOW IT WORKS ~
 
-Smart toggle operates in two phases: 1. **Downward propagation**When toggling a
-parent, optionally propagate the state change to children 2. **Upward
-propagation**When toggling a child, optionally update the parent based on
+Smart toggle operates in two phases: 1. **Downward propagation**: When toggling
+a parent, optionally propagate the state change to children 2. **Upward
+propagation**: When toggling a child, optionally update the parent based on
 children states
 
 
@@ -1207,17 +1207,22 @@ For in-depth guide and recipes for custom metadata, see the Wiki
 ==============================================================================
 6. Archiving                                             *checkmate-archiving*
 
-Allows you to easily reorganize the buffer by moving all checked/completed todo
-items to a Markdown section beneath all other content. The unchecked todos are
-reorganized up top and spacing is adjusted.
+Allows you to easily reorganize the buffer by moving all **completed** todo
+items to a Markdown section beneath all other content. The remaining
+unchecked/incomplete todos are reorganized up top and spacing is adjusted.
+
+Archiving collects all todos with the "completed" |checkmate-state-type|, which
+includes the default "checked" state, but possibly others based on custom todo
+states.
 
 See `Checkmate archive` command or `require("checkmate").archive()`
 
 
-  Current behavior (could be adjusted in the future): a checked todo item that is
-  nested under an unchecked parent will not be archived. This prevents 'orphan'
-  todos being separated from their parents. Similarly, a checked parent todo will
-  carry all nested todos (checked and unchecked) when archived.
+  Current behavior (could be adjusted in the future): a completed todo item that
+  is nested under an incomplete parent will not be archived. This prevents
+  'orphan' todos being separated from their parents. Similarly, a completed
+  parent todo will carry all nested todos (completed and incomplete) when
+  archived.
 
 HEADING
 

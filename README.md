@@ -1078,11 +1078,13 @@ For in-depth guide and recipes for custom metadata, see the [Wiki](https://githu
 <a id="archiving"><a/>
 
 # ☑️ Archiving
-Allows you to easily reorganize the buffer by moving all checked/completed todo items to a Markdown section beneath all other content. The unchecked todos are reorganized up top and spacing is adjusted.
+Allows you to easily reorganize the buffer by moving all **completed** todo items to a Markdown section beneath all other content. The remaining unchecked/incomplete todos are reorganized up top and spacing is adjusted.
+
+Archiving collects all todos with the "completed" [state type](#state-types), which includes the default "checked" state, but possibly others based on custom todo states.
 
 See `Checkmate archive` command or `require("checkmate").archive()`
 
-> Current behavior (could be adjusted in the future): a checked todo item that is nested under an unchecked parent will not be archived. This prevents 'orphan' todos being separated from their parents. Similarly, a checked parent todo will carry all nested todos (checked and unchecked) when archived.
+> Current behavior (could be adjusted in the future): a completed todo item that is nested under an incomplete parent will not be archived. This prevents 'orphan' todos being separated from their parents. Similarly, a completed parent todo will carry all nested todos (completed and incomplete) when archived.
 
 #### Heading
 By default, a Markdown level 2 header (##) section named "**Archive**" is used. You can configure the archive section heading via `config.archive.heading`

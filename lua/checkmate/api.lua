@@ -2244,18 +2244,21 @@ function M.count_child_todos(todo_item, todo_map, opts)
 end
 
 --- Archives completed todo items to a designated section
+--- @param ctx checkmate.TransactionContext
 --- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
---- @return boolean success Whether any items were archived
-function M.archive_todos(opts)
+--- @return checkmate.TextDiffHunk[] hunks
+function M.archive_todos(ctx, opts)
   opts = opts or {}
+
+  local bufnr = ctx.get_buf()
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
   local archive_heading_string = util.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )
-  local include_children = opts.include_children ~= false -- default: true
-  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false -- default: true
+  local include_children = opts.include_children ~= false
+  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
   -- helpers
@@ -2273,10 +2276,7 @@ function M.archive_todos(opts)
     end
   end
 
-  -- discover todos and current archive block boundaries
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local todo_map = parser.get_todo_map(bufnr)
+  local todo_map = ctx.get_todo_map()
   local sorted_todos = util.get_sorted_todo_list(todo_map)
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -2284,7 +2284,7 @@ function M.archive_todos(opts)
   do
     local heading_level = archive_heading_string:match("^(#+)")
     local heading_level_len = heading_level and #heading_level or 0
-    -- The 'next' heading level is a heading at the same or higher level
+    -- the 'next' heading level is a heading at the same or higher level
     -- which represents a new section
     local next_heading_pat = heading_level
         and ("^%s*" .. string.rep("#", heading_level_len, heading_level_len) .. "+%s")
@@ -2346,160 +2346,185 @@ function M.archive_todos(opts)
 
   if archived_root_cnt == 0 then
     util.notify("No completed todo items to archive", vim.log.levels.INFO)
-    return false
+    return {}
   end
 
   table.sort(archived_ranges, function(a, b)
     return a.start_row < b.start_row
   end)
 
-  -- rebuild buffer content
-  -- start with re-creating the buffer's 'active' section (non-archived)
+  -- collect archived lines (to insert into archive section)
 
-  local new_main_content = {} -- lines that will remain in the main document
-  local new_archive_content = {} -- lines that will live under the Archive heading
-  local newly_archived_lines = {} -- temp storage for newly added archived todos
-
-  -- Walk every line of the current buffer.
-  --    we copy it into `new_content` unless it is:
-  --       a) part of the existing archive section, or
-  --       b) part of a todo block we’re about to archive, or
-  --       c) the single blank line that immediately follows such a block
-  --         (to avoid stray empty rows after removal).
-  local i = 1
-  while i <= #current_buf_lines do
-    local idx = i - 1 -- 0-indexed (current row)
-
-    -- skip over existing archive section in one jump
-    if archive_start_row and idx >= archive_start_row and idx <= archive_end_row then
-      i = archive_end_row + 2
-    else
-      -- skip lines inside newly-archived ranges (plus trailing blank directly after each)
-      local skip = false
-      for _, r in ipairs(archived_ranges) do
-        if idx >= r.start_row and idx <= r.end_row then
-          skip = true -- inside a soon-to-be-archived todo
-          break
-        end
-      end
-      -- handle spacing preservation
-      if not skip and current_buf_lines[i] == "" then
-        for _, r in ipairs(archived_ranges) do
-          if idx == r.end_row + 1 then
-            -- this blank line is immediately after an archived todo
-            -- ...so check if there was a blank line before the todo
-            local has_blank_before = r.start_row > 0 and current_buf_lines[r.start_row] == ""
-
-            -- check if we already added content (which means there's something before)
-            local has_content_before = #new_main_content > 0
-
-            -- Skip this blank line if:
-            --  - already have blank line before todo
-            --  - the last line we added to new_main_content is blank
-            if has_blank_before or (has_content_before and new_main_content[#new_main_content] == "") then
-              skip = true
-            end
-            break
-          end
-        end
-      end
-
-      if not skip then
-        new_main_content[#new_main_content + 1] = current_buf_lines[i]
-      end
-      i = i + 1
-    end
-  end
-
-  -- If an archive section already exists, copy everything below its heading
-
-  if archive_start_row and archive_end_row and archive_end_row >= archive_start_row + 1 then
-    local start = archive_start_row + 2
-    while start <= archive_end_row + 1 and current_buf_lines[start] == "" do
-      start = start + 1
-    end
-    for j = start, archive_end_row + 1 do
-      new_archive_content[#new_archive_content + 1] = current_buf_lines[j]
-    end
-    trim_trailing_blank(new_archive_content)
-  end
-
-  -- collect newly archived todo items
+  local newly_archived_lines = {}
+  local to_delete = {} ---@type table<integer, boolean>
 
   if #archived_ranges > 0 then
     for idx, r in ipairs(archived_ranges) do
+      -- collect lines for archive payload
       for row = r.start_row, r.end_row do
         newly_archived_lines[#newly_archived_lines + 1] = current_buf_lines[row + 1]
       end
-
       -- spacing after each root todo except the last
       if idx < #archived_ranges and parent_spacing > 0 then
         add_spacing(newly_archived_lines)
       end
+
+      -- mark all lines in the range for deletion
+      for row = r.start_row, r.end_row do
+        to_delete[row] = true
+      end
     end
   end
 
-  -- combine existing and new archive content based on newest_first option
+  -- blank-line cleanup: avoid leaving stray empty lines after deletions
+  -- For each archived block, if the immediately following line is blank,
+  -- delete it when it would create double-blank or preserve an existing blank above
+  for _, r in ipairs(archived_ranges) do
+    local after = r.end_row + 1
+    local before = r.start_row - 1
 
-  if newest_first then
-    -- newest items go at the top of the archive section
-    local combined_lines = {}
+    if after <= #current_buf_lines - 1 and current_buf_lines[after + 1] == "" then
+      -- find the nearest surviving line above
+      while before >= 0 and to_delete[before] do
+        before = before - 1
+      end
+      local has_blank_before = (before >= 0) and (current_buf_lines[before + 1] == "")
 
-    -- add new items first
-    for _, line in ipairs(newly_archived_lines) do
-      combined_lines[#combined_lines + 1] = line
-    end
-
-    -- add spacing between new and existing content if both exist
-    if #newly_archived_lines > 0 and #new_archive_content > 0 and parent_spacing > 0 then
-      add_spacing(combined_lines)
-    end
-
-    -- add existing archive content
-    for _, line in ipairs(new_archive_content) do
-      combined_lines[#combined_lines + 1] = line
-    end
-
-    new_archive_content = combined_lines
-  else
-    -- newest items go at the bottom (default behavior)
-    if #new_archive_content > 0 and #newly_archived_lines > 0 and parent_spacing > 0 then
-      add_spacing(new_archive_content) -- gap between old and new archive content
-    end
-
-    for _, line in ipairs(newly_archived_lines) do
-      new_archive_content[#new_archive_content + 1] = line
+      -- if we already have a blank above (or the top is blank), remove the trailing blank
+      if has_blank_before then
+        to_delete[after] = true
+      end
     end
   end
 
-  -- make sure we don't leave more than `parent_spacing`
-  -- blank lines at the very end of the archive section.
-  trim_trailing_blank(new_archive_content)
-
-  -- inject archive section into document
-
-  if #new_archive_content > 0 then
-    -- blank line before archive heading if needed
-    if #new_main_content > 0 and new_main_content[#new_main_content] ~= "" then
-      new_main_content[#new_main_content + 1] = ""
+  -- make contiguous delete hunks rows marked in `to_delete`
+  -- Idea: scan the buffer once, whenever we see a run of deletable lines, start it...
+  -- when the run ends, emit one delete hunk covering [run_start, last_row]
+  local delete_hunks = {}
+  do
+    local run_start ---@type integer|nil
+    local function flush_run(last_row)
+      if run_start ~= nil then
+        table.insert(delete_hunks, diff.make_line_delete({ run_start, last_row }))
+        run_start = nil
+      end
     end
-    new_main_content[#new_main_content + 1] = archive_heading_string
-    new_main_content[#new_main_content + 1] = "" -- blank after heading
-    for _, line in ipairs(new_archive_content) do
-      new_main_content[#new_main_content + 1] = line
+
+    for row = 0, #current_buf_lines - 1 do
+      if to_delete[row] then
+        if run_start == nil then
+          run_start = row
+        end
+      else
+        if run_start ~= nil then
+          flush_run(row - 1)
+        end
+      end
+    end
+    flush_run(#current_buf_lines - 1)
+  end
+
+  -- prepare archive section insertion/merge hunks
+
+  trim_trailing_blank(newly_archived_lines)
+
+  local archive_hunks = {}
+
+  if #newly_archived_lines > 0 then
+    if not archive_start_row then
+      -- no archive section exists yet: append at end of buffer
+      local line_count = #current_buf_lines
+
+      local insertion = {} --- heading + required blank + content
+      -- ensure single blank line before heading if buffer isn't empty & last line non-blank
+      local need_pre_blank = line_count > 0 and current_buf_lines[#current_buf_lines] ~= ""
+      if need_pre_blank then
+        insertion[#insertion + 1] = ""
+      end
+      insertion[#insertion + 1] = archive_heading_string
+      insertion[#insertion + 1] = ""
+      for _, l in ipairs(newly_archived_lines) do
+        insertion[#insertion + 1] = l
+      end
+
+      archive_hunks[#archive_hunks + 1] = diff.make_line_insert(line_count, insertion)
+    else
+      -- Archive section exists: normalize a single blank after heading,
+      -- then insert at top (newest_first) or append at bottom (!newest_first)
+
+      -- 1) normalize the run of blanks after the heading to exactly one
+      local first_nonblank_after = archive_start_row + 1
+      while first_nonblank_after <= archive_end_row and current_buf_lines[first_nonblank_after + 1] == "" do
+        first_nonblank_after = first_nonblank_after + 1
+      end
+      if first_nonblank_after == archive_start_row + 1 then
+        -- no blank line existed; create one right after heading
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(archive_start_row + 1, { "" })
+      else
+        -- there is at least one blank; compress to a single blank
+        archive_hunks[#archive_hunks + 1] = diff.make_line_replace(
+          { archive_start_row + 1, first_nonblank_after - 1 },
+          { "" }
+        )
+      end
+
+      if newest_first then
+        -- insert just after the single blank line under the heading
+        local insert_row = archive_start_row + 2
+        local payload = {}
+        for _, l in ipairs(newly_archived_lines) do
+          payload[#payload + 1] = l
+        end
+
+        -- if archive content already exists and spacing requested, add spacer between new and existing
+        local has_existing = (archive_end_row and (archive_end_row >= archive_start_row + 1))
+          and (archive_end_row >= insert_row)
+        if has_existing and parent_spacing > 0 then
+          add_spacing(payload)
+        end
+
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(insert_row, payload)
+      else
+        -- Append to bottom of existing archive content
+        -- Find the last non-blank line inside the archive section to avoid
+        -- inserting after a stray trailing blank
+        local tail = archive_end_row or (archive_start_row + 1)
+        while tail > archive_start_row and current_buf_lines[tail + 1] == "" do
+          tail = tail - 1
+        end
+
+        local append_at = tail + 1
+        local payload = {}
+
+        -- if there is existing content and spacing requested, add spacer first
+        local has_existing = tail > archive_start_row
+        if has_existing and parent_spacing > 0 then
+          add_spacing(payload)
+        end
+
+        for _, l in ipairs(newly_archived_lines) do
+          payload[#payload + 1] = l
+        end
+
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(append_at, payload)
+      end
     end
   end
 
-  -- write buffer
-  util.with_preserved_view(function()
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
-  end)
+  local hunks = {}
+  vim.list_extend(hunks, delete_hunks)
+  vim.list_extend(hunks, archive_hunks)
 
-  util.notify(
-    ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
-    vim.log.levels.INFO
-  )
-  return true
+  if archived_root_cnt > 0 then
+    ctx.add_cb(function()
+      util.notify(
+        ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
+        vim.log.levels.INFO
+      )
+    end)
+  end
+
+  return hunks
 end
 
 -- Helper function for handling cursor jumps after metadata operations

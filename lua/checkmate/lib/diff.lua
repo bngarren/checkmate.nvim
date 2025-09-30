@@ -277,6 +277,7 @@ function M.apply_diff(bufnr, hunks)
   end
   profiler.start("diff.apply_diff")
 
+  ---@type checkmate.TextDiffHunk[]
   local valid_hunks = {}
   for _, hunk in ipairs(hunks) do
     if M.is_valid_hunk(hunk) and not hunk:is_empty() then
@@ -296,6 +297,7 @@ function M.apply_diff(bufnr, hunks)
     -- apply hunks (first one creates undo entry, rest join)
     for i, hunk in ipairs(valid_hunks) do
       local undojoin = i > 1 -- join all operations after the first
+
       hunk:apply(bufnr, { undojoin = undojoin })
     end
   end)

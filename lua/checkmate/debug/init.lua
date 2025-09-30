@@ -82,7 +82,7 @@ function M.at_cursor()
 
   vim.notify(table.concat(msg, "\n"), vim.log.levels.DEBUG)
 
-  M.debug.highlight(item.range)
+  M.highlight(item.range)
 end
 
 --- Print todo map (in Snacks scratch buffer or vim.print)

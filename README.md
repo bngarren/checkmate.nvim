@@ -42,8 +42,7 @@ A Markdown-based todo/task plugin for Neovim.
 
 <img width="1200" height="341" alt="checkmate_demo_complex" src="https://github.com/user-attachments/assets/8bbb9b20-23f7-4f82-b2b3-a8e8d2d9d4c5" />
 
-
-https://github.com/user-attachments/assets/d9b58e2c-24e2-4fd8-8d7f-557877a20218
+https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <!-- panvimdoc-ignore-start -->
 ## Table of Contents

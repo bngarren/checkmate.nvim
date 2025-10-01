@@ -10,6 +10,18 @@ INDEXING CONVENTIONS:
 - nvim_win_set_cursor uses 1-based row, 0-based byte column
 - Ranges are end-exclusive (like Treesitter)
 - Always use byte positions internally, only convert to char positions when absolutely necessary
+
+OPERATIONS:
+Called from the public API, within a transaction, and should return array `TextDiffHunk[]` for consistency.
+The transaction handles batching and applying the diff hunks to the buffer and calling callbacks with updated parse.
+
+
+HIGHLIGHTING:
+To minimize highlighting churn, we don't need to manually call `highlights.apply_highlighting()` for most public API's.
+Note: we used to do this in the transaction's post_fn for each transaction.
+Instead, if the API is expected to modify the buffer, then we will let our TextChanged and TextChangedI events run `process_buffer`
+to perform the highlighting.
+If an API is non-editing, then this will need to call apply_highlighting manually.
 --]]
 
 local config = require("checkmate.config")
@@ -17,42 +29,18 @@ local log = require("checkmate.log")
 local parser = require("checkmate.parser")
 local ph = require("checkmate.parser.helpers")
 local meta_module = require("checkmate.metadata")
+local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
+local transaction = require("checkmate.transaction")
 
 ---@class checkmate.Api
 local M = {}
 
 M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
 
----@class checkmate.TextDiffHunk
----@field start_row integer
----@field start_col integer
----@field end_row integer
----@field end_col integer
----@field insert string[]
-
---- Validates that the buffer is valid (per nvim) and Markdown filetype
-function M.is_valid_buffer(bufnr)
-  if not bufnr or type(bufnr) ~= "number" then
-    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
-    return false
-  end
-
-  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
-  if not ok or not is_valid then
-    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
-    log.fmt_error("[api] Invalid buffer %d", bufnr)
-    return false
-  end
-
-  if vim.bo[bufnr].filetype ~= "markdown" then
-    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
-    return false
-  end
-
-  return true
-end
+---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
+---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
 ---Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
 function M.setup_buffer(bufnr)
@@ -60,6 +48,7 @@ function M.setup_buffer(bufnr)
     return false
   end
 
+  local bl = require("checkmate.buf_local").handle(bufnr)
   local checkmate = require("checkmate")
 
   -- bail early if we're not running
@@ -68,12 +57,15 @@ function M.setup_buffer(bufnr)
     return false
   end
 
-  if checkmate.is_buffer_active(bufnr) and vim.b[bufnr].checkmate_setup_complete then
+  if checkmate.is_buffer_active(bufnr) and bl:get("setup_complete") == true then
     return true
   end
 
+  -- the main module tracks active checkmate buffers
   checkmate.register_buffer(bufnr)
 
+  -- initial conversion of on-disk raw markdown to our in-buffer representation
+  -- "unicode" term is loosely applied
   parser.convert_markdown_to_unicode(bufnr)
 
   if config.options.linter and config.options.linter.enabled ~= false then
@@ -82,7 +74,8 @@ function M.setup_buffer(bufnr)
   end
 
   local highlights = require("checkmate.highlights")
-  highlights.apply_highlighting(bufnr, { debug_reason = "API setup" })
+  -- don't use adaptive strategy for first pass on buffer setup--run it synchronously
+  highlights.apply_highlighting(bufnr, { strategy = "immediate", debug_reason = "api buffer setup" })
 
   -- User can opt out of TS highlighting if desired
   if config.options.disable_ts_highlights == true then
@@ -92,33 +85,58 @@ function M.setup_buffer(bufnr)
     vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
   end
 
+  M.setup_undo(bufnr)
+  M.setup_change_watcher(bufnr)
   M.setup_keymaps(bufnr)
   M.setup_autocmds(bufnr)
 
-  vim.b[bufnr].checkmate_setup_complete = true
-  vim.b[bufnr].checkmate_cleaned_up = false
+  bl:set("setup_complete", true)
+  bl:set("cleaned_up", false)
 
   log.fmt_debug("[api] Setup complete for bufnr %d", bufnr)
 
   return true
 end
 
--- { bufnr = {mode, key}[] }
-local buffer_local_keys = {}
+function M.setup_undo(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
+  -- Rationale:
+  --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
+  --    undofiles whose hash matches file bytes; mismatch => undofile ignored.
+  --  - We still provide correct in-session undo/redo; persistent undo is off by design.
+  vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
+
+  -- Baseline tick at attach/first setup; used to infer "no edits since attach".
+  -- This lets us distinguish the first "conversion" pass on open from later edits.
+  bl:set("baseline_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+end
+
+---{mode, lhs}
+---@alias checkmate.BufferKeymapItem {[1]: string, [2]: string}
+---@alias checkmate.BufferKeymapList checkmate.BufferKeymapItem[]
 
 function M.clear_keymaps(bufnr)
-  -- clear buffer local keymaps
-  local items = buffer_local_keys[bufnr]
+  local bl = require("checkmate.buf_local").handle(bufnr)
+  ---@type checkmate.BufferKeymapList|nil
+  local items = bl:get("keymaps")
   if not items or #items == 0 then
     return
   end
   for _, item in ipairs(items) do
+    -- item = { mode, lhs }
     vim.api.nvim_buf_del_keymap(bufnr, item[1], item[2])
   end
-  buffer_local_keys[bufnr] = {}
+  bl:set("keymaps", {} --[[@as checkmate.BufferKeymapList]])
 end
 
 function M.setup_keymaps(bufnr)
+  local bl = require("checkmate.buf_local").handle(bufnr)
   local keys = config.options.keys or {}
 
   local function buffer_map(_bufnr, mode, lhs, rhs, desc)
@@ -138,7 +156,7 @@ function M.setup_keymaps(bufnr)
     })
   end
 
-  buffer_local_keys[bufnr] = {}
+  bl:set("keyamps", {})
 
   local DEFAULT_DESC = "Checkmate <unnamed>"
   local DEFAULT_MODES = { "n" }
@@ -174,8 +192,89 @@ function M.setup_keymaps(bufnr)
           end
 
           if success then
-            table.insert(buffer_local_keys[bufnr], { mode, key })
+            bl:update("keymaps", function(prev)
+              prev = prev or {}
+              ---@cast prev checkmate.BufferKeymapList
+              prev[#prev + 1] = { mode, key }
+              return prev
+            end)
           end
+        end
+      end
+    end
+  end
+
+  -- Setup list continuation keymaps (insert mode)
+  if config.options.list_continuation and config.options.list_continuation.enabled then
+    local continuation_keys = config.options.list_continuation.keys or {}
+
+    for key, key_config in pairs(continuation_keys) do
+      local handler, desc
+
+      if type(key_config) == "function" then
+        handler = key_config
+        desc = "List continuation for " .. key
+      elseif type(key_config) == "table" then
+        if type(key_config.rhs) == "function" then
+          handler = key_config.rhs
+          desc = key_config.desc or ("List continuation for " .. key)
+        end
+      end
+
+      if handler then
+        local orig_key = vim.api.nvim_replace_termcodes(key, true, false, true)
+
+        local expr_fn = function()
+          local cursor = vim.api.nvim_win_get_cursor(0)
+          local line = vim.api.nvim_get_current_line()
+
+          local todo = ph.match_todo(line)
+          if not todo then
+            -- not on a todo, return the original key
+            return orig_key
+          end
+
+          -- check if cursor position is valid (after the checkbox)
+          local col = cursor[2] -- 0-based in insert mode
+          if not util.is_valid_list_continuation_position(col, todo) then
+            return orig_key
+          end
+
+          -- split_line behavior
+          local at_eol = col >= #line
+          if not at_eol and config.options.list_continuation.split_line == false then
+            return orig_key
+          end
+
+          -- Add undo breakpoint for non-markdown todos
+          if not todo.is_markdown then
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
+          end
+
+          vim.schedule(function()
+            handler()
+          end)
+
+          return "" -- swallow the key
+        end
+
+        local ok, err = pcall(function()
+          vim.keymap.set("i", key, expr_fn, {
+            buffer = bufnr,
+            expr = true,
+            silent = true,
+            desc = desc,
+          })
+
+          bl:update("keymaps", function(prev)
+            prev = prev or {}
+            ---@cast prev checkmate.BufferKeymapList
+            prev[#prev + 1] = { "i", key }
+            return prev
+          end)
+        end)
+        if not ok then
+          log.fmt_debug("[api] Failed to set list continuation keymap for %s: %s", key, err)
         end
       end
     end
@@ -204,7 +303,13 @@ function M.setup_keymaps(bufnr)
           end
 
           buffer_map(bufnr, mode, key, rhs, desc)
-          table.insert(buffer_local_keys[bufnr], { mode, key })
+
+          bl:update("keymaps", function(prev)
+            prev = prev or {}
+            ---@cast prev checkmate.BufferKeymapList
+            prev[#prev + 1] = { mode, key }
+            return prev
+          end)
         end
       end
     end
@@ -212,7 +317,8 @@ function M.setup_keymaps(bufnr)
 end
 
 function M.setup_autocmds(bufnr)
-  if not vim.b[bufnr].checkmate_autocmds_setup then
+  local bl = require("checkmate.buf_local").handle(bufnr)
+  if not bl:get("autocmds_setup") then
     -- This implementation addresses several subtle behavior issues:
     --   1. Atomic write operation - ensures data integrity (either complete write success or
     -- complete failure, with preservation of the original buffer) by using temp file with a
@@ -321,12 +427,22 @@ function M.setup_autocmds(bufnr)
       end,
     })
 
-    vim.api.nvim_create_autocmd({ "InsertLeave", "InsertEnter" }, {
+    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
       group = M.buffer_augroup,
       buffer = bufnr,
-      callback = function(args)
-        if vim.bo[bufnr].modified then
-          M.process_buffer(bufnr, "full", args.event)
+      callback = function()
+        bl:set("insert_enter_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+      end,
+    })
+
+    vim.api.nvim_create_autocmd({ "InsertLeave" }, {
+      group = M.buffer_augroup,
+      buffer = bufnr,
+      callback = function()
+        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+        local modified = bl:get("insert_enter_tick") ~= tick
+        if modified then
+          M.process_buffer(bufnr, "full", "InsertLeave")
         end
       end,
     })
@@ -335,6 +451,10 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+        if transaction.is_active(bufnr) or bl:get("last_conversion_tick") == tick then
+          return
+        end
         M.process_buffer(bufnr, "full", "TextChanged")
       end,
     })
@@ -343,6 +463,9 @@ function M.setup_autocmds(bufnr)
       group = M.buffer_augroup,
       buffer = bufnr,
       callback = function()
+        if transaction.is_active(bufnr) then
+          return
+        end
         M.process_buffer(bufnr, "highlight_only", "TextChangedI")
       end,
     })
@@ -355,11 +478,64 @@ function M.setup_autocmds(bufnr)
         M.shutdown(bufnr)
       end,
     })
-    vim.b[bufnr].checkmate_autocmds_setup = true
+    bl:set("autocmds_setup", true)
   end
 end
 
+-- Tracks edited row-span via on_lines
+-- this is used in `process_buffer` to region-scope highlight only passes
+-- Important: this returns as INCLUSIVE end row. Callers should +1 to get end-exclusive row
+-- also tracks a `last_user_tick` which is a changedtick that doesn't occur during markdown<->unicode conversion
+function M.setup_change_watcher(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  if bl:get("change_watcher_attached") then
+    return
+  end
+
+  bl:set("last_changed_region", nil)
+
+  vim.api.nvim_buf_attach(bufnr, false, {
+    on_lines = function(_, _, changedtick, firstline, lastline, new_lastline)
+      -- ignore our own writes
+      if bl:get("in_conversion") then
+        return
+      end
+
+      -- record last user changedtick for potential :undojoin by the parser during conversion
+      bl:set("last_user_tick", changedtick)
+
+      -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
+      -- inclusive end row that covers either the removed or the inserted span
+      local old_end = (lastline > firstline) and (lastline - 1) or firstline
+      local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
+      local srow = firstline
+      local erow = math.max(old_end, new_end)
+
+      -- keep and merge 1 span for the entire debounce window
+      -- when process_buffer eventually runs, it will clear "last_changed_region"
+      local prev = bl:get("last_changed_region")
+      if prev then
+        srow = math.min(srow, prev.s)
+        erow = math.max(erow, prev.e)
+      end
+      bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
+    end,
+    on_detach = function()
+      bl:set("change_watcher_attached", nil)
+      bl:set("last_changed_region", nil)
+    end,
+    utf_sizes = false,
+  })
+
+  bl:set("change_watcher_attached", true)
+end
+
 -- functions that process the buffer need to be debounced and stored
+---@type table<number, table<string, Debounced>>
 M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
 -- we can "process" the buffer different ways depending on the need, the frequency we expect it
@@ -367,13 +543,13 @@ M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 -- e.g. we don't want to convert during TextChangedI
 M.PROCESS_CONFIGS = {
   full = {
-    debounce_ms = 50,
+    debounce_ms = 100,
     include_conversion = true,
     include_linting = true,
     include_highlighting = true,
   },
   highlight_only = {
-    debounce_ms = 100,
+    debounce_ms = 30,
     include_conversion = false,
     include_linting = false,
     include_highlighting = true,
@@ -386,31 +562,173 @@ function M.process_buffer(bufnr, process_type, reason)
   if not process_config then
     return
   end
+  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  -- do not react to our own conversion writes
+  if bl:get("in_conversion") then
+    return
+  end
 
   if not M._debounced_processors[bufnr] then
     M._debounced_processors[bufnr] = {}
   end
 
+  -- store runner-specific things in here to avoid process_impl() using stale closure
+  M._last_call_ctx = M._last_call_ctx or {}
+  M._last_call_ctx[bufnr] = M._last_call_ctx[bufnr] or {}
+  M._last_call_ctx[bufnr][process_type] = {
+    reason = reason,
+  }
+
   if not M._debounced_processors[bufnr][process_type] then
     local function process_impl()
+      bl = require("checkmate.buf_local").handle(bufnr)
+
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_processors[bufnr] = nil
+        M._last_call_ctx[bufnr] = nil
         return
       end
 
+      -- pull outside data from ctx to avoid stale closure
+      local ctx = (M._last_call_ctx[bufnr] and M._last_call_ctx[bufnr][process_type]) or {}
+      local run_reason = ctx.reason or "unknown"
+
+      log.fmt_trace("process_buffer (debounced), type '%s', due to %s", process_type, run_reason)
+      -- vim.notify(string.format("running process_buffer '%s' due to %s", process_type, run_reason))
+
       local start_time = vim.uv.hrtime() / 1000000
 
-      local todo_map = parser.get_todo_map(bufnr)
+      ---@type "none" | "regional" | "adaptive_full"
+      local highlight_plan = "none"
+
+      -- region-scoped highlighting
+      ---@type { start_row: integer, end_row: integer, affected_roots: checkmate.TodoItem[] }|nil
+      local region
+
+      -- this type is used by TextChangedI (insert mode), thus we
+      -- try to optimize by only re-highlighting a region rather than full buffer
+      if process_type == "highlight_only" then
+        local changed = bl:get("last_changed_region")
+
+        if changed and changed.s ~= nil and changed.e ~= nil then
+          -- consume the changed region
+          bl:set("last_changed_region", nil)
+
+          -- `changed.s` is 0-based start row; `changed.e` is an INCLUSIVE end row from on_lines
+          -- add some small padding around the changed region to be extra conservative
+          local PADDING = 1
+          local line_count = vim.api.nvim_buf_line_count(bufnr)
+          local max_row = math.max(0, line_count - 1)
+          local start_row = math.max(0, changed.s - PADDING)
+          local end_row = math.min(max_row, changed.e + PADDING)
+          local end_row_excl = end_row + 1
+
+          local todo_map = parser.get_todo_map(bufnr)
+
+          -- find root todos overlapping this span
+          local affected_roots = {}
+          for _, it in pairs(todo_map) do
+            if not it.parent_id then
+              local a_start = it.range.start.row
+              -- semantic range has end.row inclusive -> convert to exclusive
+              local a_end_excl = it.range["end"].row + 1
+              if require("checkmate.util").ranges_overlap(a_start, a_end_excl, start_row, end_row_excl) then
+                affected_roots[#affected_roots + 1] = it
+              end
+            end
+          end
+
+          if #affected_roots == 0 then
+            highlight_plan = "none"
+          else
+            -- expand region to cover full extents of affected roots (end-exclusive)
+            local min_row, max_row_excl = start_row, end_row_excl
+            local total_span = 0
+            for _, root in ipairs(affected_roots) do
+              local r_s = root.range.start.row
+              local r_e_excl = root.range["end"].row + 1 -- inclusive -> exclusive
+              if r_s < min_row then
+                min_row = r_s
+              end
+              if r_e_excl > max_row_excl then
+                max_row_excl = r_e_excl
+              end
+              total_span = total_span + (r_e_excl - r_s)
+            end
+
+            if total_span <= config.get_region_limit(bufnr) then
+              region = {
+                start_row = min_row,
+                end_row = max_row_excl, -- end-exclusive
+                affected_roots = affected_roots,
+              }
+              highlight_plan = "regional"
+            else
+              -- no overlapping roots: consider nearest root above within a small window
+              local WINDOW = 5
+              local nearest_above, nearest_dist = nil, math.huge
+              for _, it in pairs(todo_map) do
+                if not it.parent_id then
+                  local a = it.range.start.row
+                  if a <= start_row then
+                    local d = start_row - a
+                    if d < nearest_dist then
+                      nearest_dist = d
+                      nearest_above = it
+                    end
+                  end
+                end
+              end
+
+              if nearest_above and nearest_dist <= WINDOW then
+                min_row = nearest_above.range.start.row
+                max_row_excl = nearest_above.range["end"].row + 1 -- inclusive -> exclusive
+                if (max_row_excl - min_row) <= config.get_region_limit(bufnr) then
+                  region = {
+                    start_row = min_row,
+                    end_row = max_row_excl, -- end-exclusive
+                    affected_roots = { nearest_above },
+                  }
+                  highlight_plan = "regional"
+                else
+                  highlight_plan = "adaptive_full"
+                end
+              else
+                highlight_plan = "adaptive_full"
+              end
+            end
+          end
+        else
+          -- no change info recorded for this debounce window
+          highlight_plan = "none"
+        end
+      end
 
       if process_config.include_conversion then
         parser.convert_markdown_to_unicode(bufnr)
       end
 
       if process_config.include_highlighting then
-        require("checkmate.highlights").apply_highlighting(
-          bufnr,
-          { todo_map = todo_map, debug_reason = "api process_buffer (" .. process_type .. ")" }
-        )
+        local highlights = require("checkmate.highlights")
+
+        if process_type == "full" then
+          highlights.apply_highlighting(bufnr, { debug_reason = "process_buffer full" })
+        else -- highlight_only
+          if highlight_plan == "regional" and region then
+            highlights.apply_highlighting(bufnr, {
+              region = region,
+              debug_reason = "process_buffer highlight_only (regional)",
+            })
+          elseif highlight_plan == "adaptive_full" then
+            highlights.apply_highlighting(bufnr, {
+              -- no region => adaptive strategy chooses immediate vs progressive
+              debug_reason = "process_buffer highlight_only (adaptive full)",
+            })
+          else
+            -- highlight_plan == "none": do nothing here
+          end
+        end
       end
 
       if process_config.include_linting and config.options.linter and config.options.linter.enabled then
@@ -423,25 +741,41 @@ function M.process_buffer(bufnr, process_type, reason)
 
     M._debounced_processors[bufnr][process_type] = util.debounce(process_impl, {
       ms = process_config.debounce_ms,
+      -- run first call immediately
+      leading = true,
+      trailing = true,
     })
   end
 
+  -- update context then trigger the runner
+  M._last_call_ctx[bufnr][process_type] = { reason = reason }
   M._debounced_processors[bufnr][process_type]()
 end
 
 -- Cleans up all checkmate state associated with a buffer
 function M.shutdown(bufnr)
-  if vim.api.nvim_buf_is_valid(bufnr) and not vim.b[bufnr].checkmate_cleaned_up then
+  if vim.api.nvim_buf_is_valid(bufnr) then
+    local bl = require("checkmate.buf_local").handle(bufnr)
+
+    if bl:get("cleaned_up") then
+      return
+    end
+
     -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
     pcall(parser.convert_unicode_to_markdown, bufnr)
-    parser.todo_map_cache[bufnr] = nil
+    parser.buf_todo_cache[bufnr] = nil
 
     M.clear_keymaps(bufnr)
+
+    local highlights = require("checkmate.highlights")
+    highlights.clear_buf_line_cache(bufnr)
+    highlights.cancel_progressive(bufnr)
 
     require("checkmate.debug.debug_highlights").dispose(bufnr)
     require("checkmate.metadata.picker").cleanup_ui(bufnr)
 
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
 
     if package.loaded["checkmate.linter"] then
@@ -453,212 +787,497 @@ function M.shutdown(bufnr)
     vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
 
     if M._debounced_processors and M._debounced_processors[bufnr] then
+      for _, d in pairs(M._debounced_processors[bufnr]) do
+        if type(d) == "table" and d.close then
+          pcall(function()
+            d:close()
+          end)
+        end
+      end
       M._debounced_processors[bufnr] = nil
     end
 
     require("checkmate").unregister_buffer(bufnr)
 
-    vim.b[bufnr].checkmate_setup_complete = nil
-    vim.b[bufnr].checkmate_autocmds_setup = nil
-    vim.b[bufnr].checkmate_cleaned_up = true
+    bl:clear()
+    bl:set("cleaned_up", true)
   end
 end
 
---- Create a hunk that replaces only the todo marker character
----@param row integer
----@param todo_item checkmate.TodoItem
----@param new_marker string
----@return checkmate.TextDiffHunk
-local function make_marker_replacement_hunk(row, todo_item, new_marker)
-  local old_marker = todo_item.todo_marker.text
-  local byte_col = todo_item.todo_marker.position.col -- Already in bytes (0-indexed)
-  local old_marker_byte_len = #old_marker
+--- Validates that the buffer is valid (per nvim) and Markdown filetype
+function M.is_valid_buffer(bufnr)
+  if not bufnr or type(bufnr) ~= "number" then
+    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
+    return false
+  end
 
-  return {
-    start_row = row,
-    start_col = byte_col,
-    end_row = row,
-    end_col = byte_col + old_marker_byte_len,
-    insert = { new_marker },
-  }
+  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
+  if not ok or not is_valid then
+    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
+    log.fmt_error("[api] Invalid buffer %d", bufnr)
+    return false
+  end
+
+  if vim.bo[bufnr].filetype ~= "markdown" then
+    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
+    return false
+  end
+
+  return true
 end
 
----@param ctx checkmate.TransactionContext Transaction context
----@param start_row number 0-based range start
----@param end_row number 0-based range end (inclusive)
----@param is_visual boolean true if from visual selection
----@return checkmate.TextDiffHunk[] hunks array of diff hunks or {}
-function M.create_todos(ctx, start_row, end_row, is_visual)
+--- Creates todo(s) by converting non-todo lines within the range
+---@param ctx checkmate.TransactionContext
+---@param start_row integer start of the selection
+---@param end_row integer end of the selection
+---@param opts? {target_state?: string, list_marker?: string, content?: string}
+---@return checkmate.TextDiffHunk[] hunks
+function M.create_todos_visual(ctx, start_row, end_row, opts)
+  opts = opts or {}
+  local bufnr = ctx.get_buf()
   local hunks = {}
 
+  for row = start_row, end_row do
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+    if not parser.is_todo_item(line) then
+      local hunk = M.compute_diff_convert_to_todo(bufnr, row, {
+        target_state = opts.target_state,
+        list_marker = opts.list_marker,
+        content = opts.content, -- if provided, will replace existing content
+      })
+      if hunk then
+        table.insert(hunks, hunk)
+      end
+    end
+  end
+
+  return hunks
+end
+
+--- Convert current line or create a new child/sibling todo
+---
+--- If current line is not a todo and no `opts.position` is passed, the line will be converted to a todo in place
+---@param ctx checkmate.TransactionContext
+---@param start_row integer Origin/parent row (0-based)
+---@param opts? checkmate.CreateOptionsInternal
+---@return checkmate.TextDiffHunk[]
+function M.create_todo_normal(ctx, start_row, opts)
+  opts = opts or {}
   local bufnr = ctx.get_buf()
 
-  if is_visual then
-    -- for each line in the range, convert if not already a todo
-    for row = start_row, end_row do
-      local cur_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-      local is_todo = parser.is_todo_item(cur_line)
-      if is_todo == false then
-        local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-        if new_hunks and #new_hunks > 0 then
-          vim.list_extend(hunks, new_hunks)
-        end
-      end
+  local todo_item = ctx.get_todo_by_row(start_row, true)
+
+  if todo_item then
+    -- current line is already a todo, create a new one
+    local parent_prefix = ph._item_to_prefix(todo_item)
+
+    local new_todo = M._build_todo_line({
+      parent_prefix = parent_prefix,
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state,
+      content = opts.content,
+      list_marker = opts.list_marker,
+      indent = opts.indent,
+    })
+
+    local insert_row = opts.position == "above" and start_row or start_row + 1
+    local hunk = diff.make_line_insert(insert_row, new_todo.line)
+
+    -- add callback for entering insert mode if enabled
+    if config.options.enter_insert_after_new then
+      ctx.add_cb(function()
+        local target_row = insert_row
+        local new_line = vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or ""
+        vim.api.nvim_win_set_cursor(0, { target_row + 1, #new_line })
+        vim.cmd("startinsert!")
+      end)
     end
+
+    return { hunk }
   else
-    -- normal mode, is current line a todo?
-    local row = start_row
-    -- NOTE: only get a todo on this exact row.
-    -- I.e. if the row is a nested list item then it will return the parent todo unless we pass `root_only` = true
-    local todo_item = ctx.get_todo_by_row(row, true)
+    -- current line is not a todo
+    --  - can either convert the line, or
+    --  - create a new line if `position` option indicates `below` or `above`
+    if opts.position then
+      -- insert new todo above/below, preserve original line
+      local new_todo = M._build_todo_line({
+        target_state = opts.target_state,
+        inherit_state = false, -- no parent to inherit from
+        content = opts.content or "",
+        list_marker = opts.list_marker,
+        indent = opts.indent,
+      })
 
-    if todo_item then
-      local new_hunks = M.compute_diff_insert_todo_below(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
+      local insert_row = opts.position == "above" and start_row or start_row + 1
+      local hunk = diff.make_line_insert(insert_row, new_todo.line)
 
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_row = row + 1
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, new_row, new_row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { new_row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
-        end
+      if config.options.enter_insert_after_new then
+        ctx.add_cb(function()
+          local target_row = insert_row
+          local new_line = vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or ""
+          vim.api.nvim_win_set_cursor(0, { target_row + 1, #new_line })
+          vim.cmd("startinsert!")
+        end)
       end
+
+      return { hunk }
     else
-      local new_hunks = M.compute_diff_convert_to_todo(bufnr, row)
-      if new_hunks and #new_hunks > 0 then
-        vim.list_extend(hunks, new_hunks)
+      -- convert current line to todo (default behavior)
+      local hunk = M.compute_diff_convert_to_todo(bufnr, start_row, {
+        target_state = opts.target_state,
+        list_marker = opts.list_marker,
+        indent = opts.indent,
+        content = opts.content, -- can override line content
+      })
 
-        if config.options.enter_insert_after_new then
-          ctx.add_cb(function()
-            local new_line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-            vim.api.nvim_win_set_cursor(0, { row + 1, #new_line })
-            vim.cmd("startinsert!")
-          end)
-        end
+      if hunk and config.options.enter_insert_after_new then
+        ctx.add_cb(function()
+          local new_line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
+          vim.api.nvim_win_set_cursor(0, { start_row + 1, #new_line })
+          vim.cmd("startinsert!")
+        end)
       end
+
+      return { hunk }
     end
   end
-
-  return hunks
 end
 
---- Convert a single line into an “unchecked” todo
----@param bufnr integer Buffer number
----@param row integer 0-based row to convert
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_convert_to_todo(bufnr, row)
-  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
-
-  -- existing indentation
-  local indent = util.get_line_indent(line)
-
-  local list_item = ph.match_list_item(line)
-  local list_marker = list_item and list_item.marker
-
-  local unchecked = config.options.todo_markers.unchecked
-  local new_text
-
-  if list_marker then
-    -- keep the existing list marker (“- ” or “1. ”), just insert the unchecked todo marker
-    new_text = line:gsub("^(%s*" .. vim.pesc(list_marker) .. ")", "%1" .. " " .. unchecked)
-    -- add a space if the new line ends with the unchecked marker
-    if new_text:match(unchecked .. "$") then
-      new_text = new_text .. " "
-    end
-  else
-    local default_marker = config.options.default_list_marker or "-"
-    new_text = indent .. default_marker .. " " .. unchecked .. " " .. line:gsub("^%s*", "")
-  end
-
-  return {
-    {
-      start_row = row,
-      start_col = 0,
-      end_row = row,
-      end_col = -1, -- this will force apply_diff to use set_text rather than set_lines
-      insert = { new_text },
-    },
-  }
-end
-
---- Insert a new, empty “unchecked” todo directly below the given row.
+--- Create todo in insert mode with line splitting support
 ---
----@param bufnr integer Buffer number
----@param row integer  -- 0-based row where we want to insert below
----@return checkmate.TextDiffHunk[]
-function M.compute_diff_insert_todo_below(bufnr, row)
-  local todo_map = parser.get_todo_map(bufnr)
-  local cur_todo = parser.get_todo_item_at_position(bufnr, row, 0, { todo_map = todo_map })
+--- Works on any line type (todo, list item, or plain text).
+---
+--- When cursor is mid-line:
+---  1. Text after cursor moves to new todo line
+---  2. `content` option prepends to this split content
+---  3. Cursor positioned after new todo marker + space
+---
+---@param ctx checkmate.TransactionContext
+---@param start_row integer Origin/parent row (not the new row). 0-based
+---@param opts checkmate.CreateOptionsInternal
+---  - cursor_pos.col: INSERT mode column (0-based insertion point between characters)
+---    where col=n means cursor is after char[n-1] and before char[n]
+---  - content: Prepends to any split content
+---@return checkmate.TextDiffHunk[] hunks
+function M.create_todo_insert(ctx, start_row, opts)
+  local bufnr = ctx.get_buf()
+  local line = vim.api.nvim_buf_get_lines(bufnr, start_row, start_row + 1, false)[1] or ""
 
-  local indent, marker_text
-  if cur_todo then
-    local list_node = cur_todo.list_marker and cur_todo.list_marker.node
-    if list_node then
-      -- list_node:range() → { start_row, start_col, end_row, end_col }
-      local sr, sc, _, ec = list_node:range()
-      indent = string.rep(" ", sc)
-      -- marker_text = text of the marker, e.g. "-" or "1."
-      marker_text = vim.api.nvim_buf_get_text(bufnr, sr, sc, sr, ec - 1, {})[1]
-
-      -- handle ordered lists by incrementing the number
-      local num = marker_text:match("^(%d+)[.)]")
-      if num then
-        local delimiter = marker_text:match("[.)]")
-        marker_text = tostring(tonumber(num) + 1) .. delimiter
-      end
-    else
-      -- shouldn't get here..but oh well, a fallback
-      indent = string.rep(" ", cur_todo.range.start.col)
-      marker_text = config.options.default_list_marker or "-"
+  -- try to match a todo line first, then try to match a regular list item
+  ---@type checkmate.TodoPrefix | checkmate.ListItemPrefix | nil
+  local current_prefix = ph.match_todo(line)
+  if not current_prefix then
+    local li = ph.match_list_item(line)
+    if li then
+      ---@type checkmate.ListItemPrefix
+      current_prefix = {
+        indent = li.indent,
+        list_marker = li.marker,
+      }
     end
-  else
-    indent = ""
-    marker_text = config.options.default_list_marker or "-"
   end
 
-  local new_row = row + 1
-  local unchecked = config.options.todo_markers.unchecked or "□"
-  local new_line = indent .. marker_text .. " " .. unchecked .. " "
+  local insert_row = opts.position == "above" and start_row or start_row + 1
 
-  return {
-    {
-      start_row = new_row,
-      start_col = 0,
-      end_row = new_row,
-      end_col = 0,
-      insert = { new_line },
-    },
-  }
-end
+  -- content to carry forward if splitting
+  local content_after = ""
 
---- Compute diff hunks for toggling a batch of items with their target states
----@param items_with_states table[] Array of {item: checkmate.TodoItem, target_state: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.compute_diff_toggle(items_with_states)
-  profiler.start("api.compute_diff_toggle")
-
+  ---@type checkmate.TextDiffHunk[]
   local hunks = {}
 
-  for _, entry in ipairs(items_with_states) do
-    local todo_item = entry.item
-    local target_state = entry.target_state
-    local row = todo_item.todo_marker.position.row
-
-    local state_def = config.options.todo_states[target_state]
-
-    if state_def and state_def.marker then
-      local new_marker = config.options.todo_states[target_state].marker
-
-      local hunk = make_marker_replacement_hunk(row, todo_item, new_marker)
-      table.insert(hunks, hunk)
+  if opts.cursor_pos then
+    local col = opts.cursor_pos.col
+    if col < #line then
+      content_after = line:sub(col + 1)
+      -- update the current line to remove the content after cursor
+      local truncated = line:sub(1, col)
+      local line_hunk = diff.make_line_replace(start_row, truncated)
+      table.insert(hunks, line_hunk)
     end
   end
 
-  profiler.stop("api.compute_diff_toggle")
+  -- combine split content with any explicit content option
+  local final_content = (opts.content or "") .. content_after
+
+  local new_todo = M._build_todo_line({
+    parent_prefix = current_prefix,
+    target_state = opts.target_state,
+    inherit_state = opts.inherit_state,
+    content = final_content,
+    list_marker = opts.list_marker,
+    indent = opts.indent,
+  })
+
+  local hunk = diff.make_line_insert(insert_row, new_todo.line)
+  table.insert(hunks, hunk)
+
+  -- adjust the cursor
+  ctx.add_cb(function()
+    -- position cursor at the end of the new todo marker
+    local cursor_col = #new_todo.line - #content_after
+    vim.api.nvim_win_set_cursor(0, { insert_row + 1, cursor_col })
+  end)
+
   return hunks
+end
+
+---@param indent any The raw indent option value
+---@return boolean|integer|nil normalized_indent
+local function normalize_indent_option(indent)
+  if indent == nil or indent == false then
+    return false -- sibling (default)
+  elseif indent == true or indent == "nested" then
+    return true -- nested child
+  elseif type(indent) == "number" and indent >= 0 then
+    return math.floor(indent) -- explicit spaces (ensure integer)
+  else
+    log.fmt_warn("Invalid indent option value: %s. Using default (sibling).", vim.inspect(indent))
+    return false
+  end
+end
+
+---@class BuildTodoLineOpts
+---@field parent_prefix? checkmate.TodoPrefix | checkmate.ListItemPrefix Context from parent todo or list item (optional)
+---@field target_state? string Explicit todo state (overrides `inherit_state`)
+---@field inherit_state? boolean Inherit parent/current todo state
+---@field content? string Text after the todo marker
+---@field list_marker? string Explicit list marker
+---@field indent? boolean|integer|"nested" Indentation control
+
+--- Build a new todo line with the given options
+---@private
+---@param opts? BuildTodoLineOpts
+---@return {line: string, indent: integer, marker: string, state: string}
+function M._build_todo_line(opts)
+  opts = opts or {}
+  local content = opts.content or ""
+  local parent_prefix = opts.parent_prefix
+
+  -- state, by precedence
+  local target_state
+  if opts.target_state then
+    -- explicit target_state
+    target_state = opts.target_state
+  elseif opts.inherit_state and parent_prefix then
+    -- inherit from parent/current, if requested
+    target_state = parent_prefix.state
+  else
+    -- default to unchecked
+    target_state = "unchecked"
+  end
+
+  local state_config = config.options.todo_states[target_state]
+  if not state_config then
+    log.fmt_error("[api] Invalid todo state: %s", target_state)
+    target_state = "unchecked"
+    state_config = config.options.todo_states[target_state]
+  end
+
+  -- get appropriate todo marker for state and convert to markdown if needed
+  local todo_marker = state_config.marker
+  if parent_prefix and parent_prefix.is_markdown then
+    local markdown_char = state_config.markdown
+    markdown_char = type(markdown_char) == "table" and markdown_char[1] or markdown_char
+    todo_marker = "[" .. markdown_char .. "]"
+  end
+
+  -- indentation
+  local indent_opt = normalize_indent_option(opts.indent)
+  local indent
+  if type(indent_opt) == "number" then
+    -- explicit indent in spaces
+    indent = indent_opt
+  elseif indent_opt == true then
+    -- nested child - calculate based on parent
+    if parent_prefix then
+      indent = parent_prefix.indent + #parent_prefix.list_marker + 1
+    else
+      -- no parent
+      indent = 2
+    end
+  elseif indent_opt == false then
+    -- sibling (default) - same level as parent
+    if parent_prefix then
+      indent = parent_prefix.indent
+    else
+      indent = 0
+    end
+  else
+    -- fallback for any unexpected value
+    indent = parent_prefix and parent_prefix.indent or 0
+  end
+  ---@cast indent integer
+
+  -- list marker
+  local list_marker
+  if opts.list_marker then
+    list_marker = opts.list_marker
+  elseif parent_prefix then
+    -- inherit from parent with auto numbering
+    local is_nested = indent_opt == true
+    if is_nested then
+      -- nested items may reset numbering
+      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
+    else
+      -- siblings increment numbering
+      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, false) or parent_prefix.list_marker
+    end
+  else
+    -- use default from config or fallback to "-"
+    list_marker = config.options.default_list_marker or "-"
+  end
+  ---@cast list_marker string
+
+  local indent_str = string.rep(" ", indent)
+  local line = indent_str .. list_marker .. " " .. todo_marker .. " " .. content
+
+  return {
+    line = line,
+    indent = indent,
+    marker = list_marker,
+    state = target_state,
+  }
+end
+
+--- Convert a regular line into a todo
+---@param bufnr integer
+---@param row integer 0-based row to convert
+---@param opts? {target_state?: string, list_marker?: string, nested?: boolean, indent?: boolean|integer|"nested", content?: string}
+---@return checkmate.TextDiffHunk
+function M.compute_diff_convert_to_todo(bufnr, row, opts)
+  opts = opts or {}
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+  local list_item = ph.match_list_item(line)
+  local target_state = opts.target_state or "unchecked"
+  local todo_marker = config.options.todo_states[target_state].marker
+
+  local new_line
+  if list_item then
+    local new_todo = M._build_todo_line({
+      parent_prefix = {
+        indent = list_item.indent,
+        list_marker = opts.list_marker or list_item.marker,
+        is_markdown = false,
+      },
+      -- pass the list marker here to avoid auto incrementing by _build_todo_line
+      list_marker = opts.list_marker or list_item.marker,
+      target_state = target_state,
+      inherit_state = false,
+      content = opts.content or vim.trim(line:gsub("^%s*" .. vim.pesc(list_item.marker) .. "%s*", "")),
+      indent = false, -- honor existing indentation; caller can override in opts
+    })
+    new_line = new_todo.line
+  else
+    -- not a list item - build from scratch
+    local existing_indent = util.get_line_indent(line)
+    local existing_content = vim.trim(line)
+
+    local content = opts.content or existing_content
+
+    local indent_opt = normalize_indent_option(opts.indent)
+    local final_indent
+    if type(indent_opt) == "number" then
+      -- explicit indent in spaces
+      final_indent = indent_opt
+    elseif indent_opt == true then
+      -- add nesting indent (2 spaces by default)
+      final_indent = #existing_indent + 2
+    else
+      final_indent = #existing_indent
+    end
+
+    local prefix = nil
+    if final_indent > 0 or opts.list_marker then
+      prefix = {
+        indent = final_indent,
+        list_marker = opts.list_marker or config.options.default_list_marker or "-",
+        state = target_state,
+        is_markdown = false,
+        todo_marker = todo_marker,
+      }
+    end
+
+    local new_todo = M._build_todo_line({
+      parent_prefix = prefix,
+      target_state = target_state,
+      inherit_state = false,
+      content = content,
+      list_marker = opts.list_marker,
+      indent = false, -- already calculated above
+    })
+
+    new_line = new_todo.line
+  end
+
+  return diff.make_line_replace(row, new_line)
+end
+
+--- Remove todo marker from items (convert todo → non-todo line)
+--- @param ctx checkmate.TransactionContext
+--- @param operations table[] array of { id: integer, remove_list_marker?: boolean }
+--- @return checkmate.TextDiffHunk[] hunks
+function M.remove_todo(ctx, operations)
+  local bufnr = ctx.get_buf()
+  local hunks = {}
+
+  ---@type checkmate.TodoItem[]
+  local removed_todos = {}
+
+  for _, op in ipairs(operations or {}) do
+    local item = ctx.get_todo_by_id(op.id)
+    if item then
+      -- store the range for clearing highlights later
+      table.insert(removed_todos, item)
+      local h = M.compute_diff_strip_todo_prefix(bufnr, item, not op.remove_list_marker)
+      if h then
+        table.insert(hunks, h)
+      end
+    end
+  end
+
+  -- we go ahead and directly remove the todo extmarks here as a removed todo won't be collected in
+  -- the apply_highlighting pass
+  if #removed_todos > 0 then
+    ctx.add_cb(function()
+      local highlights = require("checkmate.highlights")
+      for _, removed_todo in ipairs(removed_todos) do
+        highlights.clear_todo_hls(bufnr, removed_todo)
+      end
+    end)
+  end
+
+  return hunks
+end
+
+---@param bufnr integer
+---@param item checkmate.TodoItem
+---@param preserve_list_marker? boolean Whether to keep list marker. Default: true
+---@return checkmate.TextDiffHunk
+function M.compute_diff_strip_todo_prefix(bufnr, item, preserve_list_marker)
+  local r = require("checkmate.lib.range")
+  local row = item.range.start.row
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+
+  local start_col
+  if preserve_list_marker ~= false then
+    -- keep "<indent><lm><space>", remove the todo marker (and its trailing space)
+    local lm_range = r.range_from_tsnode(item.list_marker.node)
+    start_col = lm_range["end"].col -- after the single space following list marker
+  else
+    -- remove the full list prefix as well
+    start_col = item.range.start.col -- from beginning of indent/list
+  end
+
+  -- end of the todo marker token
+  local end_col = item.todo_marker.position.col + #item.todo_marker.text
+
+  -- include exactly one trailing space after the todo marker if present
+  if line:sub(end_col + 1, end_col + 1) == " " then
+    end_col = end_col + 1
+  end
+
+  return diff.make_text_delete(row, start_col, end_col)
 end
 
 --- Toggle state of todo item(s)
@@ -666,27 +1285,20 @@ end
 ---@param operations table[] Array of {id: integer, target_state: string}
 ---@return checkmate.TextDiffHunk[] hunks
 function M.toggle_state(ctx, operations)
-  local items_with_states = {}
+  profiler.start("api.toggle_state")
+  local hunks = {}
 
   for _, op in ipairs(operations) do
     local item = ctx.get_todo_by_id(op.id)
-    if item and item.state ~= op.target_state then
-      table.insert(items_with_states, {
-        item = item,
-        target_state = op.target_state,
-      })
+    local state_def = config.options.todo_states[op.target_state]
+    if item and item.state ~= op.target_state and state_def and state_def.marker then
+      local hunk = diff.make_marker_replace(item, state_def.marker)
+      table.insert(hunks, hunk)
     end
   end
+  profiler.stop("api.toggle_state")
 
-  return M.compute_diff_toggle(items_with_states)
-end
-
---- Set todo items to specific state
----@param ctx checkmate.TransactionContext Transaction context
----@param operations table[] Array of {id: integer, target_state: string}
----@return checkmate.TextDiffHunk[] hunks
-function M.set_todo_item(ctx, operations)
-  return M.toggle_state(ctx, operations)
+  return hunks
 end
 
 ---Toggle a batch of todo items with proper parent/child propagation
@@ -700,9 +1312,11 @@ end
 ---
 ---@param ctx checkmate.TransactionContext Transaction context
 ---@param items checkmate.TodoItem[] List of initial todo items to toggle
----@param todo_map table<integer, checkmate.TodoItem>
+---@param todo_map checkmate.TodoMap
 ---@param target_state? string Optional target state, otherwise toggle each item
 function M.propagate_toggle(ctx, items, todo_map, target_state)
+  profiler.start("api.propagate_toggle")
+
   local smart_config = config.options.smart_toggle
 
   -- holds which todo's need their state updated
@@ -958,6 +1572,7 @@ function M.propagate_toggle(ctx, items, todo_map, target_state)
   if #operations > 0 then
     ctx.add_op(M.toggle_state, operations)
   end
+  profiler.stop("api.propagate_toggle")
 end
 
 --- Get the next todo state in the cycle
@@ -1095,67 +1710,55 @@ function M.find_metadata_insert_position(todo_item, meta_name, bufnr)
   end
 end
 
----@param items checkmate.TodoItem[]
+---@param bufnr integer
+---@param item checkmate.TodoItem
 ---@param meta_name string Metadata tag name
 ---@param meta_value string Metadata default value
----@return checkmate.TextDiffHunk[], table<integer, {old_value: string, new_value: string}>
-function M.compute_diff_add_metadata(items, meta_name, meta_value)
+---@return checkmate.TextDiffHunk? hunk, {old_value: string, new_value: string}? changed
+--- `hunk`: the diff hunk representing the new/updated metadata, or `nil` if no buffer change would result
+--- `changed`: allows the caller to fire on_change callbacks if we actually update a value
+function M.compute_diff_add_metadata(bufnr, item, meta_name, meta_value)
   local meta_props = meta_module.get_meta_props(meta_name)
   if not meta_props then
-    return {}, {}
+    return nil, nil
   end
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local hunks = {}
-  local changes = {} -- track for on_change callback
+  ---@type checkmate.TextDiffHunk?
+  local hunk = nil
 
-  for _, todo_item in ipairs(items) do
-    local value = meta_value
-    local existing_entry = todo_item.metadata.by_tag[meta_name]
+  local value = meta_value -- target value
+  local existing_entry = item.metadata.by_tag[meta_name]
 
-    if existing_entry then
-      if existing_entry.value ~= value then
-        changes[todo_item.id] = {
-          old_value = existing_entry.value,
-          new_value = value,
-        }
+  local changed
 
-        local line = vim.api.nvim_buf_get_lines(
-          bufnr,
-          existing_entry.range.start.row,
-          existing_entry.range.start.row + 1,
-          false
-        )[1]
+  if existing_entry then
+    if existing_entry.value ~= value then
+      changed = { old_value = existing_entry.value, new_value = value }
 
-        if line then
-          local hunk_list = M.compute_diff_update_metadata(existing_entry, value)
-          vim.list_extend(hunks, hunk_list)
-        end
+      local line =
+        vim.api.nvim_buf_get_lines(bufnr, existing_entry.range.start.row, existing_entry.range.start.row + 1, false)[1]
+
+      if line then
+        hunk = M.compute_diff_update_metadata(existing_entry, value)
       end
-    else
-      local insert_pos = M.find_metadata_insert_position(todo_item, meta_name, bufnr)
-
-      local metadata_text = "@" .. meta_name .. "(" .. value .. ")"
-      local insert_text
-
-      if insert_pos.insert_after_space then
-        insert_text = " " .. metadata_text
-      else
-        -- inserting before something, add space after
-        insert_text = metadata_text .. " "
-      end
-
-      local hunk = {
-        start_row = insert_pos.row,
-        start_col = insert_pos.col,
-        end_row = insert_pos.row,
-        end_col = insert_pos.col,
-        insert = { insert_text },
-      }
-      table.insert(hunks, hunk)
     end
+  else
+    -- doesn't exist yet, new insertion
+    local insert_pos = M.find_metadata_insert_position(item, meta_name, bufnr)
+
+    local metadata_text = "@" .. meta_name .. "(" .. value .. ")"
+    local insert_text
+
+    if insert_pos.insert_after_space then
+      insert_text = " " .. metadata_text
+    else
+      -- inserting before something, add space after
+      insert_text = metadata_text .. " "
+    end
+
+    hunk = diff.make_text_insert(insert_pos.row, insert_pos.col, insert_text)
   end
-  return hunks, changes
+  return hunk, changed
 end
 
 --- Add metadata to todo items
@@ -1186,16 +1789,18 @@ function M.add_metadata(ctx, operations)
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
     local meta_value = op.meta_value or meta_module.evaluate_value(meta_props, context)
 
-    local item_hunks, item_changes = M.compute_diff_add_metadata({ item }, op.meta_name, meta_value)
-    vim.list_extend(hunks, item_hunks)
+    local item_hunk, item_changes = M.compute_diff_add_metadata(bufnr, item, op.meta_name, meta_value)
+    if not util.tbl_isempty_or_nil(item_hunk) then
+      table.insert(hunks, item_hunk)
+    end
 
     -- add callbacks
-    if item_changes[item.id] then
+    if item_changes then
       changes_by_meta[op.meta_name] = changes_by_meta[op.meta_name] or {}
       table.insert(changes_by_meta[op.meta_name], {
         id = op.id,
-        old_value = item_changes[item.id].old_value,
-        new_value = item_changes[item.id].new_value,
+        old_value = item_changes.old_value,
+        new_value = item_changes.new_value,
       })
     elseif not item.metadata.by_tag[op.meta_name] and meta_props.on_add then
       -- only queue on_add if it's actually a new addition
@@ -1267,7 +1872,9 @@ function M.compute_diff_remove_metadata(bufnr, entries)
 
   for _, entry in ipairs(sorted_entries) do
     local hunk = M.compute_metadata_removal_hunk(bufnr, entry)
-    table.insert(hunks, hunk)
+    if hunk then
+      table.insert(hunks, hunk)
+    end
   end
 
   return hunks
@@ -1295,13 +1902,7 @@ function M.compute_metadata_removal_hunk(bufnr, entry)
       end_col = end_col + 1
     end
 
-    return {
-      start_row = start_row,
-      start_col = start_col,
-      end_row = end_row,
-      end_col = end_col,
-      insert = { "" },
-    }
+    return diff.make_text_delete(start_row, start_col, end_col)
   end
 
   -- metadata breaks across more than 1 line
@@ -1337,13 +1938,7 @@ function M.compute_metadata_removal_hunk(bufnr, entry)
     table.remove(new_lines)
   end
 
-  return {
-    start_row = start_row,
-    start_col = 0, -- replace entire lines
-    end_row = end_row,
-    end_col = #lines[#lines], -- to end of last line
-    insert = new_lines,
-  }
+  return diff.make_line_replace({ start_row, end_row }, new_lines)
 end
 
 --- Helper to collect metadata entries to remove based on meta_names
@@ -1508,9 +2103,12 @@ function M.set_metadata_value(ctx, metadata, new_value)
     end
   end
 
-  return M.compute_diff_update_metadata(metadata, new_value)
+  return { M.compute_diff_update_metadata(metadata, new_value) }
 end
 
+---@param metadata checkmate.MetadataEntry
+---@param value string
+---@return checkmate.TextDiffHunk
 function M.compute_diff_update_metadata(metadata, value)
   local value_range = metadata.value_range
 
@@ -1519,15 +2117,7 @@ function M.compute_diff_update_metadata(metadata, value)
   -- (Future enhancement: support actual multi-line values)
   local sanitized_value = value:gsub("\n", " ")
 
-  local hunk = {
-    start_row = value_range.start.row,
-    start_col = value_range.start.col,
-    end_row = value_range["end"].row,
-    end_col = value_range["end"].col,
-    insert = { sanitized_value },
-  }
-
-  return { hunk }
+  return diff.make_text_replace(value_range.start.row, value_range.start.col, value_range["end"].col, sanitized_value)
 end
 
 --- moves the cursor forward or backward to the next metadata tag for the todo item
@@ -1623,7 +2213,7 @@ end
 
 --- Count completed and total (non-inactive type) child todos for a todo item
 ---@param todo_item checkmate.TodoItem The parent todo item
----@param todo_map table<integer, checkmate.TodoItem> Full todo map
+---@param todo_map checkmate.TodoMap Full todo map
 ---@param opts? {recursive: boolean?}
 ---@return {completed: number, total: number} Counts
 function M.count_child_todos(todo_item, todo_map, opts)
@@ -1654,20 +2244,21 @@ function M.count_child_todos(todo_item, todo_map, opts)
 end
 
 --- Archives completed todo items to a designated section
+--- @param ctx checkmate.TransactionContext
 --- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
---- @return boolean success Whether any items were archived
-function M.archive_todos(opts)
-  local highlights = require("checkmate.highlights")
-
+--- @return checkmate.TextDiffHunk[] hunks
+function M.archive_todos(ctx, opts)
   opts = opts or {}
+
+  local bufnr = ctx.get_buf()
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
   local archive_heading_string = util.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )
-  local include_children = opts.include_children ~= false -- default: true
-  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false -- default: true
+  local include_children = opts.include_children ~= false
+  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
 
   -- helpers
@@ -1685,10 +2276,7 @@ function M.archive_todos(opts)
     end
   end
 
-  -- discover todos and current archive block boundaries
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local todo_map = parser.get_todo_map(bufnr)
+  local todo_map = ctx.get_todo_map()
   local sorted_todos = util.get_sorted_todo_list(todo_map)
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -1696,7 +2284,7 @@ function M.archive_todos(opts)
   do
     local heading_level = archive_heading_string:match("^(#+)")
     local heading_level_len = heading_level and #heading_level or 0
-    -- The 'next' heading level is a heading at the same or higher level
+    -- the 'next' heading level is a heading at the same or higher level
     -- which represents a new section
     local next_heading_pat = heading_level
         and ("^%s*" .. string.rep("#", heading_level_len, heading_level_len) .. "+%s")
@@ -1732,7 +2320,7 @@ function M.archive_todos(opts)
       and todo.range.start.row > archive_start_row
       and todo.range["end"].row <= (archive_end_row or -1)
 
-    if not in_arch and todo.state == "checked" and not todo.parent_id and not todos_to_archive[id] then
+    if not in_arch and todo.state_type == "complete" and not todo.parent_id and not todos_to_archive[id] then
       -- mark root
       todos_to_archive[id] = true
       archived_root_cnt = archived_root_cnt + 1
@@ -1758,162 +2346,185 @@ function M.archive_todos(opts)
 
   if archived_root_cnt == 0 then
     util.notify("No completed todo items to archive", vim.log.levels.INFO)
-    return false
+    return {}
   end
 
   table.sort(archived_ranges, function(a, b)
     return a.start_row < b.start_row
   end)
 
-  -- rebuild buffer content
-  -- start with re-creating the buffer's 'active' section (non-archived)
+  -- collect archived lines (to insert into archive section)
 
-  local new_main_content = {} -- lines that will remain in the main document
-  local new_archive_content = {} -- lines that will live under the Archive heading
-  local newly_archived_lines = {} -- temp storage for newly added archived todos
-
-  -- Walk every line of the current buffer.
-  --    we copy it into `new_content` unless it is:
-  --       a) part of the existing archive section, or
-  --       b) part of a todo block we’re about to archive, or
-  --       c) the single blank line that immediately follows such a block
-  --         (to avoid stray empty rows after removal).
-  local i = 1
-  while i <= #current_buf_lines do
-    local idx = i - 1 -- 0-indexed (current row)
-
-    -- skip over existing archive section in one jump
-    if archive_start_row and idx >= archive_start_row and idx <= archive_end_row then
-      i = archive_end_row + 2
-    else
-      -- skip lines inside newly-archived ranges (plus trailing blank directly after each)
-      local skip = false
-      for _, r in ipairs(archived_ranges) do
-        if idx >= r.start_row and idx <= r.end_row then
-          skip = true -- inside a soon-to-be-archived todo
-          break
-        end
-      end
-      -- handle spacing preservation
-      if not skip and current_buf_lines[i] == "" then
-        for _, r in ipairs(archived_ranges) do
-          if idx == r.end_row + 1 then
-            -- this blank line is immediately after an archived todo
-            -- ...so check if there was a blank line before the todo
-            local has_blank_before = r.start_row > 0 and current_buf_lines[r.start_row] == ""
-
-            -- check if we already added content (which means there's something before)
-            local has_content_before = #new_main_content > 0
-
-            -- Skip this blank line if:
-            --  - already have blank line before todo
-            --  - the last line we added to new_main_content is blank
-            if has_blank_before or (has_content_before and new_main_content[#new_main_content] == "") then
-              skip = true
-            end
-            break
-          end
-        end
-      end
-
-      if not skip then
-        new_main_content[#new_main_content + 1] = current_buf_lines[i]
-      end
-      i = i + 1
-    end
-  end
-
-  -- If an archive section already exists, copy everything below its heading
-
-  if archive_start_row and archive_end_row and archive_end_row >= archive_start_row + 1 then
-    local start = archive_start_row + 2
-    while start <= archive_end_row + 1 and current_buf_lines[start] == "" do
-      start = start + 1
-    end
-    for j = start, archive_end_row + 1 do
-      new_archive_content[#new_archive_content + 1] = current_buf_lines[j]
-    end
-    trim_trailing_blank(new_archive_content)
-  end
-
-  -- collect newly archived todo items
+  local newly_archived_lines = {}
+  local to_delete = {} ---@type table<integer, boolean>
 
   if #archived_ranges > 0 then
     for idx, r in ipairs(archived_ranges) do
+      -- collect lines for archive payload
       for row = r.start_row, r.end_row do
         newly_archived_lines[#newly_archived_lines + 1] = current_buf_lines[row + 1]
       end
-
       -- spacing after each root todo except the last
       if idx < #archived_ranges and parent_spacing > 0 then
         add_spacing(newly_archived_lines)
       end
+
+      -- mark all lines in the range for deletion
+      for row = r.start_row, r.end_row do
+        to_delete[row] = true
+      end
     end
   end
 
-  -- combine existing and new archive content based on newest_first option
+  -- blank-line cleanup: avoid leaving stray empty lines after deletions
+  -- For each archived block, if the immediately following line is blank,
+  -- delete it when it would create double-blank or preserve an existing blank above
+  for _, r in ipairs(archived_ranges) do
+    local after = r.end_row + 1
+    local before = r.start_row - 1
 
-  if newest_first then
-    -- newest items go at the top of the archive section
-    local combined_lines = {}
+    if after <= #current_buf_lines - 1 and current_buf_lines[after + 1] == "" then
+      -- find the nearest surviving line above
+      while before >= 0 and to_delete[before] do
+        before = before - 1
+      end
+      local has_blank_before = (before >= 0) and (current_buf_lines[before + 1] == "")
 
-    -- add new items first
-    for _, line in ipairs(newly_archived_lines) do
-      combined_lines[#combined_lines + 1] = line
-    end
-
-    -- add spacing between new and existing content if both exist
-    if #newly_archived_lines > 0 and #new_archive_content > 0 and parent_spacing > 0 then
-      add_spacing(combined_lines)
-    end
-
-    -- add existing archive content
-    for _, line in ipairs(new_archive_content) do
-      combined_lines[#combined_lines + 1] = line
-    end
-
-    new_archive_content = combined_lines
-  else
-    -- newest items go at the bottom (default behavior)
-    if #new_archive_content > 0 and #newly_archived_lines > 0 and parent_spacing > 0 then
-      add_spacing(new_archive_content) -- gap between old and new archive content
-    end
-
-    for _, line in ipairs(newly_archived_lines) do
-      new_archive_content[#new_archive_content + 1] = line
+      -- if we already have a blank above (or the top is blank), remove the trailing blank
+      if has_blank_before then
+        to_delete[after] = true
+      end
     end
   end
 
-  -- make sure we don't leave more than `parent_spacing`
-  -- blank lines at the very end of the archive section.
-  trim_trailing_blank(new_archive_content)
-
-  -- inject archive section into document
-
-  if #new_archive_content > 0 then
-    -- blank line before archive heading if needed
-    if #new_main_content > 0 and new_main_content[#new_main_content] ~= "" then
-      new_main_content[#new_main_content + 1] = ""
+  -- make contiguous delete hunks rows marked in `to_delete`
+  -- Idea: scan the buffer once, whenever we see a run of deletable lines, start it...
+  -- when the run ends, emit one delete hunk covering [run_start, last_row]
+  local delete_hunks = {}
+  do
+    local run_start ---@type integer|nil
+    local function flush_run(last_row)
+      if run_start ~= nil then
+        table.insert(delete_hunks, diff.make_line_delete({ run_start, last_row }))
+        run_start = nil
+      end
     end
-    new_main_content[#new_main_content + 1] = archive_heading_string
-    new_main_content[#new_main_content + 1] = "" -- blank after heading
-    for _, line in ipairs(new_archive_content) do
-      new_main_content[#new_main_content + 1] = line
+
+    for row = 0, #current_buf_lines - 1 do
+      if to_delete[row] then
+        if run_start == nil then
+          run_start = row
+        end
+      else
+        if run_start ~= nil then
+          flush_run(row - 1)
+        end
+      end
+    end
+    flush_run(#current_buf_lines - 1)
+  end
+
+  -- prepare archive section insertion/merge hunks
+
+  trim_trailing_blank(newly_archived_lines)
+
+  local archive_hunks = {}
+
+  if #newly_archived_lines > 0 then
+    if not archive_start_row then
+      -- no archive section exists yet: append at end of buffer
+      local line_count = #current_buf_lines
+
+      local insertion = {} --- heading + required blank + content
+      -- ensure single blank line before heading if buffer isn't empty & last line non-blank
+      local need_pre_blank = line_count > 0 and current_buf_lines[#current_buf_lines] ~= ""
+      if need_pre_blank then
+        insertion[#insertion + 1] = ""
+      end
+      insertion[#insertion + 1] = archive_heading_string
+      insertion[#insertion + 1] = ""
+      for _, l in ipairs(newly_archived_lines) do
+        insertion[#insertion + 1] = l
+      end
+
+      archive_hunks[#archive_hunks + 1] = diff.make_line_insert(line_count, insertion)
+    else
+      -- Archive section exists: normalize a single blank after heading,
+      -- then insert at top (newest_first) or append at bottom (!newest_first)
+
+      -- 1) normalize the run of blanks after the heading to exactly one
+      local first_nonblank_after = archive_start_row + 1
+      while first_nonblank_after <= archive_end_row and current_buf_lines[first_nonblank_after + 1] == "" do
+        first_nonblank_after = first_nonblank_after + 1
+      end
+      if first_nonblank_after == archive_start_row + 1 then
+        -- no blank line existed; create one right after heading
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(archive_start_row + 1, { "" })
+      else
+        -- there is at least one blank; compress to a single blank
+        archive_hunks[#archive_hunks + 1] = diff.make_line_replace(
+          { archive_start_row + 1, first_nonblank_after - 1 },
+          { "" }
+        )
+      end
+
+      if newest_first then
+        -- insert just after the single blank line under the heading
+        local insert_row = archive_start_row + 2
+        local payload = {}
+        for _, l in ipairs(newly_archived_lines) do
+          payload[#payload + 1] = l
+        end
+
+        -- if archive content already exists and spacing requested, add spacer between new and existing
+        local has_existing = (archive_end_row and (archive_end_row >= archive_start_row + 1))
+          and (archive_end_row >= insert_row)
+        if has_existing and parent_spacing > 0 then
+          add_spacing(payload)
+        end
+
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(insert_row, payload)
+      else
+        -- Append to bottom of existing archive content
+        -- Find the last non-blank line inside the archive section to avoid
+        -- inserting after a stray trailing blank
+        local tail = archive_end_row or (archive_start_row + 1)
+        while tail > archive_start_row and current_buf_lines[tail + 1] == "" do
+          tail = tail - 1
+        end
+
+        local append_at = tail + 1
+        local payload = {}
+
+        -- if there is existing content and spacing requested, add spacer first
+        local has_existing = tail > archive_start_row
+        if has_existing and parent_spacing > 0 then
+          add_spacing(payload)
+        end
+
+        for _, l in ipairs(newly_archived_lines) do
+          payload[#payload + 1] = l
+        end
+
+        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(append_at, payload)
+      end
     end
   end
 
-  -- write buffer
+  local hunks = {}
+  vim.list_extend(hunks, delete_hunks)
+  vim.list_extend(hunks, archive_hunks)
 
-  local cursor_state = util.Cursor.save()
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_main_content)
-  util.Cursor.restore(cursor_state)
-  highlights.apply_highlighting(bufnr, { debug_reason = "archive_todos" })
+  if archived_root_cnt > 0 then
+    ctx.add_cb(function()
+      util.notify(
+        ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
+        vim.log.levels.INFO
+      )
+    end)
+  end
 
-  util.notify(
-    ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
-    vim.log.levels.INFO
-  )
-  return true
+  return hunks
 end
 
 -- Helper function for handling cursor jumps after metadata operations
@@ -1970,63 +2581,73 @@ function M._handle_metadata_cursor_jump(bufnr, todo_item, meta_name, meta_config
 end
 
 --- Collect todo items under cursor or visual selection
----@param is_visual boolean Whether to collect items in visual selection (true) or under cursor (false)
+---@param is_visual boolean whether to collect items in visual selection (true) or under cursor (false)
 ---@return checkmate.TodoItem[] items
----@return table<integer, checkmate.TodoItem> todo_map
+---@return checkmate.TodoMap todo_map
 function M.collect_todo_items_from_selection(is_visual)
   profiler.start("api.collect_todo_items_from_selection")
 
   local bufnr = vim.api.nvim_get_current_buf()
   local items = {}
 
-  -- Pre-parse all todos once
   local full_map = parser.get_todo_map(bufnr)
 
   if is_visual then
-    -- Exit visual mode first
+    -- exit visual to freeze `'<`/`'>`
     vim.cmd([[execute "normal! \<Esc>"]])
-    local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
-    local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
 
-    -- convert from 1-based mark to 0-based rows
-    local start_line = mark_start[1] - 1
-    local end_line = mark_end[1] - 1
+    -- returns 1-based line/col
+    local s = vim.fn.getpos("'<")
+    local e = vim.fn.getpos("'>")
 
-    -- pre-build lookup table for faster todo item location
-    local row_to_todo = {}
-    for _, todo_item in pairs(full_map) do
-      for row = todo_item.range.start.row, todo_item.range["end"].row do
-        if not row_to_todo[row] or row == todo_item.range.start.row then
-          row_to_todo[row] = todo_item
-        end
-      end
+    -- convert to 0-based rows
+    local s_row = (s[2] > 0 and s[2] - 1 or 0)
+    local e_row = (e[2] > 0 and e[2] - 1 or 0)
+
+    -- normalize order
+    local start_row, end_row = s_row, e_row
+    if end_row < start_row then
+      start_row, end_row = end_row, start_row
     end
 
+    -- clamp to buffer bounds
+    local max_row = math.max(0, vim.api.nvim_buf_line_count(bufnr) - 1)
+    if start_row < 0 then
+      start_row = 0
+    end
+    if end_row > max_row then
+      end_row = max_row
+    end
+
+    -- include todos whose todo first line lies within [start_row, end_row]
     local seen = {}
-    for row = start_line, end_line do
-      local todo = row_to_todo[row]
-      if todo then
-        local key = string.format("%d:%d", todo.todo_marker.position.row, todo.todo_marker.position.col)
-        if not seen[key] then
-          seen[key] = true
-          table.insert(items, todo)
-        end
+    for id, todo in pairs(full_map) do
+      local mr = todo.todo_marker.position
+      if mr.row >= start_row and mr.row <= end_row and not seen[id] then
+        seen[id] = true
+        items[#items + 1] = todo
       end
     end
+
+    -- deterministic order
+    table.sort(items, function(a, b)
+      local ar, br = a.todo_marker.position.row, b.todo_marker.position.row
+      if ar == br then
+        return a.todo_marker.position.col < b.todo_marker.position.col
+      end
+      return ar < br
+    end)
   else
-    -- Normal mode: single item at cursor
-    local cursor = util.Cursor.save()
-    local row = cursor.cursor[1] - 1
-    local col = cursor.cursor[2]
+    local c = vim.api.nvim_win_get_cursor(0)
+    local row = c[1] - 1 -- to 0-based
+    local col = c[2]
     local todo = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = full_map })
-    util.Cursor.restore(cursor)
     if todo then
-      table.insert(items, todo)
+      items[#items + 1] = todo
     end
   end
 
   profiler.stop("api.collect_todo_items_from_selection")
-
   return items, full_map
 end
 

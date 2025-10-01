@@ -183,7 +183,6 @@ function M.toggle(target_state)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
-  local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
 
   local profiler = require("checkmate.profiler")
@@ -237,7 +236,7 @@ function M.toggle(target_state)
       end
     end
   end, function()
-    highlights.apply_highlighting(bufnr)
+    -- post_fn
   end)
   profiler.stop("M.toggle")
   return true
@@ -292,7 +291,7 @@ function M.set_todo_item(todo_item, target_state)
       } })
     end
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   return true
@@ -328,7 +327,6 @@ function M.cycle(opts)
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
-  local highlights = require("checkmate.highlights")
   local config = require("checkmate.config")
 
   opts = opts or {}
@@ -388,72 +386,361 @@ function M.cycle(opts)
       end
     end
   end, function()
-    highlights.apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   return true
 end
 
---- Creates a new todo item
+---@class checkmate.CreateOptions
 ---
---- # Behavior
---- - In normal mode:
----   - Will convert a line under the cursor to a todo item if it is not one
----   - Will append a new todo item below the current line, making a sibling todo item, that attempts to match the list marker and indentation
---- - In visual mode:
----   - Will convert each line in the selection to a new todo item with the default list marker
----   - Will ignore existing todo items (first line only). If the todo item spans more than one line, the
----   additional lines will be converted to individual todos
----   - Will not append any new todo items even if all lines in the selection are already todo items
----@return boolean success
-function M.create()
+--- Text content for new todo
+--- In visual mode, replaces existing line content
+--- Modes: all
+--- Default: ""
+---@field content? string
+---
+--- Where to place new todo relative to the current line
+--- Modes: normal, insert
+--- Default: "below"
+---@field position? "above"|"below"
+---
+--- Explicit todo state, e.g. "checked", "unchecked", or custom state
+--- This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo
+--- Modes: all
+--- Default: "unchecked"
+---@field target_state? string
+---
+--- Whether to inherit state from parent/current todo
+--- The "parent" todo is is the todo on the cursor line when `create` is called
+--- Modes: normal, insert
+--- Default: false (target_state is used)
+---@field inherit_state? boolean
+---
+--- Override list marker, e.g. "-", "*", "+", "1."
+--- Modes: all
+--- Default: will use parent's type or fallback to config `default_list_marker`
+---@field list_marker? string
+---
+--- Indentation (whitespace before list marker)
+---  - `false` (default): sibling - same indent as parent
+---  - `true` or `"nested"`: child - indented under parent
+---  - `integer`: explicit indent in spaces
+--- Modes: normal, insert
+--- Default: false
+---@field indent? boolean|integer|"nested"
+
+--- Creates or converts lines to todo items based on context and mode
+---
+--- # Mode-Specific Behavior
+---
+--- ## Normal Mode
+--- - **On non-todo line**: Converts line to todo (preserves text as content)
+---   - With `position`: Creates new todo above/below, preserves original line
+--- - **On todo line**: Creates sibling todo below
+---   - With `position="above"`: Creates sibling above
+---   - With `indent=true`: Creates nested child
+---
+--- ## Visual Mode
+--- - Converts each non-todo line in selection to a todo
+--- - Ignores lines that are already todos
+--- - Options `position`, `indent`, `inherit_state` are ignored
+--- - Option `content` replaces existing line text
+---
+--- ## Insert Mode
+--- - Creates new todo below (or above with `position="above"`)
+--- - If cursor is mid-line, splits line at cursor (text after cursor moves to new todo)
+--- - Maintains insert mode after creation
+--- - When `create` is called from handlers in `list_continuation.keys`, this enables a keymap like `<CR>` to create a new todo item in Insert mode
+---
+--- # Option Precedence
+---
+--- **State precedence** (highest to lowest):
+--- 1. `target_state` - explicit state
+--- 2. `inherit_state` - copies from parent/current todo
+--- 3. "unchecked" - default
+---
+--- **List marker precedence**:
+--- 1. `list_marker` - explicit marker
+--- 2. Inherited from parent/sibling with auto-numbering
+--- 3. Config `default_list_marker`
+--- 4. "-" is fallback
+---
+--- # Examples
+--- ```lua
+--- -- Convert current line to todo or create a new todo on current line
+--- require("checkmate").create()
+---
+--- -- Create nested child todo
+--- require("checkmate").create({ indent = true })
+---
+--- -- Create todo above with custom state
+--- require("checkmate").create({ position = "above", target_state = "pending" })
+---
+--- -- Create with specific content and marker
+--- require("checkmate").create({ content = "New task", list_marker = "1." })
+--- ```
+---
+---@param opts? checkmate.CreateOptions
+function M.create(opts)
+  opts = opts or {}
+
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
+  local log = require("checkmate.log")
 
-  -- if we’re already inside a transaction, queue a "create_todos" for the current cursor row
+  local mode = util.get_mode()
+  local is_insert = mode == "i"
+  local is_visual = mode == "v"
+
+  -- validate opts based on the mode
+  if is_visual then
+    -- visual mode only supports limited opts
+    local allowed_opts = {
+      target_state = true,
+      list_marker = true,
+      content = true,
+    }
+
+    local visual_opts = {}
+    for k, v in pairs(opts) do
+      if allowed_opts[k] then
+        visual_opts[k] = v
+      else
+        -- warn
+        local ignored = { "position", "indent", "inherit_state" }
+        if vim.tbl_contains(ignored, k) then
+          log.fmt_debug("[main][create] Option '%s' is ignored in visual mode", k)
+        else
+          log.fmt_warn("[main][create] Unknown option '%s' in visual mode", k)
+        end
+      end
+    end
+    opts = visual_opts
+  end
+
+  -- if we’re already inside a transaction, queue a create_todo for the current cursor row using normal mode behavior
   local ctx = transaction.current_context()
   if ctx then
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
-    ctx.add_op(api.create_todos, row, row, false)
-
-    return true
+    ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position or "below",
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state,
+      list_marker = opts.list_marker,
+      indent = opts.indent or false,
+      content = opts.content,
+      cursor_pos = { row = row, col = cursor[2] },
+    })
+    return
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
-  local is_visual = util.is_visual_mode()
 
-  local start_row, end_row
+  -- determine which api function to use based on current mode:
+
+  if is_insert then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+
+    -- since the buffer can change between now and when we run the below create_todo_insert, we use
+    -- an extmark to store the cursor position
+    -- For example, if the todo line is markdown like `- [ ] Test` this will be converted to unicode during
+    -- then plugin's TextChange autocmd handling, which could throw off the cursor position
+    local ns = vim.api.nvim_create_namespace("checkmate_create_temp")
+    local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row, col, {
+      right_gravity = true,
+    })
+
+    -- we use transaction for insert mode to maintain consistency
+    -- but schedule it to avoid issues with insert mode
+    vim.schedule(function()
+      local mark_pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, extmark_id, {})
+      if not mark_pos or #mark_pos < 2 then
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+        return
+      end
+
+      local new_row = mark_pos[1]
+      local new_col = mark_pos[2]
+
+      transaction.run(bufnr, function(tx_ctx)
+        tx_ctx.add_op(api.create_todo_insert, row, {
+          position = opts.position or "below",
+          target_state = opts.target_state,
+          inherit_state = opts.inherit_state,
+          list_marker = opts.list_marker,
+          indent = opts.indent or false,
+          content = opts.content,
+          cursor_pos = { row = new_row, col = new_col },
+        })
+      end, function()
+        -- ensure we stay in insert mode
+        if not util.is_insert_mode() then
+          vim.cmd("startinsert")
+        end
+
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+      end)
+    end)
+
+    return
+  end
+
   if is_visual then
+    -- exit visual mode first
     vim.cmd([[execute "normal! \<Esc>"]])
-    -- get the sel start/end row (1-based)
+
     local mark_start = vim.api.nvim_buf_get_mark(bufnr, "<")
     local mark_end = vim.api.nvim_buf_get_mark(bufnr, ">")
-    start_row = mark_start[1] - 1
-    end_row = mark_end[1] - 1
+    local start_row = mark_start[1] - 1
+    local end_row = mark_end[1] - 1
 
     if end_row < start_row then
       start_row, end_row = end_row, start_row
     end
-  else
-    local cur = vim.api.nvim_win_get_cursor(0)
-    start_row = cur[1] - 1
-    end_row = start_row
+
+    transaction.run(bufnr, function(tx_ctx)
+      tx_ctx.add_op(api.create_todos_visual, start_row, end_row, {
+        target_state = opts.target_state,
+        list_marker = opts.list_marker,
+        content = opts.content,
+      })
+    end)
+
+    return true
   end
 
-  if start_row == nil or end_row == nil then
-    return false
-  end
+  -- normal mode (default)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1
 
   transaction.run(bufnr, function(tx_ctx)
-    tx_ctx.add_op(api.create_todos, start_row, end_row, is_visual)
+    tx_ctx.add_op(api.create_todo_normal, row, {
+      position = opts.position,
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state or false,
+      list_marker = opts.list_marker,
+      indent = opts.indent or false,
+      content = opts.content,
+    })
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    --post_fn
   end)
 
   return true
+end
+
+---@class checkmate.RemoveOptions
+---
+---If true, keep the list marker (e.g. "- Text"); if false, remove list marker also ("Text")
+---Default: true
+---@field preserve_list_marker? boolean
+---
+---Removes all metadata associated with the todo
+---Default: true
+---@field remove_metadata? boolean
+
+--- Remove todo from the current line (or all todos in a visual selection)
+--- In other words, this converts a todo line back to a non-todo line
+--- Can use `opts` to specify keeping/removing list marker and metadata
+--- @param opts? checkmate.RemoveOptions
+function M.remove(opts)
+  opts = opts or {}
+  local preserve_list_marker = opts.preserve_list_marker ~= false
+  local strip_meta = opts.remove_metadata ~= false
+
+  local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+  local parser = require("checkmate.parser")
+
+  -- a gotcha of this code is that when you remove metadata first that spans multiple lines, this will
+  -- perform a line replace (instead of text replace), losing the stable todo id extmark. So we cover this
+  -- by also linking on the todo's start_row. I'm not sure how fragile this will be, but working for now...
+
+  local ctx = transaction.current_context()
+  if ctx then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local item =
+      parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
+    if not item then
+      util.notify("No todo items found at cursor position", vim.log.levels.INFO)
+      return false
+    end
+
+    local start_row = item.range.start.row
+    if strip_meta then
+      ctx.add_op(api.remove_metadata, { { id = item.id, meta_names = true } })
+      ctx.add_cb(function(c)
+        local refreshed = c.get_todo_by_id(item.id) or c.get_todo_by_row(start_row, true)
+        if refreshed then
+          c.add_op(api.remove_todo, { { id = refreshed.id, remove_list_marker = not preserve_list_marker } })
+        end
+      end)
+    else
+      ctx.add_op(api.remove_todo, { { id = item.id, remove_list_marker = not preserve_list_marker } })
+    end
+    return true
+  end
+
+  -- normal/visual path: collect once, then run both phases in a single transaction
+  local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local items = api.collect_todo_items_from_selection(is_visual)
+
+  if #items == 0 then
+    local mode_msg = is_visual and "selection" or "cursor position"
+    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    return false
+  end
+
+  -- capture stable targets (IDs may change after multi-line metadata edits)
+  local targets = {}
+  for _, it in ipairs(items) do
+    targets[#targets + 1] = { id = it.id, start_row = it.range.start.row }
+  end
+
+  local meta_ops = {}
+  if strip_meta then
+    for _, t in ipairs(targets) do
+      meta_ops[#meta_ops + 1] = { id = t.id, meta_names = true } -- true = remove all
+    end
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    if strip_meta and #meta_ops > 0 then
+      _ctx.add_op(api.remove_metadata, meta_ops)
+      _ctx.add_cb(function(c)
+        local rm_ops = {}
+        for _, t in ipairs(targets) do
+          local found = c.get_todo_by_id(t.id) or c.get_todo_by_row(t.start_row, true)
+          if found then
+            rm_ops[#rm_ops + 1] = { id = found.id, remove_list_marker = not preserve_list_marker }
+          end
+        end
+        if #rm_ops > 0 then
+          c.add_op(api.remove_todo, rm_ops)
+        end
+      end)
+    else
+      -- no metadata stripping: remove prefixes immediately
+      local rm_ops = {}
+      for _, t in ipairs(targets) do
+        rm_ops[#rm_ops + 1] = {
+          id = t.id,
+          remove_list_marker = not preserve_list_marker,
+        }
+      end
+      _ctx.add_op(api.remove_todo, rm_ops)
+    end
+  end, function()
+    --post_fn
+  end)
 end
 
 --- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection
@@ -507,7 +794,7 @@ function M.add_metadata(metadata_name, value)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.add_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
   return true
 end
@@ -554,7 +841,7 @@ function M.remove_metadata(metadata_name)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    --post_fn
   end)
   return true
 end
@@ -600,7 +887,7 @@ function M.remove_all_metadata()
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
   return true
 end
@@ -653,7 +940,7 @@ function M.toggle_metadata(meta_name, custom_value)
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.toggle_metadata, operations)
   end, function()
-    require("checkmate.highlights").apply_highlighting(bufnr)
+    -- post_fn
   end)
 
   profiler.stop("M.toggle_metadata")
@@ -680,7 +967,7 @@ function M.select_metadata_value()
     transaction.run(bufnr, function(_ctx)
       _ctx.add_op(api.set_metadata_value, metadata, choice)
     end, function()
-      require("checkmate.highlights").apply_highlighting(bufnr)
+      -- post_fn
     end)
   end)
 end
@@ -688,36 +975,109 @@ end
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present
 function M.jump_next_metadata()
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- during a transaction, schedule cursor movement as a cb
+    ctx.add_cb(function()
+      local bufnr = ctx.get_buf()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local todo_item = ctx.get_todo_by_row(cursor[1] - 1)
+      if todo_item then
+        api.move_cursor_to_metadata(bufnr, todo_item, false)
+      end
+    end)
+    return
+  end
+
+  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(false)
-
-  api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+  if #todo_items > 0 then
+    api.move_cursor_to_metadata(bufnr, todo_items[1], false)
+  end
 end
 
 --- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
 function M.jump_previous_metadata()
   local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- during a transaction, schedule cursor movement as a cb
+    ctx.add_cb(function()
+      local bufnr = ctx.get_buf()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local todo_item = ctx.get_todo_by_row(cursor[1] - 1)
+      if todo_item then
+        api.move_cursor_to_metadata(bufnr, todo_item, true)
+      end
+    end)
+    return
+  end
+
+  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
   local todo_items = api.collect_todo_items_from_selection(false)
-
-  api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+  if #todo_items > 0 then
+    api.move_cursor_to_metadata(bufnr, todo_items[1], true)
+  end
 end
 
----Returns a `checkmate.Todo` or nil
----Will use the current buffer and cursor pos unless overriden in `opts`
---- - `row` is 0-based
----@param opts? {bufnr?: integer, row?: integer}
----@return checkmate.Todo? todo
+--- Get the todo under the cursor (or the first line of a visual selection)
+---
+--- Behavior:
+--- - Uses current buffer and cursor row by default
+--- - In visual mode, resolves the todo at the *first* line of the selection (`'<`)
+--- - If `root_only=true`, only returns a todo when the resolved row is the todo's first line (i.e., with list item and todo marker)
+--- - If the buffer is not an active Checkmate buffer, returns nil
+---
+--- Options:
+---   - bufnr?: integer            Buffer to inspect (default: current)
+---   - row?:   integer (0-based)  Explicit row to inspect (overrides cursor/visual)
+---   - root_only?: boolean        Only match if row is the todo’s first line
+---
+--- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
+--- @return checkmate.Todo? todo
 function M.get_todo(opts)
   opts = opts or {}
-  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
-  local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
 
-  local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, 0)
-  if not todo then
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local api = require("checkmate.api")
+  if not api.is_valid_buffer(bufnr) then
     return nil
   end
-  return require("checkmate.util").build_todo(todo)
+
+  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+  local transaction = require("checkmate.transaction")
+
+  local row
+  if type(opts.row) == "number" then
+    row = opts.row
+  else
+    if util.is_visual_mode() then
+      vim.cmd([[execute "normal! \<Esc>"]])
+      local mark = vim.api.nvim_buf_get_mark(bufnr, "<") -- 1-based
+      row = (mark and mark[1] or vim.api.nvim_win_get_cursor(0)[1]) - 1
+    else
+      row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    end
+  end
+
+  local ctx = transaction.current_context(bufnr)
+  local parse_opts = { root_only = opts.root_only == true }
+  if ctx then
+    parse_opts.todo_map = ctx.get_todo_map()
+  end
+
+  local item = parser.get_todo_item_at_position(bufnr, row, 0, parse_opts)
+  if not item then
+    return nil
+  end
+  return util.build_todo(item)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules
@@ -742,7 +1102,6 @@ function M.lint(opts)
   end
 
   local linter = require("checkmate.linter")
-  local log = require("checkmate.log")
   local util = require("checkmate.util")
 
   local results = linter.lint_buffer(bufnr)
@@ -771,110 +1130,25 @@ end
 function M.archive(opts)
   opts = opts or {}
   local api = require("checkmate.api")
-  return api.archive_todos(opts)
-end
+  local transaction = require("checkmate.transaction")
 
----------- DEBUGGING API ----------------
-
-local debug_hl = require("checkmate.debug.debug_highlights")
-M.debug = {
-  ---Add a new highlight
-  ---@param range checkmate.Range
-  ---@param opts? {timeout?: integer, permanent?: boolean}
-  ---@return integer id extmark id
-  highlight = function(range, opts)
-    return debug_hl.add(range, opts)
-  end,
-  clear_all_highlights = function()
-    debug_hl.clear_all()
-  end,
-  list_highlights = function()
-    return debug_hl.list()
-  end,
-  ---@param opts? {type?: "floating" | "split"}
-  log = function(opts)
-    opts = opts or {}
-    require("checkmate.log").open({ scratch = opts.type or "floating" })
-  end,
-  clear_log = function()
-    require("checkmate.log").clear()
-  end,
-}
-
--- Clears a debug highlight under the cursor
-function M.debug.clear_highlight()
-  local config = require("checkmate.config")
-  local bufnr = vim.api.nvim_get_current_buf()
-  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  local marks = vim.api.nvim_buf_get_extmarks(bufnr, config.ns, { row - 1, 0 }, { row - 1, -1 }, { details = true })
-  for _, m in ipairs(marks) do
-    local id, _, start_col, details = m[1], m[2], m[3], m[4]
-    local end_col = details and details.end_col or start_col
-    if col - 1 >= start_col and col - 1 < end_col then
-      debug_hl.clear(bufnr, id)
-      vim.notify("Cleared debug highlight " .. id, vim.log.levels.INFO)
-      return
-    end
-  end
-  vim.notify("No debug highlight under cursor", vim.log.levels.WARN)
-end
-
---- Inspect todo item at cursor
-function M.debug.at_cursor()
-  local parser = require("checkmate.parser")
-  local util = require("checkmate.util")
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  row = row - 1
-
-  local item = parser.get_todo_item_at_position(bufnr, row, col)
-
-  if not item then
-    util.notify("No todo item found at cursor", vim.log.levels.INFO)
-    return
+  local ctx = transaction.current_context()
+  if ctx then
+    -- already in a transaction, queue the operation
+    ctx.add_op(api.archive_todos, opts)
+    return true
   end
 
-  local msg = {
-    ("Debug called at (0-index): %s:%s"):format(row, col),
-    "Todo item at cursor:",
-    ("  ID: %s"):format(item.id),
-    ("  State: %s"):format(item.state),
-    ("  List marker: [%s]"):format(util.get_ts_node_range_string(item.list_marker.node)),
-    ("  Todo marker: [%d,%d] → %s"):format(
-      item.todo_marker.position.row,
-      item.todo_marker.position.col,
-      item.todo_marker.text
-    ),
-    ("  Range: [%d,%d] → [%d,%d]"):format(
-      item.range.start.row,
-      item.range.start.col,
-      item.range["end"].row,
-      item.range["end"].col
-    ),
-    ("  Metadata: %s"):format(vim.inspect(item.metadata)),
-  }
+  local bufnr = vim.api.nvim_get_current_buf()
 
-  vim.notify(table.concat(msg, "\n"), vim.log.levels.DEBUG)
-
-  M.debug.highlight(item.range)
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.archive_todos, opts)
+  end, function()
+    -- post_fn
+  end)
 end
 
---- Print todo map (in Snacks scratch buffer or vim.print)
-function M.debug.print_todo_map()
-  local parser = require("checkmate.parser")
-  local todo_map = parser.discover_todos(vim.api.nvim_get_current_buf())
-  local sorted_list = require("checkmate.util").get_sorted_todo_list(todo_map)
-  require("checkmate.util").scratch_buf_or_print(sorted_list, { name = "checkmate.nvim todo_map" })
-end
-
--- Print current config (in Snacks scratch buffer or vim.print)
-function M.debug.print_config()
-  local config = require("checkmate.config")
-  require("checkmate.util").scratch_buf_or_print(config.options, { name = "checkmate.nvim config" })
-end
-
------ END API -----
+----------------------------------------------------------------------
 
 function M.get_user_opts()
   return vim.deepcopy(user_opts)

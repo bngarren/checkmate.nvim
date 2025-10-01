@@ -60,9 +60,9 @@ local function match_path_suffixes(path, vim_regex)
   return false
 end
 
----Check if a given pattern matches the given filename
----@param filename string The normalized full path of the file
----@param pattern string The glob pattern to match
+---check if a given pattern matches the given filename
+---@param filename string the normalized full path of the file
+---@param pattern string the glob pattern to match
 ---@return boolean
 local function pattern_matches(filename, pattern)
   if type(pattern) ~= "string" or pattern == "" then
@@ -94,9 +94,9 @@ local function pattern_matches(filename, pattern)
   return false
 end
 
----Check if buffer should be activated based on patterns
----@param bufnr number|nil Buffer number (defaults to current buffer)
----@param patterns table|nil Array of glob patterns
+---check if buffer should be activated based on patterns
+---@param bufnr number|nil
+---@param patterns table|nil array of glob patterns
 ---@return boolean
 function M.should_activate_for_buffer(bufnr, patterns)
   bufnr = bufnr or api.nvim_get_current_buf()

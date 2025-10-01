@@ -32,6 +32,32 @@ local function new_session(name)
   }
 end
 
+local function get_caller_info(skip_level)
+  skip_level = skip_level or 2
+  local info = debug.getinfo(skip_level, "Sln")
+
+  if not info then
+    return {
+      source = "<unknown>",
+      func = "<unknown>",
+      line = 0,
+      full = "<unknown>",
+    }
+  end
+
+  -- Extract filename from path
+  local source = info.source:match("([^/\\]+)$") or info.source
+  local func_name = info.name or "<anonymous>"
+  local line = info.currentline or 0
+
+  return {
+    source = source,
+    func = func_name,
+    line = line,
+    full = string.format("%s:%d in %s()", source, line, func_name),
+  }
+end
+
 local function cleanup_orphaned_spans(session)
   if not session or vim.tbl_isempty(session.active_spans) then
     return
@@ -94,7 +120,7 @@ end
 function M.start_session(name)
   local util = require("checkmate.util")
   if not M._enabled then
-    util.notify("Profiler not enabled. Use :CheckmateDebugProfilerStart", vim.log.levels.WARN)
+    util.notify("Profiler not enabled. Use :Checkmate debug profiler enable", vim.log.levels.WARN)
     return false
   end
   if M._active then
@@ -199,6 +225,7 @@ function M._stop_span(span_id, force)
       max_time = 0,
       samples = {},
       children = {}, -- child label -> count, total_time
+      callers = {},
     }
   end
 
@@ -241,6 +268,22 @@ function M._stop_span(span_id, force)
   local self_time = math.max(0, duration_ms - children_time)
   measurement.self_time = measurement.self_time + self_time
 
+  -- Store caller information
+  if span.caller then
+    local caller_key = span.caller.full
+    if not measurement.callers[caller_key] then
+      measurement.callers[caller_key] = {
+        count = 0,
+        total_time = 0,
+        avg_time = 0,
+      }
+    end
+    measurement.callers[caller_key].count = measurement.callers[caller_key].count + 1
+    measurement.callers[caller_key].total_time = measurement.callers[caller_key].total_time + duration_ms
+    measurement.callers[caller_key].avg_time = measurement.callers[caller_key].total_time
+      / measurement.callers[caller_key].count
+  end
+
   return duration_ms
 end
 
@@ -261,10 +304,13 @@ function M.start(label)
     parent_id = M._session.span_stack[#M._session.span_stack]
   end
 
+  local caller = get_caller_info(4)
+
   M._session.active_spans[span_id] = {
     start_time = get_time_ns(),
     parent_id = parent_id,
     children = {}, -- span_id list
+    caller = caller,
   }
 
   M._session.span_labels[span_id] = label
@@ -308,6 +354,16 @@ function M.stop(label_or_id)
   return M._stop_span(span_id, false)
 end
 
+local function calculate_percentile(samples, p)
+  if #samples == 0 then
+    return 0
+  end
+  local sorted = vim.deepcopy(samples)
+  table.sort(sorted)
+  local idx = math.ceil(#sorted * p / 100)
+  return sorted[math.min(idx, #sorted)]
+end
+
 function M.report()
   local measurements
   local session_info = ""
@@ -333,6 +389,9 @@ function M.report()
     if data.count > 0 then
       data.avg_total = data.total_time / data.count
       data.avg_self = data.self_time / data.count
+      data.p50 = calculate_percentile(data.samples, 50)
+      data.p95 = calculate_percentile(data.samples, 95)
+      data.p99 = calculate_percentile(data.samples, 99)
       table.insert(sorted, { name = name, data = data })
     end
   end
@@ -346,12 +405,13 @@ function M.report()
   table.insert(
     lines,
     string.format(
-      "%-30s %8s %12s %12s %12s %8s",
+      "%-30s %8s %12s %12s %8s %8s %8s",
       "Operation",
       "Calls",
       "Total (ms)",
       "Self (ms)",
-      "Avg (ms)",
+      "P50",
+      "P95",
       "Min-Max"
     )
   )
@@ -363,12 +423,13 @@ function M.report()
     table.insert(
       lines,
       string.format(
-        "%-30s %8d %12.2f %12.2f %12.2f %8s",
+        "%-30s %8d %12.2f %12.2f %8.2f %8.2f %8s",
         name:sub(1, 30),
         data.count,
         data.total_time,
         data.self_time,
-        data.avg_total,
+        data.p50,
+        data.p95,
         string.format("%.1f-%.1f", data.min_time, data.max_time)
       )
     )
@@ -416,6 +477,40 @@ function M.report()
             child.percent
           )
         )
+      end
+    end
+
+    -- Show caller breakdown
+    if not vim.tbl_isempty(data.callers) then
+      local caller_list = {}
+      for caller_key, caller_data in pairs(data.callers) do
+        table.insert(caller_list, {
+          key = caller_key,
+          data = caller_data,
+        })
+      end
+      -- Sort by frequency
+      table.sort(caller_list, function(a, b)
+        return a.data.count > b.data.count
+      end)
+
+      table.insert(lines, "  Called from:")
+      local shown = 0
+      for _, caller in ipairs(caller_list) do
+        if shown >= 5 then
+          table.insert(lines, string.format("    ... and %d more locations", #caller_list - shown))
+          break
+        end
+        table.insert(
+          lines,
+          string.format(
+            "    %-40s %4d calls, %8.2f ms avg",
+            caller.key:sub(1, 40),
+            caller.data.count,
+            caller.data.avg_time
+          )
+        )
+        shown = shown + 1
       end
     end
   end

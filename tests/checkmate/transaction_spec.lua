@@ -1,5 +1,5 @@
 describe("Transaction", function()
-  local h, checkmate, transaction, parser, api, util
+  local h, checkmate, transaction, parser, api, util, diff
 
   before_each(function()
     _G.reset_state()
@@ -10,6 +10,7 @@ describe("Transaction", function()
     parser = require("checkmate.parser")
     api = require("checkmate.api")
     util = require("checkmate.util")
+    diff = require("checkmate.lib.diff")
 
     checkmate.setup()
     vim.wait(20)
@@ -98,8 +99,8 @@ describe("Transaction", function()
     local bufnr = h.setup_test_buffer(content)
 
     local apply_diff_called = 0
-    local original_apply_diff = util.apply_diff
-    util.apply_diff = function(...)
+    local original_apply_diff = diff.apply_diff
+    diff.apply_diff = function(...)
       apply_diff_called = apply_diff_called + 1
       return original_apply_diff(...)
     end
@@ -119,7 +120,7 @@ describe("Transaction", function()
       assert.matches(config.options.todo_states.checked.marker, line)
     end
 
-    util.apply_diff = original_apply_diff
+    diff.apply_diff = original_apply_diff
 
     finally(function()
       h.cleanup_buffer(bufnr)
@@ -159,7 +160,7 @@ describe("Transaction", function()
     end)
   end)
 
-  it("should execute callbacks after all operations in a batch", function()
+  it("should execute callbacks after all operations in a batch (even if no hunks)", function()
     local unchecked = h.get_unchecked_marker()
     local content = [[
 - ]] .. unchecked .. [[ Task 1
@@ -169,9 +170,12 @@ describe("Transaction", function()
 
     local execution_order = {}
 
+    local spy_apply_diff = spy.on(diff, "apply_diff")
+
     transaction.run(bufnr, function(ctx)
       local todo_map = parser.discover_todos(bufnr)
 
+      -- queue ops that produce NO hunks; they still must run before callbacks
       for _, todo in pairs(todo_map) do
         ctx.add_op(function()
           table.insert(execution_order, "op:" .. todo.todo_text:match("Task %d"))
@@ -194,6 +198,9 @@ describe("Transaction", function()
     assert.truthy(execution_order[2]:match("^op:"))
     assert.equal("cb:1", execution_order[3])
     assert.equal("cb:2", execution_order[4])
+
+    -- not called, since no hunks were returned
+    assert(spy_apply_diff:called(0))
 
     finally(function()
       h.cleanup_buffer(bufnr)
@@ -315,6 +322,178 @@ describe("Transaction", function()
     assert.matches(h.get_checked_marker(), line)
 
     assert.is_false(transaction.is_active())
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should run callbacks queued during ops (micro) before sibling callbacks (macro)", function()
+    local unchecked = h.get_unchecked_marker()
+    local content = "- " .. unchecked .. " TaskMicroMacro"
+    local bufnr = h.setup_test_buffer(content)
+
+    local order = {}
+
+    transaction.run(bufnr, function(ctx)
+      local todo_map = parser.discover_todos(bufnr)
+      local todo = h.find_todo_by_text(todo_map, "TaskMicroMacro")
+      assert.is_not_nil(todo)
+
+      -- Op that queues a callback DURING op execution
+      ctx.add_op(function(op_ctx)
+        table.insert(order, "op")
+        -- schedule a micro-cb that runs BEFORE the macro callbacks
+        op_ctx.add_cb(function(cb_ctx)
+          table.insert(order, "micro")
+          -- make a visible change so the macro can observe it
+          cb_ctx.add_op(api.toggle_state, { { id = todo.id, target_state = "checked" } })
+        end)
+        return {} -- no direct diff from this op
+      end)
+
+      ctx.add_cb(function(cb_ctx)
+        table.insert(order, "macro")
+        -- should observe "checked" since micro already applied its op batch
+        local updated = cb_ctx.get_todo_by_id(todo.id)
+        assert.is_not_nil(updated)
+        assert.equal("checked", updated.state)
+      end)
+    end)
+
+    assert.same({ "op", "micro", "macro" }, order)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should apply ops enqueued by micro-callbacks before macros run", function()
+    local unchecked = h.get_unchecked_marker()
+    local content = "- " .. unchecked .. " FP"
+    local bufnr = h.setup_test_buffer(content)
+
+    local batches = {}
+
+    -- spy on apply_diff to count op batches
+    local original_apply_diff = diff.apply_diff
+    diff.apply_diff = function(...)
+      table.insert(batches, "apply")
+      return original_apply_diff(...)
+    end
+
+    transaction.run(bufnr, function(ctx)
+      local todo_map = parser.discover_todos(bufnr)
+      local todo = h.find_todo_by_text(todo_map, "FP")
+      assert.is_not_nil(todo)
+
+      -- batch 1: an op that queues a micro-cb which enqueues another op
+      ctx.add_op(function(op_ctx)
+        -- micro schedules toggle op
+        op_ctx.add_cb(function(cb_ctx)
+          cb_ctx.add_op(api.toggle_state, { { id = todo.id, target_state = "checked" } })
+        end)
+        return {}
+      end)
+
+      -- macro cb should run AFTER the micro-triggered toggle applied
+      ctx.add_cb(function(cb_ctx)
+        local updated = cb_ctx.get_todo_by_id(todo.id)
+        assert.equal("checked", updated.state)
+      end)
+    end)
+
+    -- only the micro-enqueued toggle produced hunks → exactly one apply_diff call
+    assert.equal(1, #batches)
+
+    diff.apply_diff = original_apply_diff
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should drain chained micro-callbacks fully before any macro runs", function()
+    local bufnr = h.setup_test_buffer("")
+
+    local order = {}
+
+    transaction.run(bufnr, function(ctx)
+      ctx.add_op(function(op_ctx)
+        table.insert(order, "op")
+        -- micro-1
+        op_ctx.add_cb(function(inner_ctx)
+          table.insert(order, "micro-1")
+          -- queue another micro during a micro
+          inner_ctx.add_cb(function()
+            table.insert(order, "micro-2")
+          end)
+        end)
+        return {}
+      end)
+
+      -- macro sibling
+      ctx.add_cb(function()
+        table.insert(order, "macro")
+      end)
+    end)
+
+    assert.same({ "op", "micro-1", "micro-2", "macro" }, order)
+
+    finally(function()
+      h.cleanup_buffer(bufnr)
+    end)
+  end)
+
+  it("should keep apply_diff batching correct when micro enqueues additional ops", function()
+    local unchecked = h.get_unchecked_marker()
+    local content = ([[
+- %s One
+- %s Two]]):format(unchecked, unchecked)
+    local bufnr = h.setup_test_buffer(content)
+
+    local apply_calls = 0
+    local original_apply_diff = diff.apply_diff
+    diff.apply_diff = function(...)
+      apply_calls = apply_calls + 1
+      return original_apply_diff(...)
+    end
+
+    transaction.run(bufnr, function(ctx)
+      local todo_map = parser.discover_todos(bufnr)
+
+      -- First batch: toggle both items (one op call producing multiple hunks)
+      local ops = {}
+      for _, todo in pairs(todo_map) do
+        table.insert(ops, { id = todo.id, target_state = "checked" })
+      end
+      ctx.add_op(api.toggle_state, ops)
+
+      -- During the same op batch, enqueue a micro that enqueues another toggle back to unchecked for the first item
+      ctx.add_op(function(op_ctx)
+        op_ctx.add_cb(function(cb_ctx)
+          local tm = cb_ctx.get_todo_map()
+          local first = h.find_todo_by_text(tm, "One")
+          assert.is_not_nil(first)
+          cb_ctx.add_op(api.toggle_state, { { id = first.id, target_state = "unchecked" } })
+        end)
+        return {}
+      end)
+
+      -- Macro just observes final state
+      ctx.add_cb(function(cb_ctx)
+        local tm = cb_ctx.get_todo_map()
+        local one = h.find_todo_by_text(tm, "One")
+        local two = h.find_todo_by_text(tm, "Two")
+        assert.equal("unchecked", one.state)
+        assert.equal("checked", two.state)
+      end)
+    end)
+
+    -- Expect two apply_diff calls: initial (both -> checked) and micro-driven (One -> unchecked)
+    assert.equal(2, apply_calls)
+
+    diff.apply_diff = original_apply_diff
 
     finally(function()
       h.cleanup_buffer(bufnr)

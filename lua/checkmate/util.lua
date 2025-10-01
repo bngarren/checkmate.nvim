@@ -10,11 +10,40 @@ function M.tbl_isempty_or_nil(t)
   return vim.tbl_isempty(t)
 end
 
----Returns true is current mode is VISUAL, false otherwise
----@return boolean
-function M.is_visual_mode()
-  local mode = vim.fn.mode()
-  return mode:match("^[vV]") or mode == "\22"
+-- Return a normalized family: "n" | "v" | "i" | nil (if none of those)
+---@param m? string  -- optional raw mode (for testing); defaults to current
+---@return "n"|"v"|"i"|nil
+function M.mode_family(m)
+  m = m or vim.api.nvim_get_mode().mode
+  -- visual family: visual char/line/block, and select modes behave like visual
+  if m:find("^[vV\022]") or m:find("^s") then
+    return "v"
+  end
+  -- insert family: insert + its variants (ic, ix, etc.)
+  if m:find("^i") then
+    return "i"
+  end
+  -- normal family: normal + operator-pending + normal-insert variants (niI, no, nov, nt…)
+  if m:find("^n") then
+    return "n"
+  end
+  return nil
+end
+
+function M.is_normal_mode(m)
+  return M.mode_family(m) == "n"
+end
+function M.is_visual_mode(m)
+  return M.mode_family(m) == "v"
+end
+function M.is_insert_mode(m)
+  return M.mode_family(m) == "i"
+end
+
+---@return "n"|"v"|"i"|string
+function M.get_mode()
+  local raw = vim.api.nvim_get_mode().mode
+  return M.mode_family(raw) or raw
 end
 
 ---Calls vim.notify with the given message and log_level depending on if config.options.notify enabled
@@ -40,17 +69,149 @@ function M.notify(msg, log_level, once)
   end
 end
 
----@generic T
----@param fn T
----@param opts? {ms?:number}
----@return T
-function M.debounce(fn, opts)
-  local timer = assert(uv.new_timer())
-  local ms = opts and opts.ms or 20
-  return function()
-    timer:start(ms, 0, vim.schedule_wrap(fn))
-  end
+--- Returns true if two ranges overlap
+--- a1..a2 is the first range, b1..b2 is the second
+--- These are end-exclusive ranges!
+--- Overlap means they share at least one point; false if they are disjoint
+function M.ranges_overlap(a1, a2, b1, b2)
+  return not (a2 <= b1 or b2 <= a1)
 end
+
+--- Get the visible viewport bounds for a window
+--- Returns 0-based, end exclusive row indices
+---@param win? integer  -- window handle (defaults to current window)
+---@param pad? integer  -- optional number of extra lines above/below
+---@return integer? start_row, integer? end_row
+function M.get_viewport_bounds(win, pad)
+  pad = tonumber(pad) or 0
+
+  local target = (win and win ~= 0) and win or vim.api.nvim_get_current_win()
+  if not vim.api.nvim_win_is_valid(target) then
+    local cur = vim.api.nvim_get_current_win()
+    if not vim.api.nvim_win_is_valid(cur) then
+      return nil, nil
+    end
+    target = cur
+  end
+
+  local ok, bounds = pcall(vim.api.nvim_win_call, target, function()
+    return {
+      top = vim.fn.line("w0"), -- 1-based buffer line at top of window
+      bot = vim.fn.line("w$"), -- 1-based buffer line at bottom of window
+      bufnr = vim.api.nvim_win_get_buf(0),
+    }
+  end)
+  if not ok or type(bounds) ~= "table" then
+    return nil, nil
+  end
+
+  local linecount = vim.api.nvim_buf_line_count(bounds.bufnr)
+  local top, bot = bounds.top, bounds.bot
+  if type(top) ~= "number" or type(bot) ~= "number" then
+    return nil, nil
+  end
+
+  -- convert to 0-based, clamp with padding
+  local start0 = math.max(0, top - 1 - pad)
+  local end0 = math.min(linecount - 1, bot - 1 + pad) + 1 -- end exclusive
+  return start0, end0
+end
+
+-- --------------------- Debounce --------------------------
+
+---@class Debounced
+---@field cancel fun(self: Debounced)
+---@field flush fun(self: Debounced)
+---@field close fun(self: Debounced)
+-- Debounced is callable via __call(...)
+
+---@param fn fun(...)
+---@param opts? { ms?: number, leading?: boolean, trailing?: boolean }
+---@return Debounced
+function M.debounce(fn, opts)
+  opts = opts or {}
+  local ms = opts.ms or 20
+  local leading = opts.leading == true
+  local trailing = (opts.trailing ~= false) -- default true
+
+  local timer = assert(uv.new_timer())
+  local active = false -- currently inside debounce window
+  local pending = false -- a call occurred during the window
+  local last_args -- { ..., n = <argc> }
+
+  -- schedule-wrapped caller to stay on the main loop safely
+  local call = vim.schedule_wrap(function(...)
+    fn(...)
+  end)
+
+  local function stop_timer()
+    if timer and timer:is_active() then
+      timer:stop()
+    end
+  end
+
+  local function on_timeout()
+    stop_timer()
+    local do_trailing = trailing and pending
+    active, pending = false, false
+    if do_trailing and last_args then
+      call(unpack(last_args, 1, last_args.n))
+    end
+  end
+
+  local function invoke(...)
+    last_args = { ..., n = select("#", ...) }
+
+    -- leading: fire immediately once per window
+    if leading and not active then
+      active = true
+      pending = false
+      if trailing then
+        stop_timer()
+        timer:start(ms, 0, on_timeout)
+      end
+      return call(unpack(last_args, 1, last_args.n))
+    end
+
+    -- within the window: mark pending and (re)start trailing timer
+    pending = true
+    active = true
+    if trailing then
+      stop_timer()
+      timer:start(ms, 0, on_timeout)
+    end
+  end
+
+  local obj = {}
+
+  function obj:cancel()
+    stop_timer()
+    active, pending, last_args = false, false, nil
+  end
+
+  function obj:flush()
+    stop_timer()
+    if last_args then
+      call(unpack(last_args, 1, last_args.n))
+    end
+    active, pending = false, false
+  end
+
+  function obj:close()
+    self:cancel()
+    if timer and not timer:is_closing() then
+      timer:close()
+    end
+  end
+
+  return setmetatable(obj, {
+    __call = function(_, ...)
+      return invoke(...)
+    end,
+  })
+end
+
+-- --------------------- end Debounce --------------------------
 
 ---Blends the foreground color with the background color
 ---
@@ -144,6 +305,53 @@ function M.get_line_indent(line)
   return line:match("^(%s*)") or ""
 end
 
+--- Returns true if the col (0-based) is at the end of the trimmed line
+--- The 'end' is the position of the last character of the line
+---@param line string
+---@param col integer (0-based)
+---@param opts? {include_whitespace?: boolean}
+--- - include_whitespace: Default is true
+---@return boolean
+function M.is_end_of_line(line, col, opts)
+  opts = opts or {}
+  local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
+  return col + 1 == line_length
+end
+
+--- Returns the next ordered marker (incremented)
+--- e.g. if `1.` is passed, will return `2.`
+--- If the passed string does not match an ordered list marker, will return nil
+--- Pass `restart = true` if the numbering should start at 1, i.e. for a nested list item
+---@param li_marker_str string Current marker like "1." or "2)"
+---@param restart? boolean If true, reset to "1.", e.g., for nested items
+---@return string|nil
+function M.get_next_ordered_marker(li_marker_str, restart)
+  local num, delimiter = li_marker_str:match("^%s*(%d+)([%.%)])")
+  local result = nil
+  if num then
+    if not restart then
+      -- same level: increment
+      result = tostring(tonumber(num) + 1) .. delimiter
+    else
+      -- nested: start from 1
+      result = "1" .. delimiter
+    end
+  end
+  return result
+end
+
+--- Check if cursor position is valid for list continuation
+--- The cursor must be after the checkbox/todo marker to trigger continuation
+---@param col integer 0-based cursor column in insert mode
+---@param todo_prefix checkmate.TodoPrefix Todo prefix from match_todo
+---@return boolean
+function M.is_valid_list_continuation_position(col, todo_prefix)
+  -- this is the position after: indent + list_marker + space + todo_marker
+  local threshold = todo_prefix.indent + #todo_prefix.list_marker + 1 + #todo_prefix.todo_marker
+
+  return col >= threshold
+end
+
 --- Escapes special characters in a string for safe use in a Lua pattern character class.
 --
 -- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,
@@ -163,7 +371,7 @@ function M.escape_for_char_class(s)
 end
 
 ---Returns a todo_map table sorted by start row
----@generic T: table<integer, checkmate.TodoItem>
+---@generic T: checkmate.TodoMap
 ---@param todo_map T
 ---@return {id: integer, item: checkmate.TodoItem}
 function M.get_sorted_todo_list(todo_map)
@@ -191,9 +399,15 @@ end
 --- - When end_col=0, it means "end of previous line" rather than "start of current line"
 --- - For multi-line ranges, ensures the end position captures the entire line content
 ---
+--- - Returns end-inclusive for the row, end-exclusive for the column:
+---   start = {row, col}, end = {row_inclusive, col_exclusive}
+---   - Callers must treat end.row as inclusive and end.col as exclusive.
+---   - If passing to helpers expecting end-exclusive rows, convert with:
+---     `local row_end_excl = semantic.end.row + 1`
+---
 --- @param range {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Raw TreeSitter range (0-indexed, end-exclusive)
 --- @param bufnr integer Buffer number
---- @return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} Adjusted range suitable for semantic operations
+--- @return {start: {row: integer, col: integer}, ['end']: {row: integer, col: integer}} range
 function M.get_semantic_range(range, bufnr)
   -- Create a new range object to avoid modifying the original
   local new_range = {
@@ -534,106 +748,56 @@ function M.build_todo(todo_item)
   }
 end
 
---[[
-Apply diff hunks to buffer 
-
-Line insertion vs text replacement
-- nvim_buf_set_text: used for replacements and insertions WITHIN a line
-  this is important because it preserves extmarks that are not directly in the replaced range
-  i.e. the extmarks that track todo location
-- nvim_buf_set_lines: used for inserting NEW LINES
-  when used with same start/end positions, it inserts new lines without affecting
-  existing lines or their extmarks.
-
-We use nvim_buf_set_lines for whole line insertions (when start_col = end_col = 0)
-because it's cleaner and doesn't risk affecting extmarks on adjacent lines.
-For all other operations (replacements, partial line edits), we use nvim_buf_set_text
-to preserve extmarks as much as possible.
---]]
----@param bufnr integer Buffer number
----@param hunks checkmate.TextDiffHunk[]
-function M.apply_diff(bufnr, hunks)
-  if vim.tbl_isempty(hunks) then
+--- Run `fn` with the given window as current and always restore its view
+--- - saves & restores everything tracked by winsaveview() (cursor, topline, etc.)
+--- - safe if `fn` errors (rethrows after restore)
+--- - default `win` is the current window (0)
+---@param fn fun()
+---@param win? integer
+function M.with_preserved_view(fn, win)
+  win = win or 0
+  if type(fn) ~= "function" then
     return
   end
 
-  -- Sort hunks bottom to top so that row numbers don't change as we apply hunks
-  table.sort(hunks, function(a, b)
-    if a.start_row ~= b.start_row then
-      return a.start_row > b.start_row
-    end
-    return a.start_col > b.start_col
-  end)
-
-  -- apply hunks (first one creates undo entry, rest join)
-  for i, hunk in ipairs(hunks) do
-    if i > 1 then
-      vim.cmd("silent! undojoin")
-    end
-
-    local is_line_insertion = hunk.start_row == hunk.end_row
-      and hunk.start_col == 0
-      and hunk.end_col == 0
-      and #hunk.insert > 0
-
-    if is_line_insertion then
-      vim.api.nvim_buf_set_lines(bufnr, hunk.start_row, hunk.start_row, false, hunk.insert)
-    else
-      vim.api.nvim_buf_set_text(bufnr, hunk.start_row, hunk.start_col, hunk.end_row, hunk.end_col, hunk.insert)
-    end
-  end
-end
-
--- Cursor helper
-M.Cursor = {}
-
----@class CursorState
----@field win integer Window handle
----@field cursor integer[] Cursor position as [row, col] (1-indexed row)
----@field bufnr integer Buffer number
-
----Saves the current cursor state
----@return CursorState Current cursor position information
-function M.Cursor.save()
-  return {
-    win = vim.api.nvim_get_current_win(),
-    cursor = vim.api.nvim_win_get_cursor(0),
-    bufnr = vim.api.nvim_get_current_buf(),
-  }
-end
-
----Restores a previously saved cursor state
----@param state CursorState The cursor state returned by Cursor.save()
----@return boolean success Whether restoration was successful
-function M.Cursor.restore(state)
-  -- Make sure we have a valid state
-  if not state or not state.win or not state.cursor or not state.bufnr then
-    return false
+  -- a specific window was requested but it no longer exists, just run fn
+  if win ~= 0 and not vim.api.nvim_win_is_valid(win) then
+    return fn()
   end
 
-  -- Make sure the window and buffer still exist
-  if not (vim.api.nvim_win_is_valid(state.win) and vim.api.nvim_buf_is_valid(state.bufnr)) then
-    return false
+  local ok, err
+  local w = (win == 0) and vim.api.nvim_get_current_win() or win
+
+  if not vim.api.nvim_win_is_valid(w) then
+    return fn()
   end
 
-  -- Ensure the cursor position is valid for the buffer
-  local line_count = vim.api.nvim_buf_line_count(state.bufnr)
-  if state.cursor[1] > line_count then
-    state.cursor[1] = line_count
+  ok, err = xpcall(function()
+    vim.api.nvim_win_call(w, function()
+      local bufnr = vim.api.nvim_win_get_buf(w)
+      local view = vim.fn.winsaveview()
+
+      local uok, uerr = xpcall(fn, debug.traceback)
+
+      -- try to restore even if user code failed
+      if vim.api.nvim_win_is_valid(w) then
+        vim.api.nvim_win_call(w, function()
+          if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_get_buf(w) ~= bufnr then
+            pcall(vim.api.nvim_win_set_buf, w, bufnr)
+          end
+          pcall(vim.fn.winrestview, view)
+        end)
+      end
+
+      if not uok then
+        error(uerr)
+      end
+    end)
+  end, debug.traceback)
+
+  if not ok then
+    error(err)
   end
-
-  -- Get the line at the cursor position
-  local line = vim.api.nvim_buf_get_lines(state.bufnr, state.cursor[1] - 1, state.cursor[1], false)[1] or ""
-
-  -- Ensure cursor column is valid for the line
-  if state.cursor[2] >= #line then
-    state.cursor[2] = math.max(0, #line - 1)
-  end
-
-  -- Restore cursor
-  local success = pcall(vim.api.nvim_win_set_cursor, state.win, state.cursor)
-
-  return success
 end
 
 return M

@@ -1,5 +1,3 @@
--- A structured logging module for Checkmate
-
 ---@alias basic_log fun(args: any)
 ---@alias fmt_log fun(format_string: string, ...)
 ---@alias lazy_log fun(lazy_fn: fun())

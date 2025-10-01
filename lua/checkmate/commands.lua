@@ -75,6 +75,14 @@ local top_commands = {
     end,
   },
 
+  remove = {
+    desc = "Convert a todo item back to a regular list item",
+    nargs = "0",
+    handler = function()
+      require("checkmate").remove()
+    end,
+  },
+
   lint = {
     desc = "Lint this buffer for Checkmate formatting issues",
     nargs = "0",
@@ -174,35 +182,35 @@ local top_commands = {
         desc = "Open debug log",
         nargs = "0",
         handler = function()
-          require("checkmate").debug.log()
+          require("checkmate.debug").log()
         end,
       },
       clear_log = {
         desc = "Clear debug log",
         nargs = "0",
         handler = function()
-          require("checkmate").debug.clear_log()
+          require("checkmate.debug").clear_log()
         end,
       },
       here = {
         desc = "Inspect todo at cursor",
         nargs = "0",
         handler = function()
-          require("checkmate").debug.at_cursor()
+          require("checkmate.debug").at_cursor()
         end,
       },
       print_map = {
         desc = "Print todo map",
         nargs = "0",
         handler = function()
-          require("checkmate").debug.print_todo_map()
+          require("checkmate.debug").print_todo_map()
         end,
       },
       print_config = {
         desc = "Print config",
         nargs = "0",
         handler = function()
-          require("checkmate").debug.print_config()
+          require("checkmate.debug").print_config()
         end,
       },
       hl = {
@@ -238,7 +246,7 @@ local top_commands = {
 
               if kind == "metadata" then
                 for _, entry in ipairs(todo.metadata.entries) do
-                  require("checkmate").debug.highlight(entry.range, {
+                  require("checkmate.debug").highlight(entry.range, {
                     timeout = timeout,
                     persistent = persistent,
                   })
@@ -251,7 +259,7 @@ local top_commands = {
                   semantic = todo.range,
                 })[kind] or todo.range
 
-                require("checkmate").debug.highlight(range, {
+                require("checkmate.debug").highlight(range, {
                   timeout = timeout,
                   persistent = persistent,
                 })
@@ -264,7 +272,7 @@ local top_commands = {
             desc = "Clear a debug highlight under the cursor",
             nargs = "0",
             handler = function()
-              require("checkmate").debug.clear_highlight()
+              require("checkmate.debug").clear_highlight()
             end,
           },
 
@@ -272,7 +280,7 @@ local top_commands = {
             desc = "Clear all debug highlights",
             nargs = "0",
             handler = function()
-              require("checkmate").debug.clear_all_highlights()
+              require("checkmate.debug").clear_all_highlights()
               vim.notify("Checkmate: cleared all debug highlights", vim.log.levels.INFO)
             end,
           },
@@ -281,7 +289,7 @@ local top_commands = {
             desc = "List active debug highlights",
             nargs = "0",
             handler = function()
-              local items = require("checkmate").debug.list_highlights()
+              local items = require("checkmate.debug").list_highlights()
               for _, h in ipairs(items) do
                 print(string.format("buf=%d  id=%d", h.bufnr, h.id))
               end
@@ -289,26 +297,46 @@ local top_commands = {
           },
         },
       },
-      profiler_on = {
-        desc = "Start profiler",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").start_session()
-        end,
-      },
-      profiler_off = {
-        desc = "Stop profiler",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").stop_session()
-        end,
-      },
-      report = {
-        desc = "Show profiler report",
-        nargs = "0",
-        handler = function()
-          require("checkmate.profiler").show_report()
-        end,
+      profiler = {
+        desc = "Profiler",
+        subcommands = {
+          enable = {
+            desc = "Enable profiling",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").enable()
+            end,
+          },
+          disable = {
+            desc = "Disable profiling",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").disable()
+            end,
+          },
+
+          start = {
+            desc = "Start profiler session",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").start_session()
+            end,
+          },
+          stop = {
+            desc = "Stop profiler session",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").stop_session()
+            end,
+          },
+          report = {
+            desc = "Show profiler report",
+            nargs = "0",
+            handler = function()
+              require("checkmate.profiler").show_report()
+            end,
+          },
+        },
       },
     },
   },

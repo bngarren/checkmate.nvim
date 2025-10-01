@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.11.0](https://github.com/bngarren/checkmate.nvim/compare/v0.10.1...v0.11.0) (2025-10-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** changes intended behavior of `archive` to include all "completed" state type ([#186](https://github.com/bngarren/checkmate.nvim/issues/186))
+
+### Features
+
+* add `remove` API that converts todo lines back to regular text ([#172](https://github.com/bngarren/checkmate.nvim/issues/172)) ([8f84322](https://github.com/bngarren/checkmate.nvim/commit/8f843227f180148f1ce699c8c1e9b2ebf6002d85))
+* **highlights:** improve performance, especially for Insert mode and large buffers ([#176](https://github.com/bngarren/checkmate.nvim/issues/176)) ([fd26dc8](https://github.com/bngarren/checkmate.nvim/commit/fd26dc83c90235b38d71a4d275d6fa50991346b1))
+* improve `create` API and add 'list continuation' feature ([#170](https://github.com/bngarren/checkmate.nvim/issues/170)) ([882b34d](https://github.com/bngarren/checkmate.nvim/commit/882b34d50566911e0655be55f02469dd2968cc19))
+* update `get_todo` API ([#174](https://github.com/bngarren/checkmate.nvim/issues/174)) ([af9fd70](https://github.com/bngarren/checkmate.nvim/commit/af9fd70a6466aafa2866dbfabe231d0dc61ba614))
+
+
+### Bug Fixes
+
+* `remove()` todo bug when metadata with on_remove handler is removed ([#177](https://github.com/bngarren/checkmate.nvim/issues/177)) ([5f41aab](https://github.com/bngarren/checkmate.nvim/commit/5f41aabf0a33185240f9a1b98b7cb43bafce46bc))
+* add 'redraw' before deferred highlighting to keep UI snappy ([#181](https://github.com/bngarren/checkmate.nvim/issues/181)) ([73da29d](https://github.com/bngarren/checkmate.nvim/commit/73da29d2df2c6a7c21a331ab183da55463c6ac90))
+* **api:** bugs with process_buffer triggering, autocmds and debouncing ([d8f4c59](https://github.com/bngarren/checkmate.nvim/commit/d8f4c59f197a75228993f61fa0b3cd92ed23b116))
+* **api:** changes intended behavior of `archive` to include all "completed" state type ([#186](https://github.com/bngarren/checkmate.nvim/issues/186)) ([7760aa0](https://github.com/bngarren/checkmate.nvim/commit/7760aa027813fbd36ab111d22686b2494858cb9e))
+* refactored and fixed archive system ([#187](https://github.com/bngarren/checkmate.nvim/issues/187)) ([ba6132b](https://github.com/bngarren/checkmate.nvim/commit/ba6132b155726d77eb75fada134849d823c3e1fa))
+* various bug fixes, some refactoring ([#184](https://github.com/bngarren/checkmate.nvim/issues/184)) ([d8f4c59](https://github.com/bngarren/checkmate.nvim/commit/d8f4c59f197a75228993f61fa0b3cd92ed23b116))
+
+
+### Performance Improvements
+
+* improve transaction callbacks ([#178](https://github.com/bngarren/checkmate.nvim/issues/178)) ([602ead8](https://github.com/bngarren/checkmate.nvim/commit/602ead81792026704831e99f8fc90c63396007b3))
+* small fixes to debug profiler ([#179](https://github.com/bngarren/checkmate.nvim/issues/179)) ([ba8b813](https://github.com/bngarren/checkmate.nvim/commit/ba8b81367d388f0b94dbdbe5a28f8e022c6dbaed))
+* various fixes/refactors for efficiency ([#180](https://github.com/bngarren/checkmate.nvim/issues/180)) ([23fee44](https://github.com/bngarren/checkmate.nvim/commit/23fee44862a42c5c1c51a0835cc67b42feb754c9))
+
 ## [0.10.1](https://github.com/bngarren/checkmate.nvim/compare/v0.10.0...v0.10.1) (2025-07-28)
 
 

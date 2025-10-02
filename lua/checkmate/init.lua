@@ -41,9 +41,11 @@ M.setup = function(opts)
       M.stop()
     end
 
+    -- if config.setup() returns {}, it already notified the validation error
+    ---@type checkmate.Config
     local cfg = config.setup(opts or {})
-    if vim.tbl_isempty(cfg) then
-      error()
+    if type(cfg) ~= "table" or vim.tbl_isempty(cfg) then
+      return
     end
 
     if #config.get_deprecations(user_opts) > 0 then
@@ -59,6 +61,12 @@ M.setup = function(opts)
       msg = msg .. "\n" .. tostring(err)
     end
     vim.notify(msg, vim.log.levels.ERROR)
+    M.reset()
+    return false
+  end
+
+  -- got here but not initialized, ?config error, do graceful cleanup
+  if not M.is_initialized() then
     M.reset()
     return false
   end

@@ -1,441 +1,665 @@
 local M = {}
 
--- new vim.validate signature in 0.11
-local has_new_validate = vim.fn.has("nvim-0.11") == 1
+local VALID_TODO_STATE_TYPES = { "incomplete", "complete", "inactive" }
+local VALID_PROPAGATION_MODES = { "all_children", "direct_children", "none" }
+local VALID_PICKERS = { "telescope", "snacks", "mini" }
+local VALID_LIST_MARKERS = { "-", "*", "+" }
+local VALID_TODO_COUNT_POSITIONS = { "eol", "inline" }
 
--- compatibility wrapper
--- TODO: this can be removed when we drop support for v0.10
--- e.g. `local validate = vim.validate`
-local validate = has_new_validate and vim.validate
-  or function(name, value, expected, optional_or_msg, msg)
-    local spec = {}
-
-    local optional = false
-    local message = nil
-
-    if type(optional_or_msg) == "boolean" then
-      optional = optional_or_msg
-      message = msg
-    elseif type(optional_or_msg) == "string" then
-      message = optional_or_msg
-    end
-
-    if type(expected) == "string" then
-      spec[name] = { value, expected, optional }
-    elseif type(expected) == "table" then
-      spec[name] = { value, expected, optional }
-    elseif type(expected) == "function" then
-      spec[name] = { value, expected, message or "custom validation failed" }
-    end
-
-    -- pre-0.11-style vim.validate
-    vim.validate(spec)
-  end
-
--- create enum validators
-local function enum(valid_values)
-  return function(value)
-    if vim.tbl_contains(valid_values, value) then
+local validators = {
+  is_boolean = function(v)
+    if type(v) == "boolean" then
       return true
     end
-    return false, "must be one of: " .. table.concat(valid_values, ", ")
-  end
-end
+    return false, "must be boolean"
+  end,
 
--- create custom validators
-local function custom(validator_fn, error_msg)
-  return function(value)
-    local ok = validator_fn(value)
-    return ok, not ok and error_msg or nil
-  end
-end
+  is_string = function(v)
+    if type(v) == "string" then
+      return true
+    end
+    return false, "must be string"
+  end,
 
-local function validate_keymap(mapping, key)
+  is_number = function(v)
+    if type(v) == "number" then
+      return true
+    end
+    return false, "must be number"
+  end,
+
+  is_integer = function(v)
+    if type(v) == "number" and v % 1 == 0 then
+      return true
+    end
+    return false, "must be integer"
+  end,
+
+  is_table = function(v)
+    if type(v) == "table" then
+      return true
+    end
+    return false, "must be table"
+  end,
+
+  is_function = function(v)
+    if type(v) == "function" then
+      return true
+    end
+    return false, "must be function"
+  end,
+
+  enum = function(valid_values)
+    return function(v)
+      if vim.tbl_contains(valid_values, v) then
+        return true
+      end
+      return false, "must be one of: " .. table.concat(valid_values, ", ")
+    end
+  end,
+
+  one_of_types = function(types)
+    return function(v)
+      local vtype = type(v)
+      if vim.tbl_contains(types, vtype) then
+        return true
+      end
+      return false, "must be one of types: " .. table.concat(types, ", ")
+    end
+  end,
+
+  non_empty_string = function(v)
+    if type(v) == "string" and #v > 0 then
+      return true
+    end
+    return false, "must be non-empty string"
+  end,
+
+  range = function(min, max)
+    return function(v)
+      if type(v) == "number" and v >= min and v <= max then
+        return true
+      end
+      return false, string.format("must be number between %d and %d", min, max)
+    end
+  end,
+
+  integer_range = function(min, max)
+    return function(v)
+      if type(v) == "number" and v % 1 == 0 and v >= min and v <= max then
+        return true
+      end
+      return false, string.format("must be integer between %d and %d", min, max)
+    end
+  end,
+}
+
+local function validate_keymap(mapping)
+  local errors = {}
+
   if mapping == false then
-    return true
+    return errors
   end
 
   if type(mapping) ~= "table" then
-    return false, string.format("keys.%s must be false or a table", key)
+    table.insert(errors, "must be false or table")
+    return errors
   end
 
-  -- get rhs from either dict or sequence form
   local rhs = mapping.rhs or mapping[1]
   if not rhs then
-    return false, string.format("keys.%s missing rhs", key)
-  end
-
-  local rhs_type = type(rhs)
-  if rhs_type ~= "string" and rhs_type ~= "function" then
-    return false, string.format("keys.%s.rhs must be string or function", key)
+    table.insert(errors, "missing rhs")
+  elseif type(rhs) ~= "string" and type(rhs) ~= "function" then
+    table.insert(errors, "rhs must be string or function")
   end
 
   local desc = mapping.desc or mapping[2]
   if desc ~= nil and type(desc) ~= "string" then
-    return false, string.format("keys.%s.desc must be string if provided", key)
+    table.insert(errors, "desc must be string if provided")
   end
 
   local modes = mapping.modes or mapping[3]
   if modes ~= nil then
     if type(modes) ~= "table" then
-      return false, string.format("keys.%s.modes must be a table of strings", key)
-    end
-    for i, m in ipairs(modes) do
-      if type(m) ~= "string" then
-        return false, string.format("keys.%s.modes[%d] must be string", key, i)
+      table.insert(errors, "modes must be table of strings")
+    else
+      for i, m in ipairs(modes) do
+        if type(m) ~= "string" then
+          table.insert(errors, string.format("modes[%d] must be string", i))
+        end
       end
     end
   end
 
-  return true
+  return errors
 end
 
 local function validate_todo_states(states)
+  local errors = {}
+
   if not states then
-    return true
+    return errors
+  end
+
+  if type(states) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
   end
 
   local seen_markers = {}
   local seen_markdown = {}
 
   for name, def in pairs(states) do
-    validate(name, def, "table")
-    validate(name .. ".marker", def.marker, "string")
-    validate(name .. ".order", def.order, "number", true)
+    local prefix = name
 
-    -- `marker` validations
-    if #def.marker == 0 then
-      return false, string.format("todo_states.%s.marker cannot be empty", name)
-    end
-
-    -- `markdown` validation
-    local markdown = def.markdown
-    if name == "unchecked" then
-      markdown = markdown or " "
-    elseif name == "checked" then
-      markdown = markdown or { "x", "X" }
-    elseif not markdown then
-      return false, string.format("todo_states.%s.markdown is required for custom states", name)
-    end
-
-    -- normalize markdown to array
-    if markdown then
-      markdown = type(markdown) == "string" and { markdown } or markdown
-      if type(markdown) ~= "table" then
-        return false, string.format("todo_states.%s.markdown must be string or table", name)
-      end
-
-      for i, md in ipairs(markdown) do
-        if type(md) ~= "string" then
-          return false, string.format("todo_states.%s.markdown[%d] must be string", name, i)
+    if type(def) ~= "table" then
+      table.insert(errors, string.format("%s: must be table", prefix))
+    else
+      -- marker validation
+      if type(def.marker) ~= "string" then
+        table.insert(errors, string.format("%s.marker: must be string", prefix))
+      else
+        local trimmed_marker = vim.trim(def.marker)
+        if #trimmed_marker == 0 then
+          table.insert(errors, string.format("%s.marker: cannot be empty", prefix))
+        else
+          if seen_markers[def.marker] then
+            table.insert(
+              errors,
+              string.format("%s and %s have duplicate marker: %s", name, seen_markers[def.marker], def.marker)
+            )
+          else
+            seen_markers[def.marker] = name
+          end
         end
       end
-    end
 
-    -- check duplicates
-    if seen_markers[def.marker] then
-      return false,
-        string.format("todo_states '%s' and '%s' have duplicate marker: %s", name, seen_markers[def.marker], def.marker)
-    end
-    seen_markers[def.marker] = name
+      -- order validation
+      if def.order ~= nil and type(def.order) ~= "number" then
+        table.insert(errors, string.format("%s.order: must be number", prefix))
+      end
 
-    if markdown then
-      for _, md in ipairs(markdown) do
-        if seen_markdown[md] then
-          return false,
-            string.format("todo_states '%s' and '%s' have duplicate markdown: [%s]", name, seen_markdown[md], md)
+      -- type validation
+      if def.type ~= nil and not vim.tbl_contains(VALID_TODO_STATE_TYPES, def.type) then
+        table.insert(
+          errors,
+          string.format("%s.type: must be one of: %s", prefix, table.concat(VALID_TODO_STATE_TYPES, ", "))
+        )
+      end
+
+      -- markdown validation
+      local markdown = def.markdown
+      if not markdown then
+        -- require markdown for custom states (checked/unchecked enforced in config/init.lua)
+        if name ~= "checked" and name ~= "unchecked" then
+          table.insert(errors, string.format("%s.markdown: required for custom states", prefix))
         end
-        seen_markdown[md] = name
+      else
+        local markdown_array = type(markdown) == "string" and { markdown } or markdown
+
+        if type(markdown_array) ~= "table" then
+          table.insert(errors, string.format("%s.markdown: must be string or table", prefix))
+        else
+          for i, md in ipairs(markdown_array) do
+            if type(md) ~= "string" then
+              table.insert(errors, string.format("%s.markdown[%d]: must be string", prefix, i))
+            else
+              if seen_markdown[md] then
+                table.insert(
+                  errors,
+                  string.format("%s and %s have duplicate markdown: [%s]", name, seen_markdown[md], md)
+                )
+              else
+                seen_markdown[md] = name
+              end
+            end
+          end
+        end
       end
     end
   end
 
-  return true
+  return errors
 end
 
 local function validate_metadata(metadata)
+  local errors = {}
+
   if not metadata then
-    return true
+    return errors
+  end
+
+  if type(metadata) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
   end
 
   for name, props in pairs(metadata) do
-    validate("metadata." .. name, props, "table")
+    local prefix = name
 
-    validate(name .. ".get_value", props.get_value, "function", true)
-    validate(name .. ".sort_order", props.sort_order, "number", true)
-    validate(name .. ".on_add", props.on_add, "function", true)
-    validate(name .. ".on_remove", props.on_remove, "function", true)
-    validate(name .. ".on_change", props.on_change, "function", true)
-    validate(name .. ".select_on_insert", props.select_on_insert, "boolean", true)
-
-    -- style (can be table or function)
-    if props.style ~= nil then
-      validate(name .. ".style", props.style, function(v)
-        return type(v) == "table" or type(v) == "function"
-      end, "table or function")
-    end
-
-    if props.jump_to_on_insert ~= nil and props.jump_to_on_insert ~= false then
-      validate(
-        name .. ".jump_to_on_insert",
-        props.jump_to_on_insert,
-        enum({ "tag", "value" }),
-        "'tag', 'value', or false"
-      )
-    end
-
-    if props.choices then
-      validate(name .. ".choices", props.choices, function(v)
-        return type(v) == "table" or type(v) == "function"
-      end, "table or function")
-
-      if type(props.choices) == "table" then
-        for i, choice in ipairs(props.choices) do
-          validate(name .. ".choices[" .. i .. "]", choice, "string")
+    if type(props) ~= "table" then
+      table.insert(errors, string.format("%s: must be table", prefix))
+    else
+      if props.style ~= nil then
+        local style_type = type(props.style)
+        if style_type ~= "table" and style_type ~= "function" then
+          table.insert(errors, string.format("%s.style: must be table or function", prefix))
         end
       end
-    end
 
-    if props.key then
-      local kt = type(props.key)
-      if kt == "string" then
-        -- ok
-      elseif kt == "table" then
-        -- allow string[], or a single tuple { "<key>", "desc" }
-        if #props.key == 2 and type(props.key[1]) == "string" and type(props.key[2]) == "string" then
-          -- tuple form
+      if props.get_value ~= nil and type(props.get_value) ~= "function" then
+        table.insert(errors, string.format("%s.get_value: must be function", prefix))
+      end
+
+      if props.choices ~= nil then
+        local choices_type = type(props.choices)
+        if choices_type == "table" then
+          for i, choice in ipairs(props.choices) do
+            if type(choice) ~= "string" then
+              table.insert(errors, string.format("%s.choices[%d]: must be string", prefix, i))
+            end
+          end
+        elseif choices_type ~= "function" then
+          table.insert(errors, string.format("%s.choices: must be table or function", prefix))
+        end
+      end
+
+      if props.key ~= nil then
+        local key_type = type(props.key)
+        if key_type == "string" then
+          -- valid
+        elseif key_type == "table" then
+          if #props.key == 2 and type(props.key[1]) == "string" and type(props.key[2]) == "string" then
+            -- valid tuple form
+          else
+            for i, k in ipairs(props.key) do
+              if type(k) ~= "string" then
+                table.insert(errors, string.format("%s.key[%d]: must be string", prefix, i))
+              end
+            end
+          end
         else
-          for i, k in ipairs(props.key) do
-            if type(k) ~= "string" then
-              return false, string.format("%s.key[%d] must be string", name, i)
+          table.insert(errors, string.format("%s.key: must be string or table", prefix))
+        end
+      end
+
+      if props.aliases ~= nil then
+        if type(props.aliases) ~= "table" then
+          table.insert(errors, string.format("%s.aliases: must be table", prefix))
+        else
+          for i, alias in ipairs(props.aliases) do
+            if type(alias) ~= "string" then
+              table.insert(errors, string.format("%s.aliases[%d]: must be string", prefix, i))
             end
           end
         end
-      else
-        return false, string.format("%s.key must be string or table", name)
       end
-    end
 
-    if props.aliases then
-      validate(name .. ".aliases", props.aliases, "table")
-      for i, alias in ipairs(props.aliases) do
-        validate(name .. ".aliases[" .. i .. "]", alias, "string")
+      if props.sort_order ~= nil then
+        if type(props.sort_order) ~= "number" or props.sort_order % 1 ~= 0 then
+          table.insert(errors, string.format("%s.sort_order: must be integer", prefix))
+        end
+      end
+
+      if props.jump_to_on_insert ~= nil and props.jump_to_on_insert ~= false then
+        if not vim.tbl_contains({ "tag", "value" }, props.jump_to_on_insert) then
+          table.insert(errors, string.format("%s.jump_to_on_insert: must be 'tag', 'value', or false", prefix))
+        end
+      end
+
+      if props.select_on_insert ~= nil and type(props.select_on_insert) ~= "boolean" then
+        table.insert(errors, string.format("%s.select_on_insert: must be boolean", prefix))
+      end
+
+      if props.on_add ~= nil and type(props.on_add) ~= "function" then
+        table.insert(errors, string.format("%s.on_add: must be function", prefix))
+      end
+
+      if props.on_remove ~= nil and type(props.on_remove) ~= "function" then
+        table.insert(errors, string.format("%s.on_remove: must be function", prefix))
+      end
+
+      if props.on_change ~= nil and type(props.on_change) ~= "function" then
+        table.insert(errors, string.format("%s.on_change: must be function", prefix))
       end
     end
   end
 
-  return true
+  return errors
 end
 
----@param opts checkmate.Config
----@return boolean
----@return string?
-function M.validate_options(opts)
-  if not opts then
-    return true
+local function validate_list_continuation(list_cont)
+  local errors = {}
+
+  if not list_cont then
+    return errors
   end
 
-  if type(opts) ~= "table" then
-    return false, "Options must be a table"
+  if type(list_cont) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
   end
 
-  local ok, err = pcall(function()
-    validate("enabled", opts.enabled, "boolean", true)
-    validate("notify", opts.notify, "boolean", true)
-    validate("enter_insert_after_new", opts.enter_insert_after_new, "boolean", true)
-    validate("files", opts.files, "table", true)
-    validate("show_todo_count", opts.show_todo_count, "boolean", true)
-    validate("todo_count_recursive", opts.todo_count_recursive, "boolean", true)
-    validate("use_metadata_keymaps", opts.use_metadata_keymaps, "boolean", true)
-    validate("disable_ts_highlights", opts.disable_ts_highlights, "boolean", true)
-    validate("log", opts.log, "table", true)
-    validate("ui", opts.ui, "table", true)
-    validate("list_continuation", opts.list_continuation, "table", true)
-    validate("style", opts.style, "table", true)
-    validate("smart_toggle", opts.smart_toggle, "table", true)
-    validate("archive", opts.archive, "table", true)
-    validate("linter", opts.linter, "table", true)
+  if list_cont.enabled ~= nil and type(list_cont.enabled) ~= "boolean" then
+    table.insert(errors, "enabled: must be boolean")
+  end
 
-    if opts.todo_count_position ~= nil then
-      validate("todo_count_position", opts.todo_count_position, enum({ "eol", "inline" }))
-    end
+  if list_cont.split_line ~= nil and type(list_cont.split_line) ~= "boolean" then
+    table.insert(errors, "split_line: must be boolean")
+  end
 
-    if opts.default_list_marker ~= nil then
-      validate("default_list_marker", opts.default_list_marker, enum({ "-", "*", "+" }))
-    end
-
-    if opts.todo_count_formatter ~= nil then
-      validate("todo_count_formatter", opts.todo_count_formatter, "function")
-    end
-
-    if opts.files then
-      validate("files", opts.files, "table")
-      for i, pattern in ipairs(opts.files) do
-        validate("files[" .. i .. "]", pattern, "string")
-        if pattern:match("^%s*$") then
-          error("files[" .. i .. "] cannot be empty")
-        end
-      end
-    end
-
-    if opts.log then
-      validate("log.use_file", opts.log.use_file, "boolean", true)
-      validate("log.file_path", opts.log.file_path, "string", true)
-
-      if opts.log.level ~= nil then
-        validate("log.level", opts.log.level, function(v)
-          return type(v) == "string" or type(v) == "number"
-        end, "string or number")
-      end
-    end
-
-    if opts.keys and opts.keys ~= false then
-      validate("keys", opts.keys, "table")
-      for lhs, mapping in pairs(opts.keys) do
-        if type(lhs) ~= "string" then
-          error("keys.* lhs must be a string (got " .. type(lhs) .. ")")
-        end
-        local keymap_ok, keymap_err = validate_keymap(mapping, lhs)
-        if not keymap_ok then
-          error(keymap_err)
-        end
-      end
-    end
-
-    --- TODO: remove
-    ---@deprecated todo_markers
-    if opts.todo_markers then
-      validate("todo_markers", opts.todo_markers, "table")
-
-      if opts.todo_markers.checked then
-        validate("todo_markers.checked", opts.todo_markers.checked, "string")
-        validate(
-          "todo_markers.checked",
-          opts.todo_markers.checked,
-          custom(function(v)
-            return #v > 0
-          end, "non-empty string")
-        )
-      end
-
-      if opts.todo_markers.unchecked then
-        validate("todo_markers.unchecked", opts.todo_markers.unchecked, "string")
-        validate(
-          "todo_markers.unchecked",
-          opts.todo_markers.unchecked,
-          custom(function(v)
-            return #v > 0
-          end, "non-empty string")
-        )
-      end
-    end
-
-    -- todo_states
-    local states_ok, states_err = validate_todo_states(opts.todo_states)
-    if not states_ok then
-      error(states_err)
-    end
-
-    if opts.ui and opts.ui.picker then
-      local picker = opts.ui.picker
-      if type(picker) == "string" then
-        validate("ui.picker", picker, enum({ "telescope", "snacks", "mini" }), "one of: telescope, snacks, mini")
-      else
-        validate("ui.picker", picker, function(v)
-          return type(v) == "function" or v == false
-        end, "string, function, or false")
-      end
-    end
-
-    -- list_continuation
-    if opts.list_continuation then
-      validate("list_continuation.enabled", opts.list_continuation.enabled, "boolean", true)
-      validate("list_continuation.split_line", opts.list_continuation.split_line, "boolean", true)
-      validate("list_continuation.keys", opts.list_continuation.keys, "table", true)
-      if opts.list_continuation and opts.list_continuation.keys then
-        validate("list_continuation.keys", opts.list_continuation.keys, "table", true)
-
-        for key, mapping in pairs(opts.list_continuation.keys) do
-          if type(key) ~= "string" then
-            error("list_continuation.keys: key must be a string (got " .. type(key) .. ")")
-          end
-
-          local t = type(mapping)
-          if t == "function" then
-            -- ok
-          elseif t == "table" then
+  if list_cont.keys ~= nil then
+    if type(list_cont.keys) ~= "table" then
+      table.insert(errors, "keys: must be table")
+    else
+      for key, mapping in pairs(list_cont.keys) do
+        if type(key) ~= "string" then
+          table.insert(errors, string.format("keys: key must be string (got %s)", type(key)))
+        else
+          local mapping_type = type(mapping)
+          if mapping_type == "function" then
+            -- valid
+          elseif mapping_type == "table" then
             local rhs = mapping.rhs or mapping[1]
             if type(rhs) ~= "function" then
-              error("list_continuation.keys[" .. key .. "]: rhs must be a function")
+              table.insert(errors, string.format("keys.%s: rhs must be function", key))
             end
             local desc = mapping.desc or mapping[2]
             if desc ~= nil and type(desc) ~= "string" then
-              error("list_continuation.keys[" .. key .. "]: desc must be string if provided")
+              table.insert(errors, string.format("keys.%s: desc must be string if provided", key))
             end
           else
-            error("list_continuation.keys[" .. key .. "]: must be function or {rhs=function, desc?=string}")
+            table.insert(errors, string.format("keys.%s: must be function or {rhs=function, desc?=string}", key))
           end
         end
       end
     end
-
-    if opts.style then
-      for group, hl in pairs(opts.style) do
-        validate("style." .. group, hl, "table", "highlight definition table")
-      end
-    end
-
-    if opts.smart_toggle then
-      validate("smart_toggle.enabled", opts.smart_toggle.enabled, "boolean", true)
-      validate("smart_toggle.include_cycle", opts.smart_toggle.include_cycle, "boolean", true)
-
-      local toggle_validator = enum({ "all_children", "direct_children", "none" })
-      for _, field in ipairs({ "check_down", "uncheck_down", "check_up", "uncheck_up" }) do
-        if opts.smart_toggle[field] ~= nil then
-          validate("smart_toggle." .. field, opts.smart_toggle[field], toggle_validator)
-        end
-      end
-    end
-
-    if opts.archive then
-      validate("archive.parent_spacing", opts.archive.parent_spacing, "number", true)
-      validate("archive.newest_first", opts.archive.newest_first, "boolean", true)
-      validate("archive.heading", opts.archive.heading, "table", true)
-
-      if opts.archive.heading then
-        validate("archive.heading.title", opts.archive.heading.title, "string", true)
-
-        if opts.archive.heading.level ~= nil then
-          validate(
-            "archive.heading.level",
-            opts.archive.heading.level,
-            custom(function(v)
-              return type(v) == "number" and v >= 1 and v <= 6
-            end, "number between 1-6")
-          )
-        end
-      end
-    end
-
-    if opts.linter then
-      validate("linter.enabled", opts.linter.enabled, "boolean", true)
-      validate("linter.severity", opts.linter.severity, "table", true)
-      validate("linter.verbose", opts.linter.verbose, "boolean", true)
-    end
-
-    local meta_ok, meta_err = validate_metadata(opts.metadata)
-    if not meta_ok then
-      error(meta_err)
-    end
-  end)
-
-  if not ok then
-    -- get the actual error message from vim.validate
-    local error_msg = tostring(err):match("^[^:]+:%d+:%s*(.+)$") or tostring(err)
-    return false, error_msg
   end
 
-  return true
+  return errors
+end
+
+local function validate_smart_toggle(smart_toggle)
+  local errors = {}
+
+  if not smart_toggle then
+    return errors
+  end
+
+  if type(smart_toggle) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
+  end
+
+  if smart_toggle.enabled ~= nil and type(smart_toggle.enabled) ~= "boolean" then
+    table.insert(errors, "enabled: must be boolean")
+  end
+
+  if smart_toggle.include_cycle ~= nil and type(smart_toggle.include_cycle) ~= "boolean" then
+    table.insert(errors, "include_cycle: must be boolean")
+  end
+
+  local propagation_fields = { "check_down", "uncheck_down", "check_up", "uncheck_up" }
+  for _, field in ipairs(propagation_fields) do
+    if smart_toggle[field] ~= nil and not vim.tbl_contains(VALID_PROPAGATION_MODES, smart_toggle[field]) then
+      table.insert(errors, string.format("%s: must be one of: %s", field, table.concat(VALID_PROPAGATION_MODES, ", ")))
+    end
+  end
+
+  return errors
+end
+
+local function validate_archive(archive)
+  local errors = {}
+
+  if not archive then
+    return errors
+  end
+
+  if type(archive) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
+  end
+
+  if archive.parent_spacing ~= nil then
+    if type(archive.parent_spacing) ~= "number" or archive.parent_spacing % 1 ~= 0 then
+      table.insert(errors, "parent_spacing: must be integer")
+    end
+  end
+
+  if archive.newest_first ~= nil and type(archive.newest_first) ~= "boolean" then
+    table.insert(errors, "newest_first: must be boolean")
+  end
+
+  if archive.heading ~= nil then
+    if type(archive.heading) ~= "table" then
+      table.insert(errors, "heading: must be table")
+    else
+      if archive.heading.title ~= nil and type(archive.heading.title) ~= "string" then
+        table.insert(errors, "heading.title: must be string")
+      end
+
+      if archive.heading.level ~= nil then
+        if type(archive.heading.level) ~= "number" then
+          table.insert(errors, "heading.level: must be number")
+        elseif archive.heading.level % 1 ~= 0 then
+          table.insert(errors, "heading.level: must be integer")
+        elseif archive.heading.level < 1 or archive.heading.level > 6 then
+          table.insert(errors, "heading.level: must be between 1 and 6")
+        end
+      end
+    end
+  end
+
+  return errors
+end
+
+local function validate_linter(linter)
+  local errors = {}
+
+  if not linter then
+    return errors
+  end
+
+  if type(linter) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
+  end
+
+  if linter.enabled ~= nil and type(linter.enabled) ~= "boolean" then
+    table.insert(errors, "enabled: must be boolean")
+  end
+
+  if linter.verbose ~= nil and type(linter.verbose) ~= "boolean" then
+    table.insert(errors, "verbose: must be boolean")
+  end
+
+  if linter.severity ~= nil and type(linter.severity) ~= "table" then
+    table.insert(errors, "severity: must be table")
+  end
+
+  return errors
+end
+
+local function validate_ui(ui)
+  local errors = {}
+
+  if not ui then
+    return errors
+  end
+
+  if type(ui) ~= "table" then
+    table.insert(errors, "must be table")
+    return errors
+  end
+
+  if ui.picker ~= nil then
+    local picker_type = type(ui.picker)
+    if picker_type == "string" then
+      if not vim.tbl_contains(VALID_PICKERS, ui.picker) then
+        table.insert(errors, string.format("picker: must be one of: %s", table.concat(VALID_PICKERS, ", ")))
+      end
+    elseif picker_type ~= "function" and ui.picker ~= false then
+      table.insert(errors, "picker: must be string, function, or false")
+    end
+  end
+
+  return errors
+end
+
+---@param opts checkmate.Config
+---@return boolean success
+---@return string[]? errors
+function M.validate_options(opts)
+  if not opts then
+    return true, nil
+  end
+
+  if type(opts) ~= "table" then
+    return false, { "options must be a table" }
+  end
+
+  local errors = {}
+
+  local function add_error(path, message)
+    table.insert(errors, string.format("%s: %s", path, message))
+  end
+
+  local function check(path, value, validator_fn, optional)
+    if value == nil then
+      if not optional then
+        add_error(path, "required field is missing")
+      end
+      return
+    end
+
+    local ok, err = validator_fn(value)
+    if not ok then
+      add_error(path, err or "validation failed")
+    end
+  end
+
+  -- validation checks --
+  -- try to keep ordered with config
+
+  check("enabled", opts.enabled, validators.is_boolean, true)
+  check("notify", opts.notify, validators.is_boolean, true)
+  check("enter_insert_after_new", opts.enter_insert_after_new, validators.is_boolean, true)
+  check("show_todo_count", opts.show_todo_count, validators.is_boolean, true)
+  check("todo_count_recursive", opts.todo_count_recursive, validators.is_boolean, true)
+  check("use_metadata_keymaps", opts.use_metadata_keymaps, validators.is_boolean, true)
+  check("disable_ts_highlights", opts.disable_ts_highlights, validators.is_boolean, true)
+
+  check("todo_count_position", opts.todo_count_position, validators.enum(VALID_TODO_COUNT_POSITIONS), true)
+  check("default_list_marker", opts.default_list_marker, validators.enum(VALID_LIST_MARKERS), true)
+
+  check("todo_count_formatter", opts.todo_count_formatter, validators.is_function, true)
+
+  check("log", opts.log, validators.is_table, true)
+  check("style", opts.style, validators.is_table, true)
+
+  if opts.files ~= nil then
+    check("files", opts.files, validators.is_table)
+    if type(opts.files) == "table" then
+      for i, pattern in ipairs(opts.files) do
+        check(string.format("files[%d]", i), pattern, validators.non_empty_string)
+      end
+    end
+  end
+
+  if opts.log then
+    check("log.use_file", opts.log.use_file, validators.is_boolean, true)
+    check("log.file_path", opts.log.file_path, validators.is_string, true)
+    check("log.max_file_size", opts.log.max_file_size, validators.is_number, true)
+    check("log.level", opts.log.level, validators.one_of_types({ "string", "number" }), true)
+  end
+
+  if opts.keys and opts.keys ~= false then
+    check("keys", opts.keys, validators.is_table)
+    if type(opts.keys) == "table" then
+      for lhs, mapping in pairs(opts.keys) do
+        if type(lhs) ~= "string" then
+          add_error("keys", string.format("key '%s' must be string", tostring(lhs)))
+        else
+          local keymap_errors = validate_keymap(mapping)
+          for _, err in ipairs(keymap_errors) do
+            add_error("keys." .. lhs, err)
+          end
+        end
+      end
+    end
+  end
+
+  if opts.todo_markers then
+    if type(opts.todo_markers) == "table" then
+      check("todo_markers.checked", opts.todo_markers.checked, validators.non_empty_string, true)
+      check("todo_markers.unchecked", opts.todo_markers.unchecked, validators.non_empty_string, true)
+    else
+      add_error("todo_markers", "must be table")
+    end
+  end
+
+  if opts.style and type(opts.style) == "table" then
+    for group, hl in pairs(opts.style) do
+      if type(hl) ~= "table" then
+        add_error("style." .. tostring(group), "must be table (highlight definition)")
+      end
+    end
+  end
+
+  if opts.todo_states then
+    local state_errors = validate_todo_states(opts.todo_states)
+    for _, err in ipairs(state_errors) do
+      add_error("todo_states", err)
+    end
+  end
+
+  if opts.metadata then
+    local meta_errors = validate_metadata(opts.metadata)
+    for _, err in ipairs(meta_errors) do
+      add_error("metadata", err)
+    end
+  end
+
+  if opts.list_continuation then
+    local lc_errors = validate_list_continuation(opts.list_continuation)
+    for _, err in ipairs(lc_errors) do
+      add_error("list_continuation", err)
+    end
+  end
+
+  if opts.smart_toggle then
+    local st_errors = validate_smart_toggle(opts.smart_toggle)
+    for _, err in ipairs(st_errors) do
+      add_error("smart_toggle", err)
+    end
+  end
+
+  if opts.archive then
+    local archive_errors = validate_archive(opts.archive)
+    for _, err in ipairs(archive_errors) do
+      add_error("archive", err)
+    end
+  end
+
+  if opts.linter then
+    local linter_errors = validate_linter(opts.linter)
+    for _, err in ipairs(linter_errors) do
+      add_error("linter", err)
+    end
+  end
+
+  if opts.ui then
+    local ui_errors = validate_ui(opts.ui)
+    for _, err in ipairs(ui_errors) do
+      add_error("ui", err)
+    end
+  end
+
+  if #errors > 0 then
+    return false, errors
+  end
+  return true, nil
 end
 
 return M

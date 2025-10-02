@@ -1,41 +1,10 @@
 local M = {}
 
-local function Validator()
-  local errors = {}
-
-  local function add_error(path, message)
-    table.insert(errors, string.format("%s: %s", path, message))
-  end
-
-  local function check(path, value, validator_fn, optional)
-    if value == nil then
-      if not optional then
-        add_error(path, "required field is missing")
-      end
-      return
-    end
-
-    local ok, err = validator_fn(value)
-    if not ok then
-      add_error(path, err or "validation failed")
-    end
-  end
-
-  local function get_errors()
-    return errors
-  end
-
-  local function has_errors()
-    return #errors > 0
-  end
-
-  return {
-    check = check,
-    add_error = add_error,
-    get_errors = get_errors,
-    has_errors = has_errors,
-  }
-end
+local VALID_TODO_STATE_TYPES = { "incomplete", "complete", "inactive" }
+local VALID_PROPAGATION_MODES = { "all_children", "direct_children", "none" }
+local VALID_PICKERS = { "telescope", "snacks", "mini" }
+local VALID_LIST_MARKERS = { "-", "*", "+" }
+local VALID_TODO_COUNT_POSITIONS = { "eol", "inline" }
 
 local validators = {
   is_boolean = function(v)
@@ -57,6 +26,13 @@ local validators = {
       return true
     end
     return false, "must be number"
+  end,
+
+  is_integer = function(v)
+    if type(v) == "number" and v % 1 == 0 then
+      return true
+    end
+    return false, "must be integer"
   end,
 
   is_table = function(v)
@@ -105,6 +81,15 @@ local validators = {
         return true
       end
       return false, string.format("must be number between %d and %d", min, max)
+    end
+  end,
+
+  integer_range = function(min, max)
+    return function(v)
+      if type(v) == "number" and v % 1 == 0 and v >= min and v <= max then
+        return true
+      end
+      return false, string.format("must be integer between %d and %d", min, max)
     end
   end,
 }
@@ -170,6 +155,7 @@ local function validate_todo_states(states)
     if type(def) ~= "table" then
       table.insert(errors, string.format("%s: must be table", prefix))
     else
+      -- marker validation
       if type(def.marker) ~= "string" then
         table.insert(errors, string.format("%s.marker: must be string", prefix))
       else
@@ -188,29 +174,27 @@ local function validate_todo_states(states)
         end
       end
 
+      -- order validation
       if def.order ~= nil and type(def.order) ~= "number" then
         table.insert(errors, string.format("%s.order: must be number", prefix))
       end
 
-      if def.type ~= nil then
-        local valid_types = { "incomplete", "complete", "inactive" }
-        if not vim.tbl_contains(valid_types, def.type) then
-          table.insert(errors, string.format("%s.type: must be one of: %s", prefix, table.concat(valid_types, ", ")))
-        end
+      -- type validation
+      if def.type ~= nil and not vim.tbl_contains(VALID_TODO_STATE_TYPES, def.type) then
+        table.insert(
+          errors,
+          string.format("%s.type: must be one of: %s", prefix, table.concat(VALID_TODO_STATE_TYPES, ", "))
+        )
       end
 
+      -- markdown validation
       local markdown = def.markdown
-
-      if name == "unchecked" then
-        markdown = markdown or " "
-      elseif name == "checked" then
-        markdown = markdown or { "x", "X" }
-      elseif not markdown then
-        table.insert(errors, string.format("%s.markdown: required for custom states", prefix))
-        markdown = nil
-      end
-
-      if markdown then
+      if not markdown then
+        -- require markdown for custom states (checked/unchecked enforced in config/init.lua)
+        if name ~= "checked" and name ~= "unchecked" then
+          table.insert(errors, string.format("%s.markdown: required for custom states", prefix))
+        end
+      else
         local markdown_array = type(markdown) == "string" and { markdown } or markdown
 
         if type(markdown_array) ~= "table" then
@@ -311,8 +295,10 @@ local function validate_metadata(metadata)
         end
       end
 
-      if props.sort_order ~= nil and type(props.sort_order) ~= "number" then
-        table.insert(errors, string.format("%s.sort_order: must be number", prefix))
+      if props.sort_order ~= nil then
+        if type(props.sort_order) ~= "number" or props.sort_order % 1 ~= 0 then
+          table.insert(errors, string.format("%s.sort_order: must be integer", prefix))
+        end
       end
 
       if props.jump_to_on_insert ~= nil and props.jump_to_on_insert ~= false then
@@ -413,14 +399,10 @@ local function validate_smart_toggle(smart_toggle)
     table.insert(errors, "include_cycle: must be boolean")
   end
 
-  local valid_propagation = { "all_children", "direct_children", "none" }
   local propagation_fields = { "check_down", "uncheck_down", "check_up", "uncheck_up" }
-
   for _, field in ipairs(propagation_fields) do
-    if smart_toggle[field] ~= nil then
-      if not vim.tbl_contains(valid_propagation, smart_toggle[field]) then
-        table.insert(errors, string.format("%s: must be one of: %s", field, table.concat(valid_propagation, ", ")))
-      end
+    if smart_toggle[field] ~= nil and not vim.tbl_contains(VALID_PROPAGATION_MODES, smart_toggle[field]) then
+      table.insert(errors, string.format("%s: must be one of: %s", field, table.concat(VALID_PROPAGATION_MODES, ", ")))
     end
   end
 
@@ -439,8 +421,10 @@ local function validate_archive(archive)
     return errors
   end
 
-  if archive.parent_spacing ~= nil and type(archive.parent_spacing) ~= "number" then
-    table.insert(errors, "parent_spacing: must be number")
+  if archive.parent_spacing ~= nil then
+    if type(archive.parent_spacing) ~= "number" or archive.parent_spacing % 1 ~= 0 then
+      table.insert(errors, "parent_spacing: must be integer")
+    end
   end
 
   if archive.newest_first ~= nil and type(archive.newest_first) ~= "boolean" then
@@ -458,6 +442,8 @@ local function validate_archive(archive)
       if archive.heading.level ~= nil then
         if type(archive.heading.level) ~= "number" then
           table.insert(errors, "heading.level: must be number")
+        elseif archive.heading.level % 1 ~= 0 then
+          table.insert(errors, "heading.level: must be integer")
         elseif archive.heading.level < 1 or archive.heading.level > 6 then
           table.insert(errors, "heading.level: must be between 1 and 6")
         end
@@ -488,10 +474,8 @@ local function validate_linter(linter)
     table.insert(errors, "verbose: must be boolean")
   end
 
-  if linter.severity ~= nil then
-    if type(linter.severity) ~= "table" then
-      table.insert(errors, "severity: must be table")
-    end
+  if linter.severity ~= nil and type(linter.severity) ~= "table" then
+    table.insert(errors, "severity: must be table")
   end
 
   return errors
@@ -512,8 +496,8 @@ local function validate_ui(ui)
   if ui.picker ~= nil then
     local picker_type = type(ui.picker)
     if picker_type == "string" then
-      if not vim.tbl_contains({ "telescope", "snacks", "mini" }, ui.picker) then
-        table.insert(errors, "picker: must be one of: telescope, snacks, mini")
+      if not vim.tbl_contains(VALID_PICKERS, ui.picker) then
+        table.insert(errors, string.format("picker: must be one of: %s", table.concat(VALID_PICKERS, ", ")))
       end
     elseif picker_type ~= "function" and ui.picker ~= false then
       table.insert(errors, "picker: must be string, function, or false")
@@ -535,70 +519,90 @@ function M.validate_options(opts)
     return false, { "options must be a table" }
   end
 
-  local v = Validator()
+  local errors = {}
 
-  v.check("enabled", opts.enabled, validators.is_boolean, true)
-  v.check("notify", opts.notify, validators.is_boolean, true)
-  v.check("enter_insert_after_new", opts.enter_insert_after_new, validators.is_boolean, true)
-  v.check("show_todo_count", opts.show_todo_count, validators.is_boolean, true)
-  v.check("todo_count_recursive", opts.todo_count_recursive, validators.is_boolean, true)
-  v.check("use_metadata_keymaps", opts.use_metadata_keymaps, validators.is_boolean, true)
-  v.check("disable_ts_highlights", opts.disable_ts_highlights, validators.is_boolean, true)
+  local function add_error(path, message)
+    table.insert(errors, string.format("%s: %s", path, message))
+  end
 
-  v.check("todo_count_position", opts.todo_count_position, validators.enum({ "eol", "inline" }), true)
-  v.check("default_list_marker", opts.default_list_marker, validators.enum({ "-", "*", "+" }), true)
+  local function check(path, value, validator_fn, optional)
+    if value == nil then
+      if not optional then
+        add_error(path, "required field is missing")
+      end
+      return
+    end
 
-  v.check("todo_count_formatter", opts.todo_count_formatter, validators.is_function, true)
+    local ok, err = validator_fn(value)
+    if not ok then
+      add_error(path, err or "validation failed")
+    end
+  end
 
-  v.check("log", opts.log, validators.is_table, true)
-  v.check("style", opts.style, validators.is_table, true)
+  -- validation checks --
+  -- try to keep ordered with config
+
+  check("enabled", opts.enabled, validators.is_boolean, true)
+  check("notify", opts.notify, validators.is_boolean, true)
+  check("enter_insert_after_new", opts.enter_insert_after_new, validators.is_boolean, true)
+  check("show_todo_count", opts.show_todo_count, validators.is_boolean, true)
+  check("todo_count_recursive", opts.todo_count_recursive, validators.is_boolean, true)
+  check("use_metadata_keymaps", opts.use_metadata_keymaps, validators.is_boolean, true)
+  check("disable_ts_highlights", opts.disable_ts_highlights, validators.is_boolean, true)
+
+  check("todo_count_position", opts.todo_count_position, validators.enum(VALID_TODO_COUNT_POSITIONS), true)
+  check("default_list_marker", opts.default_list_marker, validators.enum(VALID_LIST_MARKERS), true)
+
+  check("todo_count_formatter", opts.todo_count_formatter, validators.is_function, true)
+
+  check("log", opts.log, validators.is_table, true)
+  check("style", opts.style, validators.is_table, true)
 
   if opts.files ~= nil then
-    v.check("files", opts.files, validators.is_table)
+    check("files", opts.files, validators.is_table)
     if type(opts.files) == "table" then
       for i, pattern in ipairs(opts.files) do
-        v.check(string.format("files[%d]", i), pattern, validators.non_empty_string)
+        check(string.format("files[%d]", i), pattern, validators.non_empty_string)
       end
     end
   end
 
   if opts.log then
-    v.check("log.use_file", opts.log.use_file, validators.is_boolean, true)
-    v.check("log.file_path", opts.log.file_path, validators.is_string, true)
-    v.check("log.max_file_size", opts.log.max_file_size, validators.is_number, true)
-    v.check("log.level", opts.log.level, validators.one_of_types({ "string", "number" }), true)
+    check("log.use_file", opts.log.use_file, validators.is_boolean, true)
+    check("log.file_path", opts.log.file_path, validators.is_string, true)
+    check("log.max_file_size", opts.log.max_file_size, validators.is_number, true)
+    check("log.level", opts.log.level, validators.one_of_types({ "string", "number" }), true)
   end
 
   if opts.keys and opts.keys ~= false then
-    v.check("keys", opts.keys, validators.is_table)
+    check("keys", opts.keys, validators.is_table)
     if type(opts.keys) == "table" then
       for lhs, mapping in pairs(opts.keys) do
         if type(lhs) ~= "string" then
-          v.add_error("keys", string.format("key '%s' must be string", tostring(lhs)))
+          add_error("keys", string.format("key '%s' must be string", tostring(lhs)))
         else
           local keymap_errors = validate_keymap(mapping)
           for _, err in ipairs(keymap_errors) do
-            v.add_error("keys." .. lhs, err)
+            add_error("keys." .. lhs, err)
           end
         end
       end
     end
   end
 
-  ---@deprecated Remove next version
   if opts.todo_markers then
     if type(opts.todo_markers) == "table" then
-      v.check("todo_markers.checked", opts.todo_markers.checked, validators.non_empty_string, true)
-      v.check("todo_markers.unchecked", opts.todo_markers.unchecked, validators.non_empty_string, true)
+      check("todo_markers.checked", opts.todo_markers.checked, validators.non_empty_string, true)
+      check("todo_markers.unchecked", opts.todo_markers.unchecked, validators.non_empty_string, true)
     else
-      v.add_error("todo_markers", "must be table")
+      add_error("todo_markers", "must be table")
     end
   end
 
   if opts.style and type(opts.style) == "table" then
     for group, hl in pairs(opts.style) do
       if type(hl) ~= "table" then
-        v.add_error("style." .. tostring(group), "must be table (highlight definition)")
+        add_error("style." .. tostring(group), "must be table (highlight definition)")
       end
     end
   end
@@ -606,56 +610,55 @@ function M.validate_options(opts)
   if opts.todo_states then
     local state_errors = validate_todo_states(opts.todo_states)
     for _, err in ipairs(state_errors) do
-      v.add_error("todo_states", err)
+      add_error("todo_states", err)
     end
   end
 
   if opts.metadata then
     local meta_errors = validate_metadata(opts.metadata)
     for _, err in ipairs(meta_errors) do
-      v.add_error("metadata", err)
+      add_error("metadata", err)
     end
   end
 
   if opts.list_continuation then
     local lc_errors = validate_list_continuation(opts.list_continuation)
     for _, err in ipairs(lc_errors) do
-      v.add_error("list_continuation", err)
+      add_error("list_continuation", err)
     end
   end
 
   if opts.smart_toggle then
     local st_errors = validate_smart_toggle(opts.smart_toggle)
     for _, err in ipairs(st_errors) do
-      v.add_error("smart_toggle", err)
+      add_error("smart_toggle", err)
     end
   end
 
   if opts.archive then
     local archive_errors = validate_archive(opts.archive)
     for _, err in ipairs(archive_errors) do
-      v.add_error("archive", err)
+      add_error("archive", err)
     end
   end
 
   if opts.linter then
     local linter_errors = validate_linter(opts.linter)
     for _, err in ipairs(linter_errors) do
-      v.add_error("linter", err)
+      add_error("linter", err)
     end
   end
 
   if opts.ui then
     local ui_errors = validate_ui(opts.ui)
     for _, err in ipairs(ui_errors) do
-      v.add_error("ui", err)
+      add_error("ui", err)
     end
   end
 
-  if v.has_errors() then
-    return false, v.get_errors()
+  if #errors > 0 then
+    return false, errors
   end
-
   return true, nil
 end
 

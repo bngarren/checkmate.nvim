@@ -83,10 +83,12 @@ if env.config and type(env.config) == "function" then
   end)
 end
 
-if env_name == "demo" then
+if vim.env.FILE then
+  vim.cmd("edit " .. vim.env.FILE)
+elseif env_name == "demo" then
   vim.cmd("edit tests/fixtures/demo.todo.md")
 else
   vim.cmd("edit tests/fixtures/test.todo.md")
 end
-vim.notify("Loaded environment: " .. env_name, vim.log.levels.INFO)
+-- vim.notify("Loaded environment: " .. env_name, vim.log.levels.INFO)
 -- vim.notify("data: " .. vim.fn.stdpath("data"))

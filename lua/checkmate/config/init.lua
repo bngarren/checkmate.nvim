@@ -536,9 +536,13 @@ function M.setup(opts)
 
     -- then merge user options after validating
     if type(opts) == "table" then
-      local ok, err = validate.validate_options(opts)
+      local ok, errors = validate.validate_options(opts)
       if not ok then
-        error(err)
+        local msg = ("Checkmate: config validation failed:\n  %s"):format(
+          table.concat(errors or { "unknown error" }, "\n  ")
+        )
+        vim.notify(msg, vim.log.levels.WARN)
+        return {}
       end
 
       config = vim.tbl_deep_extend("force", config, opts)

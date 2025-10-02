@@ -186,10 +186,6 @@ function M._compatibility_check()
       end
     end
   end
-
-  if not any then
-    ok("No potential compatibility issues detected")
-  end
 end
 
 return M

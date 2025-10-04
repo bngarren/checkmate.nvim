@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/bngarren/checkmate.nvim/compare/v0.11.0...v0.11.1) (2025-10-04)
+
+
+### Bug Fixes
+
+* **config:** improve config validation and checkhealth ([#191](https://github.com/bngarren/checkmate.nvim/issues/191)) ([cd9948f](https://github.com/bngarren/checkmate.nvim/commit/cd9948fdb7c62b64e66696b95b6e8fef37da983f))
+
 ## [0.11.0](https://github.com/bngarren/checkmate.nvim/compare/v0.10.1...v0.11.0) (2025-10-01)
 
 

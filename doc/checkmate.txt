@@ -1,4 +1,4 @@
-*checkmate.txt*        For Neovim >= 0.10.0       Last change: 2025 October 01
+*checkmate.txt*        For Neovim >= 0.10.0       Last change: 2025 October 04
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -76,13 +76,11 @@ USING LAZY.NVIM ~
 
 >lua
     {
-        "bngarren/checkmate.nvim",
-        ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
-        opts = {
-            -- your configuration here
-            -- or leave empty to use defaults
-        },
-    
+      "bngarren/checkmate.nvim",
+      ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
+      opts = {
+        -- files = { "*.md" }, -- any .md file (instead of defaults)
+      },
     }
 <
 
@@ -122,10 +120,15 @@ You can customize **which files activate Checkmate** using the `files`
 configuration option:
 
 >lua
-    files = { "tasks", "*.plan", "project/**/todo.md" }
+    files = {
+      "*.md",              -- Any markdown file (basename matching)
+      "**/todo.md",        -- 'todo.md' anywhere in directory tree
+      "project/todo.md",   -- Any path ending with 'project/todo.md'
+      "/absolute/path.md", -- Exact absolute path match
+    }
 <
 
-Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and
+Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and
 `{foo,bar}`
 
 

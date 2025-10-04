@@ -1,6 +1,13 @@
 -- File pattern matching module
 -- Handles glob pattern matching for buffer activation
 
+-- Currently the file_matcher (checkmate v0.11) handles 3 types of patterns:
+--  - basename-only patterns, e.g. `*.md`, `todo`, `*.todo`, which match against the filename only, regardless of path
+--  - absolute patterns (starts with /), e.g. `/home/user/todo.md`
+--  - suffix matching, e.g. `project/todo.md` matches /any/base/project/todo.md
+--    - this includes recursive `**/` style glob
+-- NOTE: suffix matching is not relative to cwd. This could be confusing to users
+
 local log = require("checkmate.log")
 
 local M = {}

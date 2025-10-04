@@ -79,13 +79,11 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 ```lua
 {
-    "bngarren/checkmate.nvim",
-    ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
-    opts = {
-        -- your configuration here
-        -- or leave empty to use defaults
-    },
-
+  "bngarren/checkmate.nvim",
+  ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
+  opts = {
+    -- files = {"*.md"} -- use any .md file (instead of defaults)
+  }
 }
 ```
 
@@ -117,9 +115,14 @@ Checkmate automatically activates when you open a Markdown file that matches you
 
 You can customize **which files activate Checkmate** using the `files` configuration option:
 ```lua
-files = { "tasks", "*.plan", "project/**/todo.md" }
+files = {
+  "*.md",              -- Any markdown file (basename matching)
+  "**/todo.md",        -- 'todo.md' anywhere in directory tree
+  "project/todo.md",   -- Any path ending with 'project/todo.md'
+  "/absolute/path.md", -- Exact absolute path match
+}
 ```
-Patterns support full Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
+Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,bar}`
 
 ### 2. Create Todos
 

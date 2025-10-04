@@ -82,8 +82,8 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
   "bngarren/checkmate.nvim",
   ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
   opts = {
-    -- files = {"*.md"} -- use any .md file (instead of defaults)
-  }
+    -- files = { "*.md" }, -- use any .md file (instead of defaults)
+  },
 }
 ```
 

@@ -143,7 +143,7 @@ Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,b
 - Uncheck items with `:Checkmate uncheck` (default: `<leader>Tu`)
 - Cycle to other [custom states](#todo-states) with `:Checkmate cycle_next` (default: `<leader>T=`) and `:Checkmate cycle_previous` (default `<leader>T-`)
 - Select multiple items in visual mode and use the same commands
-- Archive completed todos with `:Checkmate archive` (default: `<leader>Ta`)
+- [Archive](#archiving) completed todos with `:Checkmate archive` (default: `<leader>Ta`)
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
@@ -158,13 +158,13 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 | subcommand   | Description |
 |--------------|-------------|
-| `archive` | Archive all completed todo items in the buffer. This extracts them and moves them to a bottom section. See api `archive()` |
+| `archive` | Archive all completed todo items in the buffer. This extracts them and moves them to a bottom section. See api `archive()` and [Archiving](#archiving) section. |
 | `check` | Mark the todo item under the cursor as checked. See api `check()`|
 | `create` | In normal mode, converts the current line into a todo (or if already a todo, creates a sibling below). In visual mode, converts each selected line into a todo. In insert mode, creates a new todo on the next line and keeps you in insert mode. For more advanced placement, indentation, and state options, see the `create(opts)` API. |
 | `cycle_next` | Cycle a todo's state to the next available. See api `cycle()` |
 | `cycle_previous` | Cycle a todo's state to the previous. See api `cycle()` |
-| `lint` | Lint this buffer for Checkmate formatting issues. Runs automatically on `InsertLeave` and `TextChanged`. See api `lint()` |
-| `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` |
+| `lint` | Lint this buffer for Checkmate formatting issues. Runs automatically on `InsertLeave` and `TextChanged`. See api `lint()` and [Linting](#linting) section. |
+| `metadata add` | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` and [Metadata](#metadata) section. |
 | `metadata jump_next` | Move the cursor to the next metadata tag for the todo item under the cursor. See api `jump_next_metadata()` |
 | `metadata jump_previous` | Move the cursor to the previous metadata tag for the todo item under the cursor. See api `jump_previous_metadata()` |
 | `metadata remove` | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)` |

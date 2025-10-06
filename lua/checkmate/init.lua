@@ -957,7 +957,7 @@ end
 
 ---Opens a picker to select a new value for the metadata under the cursor
 ---
----Set `config.ui.preferred_picker` to designate a specific picker implementation
+---Set `config.ui.picker` to designate a specific picker implementation
 ---Otherwise, will attempt to use an installed picker UI plugin, or fallback to native vim.ui.select
 function M.select_metadata_value()
   local api = require("checkmate.api")

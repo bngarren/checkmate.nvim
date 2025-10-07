@@ -324,7 +324,7 @@ end
 
 function M.register_highlight_groups()
   local function normal_fg_or_nil()
-    local normal_exists = vim.fn.hlexists("Normal")
+    local normal_exists = vim.fn.hlexists("Normal") == 1
     if not normal_exists then
       log.fmt_warn("[highlights/register_highlight_groups] Missing 'Normal' hl. ")
       return nil

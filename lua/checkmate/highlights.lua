@@ -323,10 +323,20 @@ function M.clear_highlight_cache()
 end
 
 function M.register_highlight_groups()
+  local function normal_fg_or_nil()
+    local normal_exists = vim.fn.hlexists("Normal") == 1
+    if not normal_exists then
+      log.fmt_warn("[highlights/register_highlight_groups] Missing 'Normal' hl. ")
+      return nil
+    end
+    local hl = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+    return hl and hl.fg or nil
+  end
+
   local highlights = {
     ---this is used when we apply an extmark to override , e.g. setext headings
     ---@type vim.api.keyset.highlight
-    CheckmateNormal = { bold = false, force = true, nocombine = true, fg = "fg" },
+    CheckmateNormal = { bold = false, force = true, nocombine = true, fg = normal_fg_or_nil() },
   }
 
   -- generate highlight groups for each todo state

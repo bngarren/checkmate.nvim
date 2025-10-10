@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.1](https://github.com/bngarren/checkmate.nvim/compare/v0.11.0...v0.11.1) (2025-10-10)
+
+
+### Bug Fixes
+
+* **config:** improve config validation and checkhealth ([#191](https://github.com/bngarren/checkmate.nvim/issues/191)) ([cd9948f](https://github.com/bngarren/checkmate.nvim/commit/cd9948fdb7c62b64e66696b95b6e8fef37da983f))
+* **highlights:** adds nil check to Normal group 'fg' to address [#196](https://github.com/bngarren/checkmate.nvim/issues/196) ([#197](https://github.com/bngarren/checkmate.nvim/issues/197)) ([4aeb383](https://github.com/bngarren/checkmate.nvim/commit/4aeb38347149f5d3bd2eb01441a6f689a7f72f49))
+* typo in `select_metadata_value()` api ([#195](https://github.com/bngarren/checkmate.nvim/issues/195)) ([9d73cde](https://github.com/bngarren/checkmate.nvim/commit/9d73cde7bb7e1e541a15a38d5c1b99ee9a465cc4))
+
 ## [0.11.0](https://github.com/bngarren/checkmate.nvim/compare/v0.10.1...v0.11.0) (2025-10-01)
 
 

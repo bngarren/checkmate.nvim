@@ -965,6 +965,9 @@ function M.select_metadata_value()
   local picker = require("checkmate.metadata.picker")
 
   picker.open_picker(function(choice, metadata)
+    if not choice then
+      return
+    end
     local ctx = transaction.current_context()
     if ctx then
       ctx.add_op(api.set_metadata_value, metadata, choice)

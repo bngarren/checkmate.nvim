@@ -176,15 +176,19 @@ function M.select(items, opts)
   if (backend == nil or backend == "snacks") and has_module("snacks") then
     local ok = pcall(function()
       local snacks = require("snacks")
-      local wrapped_choice = wrap_on_choice(opts.on_choice)
 
       ---@type snacks.picker.ui_select
       snacks.picker.select(items, {
         prompt = opts.prompt or "Select an item",
         format_item = opts.format_item,
         preview = false,
+        kind = opts.kind,
       }, function(item, idx)
-        wrapped_choice(item, idx)
+        -- snacks handles the callback, no need to wrap
+        -- It calls with (nil, nil) on cancellation
+        if opts.on_choice then
+          opts.on_choice(item, idx)
+        end
       end)
     end)
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/bngarren/checkmate.nvim/compare/v0.11.1...v0.11.2) (2025-10-11)
+
+
+### Bug Fixes
+
+* **metadata:** remove picker highlight and animation ([#199](https://github.com/bngarren/checkmate.nvim/issues/199)) ([5ffa4af](https://github.com/bngarren/checkmate.nvim/commit/5ffa4af689505d41ec2462c4bfa4556daace7c91))
+
 ## [0.11.1](https://github.com/bngarren/checkmate.nvim/compare/v0.11.0...v0.11.1) (2025-10-10)
 
 

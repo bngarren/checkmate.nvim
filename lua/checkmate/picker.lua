@@ -32,24 +32,36 @@ local DEFAULT_MIN_WIDTH = 40
 ---@field backend? checkmate.Picker
 ---@field kind? string Hint for picker plugins (passed to vim.ui.select)
 
---- Wraps on_choice to ensure it's only called once and handles cleanup
----@param on_choice fun(choice: string|nil, idx: integer|nil)
----@param cleanup? fun()
----@return fun(choice: string|nil, idx: integer|nil)
-local function wrap_on_choice(on_choice, cleanup)
+--- Finds the 1-based index of an item in the items array
+---@param items string[]
+---@param item string
+---@return integer|nil
+local function find_item_index(items, item)
+  for i, v in ipairs(items) do
+    if v == item then
+      return i
+    end
+  end
+  return nil
+end
+
+--- Wraps on_choice to ensure it's only called once
+---@param on_choice fun(choice?: any, idx?: integer)
+local function wrap_on_choice(on_choice)
   local called = false
+
   return function(choice, idx)
     if called then
       return
     end
     called = true
 
-    if cleanup then
-      -- pcall to ensure cleanup doesn't break the callback
-      pcall(cleanup)
-    end
-
-    on_choice(choice, idx)
+    vim.schedule(function()
+      local ok, err = pcall(on_choice, choice, idx)
+      if not ok then
+        require("checkmate.log").error(err)
+      end
+    end)
   end
 end
 
@@ -65,7 +77,9 @@ function M.select(items, opts)
 
   if not items or #items == 0 then
     if opts.on_choice then
-      opts.on_choice(nil, nil)
+      vim.schedule(function()
+        opts.on_choice(nil, nil)
+      end)
     end
     return
   end
@@ -135,30 +149,23 @@ function M.select(items, opts)
               actions.close(prompt_bufnr)
 
               if selection then
-                -- find the index of the selected item
-                local idx = nil
-                for i, item in ipairs(items) do
-                  if item == selection.value then
-                    idx = i
-                    break
-                  end
-                end
+                local idx = find_item_index(items, selection.value)
                 wrapped_choice(selection.value, idx)
               else
                 wrapped_choice(nil, nil)
               end
             end)
 
-            -- handle cancellation (Esc, Ctrl-C)
-            map("i", "<esc>", function()
+            -- handle cancellation in both modes
+            local function cancel()
               actions.close(prompt_bufnr)
               wrapped_choice(nil, nil)
-            end)
+            end
 
-            map("n", "<esc>", function()
-              actions.close(prompt_bufnr)
-              wrapped_choice(nil, nil)
-            end)
+            map("i", "<esc>", cancel)
+            map("n", "<esc>", cancel)
+            map("i", "<C-c>", cancel)
+            map("n", "<C-c>", cancel)
 
             return true
           end,
@@ -202,7 +209,6 @@ function M.select(items, opts)
   if (backend == nil or backend == "mini") and has_module("mini.pick") then
     local ok = pcall(function()
       local pick = require("mini.pick")
-      local wrapped_choice = wrap_on_choice(opts.on_choice)
 
       -- center position
       local row = math.floor((vim.o.lines - height) / 2)
@@ -212,18 +218,9 @@ function M.select(items, opts)
         prompt = opts.prompt or "Select an item",
         format_item = opts.format_item,
       }, function(item)
-        -- mini.pick passes the item but not the index
-        -- find the index manually
-        local idx = nil
-        if item then
-          for i, v in ipairs(items) do
-            if v == item then
-              idx = i
-              break
-            end
-          end
-        end
-        wrapped_choice(item, idx)
+        -- mini.pick doesn't provide index, so we find it if item was selected
+        local idx = item and find_item_index(items, item) or nil
+        opts.on_choice(item, idx)
       end, {
         window = {
           config = {
@@ -253,7 +250,7 @@ function M.select(items, opts)
   vim.ui.select(items, {
     prompt = opts.prompt,
     format_item = opts.format_item,
-    kind = opts.kind or "checkmate_metadata",
+    kind = opts.kind or "checkmate_metadata_value",
   }, function(item, idx)
     if opts.on_choice then
       opts.on_choice(item, idx)

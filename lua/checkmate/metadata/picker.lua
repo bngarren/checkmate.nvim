@@ -30,14 +30,6 @@ function M.open_picker(on_select)
 
   -- Callback that passes items from `choices` table or function return
   local function handle_completions(items)
-    -- local active_op = active_pickers[bufnr]
-    -- if not active_op then
-    --   log.fmt_warn("[metadata/picker] `handle_completions` called but picker is no longer active for bufnr %d", bufnr)
-    --   return
-    -- end
-
-    -- cleanup_spinner(bufnr)
-
     if not vim.api.nvim_buf_is_valid(bufnr) then
       log.fmt_warn("[metadata/picker] `handle_completions` called but bufnr %d is not valid", bufnr)
       return

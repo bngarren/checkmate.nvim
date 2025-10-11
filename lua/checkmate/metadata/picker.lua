@@ -60,7 +60,8 @@ function M.open_picker(on_select)
         end,
         on_choice = function(choice)
           if choice and choice ~= selected_metadata.value then
-            on_select(choice, selected_metadata)
+            local str_choice = tostring(choice)
+            on_select(str_choice, selected_metadata)
           end
           -- if choice is nil, user cancelled
         end,

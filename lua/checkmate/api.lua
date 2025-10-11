@@ -772,7 +772,7 @@ function M.shutdown(bufnr)
     highlights.cancel_progressive(bufnr)
 
     require("checkmate.debug.debug_highlights").dispose(bufnr)
-    require("checkmate.metadata.picker").cleanup_ui(bufnr)
+    -- require("checkmate.metadata.picker").cleanup_ui(bufnr)
 
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
     vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl, 0, -1)

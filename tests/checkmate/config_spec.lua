@@ -156,6 +156,29 @@ describe("Config", function()
       checkmate.stop()
     end)
 
+    it("should not duplicate user configured + default `keys`", function()
+      local checkmate = require("checkmate")
+
+      ---@diagnostic disable-next-line: missing-fields
+      checkmate.setup({
+        -- overwrite the keys
+        keys = {
+          ["<leader>Ct"] = {
+            rhs = "<cmd>Checkmate toggle<CR>",
+            desc = "Toggle todo item",
+            modes = { "n", "v" },
+          },
+        },
+      })
+
+      local config = require("checkmate.config")
+
+      assert.equal(1, vim.tbl_count(config.options.keys))
+      assert.is_true(vim.list_contains(vim.tbl_keys(config.options.keys), "<leader>Ct"))
+
+      checkmate.stop()
+    end)
+
     describe("style merging", function()
       local theme
       local orig_theme

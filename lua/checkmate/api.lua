@@ -144,19 +144,7 @@ function M.setup_keymaps(bufnr)
     vim.keymap.set(mode, lhs, rhs, opts)
   end
 
-  local has_wk, wk = pcall(require, "which-key")
-
-  -- TODO: need further which-key integration
-  if has_wk then
-    wk.add({
-      "<leader>T",
-      buffer = bufnr,
-      group = "Checkmate [T]odos",
-      icon = "⊡",
-    })
-  end
-
-  bl:set("keyamps", {})
+  bl:set("keymaps", {})
 
   local DEFAULT_DESC = "Checkmate <unnamed>"
   local DEFAULT_MODES = { "n" }

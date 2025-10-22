@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/bngarren/checkmate.nvim/compare/v0.11.2...v0.12.0) (2025-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** `keys` are no longer merged with defaults. If custom keys + defaults are desired, you must explicitly copy the defaults into your `keys` table.
+
+### Bug Fixes
+
+* **config:** bug in `keys` config, unintentional merge, duplicate keymaps ([#202](https://github.com/bngarren/checkmate.nvim/issues/202)) ([57bedf4](https://github.com/bngarren/checkmate.nvim/commit/57bedf4011fbbb19918234404ffcdfd36bd23e6f))
+
 ## [0.11.2](https://github.com/bngarren/checkmate.nvim/compare/v0.11.1...v0.11.2) (2025-10-11)
 
 

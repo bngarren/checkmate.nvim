@@ -51,6 +51,7 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 - [Usage](#usage)
 - [Commands](#commands)
 - [Configuration](#config)
+  - [Keymaps](#keymapping)
   - [Styling](#styling)
   - [Todo states](#todo-states)
   - [Todo counts](#todo-count-indicator)
@@ -181,7 +182,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 # ☑️ Config
 
-For config definitions/annotations, see [here](https://github.com/bngarren/checkmate.nvim/blob/1b91021affa076b78b885d3ea9ac4f7ae50d1135/lua/checkmate/config/init.lua#L34).
+For config definitions/annotations, see [here](https://github.com/bngarren/checkmate.nvim/blob/main/lua/checkmate/config/init.lua#L34).
 
 ## Defaults
 ```lua
@@ -383,6 +384,8 @@ return {
 
 ## Keymapping
 Default keymaps can be disabled by setting `keys = false`.
+
+The `keys` table overrides the defaults (does not merge). If you want some custom and some defaults, you need to copy the defaults into your own `keys` table.
 
 Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?, modes?}`.
 

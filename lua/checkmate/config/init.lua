@@ -77,9 +77,14 @@ M.options = {}
 ---
 ---Keymappings (false to disable)
 ---
----Setting `keys` to false will not register any keymaps. Setting a specific key to false will not register that default mapping.
+---Setting `keys` to false will not register any keymaps.
+---
+---IMPORTANT: This table overwrites the defaults (does not merge). If you make edits
+---and want to keep some defaults, you will need to copy the default configuration
+---into your own `keys` table.
+---
 ---Note: mappings for metadata are set separately in the `metadata` table
----@field keys ( table<string, checkmate.KeymapConfig|false>| false )
+---@field keys ( table<string, checkmate.KeymapConfig>| false )
 ---
 ---Characters for todo markers (checked and unchecked)
 ---@deprecated use todo_states
@@ -529,8 +534,29 @@ function M.setup(opts)
     -- start with static defaults
     local config = vim.deepcopy(defaults)
 
+    --- Some config options should not be merged but rather overriden
+    local prevent_merge = function(o)
+      -- we can't merge `keys` because they are keyed on unique strings, e.g. `<leader>Tt` vs `<leader>Ct`
+      -- thus we end up with duplicate mappings if the user changes the lhs, see issue #201
+      if o.keys then
+        config.keys = nil
+      end
+
+      if o.list_continuation and o.list_continuation.keys then
+        config.list_continuation.keys = nil
+      end
+
+      -- don't merge metadata definitions as this leads to unexpected behavior (user configured + possibly unintended defaults)
+      if o.metadata then
+        for meta_name, _ in pairs(o.metadata) do
+          config.metadata[meta_name] = nil
+        end
+      end
+    end
+
     -- then merge global config if present
     if type(vim.g.checkmate_config) == "table" then
+      prevent_merge(vim.g.checkmate_config)
       config = vim.tbl_deep_extend("force", config, vim.g.checkmate_config)
     end
 
@@ -545,18 +571,8 @@ function M.setup(opts)
         return {}
       end
 
+      prevent_merge(opts)
       config = vim.tbl_deep_extend("force", config, opts)
-
-      -- don't merge, just override full table for these
-      if opts.metadata then
-        for meta_name, meta_props in pairs(opts.metadata) do
-          config.metadata[meta_name] = vim.deepcopy(meta_props)
-        end
-      end
-
-      if opts.list_continuation and opts.list_continuation.keys then
-        config.list_continuation.keys = vim.deepcopy(opts.list_continuation.keys)
-      end
     end
 
     -- maintain backwards compatibility

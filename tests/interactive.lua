@@ -63,8 +63,7 @@ vim.list_extend(
 assert(loadfile("tests/lazy_bootstrap.lua"))()
 
 -- setup vim
-dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/options.lua"))
-dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/keymaps.lua"))
+dofile(vim.fs.abspath("~/.config/nvim/lua/bngarren/core/init.lua"))
 
 require("lazy.minit").repro({
   spec = spec,

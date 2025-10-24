@@ -164,6 +164,11 @@ end
 ---@field todo checkmate.Todo Access to todo item data
 ---@field buffer integer Buffer number
 
+---@class checkmate.MetadataPickerContext
+---@field metadata checkmate.MetadataEntry The metadata entry under cursor
+---@field todo checkmate.Todo The todo item containing this metadata
+---@field buffer integer Buffer number
+
 -- Globally disables/deactivates Checkmate for all buffers
 function M.disable()
   local cfg = require("checkmate.config")
@@ -957,30 +962,60 @@ end
 
 ---Opens a picker to select a new value for the metadata under the cursor
 ---
----Set `config.ui.picker` to designate a specific picker implementation
----Otherwise, will attempt to use an installed picker UI plugin, or fallback to native vim.ui.select
-function M.select_metadata_value()
+---Default behavior uses config's `choices` function and preferred picker UI.
+---Can optionally accept a custom picker function for specialized selection flows.
+---
+---Example with custom picker:
+---```lua
+---require("checkmate").select_metadata_value(function(ctx, complete)
+---  require("snacks").picker.files({
+---    cwd = vim.fs.root(0, ".git") or vim.uv.cwd(),
+---  }, function(file)
+---    complete(file and vim.fn.fnamemodify(file, ":.") or nil)
+---  end)
+---end)
+---```
+---
+---@param picker_fn? fun(context: checkmate.MetadataPickerContext, complete: fun(value: string?))
+function M.select_metadata_value(picker_fn)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local picker = require("checkmate.metadata.picker")
 
-  picker.open_picker(function(choice, metadata)
-    if not choice then
+  ---Handle the selected value and update metadata
+  ---@param value string? Selected value, or nil if cancelled
+  ---@param metadata checkmate.MetadataEntry
+  local function handle_selection(value, metadata)
+    -- nil means cancelled
+    if value == nil then
       return
     end
+
+    -- no change
+    if value == metadata.value then
+      return
+    end
+
     local ctx = transaction.current_context()
     if ctx then
-      ctx.add_op(api.set_metadata_value, metadata, choice)
+      ctx.add_op(api.set_metadata_value, metadata, value)
       return
     end
 
     local bufnr = vim.api.nvim_get_current_buf()
     transaction.run(bufnr, function(_ctx)
-      _ctx.add_op(api.set_metadata_value, metadata, choice)
-    end, function()
-      -- post_fn
+      _ctx.add_op(api.set_metadata_value, metadata, value)
     end)
-  end)
+  end
+
+  -- custom picker pathway
+  if picker_fn then
+    picker.with_custom_picker(picker_fn, handle_selection)
+    return
+  end
+
+  -- default pathway using config's choices
+  picker.open_picker(handle_selection)
 end
 
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present

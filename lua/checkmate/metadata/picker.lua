@@ -6,6 +6,42 @@ local log = require("checkmate.log")
 
 local M = {}
 
+--- Gets the todo item and metadata for a picker implementation
+---@param bufnr integer
+---@param row? 0-indexed row (defaults to cursor line)
+---@param col? 0-indexed col (default to cursor pos)
+---@return {bufnr: integer, todo_item: checkmate.TodoItem, selected_metadata: checkmate.MetadataEntry}|nil ctx
+local function get_picker_context(bufnr, row, col)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  col = col or 0
+  if not row then
+    row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    row = row - 1 -- to 0-index
+  end
+
+  local context = {
+    bufnr = bufnr,
+  }
+
+  local todo_item = parser.get_todo_item_at_position(bufnr, row, col)
+  if not todo_item then
+    util.notify("No todo item at cursor", vim.log.levels.INFO)
+    return nil
+  else
+    context.todo_item = todo_item
+  end
+
+  local selected_metadata = meta_module.find_metadata_at_pos(todo_item, row, col)
+  if not selected_metadata then
+    util.notify("No metadata tag at cursor", vim.log.levels.INFO)
+    return nil
+  else
+    context.selected_metadata = selected_metadata
+  end
+
+  return context
+end
+
 --- Opens a picker for the metadata under the cursor
 ---@generic T
 ---@param on_select fun(choice: T, metadata: checkmate.MetadataEntry)
@@ -14,17 +50,13 @@ function M.open_picker(on_select)
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1 -- to 0-index
 
-  local todo_item = parser.get_todo_item_at_position(bufnr, row, col)
-  if not todo_item then
-    util.notify("No todo item at cursor", vim.log.levels.INFO)
-    return nil
+  local ctx = get_picker_context(bufnr, row, col)
+  if not ctx then
+    log.fmt_error("[metadata/picker] failed to get_picker_context", bufnr)
+    return
   end
-
-  local selected_metadata = meta_module.find_metadata_at_pos(todo_item, row, col)
-  if not selected_metadata then
-    util.notify("No metadata tag at cursor", vim.log.levels.INFO)
-    return nil
-  end
+  local todo_item = ctx.todo_item
+  local selected_metadata = ctx.selected_metadata
 
   -- Callback that passes items from `choices` table or function return
   local function handle_completions(items)
@@ -76,19 +108,18 @@ end
 ---Calls on_select with the chosen value, or nil if cancelled
 ---@param picker_fn fun(context: checkmate.MetadataPickerContext, complete: fun(value: string?))
 ---@param on_select fun(value: string?, metadata: checkmate.MetadataEntry)
----@return boolean success
 function M.with_custom_picker(picker_fn, on_select)
   local bufnr = vim.api.nvim_get_current_buf()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1
 
-  local setup = setup_picker_ui(bufnr, row, col)
-  if not setup then
-    return false
+  local ctx = get_picker_context(bufnr, row, col)
+  if not ctx then
+    log.fmt_error("[metadata/picker] failed to get_picker_context", bufnr)
+    return
   end
-
-  local selected_metadata = setup.metadata
-  local todo_item = setup.todo_item
+  local todo_item = ctx.todo_item
+  local selected_metadata = ctx.selected_metadata
 
   -- build context for user's picker
   local todo = util.build_todo(todo_item)
@@ -111,7 +142,6 @@ function M.with_custom_picker(picker_fn, on_select)
     completed = true
 
     vim.schedule(function()
-      M.cleanup_ui(bufnr)
       on_select(value, selected_metadata)
     end)
   end
@@ -119,8 +149,8 @@ function M.with_custom_picker(picker_fn, on_select)
   local success, err = pcall(picker_fn, context, complete)
 
   if not success then
-    M.cleanup_ui(bufnr)
-    local err_msg = string.format("Checkmate: Error in custom picker: %s", tostring(err))
+    local err_msg =
+      string.format("Checkmate: Error in the picker function passed to `with_custom_picker`: %s", tostring(err))
     vim.notify(err_msg, vim.log.levels.ERROR)
     log.log_error(err, "[metadata/picker] " .. err_msg)
     return false

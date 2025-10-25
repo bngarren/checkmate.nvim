@@ -1940,13 +1940,15 @@ Some other content]]
 
         local received_context
 
-        cm.select_metadata_value(function(context, complete)
-          received_context = context
-          -- simulate user selecting a choice
-          vim.schedule(function()
-            complete("hello")
-          end)
-        end)
+        cm.select_metadata_value({
+          picker_fn = function(context, complete)
+            received_context = context
+            -- simulate user selecting a choice
+            vim.schedule(function()
+              complete("hello")
+            end)
+          end,
+        })
 
         vim.wait(100)
 

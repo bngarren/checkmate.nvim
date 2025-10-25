@@ -181,7 +181,7 @@ function M.with_custom_picker(picker_fn, apply_value_with_transaction)
 
   if not success then
     local err_msg =
-      string.format("Checkmate: Error in the picker function passed to `with_custom_picker`: %s", tostring(err))
+      string.format("Checkmate: Error in the user's `picker_fn` passed to `with_custom_picker`: %s", tostring(err))
     vim.notify(err_msg, vim.log.levels.ERROR)
     log.log_error(err, "[metadata/picker] " .. err_msg)
     return false

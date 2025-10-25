@@ -164,11 +164,6 @@ end
 ---@field todo checkmate.Todo Access to todo item data
 ---@field buffer integer Buffer number
 
----@class checkmate.MetadataPickerContext Passed to user's custom picker functions
----@field metadata checkmate.MetadataEntry The metadata entry under cursor
----@field todo checkmate.Todo The todo item containing this metadata
----@field buffer integer Buffer number
-
 -- Globally disables/deactivates Checkmate for all buffers
 function M.disable()
   local cfg = require("checkmate.config")
@@ -995,7 +990,7 @@ end
 --- end)
 ---```
 ---
----@param picker_fn? fun(context: checkmate.MetadataPickerContext, complete: fun(value: string?))
+---@param picker_fn? fun(context: checkmate.MetadataContext, complete: fun(value: string?))
 function M.select_metadata_value(picker_fn)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -1007,11 +1002,11 @@ function M.select_metadata_value(picker_fn)
     return
   end
 
-  ---Handle the selected value and update metadata
+  --- Apply (set) the new metadata value via transaction (similar to all APIs)
+  --- This is called by both picker paths (1. default `choices` path via |open_picker| and, 2. user's |picker_fn|)
   ---@param value string? Selected value, or nil if cancelled
-  ---@param metadata checkmate.MetadataEntry
-  local function handle_selection(value, metadata)
-    -- nil means cancelled
+  ---@param metadata checkmate.MetadataEntry the metadata being updated
+  local function apply_value_with_transaction(value, metadata)
     if value == nil then
       return
     end
@@ -1037,14 +1032,14 @@ function M.select_metadata_value(picker_fn)
     end)
   end
 
-  -- custom picker pathway
+  -- custom picker pathway: user provides their own picker_fn that handles generating the choices
   if picker_fn then
-    picker.with_custom_picker(picker_fn, handle_selection)
+    picker.with_custom_picker(picker_fn, apply_value_with_transaction)
     return
   end
 
-  -- default pathway using config's `choices`
-  picker.open_picker(handle_selection)
+  -- default pathway using config's `choices`value (table or function return) inside checkmate's picker (see `config.ui.picker`)
+  picker.open_picker(apply_value_with_transaction)
 end
 
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present

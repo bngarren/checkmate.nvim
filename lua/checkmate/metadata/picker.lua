@@ -1,12 +1,16 @@
+--- Metadata picker module (internal)
+--- Handles both default (choices-based) and custom picker implementations
+--- for updating metadata values
+local M = {}
+
 local parser = require("checkmate.parser")
 local meta_module = require("checkmate.metadata")
 local picker = require("checkmate.picker")
 local util = require("checkmate.util")
 local log = require("checkmate.log")
 
-local M = {}
-
 --- Gets the todo item and metadata for a picker implementation
+--- **internal only**
 ---@param bufnr integer
 ---@param row? 0-indexed row (defaults to cursor line)
 ---@param col? 0-indexed col (default to cursor pos)
@@ -43,9 +47,17 @@ local function get_picker_context(bufnr, row, col)
 end
 
 --- Opens a picker for the metadata under the cursor
----@generic T
----@param on_select fun(choice: T, metadata: checkmate.MetadataEntry)
-function M.open_picker(on_select)
+--- Uses the metadata's `choices` field to populate items
+---
+--- **Callback flow**:
+---   1. Gets metadata context (todo item, selected metadata)
+---   2. Creates `receive_choices` callback
+---   3. Calls meta_module.get_choices() which will invoke the callback with items
+---   4. When items are received, creates `receive_selection_from_ui` callback
+---   5. Opens picker UI with `receive_selection_from_ui` as the selection handler
+---   6. When user selects, `receive_selection_from_ui` calls `apply_value_to_transaction`
+---@param apply_value_with_transaction fun(value: string, metadata: checkmate.MetadataEntry)
+function M.open_picker(apply_value_with_transaction)
   local bufnr = vim.api.nvim_get_current_buf()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1 -- to 0-index
@@ -58,16 +70,33 @@ function M.open_picker(on_select)
   local todo_item = ctx.todo_item
   local selected_metadata = ctx.selected_metadata
 
-  -- Callback that passes items from `choices` table or function return
-  local function handle_completions(items)
+  --- Receive the choices items from metadata module
+  --- This cb is passed to |meta_module.get_choices()| and invoked when items are ready
+  --- @param items string[] available choices for this metadata tag
+  local function receive_choices(items)
     if not vim.api.nvim_buf_is_valid(bufnr) then
-      log.fmt_warn("[metadata/picker] `handle_completions` called but bufnr %d is not valid", bufnr)
+      log.fmt_warn("[metadata/picker] `receive_choices` called but bufnr %d is not valid", bufnr)
       return
     end
 
     if not items or #items == 0 then
       vim.notify(string.format("No choices available for @%s", selected_metadata.tag), vim.log.levels.INFO)
       return
+    end
+
+    --- Receive the user's selection from the picker UI
+    --- This cb is passed to |picker.select()| and invoked when user selects an item
+    --- @param choice string? the selected value, or nil if cancelled
+    local function receive_selection_from_ui(choice)
+      if choice and choice ~= selected_metadata.value then
+        if not vim.api.nvim_buf_is_valid(bufnr) then
+          log.fmt_warn("[metadata/picker] buffer %d no longer valid, ignoring selection", bufnr)
+          return
+        end
+        local str_choice = tostring(choice)
+        apply_value_with_transaction(str_choice, selected_metadata)
+      end
+      -- if choice is nil, user cancelled - do nothing
     end
 
     vim.schedule(function()
@@ -80,19 +109,14 @@ function M.open_picker(on_select)
           end
           return item
         end,
-        on_choice = function(choice)
-          if choice and choice ~= selected_metadata.value then
-            local str_choice = tostring(choice)
-            on_select(str_choice, selected_metadata)
-          end
-          -- if choice is nil, user cancelled
-        end,
+        on_choice = receive_selection_from_ui,
       })
     end)
   end
 
+  -- this is step 1: request choices from the metadata module, i.e. resolve the `choices` table or function
   local success, result = pcall(function()
-    return meta_module.get_choices(selected_metadata.tag, handle_completions, todo_item, bufnr)
+    return meta_module.get_choices(selected_metadata.tag, receive_choices, todo_item, bufnr)
   end)
 
   if not success then
@@ -104,11 +128,20 @@ function M.open_picker(on_select)
   end
 end
 
----Execute custom picker with managed UI (spinner, highlighting)
----Calls on_select with the chosen value, or nil if cancelled
----@param picker_fn fun(context: checkmate.MetadataPickerContext, complete: fun(value: string?))
----@param on_select fun(value: string?, metadata: checkmate.MetadataEntry)
-function M.with_custom_picker(picker_fn, on_select)
+--- Execute a user-provided custom picker function
+--- The user's picker must call `user_complete_callback` with the selected value
+---
+--- **Callback flow**:
+---   1. Gets metadata context (todo item, selected metadata)
+---   2. Builds user-facing context object
+---   3. Creates `user_complete_callback` (the "complete" function user calls)
+---   4. Invokes user's `picker_fn(context, user_complete_callback)`
+---   5. User's picker eventually calls `user_complete_callback(value)`
+---   6. `user_complete_callback` calls `apply_value_with_transaction`
+---
+---@param picker_fn fun(context: checkmate.MetadataContext, user_complete_callback: fun(value: string?))
+---@param apply_value_with_transaction fun(value: string?, metadata: checkmate.MetadataEntry)
+function M.with_custom_picker(picker_fn, apply_value_with_transaction)
   local bufnr = vim.api.nvim_get_current_buf()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1
@@ -122,19 +155,15 @@ function M.with_custom_picker(picker_fn, on_select)
   local selected_metadata = ctx.selected_metadata
 
   -- build context for user's picker
-  local todo = util.build_todo(todo_item)
-  ---@type checkmate.MetadataPickerContext
-  local context = {
-    metadata = selected_metadata,
-    todo = todo,
-    buffer = bufnr,
-  }
+  local context = meta_module.create_context(todo_item, selected_metadata.alias_for, selected_metadata.value, bufnr)
 
   local completed = false
 
-  ---Completion callback for user to invoke with selected value
+  --- Completion callback that user invokes with their selected value
+  --- This is the "complete" function passed to the user's custom picker_fn,
+  --- and the user would typically call within their picker's "confirm" or "select" action/handler
   ---@param value string? Selected value, or nil if cancelled
-  local function complete(value)
+  local function user_complete_callback(value)
     if completed then
       log.fmt_warn("[metadata/picker] `complete` called multiple times for bufnr %d", bufnr)
       return
@@ -142,11 +171,13 @@ function M.with_custom_picker(picker_fn, on_select)
     completed = true
 
     vim.schedule(function()
-      on_select(value, selected_metadata)
+      apply_value_with_transaction(value, selected_metadata)
     end)
   end
 
-  local success, err = pcall(picker_fn, context, complete)
+  -- step 1 for the with_custom_picker path:
+  -- Call the user's picker_fn, giving it metadata context and a `complete` callback to use
+  local success, err = pcall(picker_fn, context, user_complete_callback)
 
   if not success then
     local err_msg =

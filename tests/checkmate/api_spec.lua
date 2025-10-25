@@ -1917,6 +1917,48 @@ Some other content]]
         end)
       end)
 
+      it("should update metadata via `with_custom_picker`", function()
+        local cm = require("checkmate")
+
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          metadata = {
+            project = {
+              style = { fg = "#3f3fee" },
+            },
+          },
+        })
+
+        local content = [[- [ ] Task needing data @project()]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        local line = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)[1]
+        local t, _, _ = line:find("@")
+
+        vim.api.nvim_win_set_cursor(0, { 1, t })
+
+        local received_context
+
+        cm.select_metadata_value(function(context, complete)
+          received_context = context
+          -- simulate user selecting a choice
+          vim.schedule(function()
+            complete("hello")
+          end)
+        end)
+
+        vim.wait(100)
+
+        h.exists(received_context --[[@as checkmate.MetadataContext]])
+
+        h.assert_lines_equal(
+          vim.api.nvim_buf_get_lines(bufnr, 0, -1, false),
+          { "- " .. h.get_unchecked_marker() .. " Task needing data @project(hello)" },
+          "project value should be correctly updated"
+        )
+      end)
+
       describe("metadata callbacks", function()
         it("should call on_add only when metadata is successfully added", function()
           -- spy to track callback execution

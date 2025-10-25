@@ -5,17 +5,18 @@ local M = {}
 M._deprecation_msg_shown = false
 
 ---Creates a metadata context object
+---This returns a **user-facing** struct
 ---@param todo_item checkmate.TodoItem Todo item containing the metadata
----@param meta_name string The metadata tag name (canonical, not alias)
+---@param meta_name string The metadata tag name (will convert to canonical if an alias)
 ---@param value string Metadata value
----@param bufnr integer Buffer number
+---@param bufnr integer
 ---@return checkmate.MetadataContext
 function M.create_context(todo_item, meta_name, value, bufnr)
   local todo = require("checkmate.util").build_todo(todo_item)
+  local name = M.get_canonical_name(meta_name)
   return {
     value = value,
-    name = meta_name,
-    ---@type checkmate.Todo
+    name = name,
     todo = todo,
     buffer = bufnr,
   }

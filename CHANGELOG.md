@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/bngarren/checkmate.nvim/compare/v0.11.2...v0.12.0) (2025-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** `keys` are no longer merged with defaults. If custom keys + defaults are desired, you must explicitly copy the defaults into your `keys` table.
+
+### Bug Fixes
+
+* **api:** fix unexpected handling of list continuation when the split content is a todo ([#206](https://github.com/bngarren/checkmate.nvim/issues/206)) ([ebc9cbc](https://github.com/bngarren/checkmate.nvim/commit/ebc9cbc305865e7f4952cd938d83fd992206245f))
+* **config:** bug in `keys` config, unintentional merge, duplicate keymaps ([#202](https://github.com/bngarren/checkmate.nvim/issues/202)) ([57bedf4](https://github.com/bngarren/checkmate.nvim/commit/57bedf4011fbbb19918234404ffcdfd36bd23e6f))
+
 ## [0.11.2](https://github.com/bngarren/checkmate.nvim/compare/v0.11.1...v0.11.2) (2025-10-11)
 
 

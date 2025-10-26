@@ -988,14 +988,31 @@ function M.create_todo_insert(ctx, start_row, opts)
   -- combine split content with any explicit content option
   local final_content = (opts.content or "") .. content_after
 
-  local new_todo = M._build_todo_line({
-    parent_prefix = current_prefix,
-    target_state = opts.target_state,
-    inherit_state = opts.inherit_state,
-    content = final_content,
-    list_marker = opts.list_marker,
-    indent = opts.indent,
-  })
+  -- if content_after is already a valid todo, we need to just put
+  -- the split content on the new line rather (as a todo) than make a new todo
+  local new_todo
+  local content_after_todo = ph.match_todo(content_after)
+  if content_after_todo then
+    new_todo = M._build_todo_line({
+      parent_prefix = current_prefix,
+      target_state = content_after_todo.state,
+      inherit_state = false,
+      -- +1 to get pos right after todo marker, +1 another to not include first space
+      -- see |parser.helpers.calc_todo_prefix_length|
+      content = final_content:sub(content_after_todo.length + 2),
+      list_marker = content_after_todo.list_marker,
+      indent = content_after_todo.indent,
+    })
+  else
+    new_todo = M._build_todo_line({
+      parent_prefix = current_prefix,
+      target_state = opts.target_state,
+      inherit_state = opts.inherit_state,
+      content = final_content,
+      list_marker = opts.list_marker,
+      indent = opts.indent,
+    })
+  end
 
   local hunk = diff.make_line_insert(insert_row, new_todo.line)
   table.insert(hunks, hunk)
@@ -1029,11 +1046,10 @@ end
 ---@field parent_prefix? checkmate.TodoPrefix | checkmate.ListItemPrefix Context from parent todo or list item (optional)
 ---@field target_state? string Explicit todo state (overrides `inherit_state`)
 ---@field inherit_state? boolean Inherit parent/current todo state
----@field content? string Text after the todo marker
+---@field content? string Text after the todo marker (excluding the leading space)
 ---@field list_marker? string Explicit list marker
----@field indent? boolean|integer|"nested" Indentation control
+---@field indent? boolean|integer|"nested" see |checkmate.CreateOptions| for behavior
 
---- Build a new todo line with the given options
 ---@private
 ---@param opts? BuildTodoLineOpts
 ---@return {line: string, indent: integer, marker: string, state: string}

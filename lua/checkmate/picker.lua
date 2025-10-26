@@ -106,6 +106,7 @@ function M.select(items, opts)
   end
 
   -- telescope
+  -- NOTE: tested with v0.1.8
   if (backend == nil or backend == "telescope") and has_module("telescope.pickers") then
     local ok = pcall(function()
       local pickers = require("telescope.pickers")
@@ -179,7 +180,9 @@ function M.select(items, opts)
     -- telescope failed, continue to next backend
   end
 
-  -- snacks
+  -- snacks.nvim
+  -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
+  -- NOTE: tested with v2.26.0
   if (backend == nil or backend == "snacks") and has_module("snacks") then
     local ok = pcall(function()
       local snacks = require("snacks")
@@ -206,6 +209,8 @@ function M.select(items, opts)
   end
 
   -- mini.pick
+  -- https://github.com/nvim-mini/mini.nvim/blob/main/readmes/mini-pick.md
+  -- NOTE: tested with v0.16.0
   if (backend == nil or backend == "mini") and has_module("mini.pick") then
     local ok = pcall(function()
       local pick = require("mini.pick")

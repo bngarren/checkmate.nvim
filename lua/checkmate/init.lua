@@ -403,38 +403,35 @@ end
 ---@class checkmate.CreateOptions
 ---
 --- Text content for new todo
---- In visual mode, replaces existing line content
---- Modes: all
+--- In visual mode, replaces existing line content if a `position` opt is nil. If a `position` is passed,
+--- then this will be the content of the new todo line.
 --- Default: ""
 ---@field content? string
 ---
 --- Where to place new todo relative to the current line
---- Modes: normal, insert
 --- Default: "below"
 ---@field position? "above"|"below"
 ---
 --- Explicit todo state, e.g. "checked", "unchecked", or custom state
 --- This will override `inherit_state`, i.e. `target_state` will be used instead of the state derived from origin/parent todo
---- Modes: all
 --- Default: "unchecked"
 ---@field target_state? string
 ---
 --- Whether to inherit state from parent/current todo
---- The "parent" todo is is the todo on the cursor line when `create` is called
---- Modes: normal, insert
+--- The "parent" todo is is the todo on the cursor line when `create` is called,
+--- or, in visual mode, the start or end of the selection when a `position` is used to create a new
+--- todo above or below the selection.
 --- Default: false (target_state is used)
 ---@field inherit_state? boolean
 ---
 --- Override list marker, e.g. "-", "*", "+", "1."
---- Modes: all
 --- Default: will use parent's type or fallback to config `default_list_marker`
 ---@field list_marker? string
 ---
 --- Indentation (whitespace before list marker)
----  - `false` (default): sibling - same indent as parent
----  - `true` or `"nested"`: child - indented under parent
+---  - `false` (default): sibling - same indent as parent/origin
+---  - `true` or `"nested"`: child - indented greater than parent/origin
 ---  - `integer`: explicit indent in spaces
---- Modes: normal, insert
 --- Default: false
 ---@field indent? boolean|integer|"nested"
 
@@ -445,15 +442,17 @@ end
 --- ## Normal Mode
 --- - **On non-todo line**: Converts line to todo (preserves text as content)
 ---   - With `position`: Creates new todo above/below, preserves original line
---- - **On todo line**: Creates sibling todo below
+--- - **On todo line**: Creates sibling todo below by default
 ---   - With `position="above"`: Creates sibling above
----   - With `indent=true`: Creates nested child
+---   - With `indent=true`: Creates nested todo (indented greater than parent/origin todo)
 ---
 --- ## Visual Mode
 --- - Converts each non-todo line in selection to a todo
 --- - Ignores lines that are already todos
---- - Options `position`, `indent`, `inherit_state` are ignored
---- - Option `content` replaces existing line text
+--- - If a `position` opt is also used, then will behave like normal mode, using the
+--- start or end of the selection when creating a new todo above or below.
+--- - Option `content` replaces existing line text, unless `position` is used, in which
+--- it behaves like normal mode, setting the text of the new todo
 ---
 --- ## Insert Mode
 --- - Creates new todo below (or above with `position="above"`)
@@ -501,32 +500,6 @@ function M.create(opts)
   local mode = util.get_mode()
   local is_insert = mode == "i"
   local is_visual = mode == "v"
-
-  -- validate opts based on the mode
-  if is_visual then
-    -- visual mode only supports limited opts
-    local allowed_opts = {
-      target_state = true,
-      list_marker = true,
-      content = true,
-    }
-
-    local visual_opts = {}
-    for k, v in pairs(opts) do
-      if allowed_opts[k] then
-        visual_opts[k] = v
-      else
-        -- warn
-        local ignored = { "position", "indent", "inherit_state" }
-        if vim.tbl_contains(ignored, k) then
-          log.fmt_debug("[main][create] Option '%s' is ignored in visual mode", k)
-        else
-          log.fmt_warn("[main][create] Unknown option '%s' in visual mode", k)
-        end
-      end
-    end
-    opts = visual_opts
-  end
 
   -- if we’re already inside a transaction, queue a create_todo for the current cursor row using normal mode behavior
   local ctx = transaction.current_context()
@@ -617,6 +590,9 @@ function M.create(opts)
         target_state = opts.target_state,
         list_marker = opts.list_marker,
         content = opts.content,
+        position = opts.position,
+        inherit_state = opts.inherit_state or false,
+        indent = opts.indent or false,
       })
     end)
 

@@ -590,15 +590,6 @@ function M.validate_options(opts)
     end
   end
 
-  if opts.todo_markers then
-    if type(opts.todo_markers) == "table" then
-      check("todo_markers.checked", opts.todo_markers.checked, validators.non_empty_string, true)
-      check("todo_markers.unchecked", opts.todo_markers.unchecked, validators.non_empty_string, true)
-    else
-      add_error("todo_markers", "must be table")
-    end
-  end
-
   if opts.style and type(opts.style) == "table" then
     for group, hl in pairs(opts.style) do
       if type(hl) ~= "table" then

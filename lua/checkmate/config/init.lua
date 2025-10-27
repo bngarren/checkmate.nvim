@@ -86,10 +86,6 @@ M.options = {}
 ---Note: mappings for metadata are set separately in the `metadata` table
 ---@field keys ( table<string, checkmate.KeymapConfig>| false )
 ---
----Characters for todo markers (checked and unchecked)
----@deprecated use todo_states
----@field todo_markers? checkmate.TodoMarkers
----
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
 ---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
@@ -221,18 +217,6 @@ M.options = {}
 ---
 --- The order in which this state is cycled (lower = first)
 ---@field order? number
-
------------------------------------------------------
-
---- DEPRECATED v0.10
----@deprecated use `todo_states`
----@class checkmate.TodoMarkers
----
----Character used for unchecked items
----@field unchecked string
----
----Character used for checked items
----@field checked string
 
 -----------------------------------------------------
 
@@ -465,27 +449,13 @@ function M.get_deprecations(user_opts)
 
   local res = {}
 
+  ---@diagnostic disable-next-line: unused-local
   local function add(msg)
     table.insert(res, msg)
   end
 
-  ---@deprecated v0.10.1
-  if user_opts.log and user_opts.log.use_buffer then
-    add("`config.log.use_buffer` has been removed. Use `use_file` to enable/disable logging.")
-  end
+  -- [add deprecations here]
 
-  ---@deprecated v0.10
-  if user_opts.todo_markers then
-    add("`config.todo_markers` is deprecated. Use `todo_states` instead.")
-  end
-
-  ---removed in v0.10
-  ---@diagnostic disable-next-line: undefined-field
-  if user_opts.todo_action_depth then
-    add(
-      "`config.todo_action_depth` has been removed (v0.10). Note, todos can now be interacted from any depth in their hierarchy"
-    )
-  end
   return res
 end
 
@@ -493,11 +463,12 @@ end
 ---@param current_opts checkmate.Config
 ---@param user_opts? checkmate.Config
 local function merge_deprecated_opts(current_opts, user_opts)
+  user_opts = user_opts or {}
+
+  --[[ Kept as an example (commented out in v0.12)
   -----------------------
   --- todo_markers
   ---@deprecated v0.10
-
-  user_opts = user_opts or {}
 
   -- if the user set todo_markers but did not explicitly override todo_states,
   -- build a new todo_states table from their markers, preserving the default order.
@@ -525,6 +496,7 @@ local function merge_deprecated_opts(current_opts, user_opts)
     checked = current_opts.todo_states.checked.marker,
   }
   -----------------------
+  ]]
 end
 
 ---@param opts? checkmate.Config

@@ -6,9 +6,6 @@ local ph = require("checkmate.parser.helpers")
 
 local M = {}
 
----@deprecated use checkmate.TodoState
----@alias checkmate.TodoItemState "checked" | "unchecked"
-
 --- @class TodoMarkerInfo
 --- @field position {row: integer, col: integer} Position of the marker (0-indexed)
 --- @field text string The marker text (e.g., "□" or "✓")

@@ -29,6 +29,26 @@ describe("Parser Helpers", function()
     cm.stop()
   end)
 
+  describe("util", function()
+    it("should correctly calculate todo prefix length", function()
+      local cases = {
+        {
+          line = "  - [ ] Test",
+          expected = 7,
+        },
+        {
+          line = "    200. [x] Test",
+          expected = 12,
+        },
+      }
+
+      for _, case in ipairs(cases) do
+        local res = h.exists(ph.match_todo(case.line))
+        assert.equal(case.expected, res.length)
+      end
+    end)
+  end)
+
   describe("create_list_item_patterns", function()
     it("should create a list item pattern for each default bullet marker with capture groups", function()
       local patterns = ph.create_list_item_patterns({ include_ordered_markers = false })
@@ -513,6 +533,7 @@ describe("Parser Helpers", function()
             todo_marker = "[ ]",
             is_markdown = true,
             state = "unchecked",
+            length = 5,
           },
         },
         {
@@ -523,6 +544,7 @@ describe("Parser Helpers", function()
             todo_marker = "[x]",
             is_markdown = true,
             state = "checked",
+            length = 7,
           },
         },
         {
@@ -533,6 +555,7 @@ describe("Parser Helpers", function()
             todo_marker = "[X]",
             is_markdown = true,
             state = "checked",
+            length = 10,
           },
         },
       }
@@ -554,6 +577,7 @@ describe("Parser Helpers", function()
             todo_marker = "[.]",
             is_markdown = true,
             state = "pending",
+            length = 5,
           },
         },
       }
@@ -574,6 +598,7 @@ describe("Parser Helpers", function()
             todo_marker = "[x]",
             is_markdown = true,
             state = "checked",
+            length = 5,
           },
         },
         {
@@ -604,6 +629,7 @@ describe("Parser Helpers", function()
             todo_marker = unchecked,
             state = "unchecked",
             is_markdown = false,
+            length = 2 + #unchecked,
           },
         },
         {
@@ -614,6 +640,7 @@ describe("Parser Helpers", function()
             todo_marker = checked,
             state = "checked",
             is_markdown = false,
+            length = 2 + #checked,
           },
         },
         {
@@ -624,6 +651,7 @@ describe("Parser Helpers", function()
             todo_marker = pending,
             state = "pending",
             is_markdown = false,
+            length = 5 + #pending,
           },
         },
         {
@@ -634,6 +662,7 @@ describe("Parser Helpers", function()
             todo_marker = "[ ]",
             state = "unchecked",
             is_markdown = true,
+            length = 5,
           },
         },
         {
@@ -644,6 +673,7 @@ describe("Parser Helpers", function()
             state = "checked",
             is_markdown = true,
             todo_marker = "[x]",
+            length = 7,
           },
         },
         {
@@ -654,6 +684,7 @@ describe("Parser Helpers", function()
             state = "pending",
             is_markdown = true,
             todo_marker = "[.]",
+            length = 11,
           },
         },
       }

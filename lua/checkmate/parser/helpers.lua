@@ -12,6 +12,17 @@ local M = {}
 ---@field state string Todo state
 ---@field is_markdown boolean If true, todo is represented as raw Markdown rather than unicode or other
 ---@field todo_marker string
+---Byte length of the prefix, i.e., indent + list_marker + 1 space + todo_marker.
+---Thus, `string:sub(length + 1)` will return the substring of the todo line immediately after the todo_marker
+---@field length integer
+
+-- return the number of bytes of (indent + list marker + 1 space + todo marker)
+function M.calc_todo_prefix_length(indent, list_marker, todo_marker)
+  indent = type(indent) == "string" and #indent or indent or 0
+  list_marker = type(list_marker) == "string" and #list_marker or list_marker
+  todo_marker = type(todo_marker) == "string" and #todo_marker or todo_marker
+  return indent + list_marker + 1 + todo_marker
+end
 
 --- Returns a structured result on the first pattern match
 ---  - Check the `result.matched` to see if a pattern matched
@@ -235,12 +246,14 @@ function M.match_markdown_checkbox(line, opts)
         -- see `M.create_markdown_checkbox_patterns`
         --   1) indent, 2) raw list-marker + first whitespace, 3) the "[ ]" or "[x]" token
         local indent_str, marker, raw = result:unpack()
+        local prefix_length = M.calc_todo_prefix_length(indent_str, vim.trim(marker), raw)
         return {
           indent = #indent_str,
           list_marker = vim.trim(marker),
           state = state_name,
           is_markdown = true,
           todo_marker = raw,
+          length = prefix_length,
         }
       end
     end
@@ -264,12 +277,14 @@ function M.match_todo(line)
 
       for state_name, state in pairs(config.options.todo_states) do
         if state.marker == todo_marker then
+          local prefix_length = M.calc_todo_prefix_length(indent_ws, list_marker, todo_marker)
           return {
             indent = #indent_ws,
             list_marker = list_marker,
             state = state_name,
             is_markdown = false,
             todo_marker = todo_marker,
+            length = prefix_length,
           }
         end
       end
@@ -279,12 +294,14 @@ function M.match_todo(line)
   -- 2. try to match Markdown style todo
   local md_todo = M.match_markdown_checkbox(line)
   if md_todo then
+    local prefix_length = M.calc_todo_prefix_length(md_todo.indent, md_todo.list_marker, md_todo.todo_marker)
     return {
       indent = md_todo.indent,
       list_marker = md_todo.list_marker,
       state = md_todo.state,
       is_markdown = true,
       todo_marker = md_todo.todo_marker,
+      length = prefix_length,
     }
   end
   return nil
@@ -297,6 +314,7 @@ end
 function M._item_to_prefix(item)
   local state_config = config.options.todo_states[item.state]
   local todo_marker = state_config and state_config.marker or item.todo_marker.text
+  local prefix_length = M.calc_todo_prefix_length(item.range.start.col, item.list_marker.text, todo_marker)
 
   return {
     indent = item.range.start.col,
@@ -304,6 +322,7 @@ function M._item_to_prefix(item)
     state = item.state,
     is_markdown = false,
     todo_marker = todo_marker,
+    length = prefix_length,
   }
 end
 

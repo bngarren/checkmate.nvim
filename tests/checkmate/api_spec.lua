@@ -698,7 +698,7 @@ Some other content]]
         })
       end)
 
-      it("should apply visual mode options", function()
+      it("should apply visual mode options correctly", function()
         local lines = { "Line 1", "Line 2" }
 
         -- target_state
@@ -734,6 +734,20 @@ Some other content]]
           expected = {
             todo_line({ text = "Replaced" }),
             todo_line({ text = "Replaced" }),
+          },
+        })
+
+        -- using position
+        -- this should make it behave like normal mode, creating a new todo above without any line conversion
+        test_create_scenario({
+          name = "use position to create new todo",
+          lines = lines,
+          selection = { 1, 0, 2, 0, "V" },
+          create_opts = { position = "above", content = "Test" },
+          expected = {
+            todo_line({ text = "Test" }),
+            "Line 1",
+            "Line 2",
           },
         })
       end)

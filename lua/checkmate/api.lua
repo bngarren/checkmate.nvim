@@ -814,17 +814,29 @@ function M.is_valid_buffer(bufnr)
   return true
 end
 
---- Creates todo(s) by converting non-todo lines within the range
+--- Creates todo(s) by converting non-todo lines within the range, or
+--- if a `position` opt is passed, call `create_todo_normal`
 ---@param ctx checkmate.TransactionContext
 ---@param start_row integer start of the selection
 ---@param end_row integer end of the selection
----@param opts? {target_state?: string, list_marker?: string, content?: string}
+---@param opts? checkmate.CreateOptionsInternal
 ---@return checkmate.TextDiffHunk[] hunks
 function M.create_todos_visual(ctx, start_row, end_row, opts)
   opts = opts or {}
   local bufnr = ctx.get_buf()
   local hunks = {}
 
+  -- if `position` opt is used, we behave like `create_todo_normal` and add a todo
+  -- above or below the selection
+  -- this means we don't convert any lines in the selection
+  local position = opts.position
+  if position and position == "above" or position == "below" then
+    local _hunks = M.create_todo_normal(ctx, start_row, opts)
+    vim.list_extend(hunks, _hunks)
+    return hunks
+  end
+
+  -- line conversions
   for row = start_row, end_row do
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 

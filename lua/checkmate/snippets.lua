@@ -50,7 +50,7 @@ end
 local function make_todo_string(opts)
   opts = opts or {}
   local list_marker = opts.list_marker or config.options.default_list_marker
-  local unchecked = config.options.todo_markers.unchecked
+  local unchecked = config.options.todo_states.unchecked.marker
   local indent = string.rep(" ", opts.indent or 0)
   return indent .. list_marker .. " " .. unchecked .. " "
 end

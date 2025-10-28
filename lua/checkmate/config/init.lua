@@ -389,15 +389,15 @@ M.options = {}
 ---
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
----@field on_add? fun(todo_item: checkmate.TodoItem)
+---@field on_add? fun(todo_item: checkmate.Todo)
 ---
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
----@field on_remove? fun(todo_item: checkmate.TodoItem)
+---@field on_remove? fun(todo_item: checkmate.Todo)
 ---
----Callback to run when this metadata tag's value is changed (not on initial add or removal)
+---Callback to run when this metadata tag's value is programatically changed (not on initial add or removal)
 ---Receives the todo item, old value, and new value
----@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
+---@field on_change? fun(todo_item: checkmate.Todo, old_value: string, new_value: string)
 
 -----------------------------------------------------
 

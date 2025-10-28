@@ -735,7 +735,7 @@ function M.build_todo(todo_item)
 
   ---@type checkmate.Todo
   return {
-    _todo_item = todo_item,
+    row = todo_item.range.start.row,
     state = todo_item.state,
     text = todo_item.todo_text,
     indent = todo_item.range.start.col,
@@ -745,6 +745,7 @@ function M.build_todo(todo_item)
     is_checked = is_checked,
     get_metadata = get_metadata,
     get_parent = get_parent,
+    _todo_item = todo_item,
   }
 end
 

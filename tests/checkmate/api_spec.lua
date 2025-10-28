@@ -158,10 +158,10 @@ describe("API", function()
       local todo_map = parser.discover_todos(bufnr)
       local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
 
-      assert.is_not_nil(task_2)
-      ---@cast task_2 checkmate.TodoItem
+      task_2 = h.exists(task_2)
+      local task_2_todo = util.build_todo(task_2)
 
-      local success = require("checkmate").set_todo_item(task_2, "checked")
+      local success = require("checkmate").set_todo_state(task_2_todo, "checked")
       assert.is_true(success)
 
       vim.cmd("write")
@@ -2123,9 +2123,9 @@ Some other content]]
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               bulk = {
-                on_add = function(todo_item)
+                on_add = function(todo)
                   -- record the todo's line (1-based)
-                  table.insert(on_add_calls, todo_item.range.start.row + 1)
+                  table.insert(on_add_calls, todo.row + 1)
                 end,
                 select_on_insert = false,
               },
@@ -2585,13 +2585,13 @@ Some other content]]
       local todo_map = parser.discover_todos(bufnr)
 
       -- Find parent todo
-      local parent_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Parent task")
-      assert.is_not_nil(parent_todo)
-      ---@cast parent_todo checkmate.TodoItem
+      local parent_todo_item = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Parent task")
+      parent_todo_item = h.exists(parent_todo_item)
+      local parent_todo = util.build_todo(parent_todo_item)
 
-      assert.equal(3, #parent_todo.children)
+      assert.equal(3, #parent_todo_item.children)
 
-      require("checkmate").set_todo_item(parent_todo, "checked")
+      require("checkmate").set_todo_state(parent_todo, "checked")
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 

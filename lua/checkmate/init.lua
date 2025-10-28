@@ -147,7 +147,7 @@ end
 -- Public Types
 
 ---@class checkmate.Todo
----@field _todo_item checkmate.TodoItem internal representation
+---@field row integer 0-based row of the todo (the line containing the list marker and todo marker)
 ---@field state string Todo state, e.g. "checked", "unchecked", or custom state like "pending". See config `todo_states`
 ---@field text string First line of the todo
 ---@field indent number Number of spaces before the list marker
@@ -157,6 +157,7 @@ end
 ---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 ---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
+---@field _todo_item checkmate.TodoItem internal representation (use at your own risk)
 
 ---@class checkmate.MetadataContext
 ---@field name string Metadata tag name
@@ -183,7 +184,7 @@ end
 --- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states.
 --- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent
 --- - To switch to states other than the default unchecked/checked, you can pass a {target_state} or use the `cycle()` API.
---- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_item`.
+--- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_state`.
 ---
 ---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc. See `checkmate.Config.todo_states`.
 ---@return boolean success
@@ -310,16 +311,29 @@ end
 ---
 --- To toggle state of todos under cursor or in linewise selection, use `toggle()`
 ---
----@param todo_item checkmate.TodoItem Todo item to set state
+---@param todo_item checkmate.TodoItem|checkmate.Todo Todo item to set state
 ---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
 ---@return boolean success
 function M.set_todo_item(todo_item, target_state)
-  local util = require("checkmate.util")
-  local todo = util.build_todo(todo_item)
   vim.notify_once(
     "Checkmate: 'set_todo_item' is deprecated since v0.12.0,\nuse `set_todo_state` instead.",
     vim.log.levels.WARN
   )
+
+  local util = require("checkmate.util")
+  local todo
+  if todo_item.id then
+    local ok, res = pcall(util.build_todo, todo_item --[[@as checkmate.TodoItem]])
+    if ok then
+      todo = res
+    else
+      vim.notify("Checkmate: Invalid `todo_item` provided to 'set_todo_item: %s'", res)
+      return false
+    end
+  else
+    todo = todo_item --[[@as checkmate.Todo]]
+  end
+
   return M.set_todo_state(todo, target_state)
 end
 

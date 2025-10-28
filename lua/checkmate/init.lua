@@ -178,7 +178,7 @@ function M.enable()
   M.setup(user_opts)
 end
 
---- Toggle todo item(s) state under cursor or in visual selection
+--- Toggle todo item(s) state under cursor or per todo in visual selection
 ---
 --- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states.
 --- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent
@@ -250,7 +250,7 @@ function M.toggle(target_state)
   return true
 end
 
---- Sets a specific todo item to a specific state
+--- Set a specific todo item to a specific state
 ---
 --- To toggle state of todos under cursor or in linewise selection, use `toggle()`
 ---
@@ -305,7 +305,7 @@ function M.set_todo_item(todo_item, target_state)
   return true
 end
 
---- Set todo item to checked state
+--- Set todo item(s) to checked state
 ---
 --- See `toggle()`
 ---@return boolean success
@@ -313,7 +313,7 @@ function M.check()
   return M.toggle("checked")
 end
 
---- Set todo item to unchecked state
+--- Set todo item(s) to unchecked state
 ---
 --- See `toggle()`
 ---@return boolean success
@@ -321,7 +321,7 @@ function M.uncheck()
   return M.toggle("unchecked")
 end
 
---- Change a todo item(s) state to the next or previous state
+--- Change todo item(s) state to the next or previous state
 ---
 --- - Will act on the todo item under the cursor or all todo items within a visual selection
 --- - Refer to docs for `checkmate.Config.todo_states`. If no custom states are defined, this will act similar to `toggle()`, i.e., changing state between "unchecked" and "checked". However, unlike `toggle`, `cycle` will not propagate state changes to nearby todos ("smart toggle") unless `checkmate.Config.smart_toggle.include_cycle` is true.
@@ -727,21 +727,20 @@ function M.remove(opts)
   end)
 end
 
---- Insert a metadata tag into a todo item(s) under the cursor or per todo in the visual selection
+--- Insert metadata into todo item(s) under the cursor or per todo in the visual selection
+---
+--- If the metadata already exists on the todo, this will update the value to match the new value (upsert behavior).
+---
+--- If you desire update-only behavior, see `update_metadata()`.
 ---@param metadata_name string Name of the metadata tag (defined in the config)
----@param value string? Value contained in the tag
+---@param value string? (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
 ---@return boolean success
 function M.add_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
-  local config = require("checkmate.config")
   local util = require("checkmate.util")
 
-  local meta_props = config.options.metadata[metadata_name]
-  if not meta_props then
-    util.notify("Unknown metadata tag: " .. metadata_name, vim.log.levels.WARN)
-    return false
-  end
+  H.ensure_metadata_exists(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -783,13 +782,17 @@ function M.add_metadata(metadata_name, value)
   return true
 end
 
---- Remove a metadata tag from a todo item at the cursor or per todo in the visual selection
+--- Remove metadata from todo item(s) under the cursor or per todo in the visual selection
+---
+--- To remove **all** metadata from todo(s), use `remove_all_metadata()`
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 ---@return boolean success
 function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
+
+  H.ensure_metadata_exists(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -830,7 +833,9 @@ function M.remove_metadata(metadata_name)
   return true
 end
 
----Removes all metadata from a todo item(s) under the cursor or include in visual selection
+--- Remove all metadata from todo item(s) under the cursor or per todo in visual selection
+---
+--- To remove _specific_ metadata from todo(s), see `remove_metadata()`
 ---@return boolean success
 function M.remove_all_metadata()
   local api = require("checkmate.api")
@@ -876,15 +881,88 @@ function M.remove_all_metadata()
   return true
 end
 
---- Toggle a metadata tag on/off for todo item under the cursor or for each todo in the visual selection
----@param meta_name string Name of the metadata tag (defined in the config)
----@param custom_value string? (Optional) Value contained in tag. If nil, will attempt to get default value from get_value()
+--- Update existing metadata value for todo item(s) under the cursor or per todo in visual selection.
+---
+--- If the metadata doesn't exist on a todo item, no change is made to that item.
+---
+--- If you want to ensure a metadata tag/value is updated **OR** added (upsert behavior), use `add_metadata()`.
+---
+---@param metadata_name string The metadata tag name
+---@param new_value? string (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
 ---@return boolean success
-function M.toggle_metadata(meta_name, custom_value)
+function M.update_metadata(metadata_name, new_value)
+  local api = require("checkmate.api")
+  local util = require("checkmate.util")
+  local transaction = require("checkmate.transaction")
+
+  H.ensure_metadata_exists(metadata_name)
+
+  local ctx = transaction.current_context()
+  if ctx then
+    -- within existing transaction
+    local parser = require("checkmate.parser")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local bufnr = ctx.get_buf()
+    local todo_item =
+      parser.get_todo_item_at_position(bufnr, cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
+
+    if todo_item then
+      local has_metadata = todo_item.metadata.by_tag[metadata_name] ~= nil
+      if has_metadata then
+        ctx.add_op(api.add_metadata, {
+          { id = todo_item.id, meta_name = metadata_name, meta_value = new_value },
+        })
+      end
+    end
+    return true
+  end
+
+  local is_visual = util.is_visual_mode()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local todo_items, _ = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    util.notify("No todo items found", vim.log.levels.WARN)
+    return false
+  end
+
+  -- filter only items that have the metadata
+  local operations = {}
+
+  for _, item in ipairs(todo_items) do
+    local has_metadata = item.metadata.by_tag[metadata_name] ~= nil
+    if has_metadata then
+      table.insert(operations, {
+        id = item.id,
+        meta_name = metadata_name,
+        meta_value = new_value,
+      })
+    end
+  end
+
+  if #operations == 0 then
+    util.notify(string.format("No todo items found with metadata '%s'", metadata_name), vim.log.levels.WARN)
+    return false
+  end
+
+  transaction.run(bufnr, function(_ctx)
+    _ctx.add_op(api.add_metadata, operations)
+  end)
+
+  return true
+end
+
+--- Toggle metadata for todo item(s) under the cursor or per todo in the visual selection
+---@param metadata_name string Name of the metadata tag (defined in the config)
+---@param value string? (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
+---@return boolean success
+function M.toggle_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
   local profiler = require("checkmate.profiler")
+
+  H.ensure_metadata_exists(metadata_name)
 
   profiler.start("M.toggle_metadata")
 
@@ -896,7 +974,7 @@ function M.toggle_metadata(meta_name, custom_value)
     local todo_item =
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
-      ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = meta_name, custom_value = custom_value } })
+      ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = metadata_name, custom_value = value } })
     end
     profiler.stop("M.toggle_metadata")
     return true
@@ -916,8 +994,8 @@ function M.toggle_metadata(meta_name, custom_value)
   for _, item in ipairs(todo_items) do
     table.insert(operations, {
       id = item.id,
-      meta_name = meta_name,
-      custom_value = custom_value,
+      meta_name = metadata_name,
+      custom_value = value,
     })
   end
 
@@ -1355,6 +1433,25 @@ function H.setup_existing_markdown_buffers()
   if count > 0 then
     log.fmt_info("[main] %d existing Checkmate buffers found during startup: %s", count, existing_buffers)
   end
+end
+
+--- Checks that is metadata tag name (internally using it's canonical name)
+--- exists in the config.metadata
+---@return boolean exists
+function H.ensure_metadata_exists(metadata_name)
+  local meta_mod = require("checkmate.metadata")
+  local log = require("checkmate.log")
+
+  metadata_name = meta_mod.get_canonical_name(metadata_name) or ""
+  if #metadata_name == 0 then
+    log.fmt_warn(
+      "[main] Cannot update metadata with name '%s' as it does not exist. Is it defined in the `config.metadata`?",
+      metadata_name
+    )
+    return false
+  end
+
+  return true
 end
 
 return M

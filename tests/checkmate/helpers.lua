@@ -250,6 +250,7 @@ function M.get_todo_at_cursor(bufnr)
 end
 
 --- Create a visual selection from (row1, col1) to (row2, col2)
+--- 1 based rows, 0 based col
 --- @param row1 integer Start row (1-based)
 --- @param col1 integer Start column (0-based)
 --- @param row2 integer End row (1-based)

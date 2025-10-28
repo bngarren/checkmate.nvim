@@ -1,4 +1,4 @@
-*checkmate.txt*        For Neovim >= 0.10.0       Last change: 2025 October 25
+*checkmate.txt*        For Neovim >= 0.10.0       Last change: 2025 October 28
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -9,7 +9,6 @@ Table of Contents                                *checkmate-table-of-contents*
 3. Commands                                               |checkmate-commands|
 4. Config                                                   |checkmate-config|
   - Defaults                                       |checkmate-config-defaults|
-  - Keymapping                                   |checkmate-config-keymapping|
   - Styling                                         |checkmate-config-styling|
   - Todo states                                 |checkmate-config-todo-states|
   - Todo count indicator               |checkmate-config-todo-count-indicator|
@@ -90,7 +89,7 @@ version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>:
 
 >
     {
-      version = "~0.11.0" -- pins to minor 0.11.x
+      version = "~0.12.0" -- pins to minor 0.12.x
     }
 <
 
@@ -267,216 +266,74 @@ For config definitions/annotations, see here
 
 DEFAULTS                                           *checkmate-config-defaults*
 
->lua
-    ---@type checkmate.Config
-    return {
-      enabled = true,
-      notify = true,
-      -- Default file matching:
-      --  - Any `todo` or `TODO` file, including with `.md` extension
-      --  - Any `.todo` extension (can be ".todo" or ".todo.md")
-      -- To activate Checkmate, the filename must match AND the filetype must be "markdown"
-      files = {
-        "todo",
-        "TODO",
-        "todo.md",
-        "TODO.md",
-        "*.todo",
-        "*.todo.md",
-      },
-      log = {
-        level = "warn",
-        use_file = true,
-      },
-      -- Default keymappings
-      keys = {
-        ["<leader>Tt"] = {
-          rhs = "<cmd>Checkmate toggle<CR>",
-          desc = "Toggle todo item",
-          modes = { "n", "v" },
-        },
-        ["<leader>Tc"] = {
-          rhs = "<cmd>Checkmate check<CR>",
-          desc = "Set todo item as checked (done)",
-          modes = { "n", "v" },
-        },
-        ["<leader>Tu"] = {
-          rhs = "<cmd>Checkmate uncheck<CR>",
-          desc = "Set todo item as unchecked (not done)",
-          modes = { "n", "v" },
-        },
-        ["<leader>T="] = {
-          rhs = "<cmd>Checkmate cycle_next<CR>",
-          desc = "Cycle todo item(s) to the next state",
-          modes = { "n", "v" },
-        },
-        ["<leader>T-"] = {
-          rhs = "<cmd>Checkmate cycle_previous<CR>",
-          desc = "Cycle todo item(s) to the previous state",
-          modes = { "n", "v" },
-        },
-        ["<leader>Tn"] = {
-          rhs = "<cmd>Checkmate create<CR>",
-          desc = "Create todo item",
-          modes = { "n", "v" },
-        },
-        ["<leader>Tr"] = {
-          rhs = "<cmd>Checkmate remove<CR>",
-          desc = "Remove todo marker (convert to text)",
-          modes = { "n", "v" },
-        },
-        ["<leader>TR"] = {
-          rhs = "<cmd>Checkmate remove_all_metadata<CR>",
-          desc = "Remove all metadata from a todo item",
-          modes = { "n", "v" },
-        },
-        ["<leader>Ta"] = {
-          rhs = "<cmd>Checkmate archive<CR>",
-          desc = "Archive checked/completed todo items (move to bottom section)",
-          modes = { "n" },
-        },
-        ["<leader>Tv"] = {
-          rhs = "<cmd>Checkmate metadata select_value<CR>",
-          desc = "Update the value of a metadata tag under the cursor",
-          modes = { "n" },
-        },
-        ["<leader>T]"] = {
-          rhs = "<cmd>Checkmate metadata jump_next<CR>",
-          desc = "Move cursor to next metadata tag",
-          modes = { "n" },
-        },
-        ["<leader>T["] = {
-          rhs = "<cmd>Checkmate metadata jump_previous<CR>",
-          desc = "Move cursor to previous metadata tag",
-          modes = { "n" },
-        },
-      },
-      default_list_marker = "-",
-      todo_states = {
-        -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
-        ---@diagnostic disable-next-line: missing-fields
-        unchecked = {
-          marker = "□",
-          order = 1,
-        },
-        ---@diagnostic disable-next-line: missing-fields
-        checked = {
-          marker = "✔",
-          order = 2,
-        },
-      },
-      style = {}, -- override defaults
-      enter_insert_after_new = true, -- Should enter INSERT mode after `:Checkmate create` (new todo)
-      list_continuation = {
-        enabled = true,
-        split_line = true,
-        keys = {
-          ["<CR>"] = function()
-            require("checkmate").create({
-              position = "below",
-              indent = false,
-            })
-          end,
-          ["<S-CR>"] = function()
-            require("checkmate").create({
-              position = "below",
-              indent = true,
-            })
-          end,
-        },
-      },
-      smart_toggle = {
-        enabled = true,
-        include_cycle = false,
-        check_down = "direct_children",
-        uncheck_down = "none",
-        check_up = "direct_children",
-        uncheck_up = "direct_children",
-      },
-      show_todo_count = true,
-      todo_count_position = "eol",
-      todo_count_recursive = true,
-      use_metadata_keymaps = true,
-      metadata = {
-        -- Example: A @priority tag that has dynamic color based on the priority value
-        priority = {
-          style = function(context)
-            local value = context.value:lower()
-            if value == "high" then
-              return { fg = "#ff5555", bold = true }
-            elseif value == "medium" then
-              return { fg = "#ffb86c" }
-            elseif value == "low" then
-              return { fg = "#8be9fd" }
-            else -- fallback
-              return { fg = "#8be9fd" }
-            end
-          end,
-          get_value = function()
-            return "medium" -- Default priority
-          end,
-          choices = function()
-            return { "low", "medium", "high" }
-          end,
-          key = "<leader>Tp",
-          sort_order = 10,
-          jump_to_on_insert = "value",
-          select_on_insert = true,
-        },
-        -- Example: A @started tag that uses a default date/time string when added
-        started = {
-          aliases = { "init" },
-          style = { fg = "#9fd6d5" },
-          get_value = function()
-            return tostring(os.date("%m/%d/%y %H:%M"))
-          end,
-          key = "<leader>Ts",
-          sort_order = 20,
-        },
-        -- Example: A @done tag that also sets the todo item state when it is added and removed
-        done = {
-          aliases = { "completed", "finished" },
-          style = { fg = "#96de7a" },
-          get_value = function()
-            return tostring(os.date("%m/%d/%y %H:%M"))
-          end,
-          key = "<leader>Td",
-          on_add = function(todo_item)
-            require("checkmate").set_todo_item(todo_item, "checked")
-          end,
-          on_remove = function(todo_item)
-            require("checkmate").set_todo_item(todo_item, "unchecked")
-          end,
-          sort_order = 30,
-        },
-      },
-      archive = {
-        heading = {
-          title = "Archive",
-          level = 2, -- e.g. ##
-        },
-        parent_spacing = 0, -- no extra lines between archived todos
-        newest_first = true,
-      },
-      linter = {
-        enabled = true,
-      },
-    }
-<
+—@type checkmate.Config return { enabled = true, notify = true, – Default
+file matching: – - Any `todo` or `TODO` file, including with `.md` extension
+– - Any `.todo` extension (can be ".todo" or ".todo.md") – To activate
+Checkmate, the filename must match AND the filetype must be "markdown" files =
+{ "todo", "TODO", "todo.md", "TODO.md", "_.todo”, ”_.todo.md", }, log = {
+level = "warn", use_file = true, }, – Default keymappings keys = { ["Tt"] = {
+rhs = "Checkmate toggle", desc = "Toggle todo item", modes = { "n", "v" }, },
+["Tc"] = { rhs = "Checkmate check", desc = "Set todo item as checked (done)",
+modes = { "n", "v" }, }, ["Tu"] = { rhs = "Checkmate uncheck", desc = "Set todo
+item as unchecked (not done)", modes = { "n", "v" }, }, ["T="] = { rhs =
+"Checkmate cycle_next", desc = "Cycle todo item(s) to the next state", modes =
+{ "n", "v" }, }, ["T-"] = { rhs = "Checkmate cycle_previous", desc = "Cycle
+todo item(s) to the previous state", modes = { "n", "v" }, }, ["Tn"] = { rhs =
+"Checkmate create", desc = "Create todo item", modes = { "n", "v" }, }, ["Tr"]
+= { rhs = "Checkmate remove", desc = "Remove todo marker (convert to text)",
+modes = { "n", "v" }, }, ["TR"] = { rhs = "Checkmate remove_all_metadata", desc
+= "Remove all metadata from a todo item", modes = { "n", "v" }, }, ["Ta"] = {
+rhs = "Checkmate archive", desc = "Archive checked/completed todo items (move
+to bottom section)", modes = { "n" }, }, ["Tv"] = { rhs = "Checkmate metadata
+select_value", desc = "Update the value of a metadata tag under the cursor",
+modes = { "n" }, }, [“T]"] = { rhs ="Checkmate metadata jump_next", desc
+="Move cursor to next metadata tag”, modes = { "n" }, }, ["T[”] = { rhs
+="Checkmate metadata jump_previous", desc ="Move cursor to previous metadata
+tag”, modes = { "n" }, }, }, default_list_marker = "-", todo_states = { –
+we don’t need to set the `markdown` field for `unchecked` and `checked` as
+these can’t be overriden —@diagnostic disable-next-line: missing-fields
+unchecked = { marker = "", order= 1, }, —@diagnostic disable-next-line:
+missing-fields checked = { marker = "", order= 2, }, }, style = {}, –
+override defaults enter_insert_after_new = true, – Should enter INSERT mode
+after `:Checkmate create` (new todo) list_continuation = { enabled = true,
+split_line = true, keys = { [""] = function() require("checkmate").create({
+position = "below", indent = false, }) end, [""] = function()
+require("checkmate").create({ position = "below", indent = true, }) end, }, },
+smart_toggle = { enabled = true, include_cycle = false, check_down =
+"direct_children", uncheck_down = "none", check_up = "direct_children",
+uncheck_up = "direct_children", }, show_todo_count = true, todo_count_position
+= "eol", todo_count_recursive = true, use_metadata_keymaps = true, metadata = {
+– Example: A @priority tag that has dynamic color based on the priority value
+priority = { style = function(context) local value = context.value:lower() if
+value == "high" then return { fg = "#ff5555", bold = true } elseif value ==
+"medium" then return { fg = "#ffb86c" } elseif value == "low" then return { fg
+= "#8be9fd" } else – fallback return { fg = "#8be9fd" } end end, get_value =
+function() return "medium" – Default priority end, choices = function()
+return { "low", "medium", "high" } end, key = "Tp", sort_order = 10,
+jump_to_on_insert = "value", select_on_insert = true, }, – Example: A
+@started tag that uses a default date/time string when added started = {
+aliases = { "init" }, style = { fg = "#9fd6d5" }, get_value = function() return
+tostring(os.date("%m/%d/%y %H:%M")) end, key = "Ts", sort_order = 20, }, –
+Example: A @done tag that also sets the todo item state when it is added and
+removed done = { aliases = { "completed", "finished" }, style = { fg =
+"#96de7a" }, get_value = function() return tostring(os.date("%m/%d/%y %H:%M"))
+end, key = "Td", on_add = function(todo)
+require("checkmate").set_todo_state(todo, "checked") end, on_remove =
+function(todo) require("checkmate").set_todo_state(todo, "unchecked") end,
+sort_order = 30, }, }, archive = { heading = { title = "Archive", level = 2,
+– e.g. ## }, parent_spacing = 0, – no extra lines between archived todos
+newest_first = true, }, linter = { enabled = true, }, }
 
-
-KEYMAPPING                                       *checkmate-config-keymapping*
-
-Default keymaps can be disabled by setting `keys = false`.
-
-The `keys` table overrides the defaults (does not merge). If you want some
-custom and some defaults, you need to copy the defaults into your own `keys`
-table.
-
-Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?,
-modes?}`.
-
->lua
+>
+    
+    ## Keymapping
+    Default keymaps can be disabled by setting `keys = false`.
+    
+    The `keys` table overrides the defaults (does not merge). If you want some custom and some defaults, you need to copy the defaults into your own `keys` table.
+    
+    Keymaps should be defined as a dict-like table or a sequence of `{rhs, desc?, modes?}`.
+    
+    ```lua
     keys = {
       ["<leader>Ta"] = {
           rhs = "<cmd>Checkmate archive<CR>",
@@ -788,6 +645,27 @@ By configuring a metadata’s `choices` option, you can populate your own lists
 of metadata values for powerful workflows, e.g. project file names, Git
 branches, PR’s, issues, etc., team member names, external APIs, etc.
 
+Alternatively, you can call `select_metadata_value()` and pass a custom picker
+function and use the selected item to update your metadata!
+
+>lua
+    -- Update metadata under the cursor using a snacks.nvim picker
+    require("checkmate").select_metadata_value({
+      picker_fn = function(ctx, complete)
+        require("snacks").picker.files({
+          confirm = function(picker, item)
+            if item then
+              vim.schedule(function()
+                complete(item.text)
+              end)
+            end
+            picker:close()
+          end,
+        })
+      end,
+    })
+<
+
 For in-depth guide and recipes for custom metadata, see the Wiki
 <https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata> page.
 
@@ -977,10 +855,16 @@ GitHub!
 2. *@done*: 
 3. *@priority*: 
 4. *@your-custom-tag*: 
-5. *@start*: 
-6. *@done*: 
-7. *@due*: 
+5. *@type*: 
+6. *@diagnostic*: 
+7. *@diagnostic*: 
 8. *@priority*: 
+9. *@started*: 
+10. *@done*: 
+11. *@start*: 
+12. *@done*: 
+13. *@due*: 
+14. *@priority*: 
 
 Generated by panvimdoc <https://github.com/kdheepak/panvimdoc>
 

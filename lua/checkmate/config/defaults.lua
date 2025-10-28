@@ -171,11 +171,11 @@ return {
         return tostring(os.date("%m/%d/%y %H:%M"))
       end,
       key = "<leader>Td",
-      on_add = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "checked")
+      on_add = function(todo)
+        require("checkmate").set_todo_state(todo, "checked")
       end,
-      on_remove = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "unchecked")
+      on_remove = function(todo)
+        require("checkmate").set_todo_state(todo, "unchecked")
       end,
       sort_order = 30,
     },

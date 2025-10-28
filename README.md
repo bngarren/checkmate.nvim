@@ -27,7 +27,7 @@ A Markdown-based todo/task plugin for Neovim.
 - Todo templates with LuaSnip snippet integration
 - Custom todo states
   - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
-- 🆕 Automatic todo creation (list continuation in insert mode)
+- Automatic todo creation (list continuation in insert mode)
 
 > [!NOTE]
 > Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
@@ -91,7 +91,7 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 If you'd like _stable-ish_ version during pre-release, can add a minor version to the [lazy spec](https://lazy.folke.io/spec#spec-versioning):
 ```
 {
-  version = "~0.11.0" -- pins to minor 0.11.x
+  version = "~0.12.0" -- pins to minor 0.12.x
 }
 ```
 <a id="usage"><a/>
@@ -185,7 +185,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 For config definitions/annotations, see [here](https://github.com/bngarren/checkmate.nvim/blob/main/lua/checkmate/config/init.lua#L34).
 
 ## Defaults
-```lua
 ---@type checkmate.Config
 return {
   enabled = true,
@@ -359,11 +358,11 @@ return {
         return tostring(os.date("%m/%d/%y %H:%M"))
       end,
       key = "<leader>Td",
-      on_add = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "checked")
+      on_add = function(todo)
+        require("checkmate").set_todo_state(todo, "checked")
       end,
-      on_remove = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "unchecked")
+      on_remove = function(todo)
+        require("checkmate").set_todo_state(todo, "unchecked")
       end,
       sort_order = 30,
     },
@@ -649,6 +648,26 @@ Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 The default tags are not deeply merged in order to avoid unexpected behavior. If you wish to modify a default metadata, you should copy the default implementation.
 
 By configuring a metadata's `choices` option, you can populate your own lists of metadata values for powerful workflows, e.g. project file names, Git branches, PR's, issues, etc., team member names, external APIs, etc.
+
+Alternatively, you can call `select_metadata_value()` and pass a custom picker function and use the selected item to update your metadata!
+
+```lua
+-- Update metadata under the cursor using a snacks.nvim picker
+require("checkmate").select_metadata_value({
+  picker_fn = function(ctx, complete)
+    require("snacks").picker.files({
+      confirm = function(picker, item)
+        if item then
+          vim.schedule(function()
+            complete(item.text)
+          end)
+        end
+        picker:close()
+      end,
+    })
+  end,
+})
+```
 
 For in-depth guide and recipes for custom metadata, see the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki/Todo-Metadata) page.
 

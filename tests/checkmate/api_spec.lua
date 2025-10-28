@@ -2008,7 +2008,8 @@ Some other content]]
         it("should call on_add only when metadata is successfully added", function()
           -- spy to track callback execution
           local on_add_called = false
-          local test_todo_item = nil
+          ---@type checkmate.Todo
+          local test_todo
 
           local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
@@ -2016,9 +2017,9 @@ Some other content]]
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
-                on_add = function(todo_item)
+                on_add = function(todo)
                   on_add_called = true
-                  test_todo_item = todo_item
+                  test_todo = todo
                 end,
                 select_on_insert = false,
               },
@@ -2036,9 +2037,7 @@ Some other content]]
 
           -- todo item at row 2 (0-indexed)
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "A test todo")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "A test todo"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
           local success = require("checkmate").add_metadata("test", "test_value")
@@ -2048,8 +2047,18 @@ Some other content]]
 
           assert.is_true(success)
           assert.is_true(on_add_called)
+
           -- check that the todo item was passed to the callback
-          assert.is_not_nil(test_todo_item)
+          assert.is_not_nil(test_todo)
+          -- verify some shape re: the received todo, i.e. did we receive a `checkmate.Todo`?
+          assert.equal(2, test_todo.row)
+          assert.equal("unchecked", test_todo.state)
+          assert.equal(0, test_todo.indent)
+          assert.equal("-", test_todo.list_marker)
+          assert.equal(unchecked, test_todo.todo_marker)
+          assert.is_not_nil(test_todo.get_metadata("test"))
+          assert.is_nil(test_todo.get_parent())
+          assert.is_not_nil(test_todo._todo_item)
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@test%(test_value%)", lines[3])
@@ -2063,7 +2072,8 @@ Some other content]]
         it("should call on_remove only when metadata is successfully removed", function()
           -- spy to track callback execution
           local on_remove_called = false
-          local test_todo_item = nil
+          ---@type checkmate.Todo
+          local test_todo
 
           local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
@@ -2071,9 +2081,9 @@ Some other content]]
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
-                on_remove = function(todo_item)
+                on_remove = function(todo)
                   on_remove_called = true
-                  test_todo_item = todo_item
+                  test_todo = todo
                 end,
               },
             },
@@ -2089,9 +2099,7 @@ Some other content]]
           local bufnr = h.setup_test_buffer(content)
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "A test todo")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "A test todo"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 }) -- set the cursor on the todo item
           local success = require("checkmate").remove_metadata("test")
@@ -2102,7 +2110,8 @@ Some other content]]
           assert.is_true(success)
           assert.is_true(on_remove_called)
           -- check that the todo item was passed to the callback
-          assert.is_not_nil(test_todo_item)
+          assert.is_not_nil(test_todo)
+          assert.is_not_nil(test_todo._todo_item)
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.no.matches("@test", lines[3])
@@ -2217,9 +2226,7 @@ Some other content]]
           local bufnr = h.setup_test_buffer(content)
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "Task with existing")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task with existing"))
 
           -- called on existing metadata - should NOT trigger on_add
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
@@ -2252,9 +2259,9 @@ Some other content]]
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
-                on_change = function(todo_item, old_value, new_value)
+                on_change = function(todo, old_value, new_value)
                   on_change_called = true
-                  received_todo = todo_item
+                  received_todo = todo
                   received_old_value = old_value
                   received_new_value = new_value
                 end,
@@ -2268,9 +2275,7 @@ Some other content]]
           local bufnr = h.setup_test_buffer(content)
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "Task with metadata")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task with metadata"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
           require("checkmate").add_metadata("priority", "high")
@@ -2330,9 +2335,7 @@ Some other content]]
           local transaction = require("checkmate.transaction")
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "Task @priority")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task @priority"))
 
           local metadata_entry = todo_item.metadata.by_tag["priority"]
           assert.is_not_nil(metadata_entry)
@@ -2391,9 +2394,7 @@ Some other content]]
           local bufnr = h.setup_test_buffer(content)
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "Task @status")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task @status"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
           require("checkmate").add_metadata("status", "done")
@@ -2424,10 +2425,10 @@ Some other content]]
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
-                on_change = function(todo_item, old_value, new_value)
+                on_change = function(todo, old_value, new_value)
                   change_count = change_count + 1
                   table.insert(changes, {
-                    text = todo_item.todo_text,
+                    text = todo.text,
                     old = old_value,
                     new = new_value,
                   })
@@ -2505,9 +2506,7 @@ Some other content]]
           local bufnr = h.setup_test_buffer(content)
 
           local todo_map = parser.discover_todos(bufnr)
-          local todo_item = h.find_todo_by_text(todo_map, "Task for testing")
-          assert.is_not_nil(todo_item)
-          ---@cast todo_item checkmate.TodoItem
+          local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task for testing"))
 
           -- add
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })

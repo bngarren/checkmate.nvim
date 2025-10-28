@@ -250,31 +250,31 @@ function M.toggle(target_state)
   return true
 end
 
---- Set a specific todo item to a specific state
+--- Set a todo item to a specific state
 ---
 --- To toggle state of todos under cursor or in linewise selection, use `toggle()`
 ---
----@param todo_item checkmate.TodoItem Todo item to set state
+---@param todo checkmate.Todo Todo to modify
 ---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
 ---@return boolean success
-function M.set_todo_item(todo_item, target_state)
+function M.set_todo_state(todo, target_state)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
 
-  if not todo_item then
+  if not todo then
     return false
   end
 
-  local todo_id = todo_item.id
+  local todo_id = todo._todo_item.id
   local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
 
   local ctx = transaction.current_context()
   if ctx then
     if smart_toggle_enabled then
       local todo_map = ctx.get_todo_map()
-      api.propagate_toggle(ctx, { todo_item }, todo_map, target_state)
+      api.propagate_toggle(ctx, { todo._todo_item }, todo_map, target_state)
     else
       ctx.add_op(api.toggle_state, { {
         id = todo_id,
@@ -291,7 +291,7 @@ function M.set_todo_item(todo_item, target_state)
 
   transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled and todo_map then
-      api.propagate_toggle(_ctx, { todo_item }, todo_map, target_state)
+      api.propagate_toggle(_ctx, { todo._todo_item }, todo_map, target_state)
     else
       _ctx.add_op(api.toggle_state, { {
         id = todo_id,
@@ -303,6 +303,24 @@ function M.set_todo_item(todo_item, target_state)
   end)
 
   return true
+end
+
+---@deprecated since v0.12 Use `set_todo_state` instead.
+--- Set a specific todo item to a specific state
+---
+--- To toggle state of todos under cursor or in linewise selection, use `toggle()`
+---
+---@param todo_item checkmate.TodoItem Todo item to set state
+---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
+---@return boolean success
+function M.set_todo_item(todo_item, target_state)
+  local util = require("checkmate.util")
+  local todo = util.build_todo(todo_item)
+  vim.notify_once(
+    "Checkmate: 'set_todo_item' is deprecated since v0.12.0,\nuse `set_todo_state` instead.",
+    vim.log.levels.WARN
+  )
+  return M.set_todo_state(todo, target_state)
 end
 
 --- Set todo item(s) to checked state

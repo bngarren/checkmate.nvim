@@ -1,12 +1,12 @@
 local defaults = require("checkmate.config.defaults")
 local validate = require("checkmate.config.validate")
 
--- Config
 ---@class checkmate.Config.mod
 local M = {}
 
--- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
+
+-- extmarks for specifically tracking todos (i.e. their "stable" ids)
 M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -- primary highlights namespace
@@ -15,11 +15,6 @@ M.ns_hl = vim.api.nvim_create_namespace("checkmate_hl")
 -- Buffer local checkmate state
 -- e.g. `vim.b[bufnr]._checkmate`
 M.buffer_local_ns = "_checkmate"
-
-function M.get_region_limit(bufnr)
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  return math.max(200, math.floor(line_count * 0.25))
-end
 
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
@@ -108,7 +103,10 @@ M.options = {}
 ---@field enter_insert_after_new boolean
 ---
 ---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
----To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enabled` option.
+---This does not apply to regular list items (you would need to implement your own or use a separate plugin)
+---
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option.
+---The list continuation functionality can also be toggled via the `enabled` option.
 --- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row with reasonable defaults
 --- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
 ---@field list_continuation checkmate.ListContinuationSettings
@@ -157,7 +155,7 @@ M.options = {}
 ---@field linter checkmate.LinterConfig?
 ---
 ---Turn off treesitter highlights (on by default)
----Buffer local
+---Buffer local (for Checkmate buffers)
 ---See `:h treesitter-highlight`
 ---@field disable_ts_highlights? boolean
 
@@ -183,6 +181,7 @@ M.options = {}
 -----------------------------------------------------
 
 ---The broad categories used internally that give semantic meaning to each todo state
+---See details in checkmate.TodoStateDefinition |type|
 ---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
 
 ---@class checkmate.TodoStateDefinition
@@ -223,6 +222,7 @@ M.options = {}
 ---@class checkmate.UISettings
 ---
 ---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
+---
 ---Default behavior: attempt to use an installed plugin, if found
 ---If false, will default to vim.ui.select
 ---If a function is passed, will use this picker implementation
@@ -271,7 +271,8 @@ M.options = {}
 ---Whether to enable smart toggle behavior
 ---
 ---What is 'smart toggle'?
---- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a sensible manner
+--- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a intelligent manner
+--- - E.g., if all children have just become checked, then check the parent too.
 --- - In this mode, changing the state of a todo maybe also affect nearby todos
 ---Default: true
 ---@field enabled boolean?
@@ -503,7 +504,6 @@ end
 ---@return checkmate.Config config
 function M.setup(opts)
   local success, result = pcall(function()
-    -- start with static defaults
     local config = vim.deepcopy(defaults)
 
     --- Some config options should not be merged but rather overriden
@@ -586,6 +586,14 @@ end
 function M.get_todo_state_type(state_name)
   local state_def = M.options.todo_states[state_name]
   return state_def and state_def.type or "inactive"
+end
+
+-- Determines the line count threshold for what constitutes a "region", for
+-- region-scoped processing vs. full buffer
+-- I.e, if a region is too large, it may warrant a full re-process
+function M.get_region_limit(bufnr)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  return math.max(200, math.floor(line_count * 0.25))
 end
 
 return M

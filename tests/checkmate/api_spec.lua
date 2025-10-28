@@ -2,6 +2,7 @@ describe("API", function()
   ---@module "tests.checkmate.helpers"
   local h
   ---@module "checkmate.api"
+
   local api
   ---@module "checkmate.parser"
   local parser
@@ -1549,7 +1550,7 @@ Some other content]]
         end)
       end)
 
-      it("should update metadata value when cursor is on todo with same, existing metadata", function()
+      it("should upsert metadata value via `add_metadata` when cursor is on todo with existing metadata", function()
         local cm = require("checkmate")
         cm.setup()
 
@@ -1567,6 +1568,34 @@ Some other content]]
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("@priority%(high%)", lines[1])
         assert.matches("@status%(pending%)", lines[1])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
+      it("should update metadata via `update_metadata` but not create", function()
+        local cm = require("checkmate")
+        cm.setup()
+
+        local unchecked = h.get_unchecked_marker()
+
+        local content = [[
+- ]] .. unchecked .. [[ Task @priority(low) @status(pending)
+- ]] .. unchecked .. [[ Task @status(pending)]]
+
+        local bufnr = h.setup_test_buffer(content)
+
+        h.make_selection(1, 0, 2, 0, "V")
+
+        require("checkmate").update_metadata("priority", "high")
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.matches("@priority%(high%)", lines[1])
+        assert.matches("@status%(pending%)", lines[1])
+        -- line 2 should not have gotten new priority metadata
+        assert.Not.matches("@priority%(high%)", lines[2])
 
         finally(function()
           cm.stop()

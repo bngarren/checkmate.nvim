@@ -1837,7 +1837,8 @@ function M.add_metadata(ctx, operations)
       ctx.add_cb(function(tx_ctx)
         local updated_item = tx_ctx.get_todo_by_id(id)
         if updated_item then
-          meta_config.on_add(updated_item)
+          local todo = util.build_todo(updated_item)
+          meta_config.on_add(todo)
         end
       end)
     end
@@ -1851,7 +1852,8 @@ function M.add_metadata(ctx, operations)
         ctx.add_cb(function(tx_ctx)
           local updated_item = tx_ctx.get_todo_by_id(change.id)
           if updated_item then
-            meta_config.on_change(updated_item, change.old_value, change.new_value)
+            local todo = util.build_todo(updated_item)
+            meta_config.on_change(todo, change.old_value, change.new_value)
           end
         end)
       end
@@ -2006,7 +2008,8 @@ function M._queue_removal_callbacks(ctx, callbacks)
       ctx.add_cb(function(tx_ctx)
         local updated_item = tx_ctx.get_todo_by_id(callback_info.id)
         if updated_item then
-          meta_config.on_remove(updated_item)
+          local todo = util.build_todo(updated_item)
+          meta_config.on_remove(todo)
         end
       end)
     end
@@ -2112,7 +2115,8 @@ function M.set_metadata_value(ctx, metadata, new_value)
         ctx.add_cb(function(tx_ctx)
           local updated_item = tx_ctx.get_todo_by_id(todo_item.id)
           if updated_item then
-            meta_config.on_change(updated_item, metadata.value, new_value)
+            local todo = util.build_todo(updated_item)
+            meta_config.on_change(todo, metadata.value, new_value)
           end
         end)
       end

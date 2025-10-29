@@ -1960,6 +1960,36 @@ Some other content]]
         end)
       end)
 
+      it("should use `position` opt with `select_metadata_value`", function()
+        -- the position opt, when passed, should be used instead of the cursor position
+        local cm = require("checkmate")
+        cm.setup()
+        local content = [[
+  - [ ] Todo A @due(today)
+  - [ ] Todo B]]
+        local bufnr = h.setup_test_buffer(content)
+
+        -- cursor is NOT over the metadata
+        vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+        cm.select_metadata_value({
+          position = { row = 0, col = 18 }, -- pos within the @due() metadata
+          picker_fn = function(_, complete)
+            complete("tomorrow")
+          end,
+        })
+
+        vim.wait(20)
+
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        assert.match("@due%(tomorrow%)", lines[1])
+
+        finally(function()
+          cm.stop()
+          h.cleanup_buffer(bufnr)
+        end)
+      end)
+
       it("should update metadata via `with_custom_picker`", function()
         local cm = require("checkmate")
 

@@ -1112,7 +1112,7 @@ function M.select_metadata_value(opts)
 
   -- resolve the `position` opt or default to cursor position
   local position = opts.position
-  local row, col, pos_str = H.resolve_position(position and unpack({ position.row, position.col }))
+  local row, col, pos_str = H.resolve_position(position and position.row or nil, position and position.col or nil)
 
   -- create the metadata context that we pass to the picker implementation
   local todo_item = parser.get_todo_item_at_position(bufnr, row, col)
@@ -1542,7 +1542,7 @@ function H.resolve_position(row, col)
     resolved_row, resolved_col = unpack(vim.api.nvim_win_get_cursor(0))
     resolved_row = resolved_row - 1
   end
-  local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", row, col)
+  local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", resolved_row, resolved_col)
   return resolved_row, resolved_col, pos_str
 end
 

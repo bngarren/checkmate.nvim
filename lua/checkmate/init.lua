@@ -1042,9 +1042,12 @@ function M.toggle_metadata(metadata_name, value)
 end
 
 ---@class checkmate.SelectMetadataValueOpts
+---@field position? {row: integer, col?: integer} Position to use to locate metadata rather than cursor (0-indexed)
 ---@field picker_fn? fun(context: checkmate.MetadataContext, complete: fun(value: string?))
 
 ---Opens a picker to select a new value for the metadata under the cursor
+---
+---A `position` opt can be used to specify a metadata rather than use cursor. It must resolve to within the metadata tag/value range.
 ---
 ---**Default Behavior:**
 ---Uses the metadata's `choices` field to populate items and opens a picker.
@@ -1058,7 +1061,7 @@ end
 ---such as an optimized picker from a dedicated picker plugin)
 ---
 ---**Important Notes:**
----  - The cursor must be positioned on a metadata region (e.g., @priority(high))
+---  - The cursor must be positioned on a metadata region (e.g., @priority(high)), or a `position` opt passed
 ---  - If metadata value hasn't changed, no operation is performed
 ---
 ---@example
@@ -1088,23 +1091,61 @@ function M.select_metadata_value(opts)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local picker = require("checkmate.metadata.picker")
+  local log = require("checkmate.log")
+  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+  local meta_module = require("checkmate.metadata")
 
   local picker_fn = opts.picker_fn
+  if picker_fn and not vim.is_callable(picker_fn) then
+    require("checkmate.util").notify("`picker_fn` must be a function", vim.log.levels.WARN)
+    log.fmt_warn("[main] attempted to call `select_metadata_value` with `picker_fn` not a function")
+    return
+  end
 
   local bufnr = vim.api.nvim_get_current_buf()
   if not api.is_valid_buffer(bufnr) then
     require("checkmate.util").notify("Not in a Checkmate buffer", vim.log.levels.INFO)
+    log.fmt_warn("[main] attempted to call `select_metadata_value` for inactive buffer %d", bufnr)
     return
   end
 
-  --- Apply (set) the new metadata value via transaction (similar to all APIs)
-  --- This is called by both picker paths (1. default `choices` path via |open_picker| and, 2. user's |picker_fn|)
+  -- resolve the `position` opt or default to cursor position
+  local position = opts.position
+  local row, col, pos_str = H.resolve_position(position and unpack({ position.row, position.col }))
+
+  -- create the metadata context that we pass to the picker implementation
+  local todo_item = parser.get_todo_item_at_position(bufnr, row, col)
+  if not todo_item then
+    util.notify(string.format("No todo at %s (0-indexed)", pos_str), vim.log.levels.INFO)
+    return false
+  end
+
+  local selected_metadata = meta_module.find_metadata_at_pos(todo_item, row, col)
+  if not selected_metadata then
+    util.notify(string.format("No metadata at %s (0-indexed)", pos_str), vim.log.levels.INFO)
+    return false
+  end
+
+  ---@type checkmate.MetadataContext
+  local context = {
+    name = selected_metadata.tag,
+    value = selected_metadata.value,
+    buffer = bufnr,
+    todo = util.build_todo(todo_item),
+  }
+
+  --- apply (set) the new metadata value via transaction (similar to all APIs)
+  --- this is called by both picker paths (1. default `choices` path via |open_picker| and, 2. user's |picker_fn|)
   ---@param value string? Selected value, or nil if cancelled
-  ---@param metadata checkmate.MetadataEntry the metadata being updated
-  local function apply_value_with_transaction(value, metadata)
+  local function apply_value_with_transaction(value)
     if value == nil then
       return
     end
+
+    -- resolve the metadata entry we are updating
+    -- TODO: do we need to re-find the todo/metadata again or use the closed selected_metadata?
+    local metadata = selected_metadata
 
     -- no change
     if value == metadata.value then
@@ -1112,7 +1153,7 @@ function M.select_metadata_value(opts)
     end
 
     if not vim.api.nvim_buf_is_valid(bufnr) then
-      require("checkmate.util").notify("Buffer no longer valid", vim.log.levels.WARN)
+      require("checkmate.util").notify("Buffer no longer valid during `select_metadata_value`", vim.log.levels.WARN)
       return
     end
 
@@ -1129,12 +1170,12 @@ function M.select_metadata_value(opts)
 
   -- custom picker pathway: user provides their own picker_fn that handles generating the choices
   if picker_fn then
-    picker.with_custom_picker(picker_fn, apply_value_with_transaction)
+    picker.with_custom_picker(context, picker_fn, apply_value_with_transaction)
     return
   end
 
   -- default pathway using config's `choices`value (table or function return) inside checkmate's picker (see `config.ui.picker`)
-  picker.open_picker(apply_value_with_transaction)
+  picker.open_picker(context, apply_value_with_transaction)
 end
 
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present
@@ -1477,13 +1518,32 @@ function H.ensure_metadata_exists(metadata_name)
   metadata_name = meta_mod.get_canonical_name(metadata_name) or ""
   if #metadata_name == 0 then
     log.fmt_warn(
-      "[main] Cannot update metadata with name '%s' as it does not exist. Is it defined in the `config.metadata`?",
+      "[main] Metadata with name '%s' does not exist. Is it defined in the `config.metadata`?",
       metadata_name
     )
     return false
   end
 
   return true
+end
+
+---Returns the given row/col position or defaults to cursor pos (converting to 0-based row)
+---@param row? integer 0-based
+---@param col? integer 0-based
+---@return integer row
+---@return integer col
+---@return string pos_str string for notifications/logging
+function H.resolve_position(row, col)
+  local resolved_row, resolved_col
+  if row then
+    resolved_row = row -- 0 indexed
+    resolved_col = col or 0
+  else
+    resolved_row, resolved_col = unpack(vim.api.nvim_win_get_cursor(0))
+    resolved_row = resolved_row - 1
+  end
+  local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", row, col)
+  return resolved_row, resolved_col, pos_str
 end
 
 return M

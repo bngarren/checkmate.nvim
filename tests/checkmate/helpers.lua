@@ -34,6 +34,7 @@ M.DEFAULT_TEST_CONFIG = {
   },
 }
 
+--- Creates a temp file and sets up a Checkmate buffer for this file
 --- @param content string|string[]
 --- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
 --- @return integer bufnr
@@ -70,14 +71,16 @@ function M.setup_todo_file_buffer(content, opts)
   vim.bo[bufnr].filetype = "markdown"
 
   local wait_ms = opts.wait_ms or 5
-  vim.wait(wait_ms, function()
-    return vim.fn.jobwait({}, 0) == 0
-  end)
+  vim.wait(wait_ms)
   vim.cmd("redraw")
 
   return bufnr, file_path
 end
 
+--- stops checkmate
+--- ensures normal mode
+--- deletes buffer
+--- removes file, if present
 function M.cleanup_buffer(bufnr, file_path)
   if not bufnr then
     return
@@ -110,6 +113,7 @@ function M.create_temp_file()
 end
 
 -- Read file contents directly (not via Neovim buffer)
+---@return string|nil
 function M.read_file_content(file_path)
   local f = io.open(file_path, "r")
   if not f then
@@ -268,6 +272,9 @@ function M.make_selection(row1, col1, row2, col2, mode)
   vim.wait(5)
 end
 
+---@param actual string[]
+---@param expected string[]
+---@param test_name? string
 function M.assert_lines_equal(actual, expected, test_name)
   local prefix = test_name and (test_name .. ": ") or ""
   assert.equal(#expected, #actual, prefix .. "line count mismatch")

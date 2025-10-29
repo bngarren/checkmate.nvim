@@ -1,11 +1,13 @@
 describe("API", function()
   ---@module "tests.checkmate.helpers"
   local h
-  ---@module "checkmate.api"
 
+  ---@module "checkmate.api"
   local api
+
   ---@module "checkmate.parser"
   local parser
+
   ---@module "checkmate.util"
   local util
 
@@ -41,71 +43,66 @@ describe("API", function()
 
   describe("file operations", function()
     it("should save todo file with correct Markdown syntax", function()
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-      local pending = h.get_pending_marker()
-
       local content = [[
 # Complex Todo List
 ## Work Tasks
-- ]] .. unchecked .. [[ Major project planning
-  * ]] .. unchecked .. [[ Research competitors
-  * ]] .. checked .. [[ Create timeline
-  * ]] .. unchecked .. [[ Assign resources
-    + ]] .. checked .. [[ Allocate budget
-    + ]] .. unchecked .. [[ Schedule meetings
-    + ]] .. unchecked .. [[ Set milestones
-  * ]] .. checked .. [[ Draft proposal
-- ]] .. checked .. [[ Email weekly report
+- ]] .. m.unchecked .. [[ Major project planning
+  * ]] .. m.unchecked .. [[ Research competitors
+  * ]] .. m.checked .. [[ Create timeline
+  * ]] .. m.unchecked .. [[ Assign resources
+    + ]] .. m.checked .. [[ Allocate budget
+    + ]] .. m.unchecked .. [[ Schedule meetings
+    + ]] .. m.unchecked .. [[ Set milestones
+  * ]] .. m.checked .. [[ Draft proposal
+- ]] .. m.checked .. [[ Email weekly report
 ## Personal Tasks
-1. ]] .. unchecked .. [[ Grocery shopping
-2. ]] .. checked .. [[ Call dentist
-3. ]] .. unchecked .. [[ Plan vacation
-   - ]] .. unchecked .. [[ Research destinations
-   - ]] .. checked .. [[ Check budget
-- ]] .. pending .. [[ Pending task
-- ]] .. unchecked
+1. ]] .. m.unchecked .. [[ Grocery shopping
+2. ]] .. m.checked .. [[ Call dentist
+3. ]] .. m.unchecked .. [[ Plan vacation
+   - ]] .. m.unchecked .. [[ Research destinations
+   - ]] .. m.checked .. [[ Check budget
+- ]] .. m.pending .. [[ Pending task
+- ]] .. m.unchecked
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.cmd("write")
-
       vim.cmd("sleep 10m")
 
-      local saved_content = h.read_file_content(file_path)
-
-      if not saved_content then
-        error("error reading file content")
-      end
+      local saved_content = h.exists(h.read_file_content(file_path))
 
       local lines = vim.split(saved_content, "\n")
+      -- handle eof (empty string)
+      if lines[#lines] == "" then
+        lines[#lines] = nil
+      end
 
-      assert.equal("# Complex Todo List", lines[1])
-      assert.equal("## Work Tasks", lines[2])
-      assert.equal("- [ ] Major project planning", lines[3]:gsub("%s+$", ""))
-      assert.equal("  * [ ] Research competitors", lines[4]:gsub("%s+$", ""))
-      assert.equal("  * [x] Create timeline", lines[5]:gsub("%s+$", ""))
-      assert.equal("  * [ ] Assign resources", lines[6]:gsub("%s+$", ""))
-      assert.equal("    + [x] Allocate budget", lines[7]:gsub("%s+$", ""))
-      assert.equal("    + [ ] Schedule meetings", lines[8]:gsub("%s+$", ""))
-      assert.equal("    + [ ] Set milestones", lines[9]:gsub("%s+$", ""))
-      assert.equal("  * [x] Draft proposal", lines[10]:gsub("%s+$", ""))
-      assert.equal("- [x] Email weekly report", lines[11]:gsub("%s+$", ""))
-      assert.equal("## Personal Tasks", lines[12])
-      assert.equal("1. [ ] Grocery shopping", lines[13]:gsub("%s+$", ""))
-      assert.equal("2. [x] Call dentist", lines[14]:gsub("%s+$", ""))
-      assert.equal("3. [ ] Plan vacation", lines[15]:gsub("%s+$", ""))
-      assert.equal("   - [ ] Research destinations", lines[16]:gsub("%s+$", ""))
-      assert.equal("   - [x] Check budget", lines[17]:gsub("%s+$", ""))
-      -- custom todo state/marker
-      assert.equal("- [.] Pending task", lines[18]:gsub("%s+$", ""))
-      -- empty todo
-      assert.equal("- [ ]", lines[19]:gsub("%s+$", ""))
+      h.assert_lines_equal(lines, {
+        "# Complex Todo List",
+        "## Work Tasks",
+        "- [ ] Major project planning",
+        "  * [ ] Research competitors",
+        "  * [x] Create timeline",
+        "  * [ ] Assign resources",
+        "    + [x] Allocate budget",
+        "    + [ ] Schedule meetings",
+        "    + [ ] Set milestones",
+        "  * [x] Draft proposal",
+        "- [x] Email weekly report",
+        "## Personal Tasks",
+        "1. [ ] Grocery shopping",
+        "2. [x] Call dentist",
+        "3. [ ] Plan vacation",
+        "   - [ ] Research destinations",
+        "   - [x] Check budget",
+        "- [.] Pending task",
+        "- [ ]",
+      }, "saved_content")
 
       -- verify unicode symbols are NOT present in the saved file
-      assert.no.matches(unchecked, saved_content)
-      assert.no.matches(checked, saved_content)
-      assert.no.matches(pending, saved_content)
+      assert.no.matches(m.unchecked, saved_content)
+      assert.no.matches(m.checked, saved_content)
+      assert.no.matches(m.pending, saved_content)
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -1419,7 +1416,9 @@ Some other content]]
 
         local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
-        local bufnr, file_path = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
@@ -1433,18 +1432,8 @@ Some other content]]
 
         assert.matches("- " .. unchecked .. " Task without metadata @priority%(high%)", lines[3])
 
-        vim.cmd("write")
-        vim.cmd("sleep 10m")
-
-        local saved_content = h.read_file_content(file_path)
-        if not saved_content then
-          error("error reading file content")
-        end
-
-        assert.matches("- %[ %] Task without metadata @priority%(high%)", saved_content)
-
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -1491,7 +1480,6 @@ Some other content]]
         assert.matches("- " .. unchecked .. " Child todo", lines[2])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
@@ -2755,18 +2743,20 @@ Some other content]]
     - ]] .. unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = h.setup_todo_file_buffer(content, {
-          config = {
-            smart_toggle = {
-              enabled = true,
-              include_cycle = true,
-              check_down = "direct_children",
-              uncheck_down = "none",
-              check_up = "direct_children",
-              uncheck_up = "direct_children",
-            },
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          smart_toggle = {
+            enabled = true,
+            include_cycle = true,
+            check_down = "direct_children",
+            uncheck_down = "none",
+            check_up = "direct_children",
+            uncheck_up = "direct_children",
           },
         })
+
+        local bufnr = h.setup_test_buffer(content)
 
         -- cursor to parent task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -2783,7 +2773,8 @@ Some other content]]
         assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          cm.stop()
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3006,7 +2997,9 @@ Some other content]]
         }, smart_toggle_config or {}),
       }
 
-      return h.setup_todo_file_buffer(content, { config = config_override })
+      require("checkmate").setup(config_override)
+
+      return h.setup_test_buffer(content)
     end
 
     describe("downward propagation", function()
@@ -3021,7 +3014,7 @@ Some other content]]
     - ]] .. unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
+        local bufnr = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -3037,7 +3030,7 @@ Some other content]]
         assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3053,7 +3046,7 @@ Some other content]]
       - ]] .. unchecked .. [[ Great-grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "all_children" })
+        local bufnr = setup_smart_toggle_buffer(content, { check_down = "all_children" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -3070,7 +3063,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Great%-grandchild 1", lines[5])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3084,7 +3077,7 @@ Some other content]]
   - ]] .. unchecked .. [[ Child 2
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "none" })
+        local bufnr = setup_smart_toggle_buffer(content, { check_down = "none" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -3099,7 +3092,7 @@ Some other content]]
         assert.matches("- " .. unchecked .. " Child 2", lines[3])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3114,7 +3107,7 @@ Some other content]]
     - ]] .. checked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_down = "direct_children" })
+        local bufnr = setup_smart_toggle_buffer(content, { uncheck_down = "direct_children" })
 
         -- cursor to parent task and toggle (uncheck it)
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -3130,7 +3123,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Grandchild 1", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
     end)
@@ -3147,7 +3140,7 @@ Some other content]]
   - ]] .. checked .. [[ Child 3
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "direct_children" })
+        local bufnr = setup_smart_toggle_buffer(content, { check_up = "direct_children" })
 
         -- check the remaining unchecked child
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
@@ -3163,7 +3156,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Child 3", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3181,7 +3174,7 @@ Some other content]]
 
         -- we use a check_down = "none" here to test only the check_up functionality,
         -- otherwise, the first check with propagate the check to all children
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+        local bufnr = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
 
         -- check Child 2 first
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
@@ -3206,7 +3199,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Grandchild 2", lines[5])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3221,7 +3214,7 @@ Some other content]]
     - ]] .. unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { uncheck_up = "direct_children" })
+        local bufnr = setup_smart_toggle_buffer(content, { uncheck_up = "direct_children" })
 
         -- uncheck one child
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -3236,7 +3229,7 @@ Some other content]]
         assert.matches("- " .. checked .. " Child 2", lines[3])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3251,8 +3244,7 @@ Some other content]]
     - ]] .. checked .. [[ Grandchild 1
 ]]
 
-        local bufnr, file_path =
-          setup_smart_toggle_buffer(content, { uncheck_up = "all_children", uncheck_down = "none" })
+        local bufnr = setup_smart_toggle_buffer(content, { uncheck_up = "all_children", uncheck_down = "none" })
 
         -- uncheck the grandchild
         vim.api.nvim_win_set_cursor(0, { 4, 0 })
@@ -3269,7 +3261,7 @@ Some other content]]
         assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
     end)

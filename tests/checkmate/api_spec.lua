@@ -1,3 +1,9 @@
+--[[
+
+Some notes:
+- The 'pending' todo state is often tested. This is not a plugin default but added via the helpers.DEFAULT_TEST_CONFIG
+
+]]
 describe("API", function()
   ---@module "tests.checkmate.helpers"
   local h
@@ -39,10 +45,11 @@ describe("API", function()
     }
 
     h.ensure_normal_mode()
+    h.delete_all_buffers()
   end)
 
   describe("file operations", function()
-    it("should save todo file with correct Markdown syntax", function()
+    it("should save (write) todo buffer with correct Markdown syntax", function()
       local content = [[
 # Complex Todo List
 ## Work Tasks
@@ -67,7 +74,7 @@ describe("API", function()
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       vim.cmd("write")
-      vim.cmd("sleep 10m")
+      h.wait_for_write(bufnr)
 
       local saved_content = h.exists(h.read_file_content(file_path))
 
@@ -122,13 +129,9 @@ describe("API", function()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-      local pending = h.get_pending_marker()
-
-      assert.matches("- " .. unchecked .. " Unchecked task", lines[3])
-      assert.matches("- " .. checked .. " Checked task", lines[4])
-      assert.matches("- " .. pending .. " Pending task", lines[5])
+      assert.matches("- " .. m.unchecked .. " Unchecked task", lines[3])
+      assert.matches("- " .. m.checked .. " Checked task", lines[4])
+      assert.matches("- " .. m.pending .. " Pending task", lines[5])
 
       local todo_map = parser.discover_todos(bufnr)
       assert.equal(3, vim.tbl_count(todo_map))
@@ -138,10 +141,7 @@ describe("API", function()
       end)
     end)
 
-    it("should maintain todo state through edit-save-reload cycle", function()
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-
+    it("should maintain todo state through edit-write-reload cycle", function()
       local content = [[
 # Todo List
 
@@ -153,16 +153,16 @@ describe("API", function()
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
-      local task_2 = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task 2")
-
+      local task_2 = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Task 2")
       task_2 = h.exists(task_2)
+
       local task_2_todo = util.build_todo(task_2)
 
       local success = require("checkmate").set_todo_state(task_2_todo, "checked")
       assert.is_true(success)
 
       vim.cmd("write")
-      vim.cmd("sleep 10m")
+      h.wait_for_write(bufnr)
 
       -- close and reopen the file
       vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -173,10 +173,9 @@ describe("API", function()
       vim.bo[bufnr].filetype = "markdown"
 
       todo_map = parser.discover_todos(bufnr)
-      local task_2_reloaded = h.find_todo_by_text(todo_map, "- " .. checked .. " Task 2")
+      local task_2_reloaded = h.find_todo_by_text(todo_map, "- " .. m.checked .. " Task 2")
+      task_2_reloaded = h.exists(task_2_reloaded)
 
-      assert.is_not_nil(task_2_reloaded)
-      ---@cast task_2_reloaded checkmate.TodoItem
       assert.equal("checked", task_2_reloaded.state)
 
       finally(function()
@@ -238,8 +237,6 @@ describe("API", function()
 
         assert.equal(1, write_attempts, "Write was called multiple times")
 
-        vim.fn.writefile = original_writefile
-
         finally(function()
           vim.fn.writefile = original_writefile
           h.cleanup_buffer(bufnr, file_path)
@@ -288,19 +285,16 @@ describe("API", function()
   describe("todo collection from cursor/selection", function()
     local cm
     before_each(function()
-      cm = require("checkmate")
-      cm.setup()
+      cm = h.cm_setup()
     end)
     after_each(function()
       cm.stop()
     end)
 
     it("should collect a single todo under cursor in normal mode", function()
-      local unchecked = h.get_unchecked_marker()
-
       local content = [[
-- ]] .. unchecked .. [[ Task A
-- ]] .. unchecked .. [[ Task B
+- ]] .. m.unchecked .. [[ Task A
+- ]] .. m.unchecked .. [[ Task B
 ]]
       local bufnr = h.setup_test_buffer(content)
 
@@ -351,13 +345,15 @@ describe("API", function()
   end)
 
   describe("todo creation", function()
+    ---@module "checkmate"
     local cm
     local todo_line
+
     before_each(function()
-      cm = require("checkmate")
-      cm.setup(h.DEFAULT_TEST_CONFIG)
+      cm = h.cm_setup()
       todo_line = h.todo_line
     end)
+
     after_each(function()
       cm.stop()
     end)
@@ -478,10 +474,8 @@ describe("API", function()
       end)
 
       it("should maintain indentation when inserting new todo", function()
-        local unchecked = m.unchecked
-
         local content = [[
-  - ]] .. unchecked .. [[ Indented todo
+  - ]] .. m.unchecked .. [[ Indented todo
 Some other content]]
 
         test_create_scenario({
@@ -539,9 +533,7 @@ Some other content]]
       end)
 
       it("should handle position option with indent", function()
-        local unchecked = m.unchecked
-
-        local content = "- " .. unchecked .. " Parent todo"
+        local content = "- " .. m.unchecked .. " Parent todo"
 
         test_create_scenario({
           name = "position with indent",
@@ -1057,13 +1049,15 @@ Some other content]]
   end)
 
   describe("todo removal", function()
+    ---@module "checkmate"
     local cm
     local todo_line
+
     before_each(function()
-      cm = require("checkmate")
-      cm.setup(h.DEFAULT_TEST_CONFIG)
+      cm = h.cm_setup()
       todo_line = h.todo_line
     end)
+
     after_each(function()
       cm.stop()
     end)
@@ -1254,20 +1248,21 @@ Some other content]]
     describe("metadata operations", function()
       describe("find_metadata_insert_position", function()
         -- find byte position after a pattern in a line
+        ---@return integer pos 1-based index
         local function find_byte_pos_after(line, pattern)
           local _, end_pos = line:find(pattern)
-          return end_pos -- returns 1-based, but we'll convert when needed
+          return end_pos
         end
 
         -- get the byte position at end of content (excluding trailing whitespace)
+        ---@return integer pos 1-based
         local function get_content_end_pos(line)
           local trimmed = line:match("^(.-)%s*$")
           return #trimmed
         end
 
         it("should find correct position when no metadata exists", function()
-          local cm = require("checkmate")
-          cm.setup()
+          h.cm_setup()
 
           local content = [[
 - [ ] Single line todo
@@ -1298,8 +1293,7 @@ Some other content]]
           insert_pos = api.find_metadata_insert_position(todo_item, "priority", bufnr)
 
           -- after the unchecked marker
-          local unchecked = h.get_unchecked_marker()
-          expected_col = find_byte_pos_after(lines[1], unchecked)
+          expected_col = find_byte_pos_after(lines[1], m.unchecked)
           assert.are.equal(1, insert_pos.row)
           assert.are.equal(expected_col, insert_pos.col)
 
@@ -1322,15 +1316,13 @@ Some other content]]
           assert.are.equal(expected_col, insert_pos.col)
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should respect sort_order when metadata exists", function()
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          h.cm_setup({
             metadata = {
               -- higher sort_order will be positioned to the right
               low = { sort_order = 10 },
@@ -1369,15 +1361,13 @@ Some other content]]
           assert.are.equal(high_entry.range.start.col, insert_pos.col)
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should handle complex multi-line scenarios", function()
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          h.cm_setup({
             metadata = {
               a = { sort_order = 10 },
               b = { sort_order = 20 },
@@ -1405,14 +1395,13 @@ Some other content]]
           assert.are.equal(b_entry.range["end"].col, insert_pos.col)
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
       end)
 
       it("should add metadata to todo items", function()
-        local unchecked = h.get_unchecked_marker()
+        local cm = h.cm_setup()
 
         local content = "# Todo List\n\n- [ ] Task without metadata\n"
 
@@ -1422,15 +1411,14 @@ Some other content]]
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 2, 0)
-        assert.is_not_nil(todo_item)
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 2, 0))
 
-        local success = require("checkmate").add_metadata("priority", "high")
+        local success = cm.add_metadata("priority", "high")
         assert.is_true(success)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. unchecked .. " Task without metadata @priority%(high%)", lines[3])
+        assert.matches("- " .. m.unchecked .. " Task without metadata @priority%(high%)", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -1438,10 +1426,7 @@ Some other content]]
       end)
 
       it("should add metadata to a nested todo item", function()
-        local cm = require("checkmate")
-        cm.setup()
-
-        local unchecked = h.get_unchecked_marker()
+        local cm = h.cm_setup()
 
         local content = [[
 - [ ] Parent todo
@@ -1453,31 +1438,27 @@ Some other content]]
         -- move cursor to the Child todo A on line 2 (1-indexed)
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 1, 0) -- 0-indexed
-        assert.is_not_nil(todo_item)
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0)) -- 0-indexed
 
-        require("checkmate").add_metadata("priority", "high")
+        cm.add_metadata("priority", "high")
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. unchecked .. " Parent todo", lines[1])
-        assert.matches("- " .. unchecked .. " Child todo A @priority%(high%)", lines[2])
-        assert.matches("- " .. unchecked .. " Child todo B", lines[3])
+        assert.matches("- " .. m.unchecked .. " Parent todo", lines[1])
+        assert.matches("- " .. m.unchecked .. " Child todo A @priority%(high%)", lines[2])
+        assert.matches("- " .. m.unchecked .. " Child todo B", lines[3])
 
         -- Now repeat for the parent todo
-
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-        assert.is_not_nil(todo_item)
+        h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
-        -- Add @priority metadata
-        require("checkmate").add_metadata("priority", "medium")
+        cm.add_metadata("priority", "medium")
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        assert.matches("- " .. unchecked .. " Parent todo @priority%(medium%)", lines[1])
-        assert.matches("- " .. unchecked .. " Child todo", lines[2])
+        assert.matches("- " .. m.unchecked .. " Parent todo @priority%(medium%)", lines[1])
+        assert.matches("- " .. m.unchecked .. " Child todo", lines[2])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -1488,9 +1469,8 @@ Some other content]]
         -- NOTE: the expected behavior is that the metadata tag is inserted according to sort_order,
         -- immediately following a lower sort_order tag or before a higher sort_order tag
 
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             test1 = {
               sort_order = 1,
@@ -1516,85 +1496,74 @@ Some other content]]
 
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
-        local success = require("checkmate").add_metadata("test2", "bar")
+        local success = cm.add_metadata("test2", "bar")
         assert.is_true(success)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("Todo item @test1%(foo%) @test2%(bar%)$", lines[1])
 
-        success = require("checkmate").add_metadata("test4", "gah")
+        success = cm.add_metadata("test4", "gah")
         assert.is_true(success)
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("     @test3%(baz%) @test4%(gah%)$", lines[2])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should upsert metadata value via `add_metadata` when cursor is on todo with existing metadata", function()
-        local cm = require("checkmate")
-        cm.setup()
-
-        local unchecked = h.get_unchecked_marker()
+        local cm = h.cm_setup()
 
         local content = [[
-- ]] .. unchecked .. [[ Task @priority(low) @status(pending)]]
+- ]] .. m.unchecked .. [[ Task @priority(low) @status(pending)]]
 
         local bufnr = h.setup_test_buffer(content)
 
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        require("checkmate").add_metadata("priority", "high")
+        cm.add_metadata("priority", "high")
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("@priority%(high%)", lines[1])
         assert.matches("@status%(pending%)", lines[1])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should update metadata via `update_metadata` but not create", function()
-        local cm = require("checkmate")
-        cm.setup()
-
-        local unchecked = h.get_unchecked_marker()
+        local cm = h.cm_setup()
 
         local content = [[
-- ]] .. unchecked .. [[ Task @priority(low) @status(pending)
-- ]] .. unchecked .. [[ Task @status(pending)]]
+- ]] .. m.unchecked .. [[ Task @priority(low) @status(pending)
+- ]] .. m.unchecked .. [[ Task @status(pending)]]
 
         local bufnr = h.setup_test_buffer(content)
 
         h.make_selection(1, 0, 2, 0, "V")
 
-        require("checkmate").update_metadata("priority", "high")
+        cm.update_metadata("priority", "high")
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
         assert.matches("@priority%(high%)", lines[1])
         assert.matches("@status%(pending%)", lines[1])
         -- line 2 should not have gotten new priority metadata
         assert.Not.matches("@priority%(high%)", lines[2])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should remove metadata from todo with wrapped metadata", function()
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             test1 = {
               sort_order = 1,
@@ -1605,56 +1574,71 @@ Some other content]]
           },
         })
 
-        local unchecked = h.get_unchecked_marker()
-
-        local content = [[
+        -- each test starts with buffer content and the key (tag) to remove
+        -- expectations are based on the post- remove_metadata buffer lines
+        local cases = {
+          {
+            name = "remove @test1",
+            key = "test1",
+            content = [[
 - [ ] Task @test1(foo) @test2(metadata with
       broken value)
-      ]]
+      ]],
+            expect = {
+              function(lines)
+                assert.equal("- " .. m.unchecked .. " Task @test2(metadata with", lines[1])
+              end,
+              function(lines)
+                assert.matches("^%s*broken value%)", lines[2])
+              end,
+            },
+          },
+          {
+            name = "remove @done (multi-line value)",
+            key = "done",
+            content = "- "
+              .. m.unchecked
+              .. " This is some extra content @started(06/30/25 20:21) @done(06/30/25 \n  20:21) @branch(fix/multi-line-todos)",
+            expect = {
+              function(lines)
+                assert.equal("- " .. m.unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
+              end,
+              function(lines)
+                assert.equal("  @branch(fix/multi-line-todos)", lines[2])
+              end,
+            },
+          },
+          {
+            name = "remove @func (nested parens)",
+            key = "func",
+            content = "- " .. m.unchecked .. " Task @func(call(nested,\n  args)) @other(value)\n  ",
+            expect = {
+              function(lines)
+                assert.equal("- " .. m.unchecked .. " Task", lines[1])
+              end,
+              function(lines)
+                assert.equal("  @other(value)", lines[2])
+              end,
+            },
+          },
+        }
 
-        local bufnr = h.setup_test_buffer(content)
+        local bufnr
+        for _, case in ipairs(cases) do
+          bufnr = h.setup_test_buffer(case.content)
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-        -- Case 1
-        -- remove @test1
-        vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        cm.remove_metadata("test1")
+          cm.remove_metadata(case.key)
 
-        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-        assert.equal("- " .. unchecked .. " Task @test2(metadata with", lines[1])
-        assert.matches("^%s*broken value%)", lines[2])
-
-        content = [[
-- ]] .. unchecked .. [[ This is some extra content @started(06/30/25 20:21) @done(06/30/25 
-  20:21) @branch(fix/multi-line-todos)
-        ]]
-
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
-
-        -- Case 2
-        -- remove @done
-        vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        cm.remove_metadata("done")
-        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-        assert.equal("- " .. unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
-        assert.equal("  @branch(fix/multi-line-todos)", lines[2])
-
-        -- Case 3
-        -- remove @func
-        content = [[
-- ]] .. unchecked .. [[ Task @func(call(nested,
-  args)) @other(value)
-  ]]
-
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(content, "\n"))
-
-        vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        cm.remove_metadata("func")
-        lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-        assert.equal("- " .. unchecked .. " Task", lines[1])
-        assert.equal("  @other(value)", lines[2])
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+          for i, check in ipairs(case.expect) do
+            local ok, err = pcall(check, lines)
+            if not ok then
+              error(("case '%s' failed at expectation #%d: %s"):format(case.name, i, tostring(err)))
+            end
+          end
+          vim.api.nvim_buf_delete(bufnr, { force = true })
+        end
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -1662,10 +1646,7 @@ Some other content]]
       end)
 
       it("should remove metadata with complex value", function()
-        local cm = require("checkmate")
-        cm.setup()
-
-        local unchecked = h.get_unchecked_marker()
+        local cm = h.cm_setup()
 
         local content = [[
 - [ ] Task @issue(issue #1 - fix(api): broken! @author)
@@ -1674,25 +1655,21 @@ Some other content]]
         local bufnr = h.setup_test_buffer(content)
 
         local todo_map = parser.discover_todos(bufnr)
-        local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task @issue")
-
-        assert.is_not_nil(first_todo)
-        ---@cast first_todo checkmate.TodoItem
+        local first_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Task @issue"))
 
         assert.is_not_nil(first_todo.metadata)
         assert.is_true(#first_todo.metadata.entries > 0)
 
         -- remove @issue
         vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
-        require("checkmate").remove_metadata("issue")
+        cm.remove_metadata("issue")
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@issue", lines[1])
-        assert.matches("- " .. unchecked .. " Task", lines[1])
+        assert.matches("- " .. m.unchecked .. " Task", lines[1])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
@@ -1700,9 +1677,8 @@ Some other content]]
       it("should remove all metadata from todo items", function()
         local tags_on_removed_called = false
 
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             ---@diagnostic disable-next-line: missing-fields
             tags = {
@@ -1713,59 +1689,48 @@ Some other content]]
           },
         })
 
-        local unchecked = h.get_unchecked_marker()
-
         -- content with todos that have multiple metadata tags
         local content = [[
 # Todo Metadata Test
 
-- ]] .. unchecked .. [[ Task with @priority(high) @due(2023-05-15) @tags(important,urgent)
-- ]] .. unchecked .. [[ Another task @priority(medium) @assigned(john)
+- ]] .. m.unchecked .. [[ Task with @priority(high) @due(2023-05-15) @tags(important,urgent)
+- ]] .. m.unchecked .. [[ Another task @priority(medium) @assigned(john)
   @issue(2)
-- ]] .. unchecked .. [[ A todo without metadata
+- ]] .. m.unchecked .. [[ A todo without metadata
 ]]
 
         local bufnr = h.setup_test_buffer(content)
 
         -- get 1st todo
         local todo_map = parser.discover_todos(bufnr)
-        local first_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Task with")
-
-        assert.is_not_nil(first_todo)
-        ---@cast first_todo checkmate.TodoItem
+        local first_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Task with"))
 
         assert.is_not_nil(first_todo.metadata)
         assert.is_true(#first_todo.metadata.entries > 0)
 
         -- remove all metadata
         vim.api.nvim_win_set_cursor(0, { first_todo.range.start.row + 1, 0 }) -- adjust from 0 index to 1-indexed
-        require("checkmate").remove_all_metadata()
+        cm.remove_all_metadata()
 
-        vim.wait(20)
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         assert.no.matches("@priority", lines[3])
         assert.no.matches("@due", lines[3])
         assert.no.matches("@tags", lines[3])
-        assert.matches("- " .. unchecked .. " Task with", lines[3])
+        assert.matches("- " .. m.unchecked .. " Task with", lines[3])
 
         assert.is_true(tags_on_removed_called)
 
-        local second_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Another task")
-        local third_todo = h.find_todo_by_text(todo_map, "- " .. unchecked .. " A todo without")
-
-        assert.is_not_nil(second_todo)
-        ---@cast second_todo checkmate.TodoItem
-
-        assert.is_not_nil(third_todo)
-        ---@cast third_todo checkmate.TodoItem
+        local second_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Another task"))
+        local third_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " A todo without"))
 
         h.make_selection(first_todo.range.start.row + 1, 0, third_todo.range.start.row + 1, 0, "V")
 
         cm.remove_all_metadata()
 
-        vim.wait(20)
+        vim.wait(10)
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -1778,18 +1743,14 @@ Some other content]]
         assert.matches("A todo without metadata", lines[6])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should handle metadata removal at end of buffer", function()
-        local cm = require("checkmate")
-        cm.setup()
+        local cm = h.cm_setup()
 
-        local unchecked = h.get_unchecked_marker()
-
-        local content = "- " .. unchecked .. " Task @meta(value\n  continues)"
+        local content = "- " .. m.unchecked .. " Task @meta(value\n  continues)"
 
         local bufnr = h.setup_test_buffer(content)
 
@@ -1798,18 +1759,16 @@ Some other content]]
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.equal(1, #lines)
-        assert.equal("- " .. unchecked .. " Task", lines[1])
+        assert.equal("- " .. m.unchecked .. " Task", lines[1])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should provide static choices", function()
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             status = {
               choices = { "todo", "in-progress", "done", "blocked" },
@@ -1819,14 +1778,11 @@ Some other content]]
 
         local meta_module = require("checkmate.metadata")
 
-        local unchecked = h.get_unchecked_marker()
-        local content = [[- ]] .. unchecked .. [[ Task with metadata @status()]]
+        local content = [[- ]] .. m.unchecked .. [[ Task with metadata @status()]]
 
         local bufnr = h.setup_test_buffer(content)
 
-        local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
 
         local results
         meta_module.get_choices("status", function(items)
@@ -1835,18 +1791,17 @@ Some other content]]
         assert.same({ "todo", "in-progress", "done", "blocked" }, results)
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should support synchronous 'choices' functions", function()
         local choices_fn_called = false
+        ---@type checkmate.MetadataContext
         local received_context = nil
 
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             assignee = {
               choices = function(context)
@@ -1860,16 +1815,12 @@ Some other content]]
 
         local meta_module = require("checkmate.metadata")
 
-        local unchecked = h.get_unchecked_marker()
-
-        local content = [[- ]] .. unchecked .. [[ Task @assignee(john)]]
+        local content = [[- ]] .. m.unchecked .. [[ Task @assignee(john)]]
 
         local bufnr = h.setup_test_buffer(content)
 
         local todo_map = parser.discover_todos(bufnr)
-        local todo_item = h.find_todo_by_text(todo_map, "Task @assignee")
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task @assignee"))
 
         local results
         meta_module.get_choices("assignee", function(items)
@@ -1878,7 +1829,6 @@ Some other content]]
 
         assert.is_true(choices_fn_called)
         assert.is_not_nil(received_context)
-        ---@cast received_context checkmate.MetadataContext
         assert.is_true(type(received_context) == "table")
 
         assert.equal("assignee", received_context.name)
@@ -1886,18 +1836,17 @@ Some other content]]
         assert.same({ "john", "jane", "jack", "jill", "bob", "alice" }, results)
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should support asynchronous 'choices' functions", function()
         local choices_fn_called = false
+        ---@type checkmate.MetadataContext
         local received_context = nil
 
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             project = {
               choices = function(context, callback)
@@ -1920,9 +1869,7 @@ Some other content]]
         local bufnr = h.setup_test_buffer(content)
 
         local todo_map = parser.discover_todos(bufnr)
-        local todo_item = h.find_todo_by_text(todo_map, "Task needing data")
-        assert.is_not_nil(todo_item)
-        ---@cast todo_item checkmate.TodoItem
+        local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task needing data"))
 
         local results
         meta_module.get_choices("project", function(items)
@@ -1937,21 +1884,17 @@ Some other content]]
 
         assert.is_true(choices_fn_called)
         assert.is_not_nil(received_context)
-        ---@cast received_context checkmate.MetadataContext
         assert.is_true(type(received_context) == "table")
-
         assert.same({ "project-a", "project-b", "project-c" }, results)
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should use `position` opt with `select_metadata_value`", function()
         -- the position opt, when passed, should be used instead of the cursor position
-        local cm = require("checkmate")
-        cm.setup()
+        local cm = h.cm_setup()
         local content = [[
   - [ ] Todo A @due(today)
   - [ ] Todo B]]
@@ -1967,22 +1910,19 @@ Some other content]]
           end,
         })
 
-        vim.wait(20)
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.match("@due%(tomorrow%)", lines[1])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should update metadata via `with_custom_picker`", function()
-        local cm = require("checkmate")
-
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           metadata = {
             project = {
               style = { fg = "#3f3fee" },
@@ -1999,6 +1939,7 @@ Some other content]]
 
         vim.api.nvim_win_set_cursor(0, { 1, t })
 
+        ---@type checkmate.MetadataContext
         local received_context
 
         cm.select_metadata_value({
@@ -2011,7 +1952,7 @@ Some other content]]
           end,
         })
 
-        vim.wait(100)
+        vim.wait(20)
 
         h.exists(received_context --[[@as checkmate.MetadataContext]])
 
@@ -2020,6 +1961,10 @@ Some other content]]
           { "- " .. h.get_unchecked_marker() .. " Task needing data @project(hello)" },
           "project value should be correctly updated"
         )
+
+        finally(function()
+          h.cleanup_buffer(bufnr)
+        end)
       end)
 
       describe("metadata callbacks", function()
@@ -2029,9 +1974,8 @@ Some other content]]
           ---@type checkmate.Todo
           local test_todo
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
@@ -2044,12 +1988,10 @@ Some other content]]
             },
           })
 
-          local unchecked = h.get_unchecked_marker()
-
           local content = [[
 # Metadata Callbacks Test
 
-- ]] .. unchecked .. [[ A test todo]]
+- ]] .. m.unchecked .. [[ A test todo]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2073,7 +2015,7 @@ Some other content]]
           assert.equal("unchecked", test_todo.state)
           assert.equal(0, test_todo.indent)
           assert.equal("-", test_todo.list_marker)
-          assert.equal(unchecked, test_todo.todo_marker)
+          assert.equal(m.unchecked, test_todo.todo_marker)
           assert.is_not_nil(test_todo.get_metadata("test"))
           assert.is_nil(test_todo.get_parent())
           assert.is_not_nil(test_todo._todo_item)
@@ -2082,7 +2024,6 @@ Some other content]]
           assert.matches("@test%(test_value%)", lines[3])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
@@ -2093,9 +2034,8 @@ Some other content]]
           ---@type checkmate.Todo
           local test_todo
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
@@ -2107,12 +2047,10 @@ Some other content]]
             },
           })
 
-          local unchecked = h.get_unchecked_marker()
-
           local content = [[
 # Metadata Callbacks Test
 
-- ]] .. unchecked .. [[ A test todo @test(test_value)]]
+- ]] .. m.unchecked .. [[ A test todo @test(test_value)]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2135,7 +2073,6 @@ Some other content]]
           assert.no.matches("@test", lines[3])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
@@ -2144,9 +2081,8 @@ Some other content]]
           local unchecked = h.get_unchecked_marker()
           local on_add_calls = {}
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               bulk = {
@@ -2175,7 +2111,7 @@ Some other content]]
           -- Normal mode first
           vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- first todo line (after 2 header lines)
           on_add_calls = {}
-          require("checkmate").toggle_metadata("bulk")
+          cm.toggle_metadata("bulk")
 
           vim.wait(10)
           vim.cmd("redraw")
@@ -2185,7 +2121,7 @@ Some other content]]
 
           -- remove all metadata for next test (reset state)
           vim.api.nvim_win_set_cursor(0, { 3, 0 })
-          require("checkmate").remove_metadata("bulk")
+          cm.remove_metadata("bulk")
 
           vim.wait(10)
           vim.cmd("redraw")
@@ -2197,7 +2133,7 @@ Some other content]]
           h.make_selection(3, 0, 2 + total_todos, 0, "V")
 
           on_add_calls = {}
-          require("checkmate").toggle_metadata("bulk")
+          cm.toggle_metadata("bulk")
           vim.cmd("normal! \27") -- exit visual mode
 
           vim.wait(10)
@@ -2212,19 +2148,16 @@ Some other content]]
           end
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should not call on_add when updating existing metadata value", function()
-          local unchecked = h.get_unchecked_marker()
           local on_add_called = false
           local on_change_called = false
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
@@ -2239,7 +2172,7 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task with existing metadata @test(old_value)]]
+- ]] .. m.unchecked .. [[ Task with existing metadata @test(old_value)]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2248,7 +2181,7 @@ Some other content]]
 
           -- called on existing metadata - should NOT trigger on_add
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
-          require("checkmate").add_metadata("test", "new_value")
+          cm.add_metadata("test", "new_value")
 
           vim.wait(10)
 
@@ -2259,21 +2192,18 @@ Some other content]]
           assert.matches("@test%(new_value%)", lines[1])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change when metadata value is updated", function()
-          local unchecked = h.get_unchecked_marker()
           local on_change_called = false
           local received_todo = nil
           local received_old_value = nil
           local received_new_value = nil
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
@@ -2288,7 +2218,7 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task with metadata @priority(low)]]
+- ]] .. m.unchecked .. [[ Task with metadata @priority(low)]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2296,7 +2226,7 @@ Some other content]]
           local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task with metadata"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
-          require("checkmate").add_metadata("priority", "high")
+          cm.add_metadata("priority", "high")
 
           vim.wait(10)
 
@@ -2312,26 +2242,23 @@ Some other content]]
           on_change_called = false
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
-          require("checkmate").add_metadata("priority", "high")
+          cm.add_metadata("priority", "high")
 
           vim.wait(10)
           assert.is_false(on_change_called)
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change via metadata picker selection", function()
-          local unchecked = h.get_unchecked_marker()
           local on_change_called = false
           local received_old_value = nil
           local received_new_value = nil
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
@@ -2346,7 +2273,7 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task @priority(medium)]]
+- ]] .. m.unchecked .. [[ Task @priority(medium)]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2355,8 +2282,7 @@ Some other content]]
           local todo_map = parser.discover_todos(bufnr)
           local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task @priority"))
 
-          local metadata_entry = todo_item.metadata.by_tag["priority"]
-          assert.is_not_nil(metadata_entry)
+          local metadata_entry = h.exists(todo_item.metadata.by_tag["priority"])
 
           -- use transaction to simulate public api that calls a picker
           -- see `select_metadata_value`
@@ -2374,19 +2300,16 @@ Some other content]]
           assert.matches("@priority%(high%)", lines[1])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should handle on_change callbacks that trigger other metadata operations", function()
-          local unchecked = h.get_unchecked_marker()
           local on_change_called = false
           local on_add_called = false
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               status = {
@@ -2407,7 +2330,7 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task @status(in-progress)]]
+- ]] .. m.unchecked .. [[ Task @status(in-progress)]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2415,7 +2338,7 @@ Some other content]]
           local todo_item = h.exists(h.find_todo_by_text(todo_map, "Task @status"))
 
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
-          require("checkmate").add_metadata("status", "done")
+          cm.add_metadata("status", "done")
 
           vim.wait(10)
 
@@ -2427,19 +2350,16 @@ Some other content]]
           assert.matches("@completed%(today%)", lines[1])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should call on_change for bulk operations in visual mode", function()
-          local unchecked = h.get_unchecked_marker()
           local change_count = 0
           local changes = {}
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
@@ -2456,15 +2376,15 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task 1 @priority(low)
-- ]] .. unchecked .. [[ Task 2 @priority(medium)
-- ]] .. unchecked .. [[ Task 3 @priority(high)]]
+- ]] .. m.unchecked .. [[ Task 1 @priority(low)
+- ]] .. m.unchecked .. [[ Task 2 @priority(medium)
+- ]] .. m.unchecked .. [[ Task 3 @priority(high)]]
 
           local bufnr = h.setup_test_buffer(content)
 
           h.make_selection(1, 0, 3, 0, "V")
 
-          require("checkmate").add_metadata("priority", "urgent")
+          cm.add_metadata("priority", "urgent")
 
           vim.wait(10)
 
@@ -2485,20 +2405,17 @@ Some other content]]
           end
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
 
         it("should handle errors in metadata callbacks gracefully", function()
-          local unchecked = h.get_unchecked_marker()
           local on_add_called = false
           local on_change_called = false
           local on_remove_called = false
 
-          local cm = require("checkmate")
           ---@diagnostic disable-next-line: missing-fields
-          cm.setup({
+          local cm = h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               errortest = {
@@ -2519,7 +2436,7 @@ Some other content]]
           })
 
           local content = [[
-- ]] .. unchecked .. [[ Task for testing callback errors]]
+- ]] .. m.unchecked .. [[ Task for testing callback errors]]
 
           local bufnr = h.setup_test_buffer(content)
 
@@ -2528,7 +2445,7 @@ Some other content]]
 
           -- add
           vim.api.nvim_win_set_cursor(0, { todo_item.range.start.row + 1, 0 })
-          local add_success = require("checkmate").add_metadata("errortest", "initial")
+          local add_success = cm.add_metadata("errortest", "initial")
 
           vim.wait(10)
 
@@ -2539,7 +2456,7 @@ Some other content]]
           assert.matches("@errortest%(initial%)", lines[1])
 
           -- update
-          local change_success = require("checkmate").add_metadata("errortest", "changed")
+          local change_success = cm.add_metadata("errortest", "changed")
 
           vim.wait(10)
 
@@ -2550,7 +2467,7 @@ Some other content]]
           assert.matches("@errortest%(changed%)", lines[1])
 
           -- remove
-          local remove_success = require("checkmate").remove_metadata("errortest")
+          local remove_success = cm.remove_metadata("errortest")
 
           vim.wait(10)
 
@@ -2565,17 +2482,15 @@ Some other content]]
           assert.equal(1, vim.tbl_count(todo_map_after), "Todo map should still be valid")
 
           -- can still perform operations
-          local toggle_success = require("checkmate").toggle()
+          local toggle_success = cm.toggle()
           assert.is_true(toggle_success)
 
           vim.wait(10)
 
           lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-          local checked = h.get_checked_marker()
-          assert.matches("- " .. checked .. " Task for testing", lines[1])
+          assert.matches("- " .. m.checked .. " Task for testing", lines[1])
 
           finally(function()
-            cm.stop()
             h.cleanup_buffer(bufnr)
           end)
         end)
@@ -2583,9 +2498,6 @@ Some other content]]
     end)
 
     it("should handle todo hierarchies with correct write to file", function()
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-
       local content = [[
 # Todo Hierarchy
 
@@ -2594,15 +2506,14 @@ Some other content]]
   - [ ] Child task 2
     - [ ] Grandchild task
   - [ ] Child task 3
-- [ ] Another parent
-]]
+- [ ] Another parent]]
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
 
       local todo_map = parser.discover_todos(bufnr)
 
       -- Find parent todo
-      local parent_todo_item = h.find_todo_by_text(todo_map, "- " .. unchecked .. " Parent task")
+      local parent_todo_item = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Parent task")
       parent_todo_item = h.exists(parent_todo_item)
       local parent_todo = util.build_todo(parent_todo_item)
 
@@ -2612,10 +2523,10 @@ Some other content]]
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      assert.matches("- " .. checked .. " Parent task", lines[3])
+      assert.matches("- " .. m.checked .. " Parent task", lines[3])
 
       vim.cmd("write")
-      vim.cmd("sleep 10m")
+      h.wait_for_write(bufnr)
 
       local saved_content = h.read_file_content(file_path)
 
@@ -2628,14 +2539,17 @@ Some other content]]
         table.insert(saved_lines, line)
       end
 
-      assert.equal("# Todo Hierarchy", saved_lines[1])
-      assert.equal("", saved_lines[2])
-      assert.equal("- [x] Parent task", saved_lines[3])
-      assert.equal("  - [ ] Child task 1", saved_lines[4])
-      assert.equal("  - [ ] Child task 2", saved_lines[5])
-      assert.equal("    - [ ] Grandchild task", saved_lines[6])
-      assert.equal("  - [ ] Child task 3", saved_lines[7])
-      assert.equal("- [ ] Another parent", saved_lines[8])
+      h.assert_lines_equal(saved_lines, {
+        "# Todo Hierarchy",
+        "",
+        "- [x] Parent task",
+        "  - [ ] Child task 1",
+        "  - [ ] Child task 2",
+        "    - [ ] Grandchild task",
+        "  - [ ] Child task 3",
+        "- [ ] Another parent",
+        "",
+      }, "read from file")
 
       finally(function()
         h.cleanup_buffer(bufnr, file_path)
@@ -2652,8 +2566,6 @@ Some other content]]
 ]]
 
       local bufnr, file_path = h.setup_todo_file_buffer(content)
-
-      -- toggle task 1, add metadata to task 2, check task 3
 
       -- toggle task 1
       vim.api.nvim_win_set_cursor(0, { 3, 3 }) -- on Task 1
@@ -2673,15 +2585,12 @@ Some other content]]
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-      local checked = h.get_checked_marker()
-      local unchecked = h.get_unchecked_marker()
-
-      assert.matches("- " .. checked .. " Task 1", lines[3])
-      assert.matches("- " .. unchecked .. " Task 2 @priority%(high%)", lines[4])
-      assert.matches("- " .. checked .. " Task 3", lines[5])
+      assert.matches("- " .. m.checked .. " Task 1", lines[3])
+      assert.matches("- " .. m.unchecked .. " Task 2 @priority%(high%)", lines[4])
+      assert.matches("- " .. m.checked .. " Task 3", lines[5])
 
       vim.cmd("write")
-      vim.cmd("sleep 10m")
+      h.wait_for_write(bufnr)
 
       local saved_content = h.read_file_content(file_path)
       if not saved_content then
@@ -2698,17 +2607,13 @@ Some other content]]
     end)
 
     it("should handle partial visual selections correctly when toggling", function()
-      local cm = require("checkmate")
-      cm.setup()
-
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
+      local cm = h.cm_setup()
 
       local content = [[
-- ]] .. unchecked .. [[ Task 1
+- ]] .. m.unchecked .. [[ Task 1
   with continuation
-- ]] .. unchecked .. [[ Task 2
-- ]] .. unchecked .. [[ Task 3
+- ]] .. m.unchecked .. [[ Task 2
+- ]] .. m.unchecked .. [[ Task 3
   also continues]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -2716,16 +2621,15 @@ Some other content]]
       -- middle of Task 1 to middle of Task 3
       h.make_selection(1, 5, 4, 10, "v")
 
-      require("checkmate").toggle()
+      cm.toggle()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       -- all covered todos should be toggled
-      assert.matches("- " .. checked .. " Task 1", lines[1])
-      assert.matches("- " .. checked .. " Task 2", lines[3])
-      assert.matches("- " .. checked .. " Task 3", lines[4])
+      assert.matches("- " .. m.checked .. " Task 1", lines[1])
+      assert.matches("- " .. m.checked .. " Task 2", lines[3])
+      assert.matches("- " .. m.checked .. " Task 3", lines[4])
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
@@ -2733,19 +2637,14 @@ Some other content]]
     describe("cycle state", function()
       -- ensure that "cycling" state will propagate state up/down the same way that "toggle" does
       it("should propagate state when cycling", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. unchecked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
-    - ]] .. unchecked .. [[ Grandchild 1
-]]
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.unchecked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
+    - ]] .. m.unchecked .. [[ Grandchild 1]]
 
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({
+        local cm = h.cm_setup({
           smart_toggle = {
             enabled = true,
             include_cycle = true,
@@ -2761,16 +2660,20 @@ Some other content]]
         -- cursor to parent task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
         -- should cycle to checked since it defaults to next `order` (unchecked = 1, checked = 2)
-        require("checkmate").cycle()
+        cm.cycle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
-        -- grandchild should NOT be checked (only direct children)
-        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
+
+        h.assert_lines_equal(lines, {
+          "- " .. m.checked .. " Parent task",
+          "  - " .. m.checked .. " Child 1",
+          "  - " .. m.checked .. " Child 2",
+          -- grandchild should NOT be checked (only direct children)
+          -- stylua: ignore
+          "    - " .. m.unchecked .. " Grandchild 1",
+        })
 
         finally(function()
           cm.stop()
@@ -2779,14 +2682,11 @@ Some other content]]
       end)
 
       it("should cycle between default states when no custom states exist", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local cm = require("checkmate")
-        cm.setup()
+        cm.setup() -- dont use h.cm_setup() here because it includes a pending state
 
         local content = [[
-- ]] .. unchecked .. [[ Task to cycle]]
+- ]] .. m.unchecked .. [[ Task to cycle]]
 
         local bufnr = h.setup_test_buffer(content)
 
@@ -2795,20 +2695,19 @@ Some other content]]
         -- cycle forward (unchecked -> checked)
         cm.cycle()
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked, lines[1])
+        assert.matches("- " .. m.checked, lines[1])
 
         -- cycle forward again (checked -> unchecked, wrapping)
         cm.cycle()
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked, lines[1])
+        assert.matches("- " .. m.unchecked, lines[1])
 
         -- cycle backward (unchecked -> checked, wrapping)
         cm.cycle({ backward = true })
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked, lines[1])
+        assert.matches("- " .. m.checked, lines[1])
 
         finally(function()
-          cm.stop()
           h.cleanup_buffer(bufnr)
         end)
       end)
@@ -2818,8 +2717,7 @@ Some other content]]
   describe("get_todo()", function()
     local cm
     before_each(function()
-      cm = require("checkmate")
-      cm.setup()
+      cm = h.cm_setup()
       h.ensure_normal_mode()
     end)
     after_each(function()
@@ -2832,7 +2730,7 @@ Some other content]]
 
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-      local todo = h.exists(require("checkmate").get_todo())
+      local todo = h.exists(cm.get_todo())
       assert.equal("unchecked", todo.state)
       assert.matches("Task A", todo.text)
 
@@ -2845,7 +2743,7 @@ Some other content]]
       local bufnr = h.setup_test_buffer("Plain text line")
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-      local todo = require("checkmate").get_todo()
+      local todo = cm.get_todo()
       assert.is_nil(todo)
 
       finally(function()
@@ -2864,7 +2762,7 @@ Some other content]]
       -- select both lines, linewise
       h.make_selection(1, 0, 2, 0, "V")
 
-      local todo = h.exists(require("checkmate").get_todo())
+      local todo = h.exists(cm.get_todo())
       assert.matches("First", todo.text)
 
       finally(function()
@@ -2883,11 +2781,11 @@ Some other content]]
       vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
       -- should resolve to the same todo
-      local todo = h.exists(require("checkmate").get_todo())
+      local todo = h.exists(cm.get_todo())
       assert.matches("Todo item", todo.text)
 
       -- root_only=true: should not resolve from continuation line
-      local root_only_todo = require("checkmate").get_todo({ root_only = true })
+      local root_only_todo = cm.get_todo({ root_only = true })
       assert.is_nil(root_only_todo)
 
       finally(function()
@@ -2901,7 +2799,7 @@ Some other content]]
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "- [ ] Looks like a todo, but in lua ft" })
       vim.bo[bufnr].filetype = "lua"
 
-      local todo = require("checkmate").get_todo({ bufnr = bufnr })
+      local todo = cm.get_todo({ bufnr = bufnr })
       assert.is_nil(todo)
 
       finally(function()
@@ -2913,8 +2811,7 @@ Some other content]]
   describe("movement", function()
     local cm
     before_each(function()
-      cm = require("checkmate")
-      cm.setup()
+      cm = h.cm_setup()
     end)
     after_each(function()
       cm.stop()
@@ -2924,12 +2821,12 @@ Some other content]]
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
       local bufnr = h.setup_test_buffer(content)
 
-      local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-      assert.is_not_nil(todo_item)
-      ---@cast todo_item checkmate.TodoItem
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
       local row = todo_item.range.start.row + 1
 
       vim.api.nvim_win_set_cursor(0, { row, 0 })
+
+      -- api is the internal api.lua module
 
       -- cycle forward through each metadata
       api.move_cursor_to_metadata(bufnr, todo_item)
@@ -2958,9 +2855,7 @@ Some other content]]
       local content = "- [ ] Task @foo(1) @bar(2) @baz(3)"
       local bufnr = h.setup_test_buffer(content)
 
-      local todo_item = parser.get_todo_item_at_position(bufnr, 0, 0)
-      assert.is_not_nil(todo_item)
-      ---@cast todo_item checkmate.TodoItem
+      local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
       local row = todo_item.range.start.row + 1
 
       -- place cursor inside the second metadata range
@@ -2997,37 +2892,34 @@ Some other content]]
         }, smart_toggle_config or {}),
       }
 
-      require("checkmate").setup(config_override)
+      local cm = h.cm_setup(config_override)
 
-      return h.setup_test_buffer(content)
+      return h.setup_test_buffer(content), cm
     end
 
     describe("downward propagation", function()
       it("should check all direct children when parent is checked (check_down='direct_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. unchecked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
-    - ]] .. unchecked .. [[ Grandchild 1
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.unchecked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
+    - ]] .. m.unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Child 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 2", lines[3])
         -- grandchild should NOT be checked (only direct children)
-        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. m.unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3035,32 +2927,29 @@ Some other content]]
       end)
 
       it("should check all descendants when parent is checked (check_down='all_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. unchecked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
-    - ]] .. unchecked .. [[ Grandchild 1
-      - ]] .. unchecked .. [[ Great-grandchild 1
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.unchecked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
+    - ]] .. m.unchecked .. [[ Grandchild 1
+      - ]] .. m.unchecked .. [[ Great-grandchild 1
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { check_down = "all_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_down = "all_children" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- all descendants should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
-        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
-        assert.matches("- " .. checked .. " Great%-grandchild 1", lines[5])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Child 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 2", lines[3])
+        assert.matches("- " .. m.checked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. m.checked .. " Great%-grandchild 1", lines[5])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3068,28 +2957,25 @@ Some other content]]
       end)
 
       it("should not affect children when parent is checked (check_down='none')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. unchecked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.unchecked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { check_down = "none" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_down = "none" })
 
         -- cursor to parent task and toggle
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- only parent is checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. unchecked .. " Child 1", lines[2])
-        assert.matches("- " .. unchecked .. " Child 2", lines[3])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. m.unchecked .. " Child 2", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3097,30 +2983,27 @@ Some other content]]
       end)
 
       it("should uncheck direct children when parent is unchecked (uncheck_down='direct_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. checked .. [[ Parent task
-  - ]] .. checked .. [[ Child 1
-  - ]] .. checked .. [[ Child 2
-    - ]] .. checked .. [[ Grandchild 1
+- ]] .. m.checked .. [[ Parent task
+  - ]] .. m.checked .. [[ Child 1
+  - ]] .. m.checked .. [[ Child 2
+    - ]] .. m.checked .. [[ Grandchild 1
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { uncheck_down = "direct_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { uncheck_down = "direct_children" })
 
         -- cursor to parent task and toggle (uncheck it)
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked .. " Parent task", lines[1])
-        assert.matches("- " .. unchecked .. " Child 1", lines[2])
-        assert.matches("- " .. unchecked .. " Child 2", lines[3])
+        assert.matches("- " .. m.unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. m.unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. m.unchecked .. " Child 2", lines[3])
         -- grandchild should remain checked (only direct children affected)
-        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. m.checked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3130,30 +3013,27 @@ Some other content]]
 
     describe("upward propagation", function()
       it("should check parent when all direct children are checked (check_up='direct_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. checked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
-  - ]] .. checked .. [[ Child 3
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.checked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
+  - ]] .. m.checked .. [[ Child 3
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { check_up = "direct_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_up = "direct_children" })
 
         -- check the remaining unchecked child
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- parent should now be checked since all direct children are checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
-        assert.matches("- " .. checked .. " Child 3", lines[4])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Child 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 2", lines[3])
+        assert.matches("- " .. m.checked .. " Child 3", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3161,42 +3041,39 @@ Some other content]]
       end)
 
       it("should check parent when all descendants are checked (check_up='all_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. checked .. [[ Child 1
-  - ]] .. unchecked .. [[ Child 2
-    - ]] .. checked .. [[ Grandchild 1
-    - ]] .. unchecked .. [[ Grandchild 2
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.checked .. [[ Child 1
+  - ]] .. m.unchecked .. [[ Child 2
+    - ]] .. m.checked .. [[ Grandchild 1
+    - ]] .. m.unchecked .. [[ Grandchild 2
 ]]
 
         -- we use a check_down = "none" here to test only the check_up functionality,
         -- otherwise, the first check with propagate the check to all children
-        local bufnr = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
 
         -- check Child 2 first
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
-        require("checkmate").toggle()
-        vim.wait(20)
+        cm.toggle()
+        vim.wait(10)
 
         -- parent should NOT be checked yet (grandchild 2 is still unchecked)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. m.unchecked .. " Parent task", lines[1])
 
         -- now check Grandchild 2
         vim.api.nvim_win_set_cursor(0, { 5, 0 })
-        require("checkmate").toggle()
-        vim.wait(20)
+        cm.toggle()
+        vim.wait(10)
 
         -- now parent should be checked (all descendants are checked)
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
-        assert.matches("- " .. checked .. " Grandchild 1", lines[4])
-        assert.matches("- " .. checked .. " Grandchild 2", lines[5])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Child 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 2", lines[3])
+        assert.matches("- " .. m.checked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. m.checked .. " Grandchild 2", lines[5])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3204,29 +3081,26 @@ Some other content]]
       end)
 
       it("should uncheck parent when any direct child is unchecked (uncheck_up='direct_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. checked .. [[ Parent task
-  - ]] .. checked .. [[ Child 1
-  - ]] .. checked .. [[ Child 2
-    - ]] .. unchecked .. [[ Grandchild 1
+- ]] .. m.checked .. [[ Parent task
+  - ]] .. m.checked .. [[ Child 1
+  - ]] .. m.checked .. [[ Child 2
+    - ]] .. m.unchecked .. [[ Grandchild 1
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { uncheck_up = "direct_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { uncheck_up = "direct_children" })
 
         -- uncheck one child
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- parent should be unchecked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked .. " Parent task", lines[1])
-        assert.matches("- " .. unchecked .. " Child 1", lines[2])
-        assert.matches("- " .. checked .. " Child 2", lines[3])
+        assert.matches("- " .. m.unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. m.unchecked .. " Child 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 2", lines[3])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3234,31 +3108,28 @@ Some other content]]
       end)
 
       it("should uncheck parent when any descendant is unchecked (uncheck_up='all_children')", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. checked .. [[ Parent task
-  - ]] .. checked .. [[ Child 1
-  - ]] .. checked .. [[ Child 2
-    - ]] .. checked .. [[ Grandchild 1
+- ]] .. m.checked .. [[ Parent task
+  - ]] .. m.checked .. [[ Child 1
+  - ]] .. m.checked .. [[ Child 2
+    - ]] .. m.checked .. [[ Grandchild 1
 ]]
 
-        local bufnr = setup_smart_toggle_buffer(content, { uncheck_up = "all_children", uncheck_down = "none" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { uncheck_up = "all_children", uncheck_down = "none" })
 
         -- uncheck the grandchild
         vim.api.nvim_win_set_cursor(0, { 4, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- parent should be unchecked (because a descendant is unchecked)
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked .. " Parent task", lines[1])
-        assert.matches("- " .. checked .. " Child 1", lines[2])
+        assert.matches("- " .. m.unchecked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Child 1", lines[2])
         -- child 2 is unchecked as it is a parent of Grandchild 1
-        assert.matches("- " .. unchecked .. " Child 2", lines[3])
-        assert.matches("- " .. unchecked .. " Grandchild 1", lines[4])
+        assert.matches("- " .. m.unchecked .. " Child 2", lines[3])
+        assert.matches("- " .. m.unchecked .. " Grandchild 1", lines[4])
 
         finally(function()
           h.cleanup_buffer(bufnr)
@@ -3268,202 +3139,186 @@ Some other content]]
 
     describe("complex scenarios", function()
       it("should handle multiple parent todo selection with smart toggle", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Task A
-  - ]] .. unchecked .. [[ Task A.1
-- ]] .. unchecked .. [[ Task B
-  - ]] .. unchecked .. [[ Task B.1
-    - ]] .. unchecked .. [[ Task B.1.1
-- ]] .. unchecked .. [[ Task C
+- ]] .. m.unchecked .. [[ Task A
+  - ]] .. m.unchecked .. [[ Task A.1
+- ]] .. m.unchecked .. [[ Task B
+  - ]] .. m.unchecked .. [[ Task B.1
+    - ]] .. m.unchecked .. [[ Task B.1.1
+- ]] .. m.unchecked .. [[ Task C
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_down = "direct_children" })
 
         -- select both parent tasks in visual mode
         h.make_selection(1, 0, 3, 0, "V")
 
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- all tasks should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Task A", lines[1])
-        assert.matches("- " .. checked .. " Task A%.1", lines[2])
-        assert.matches("- " .. checked .. " Task B", lines[3])
-        assert.matches("- " .. checked .. " Task B%.1", lines[4])
+        assert.matches("- " .. m.checked .. " Task A", lines[1])
+        assert.matches("- " .. m.checked .. " Task A%.1", lines[2])
+        assert.matches("- " .. m.checked .. " Task B", lines[3])
+        assert.matches("- " .. m.checked .. " Task B%.1", lines[4])
         -- should not propagate check to grandchild if check_down = "direct_children"
-        assert.matches("- " .. unchecked .. " Task B%.1%.1", lines[5])
+        assert.matches("- " .. m.unchecked .. " Task B%.1%.1", lines[5])
         -- should not check sibling parent Task C
-        assert.matches("- " .. unchecked .. " Task C", lines[6])
+        assert.matches("- " .. m.unchecked .. " Task C", lines[6])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should check common parent when all selected siblings become checked (complete)", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent
-  - ]] .. unchecked .. [[ A
-  - ]] .. unchecked .. [[ B
-- ]] .. unchecked .. [[ Other
+- ]] .. m.unchecked .. [[ Parent
+  - ]] .. m.unchecked .. [[ A
+  - ]] .. m.unchecked .. [[ B
+- ]] .. m.unchecked .. [[ Other
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+        local bufnr, cm = setup_smart_toggle_buffer(content, {
           check_down = "none",
           check_up = "direct_children",
         })
 
         -- visually select A and B
         h.make_selection(2, 0, 3, 0, "V")
-        require("checkmate").toggle()
-        vim.wait(20)
+        cm.toggle()
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         -- A and B now checked, so Parent should check
-        assert.matches("- " .. checked .. " Parent", lines[1])
+        assert.matches("- " .. m.checked .. " Parent", lines[1])
         assert.matches("A", lines[2])
         assert.matches("B", lines[3])
-        assert.matches("- " .. unchecked .. " Other", lines[4])
+        assert.matches("- " .. m.unchecked .. " Other", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should handle cascading propagation correctly", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Grandparent
-  - ]] .. unchecked .. [[ Parent 1
-    - ]] .. checked .. [[ Child 1.1
-    - ]] .. unchecked .. [[ Child 1.2
-  - ]] .. checked .. [[ Parent 2
-    - ]] .. checked .. [[ Child 2.1
+- ]] .. m.unchecked .. [[ Grandparent
+  - ]] .. m.unchecked .. [[ Parent 1
+    - ]] .. m.checked .. [[ Child 1.1
+    - ]] .. m.unchecked .. [[ Child 1.2
+  - ]] .. m.checked .. [[ Parent 2
+    - ]] .. m.checked .. [[ Child 2.1
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+        local bufnr, cm = setup_smart_toggle_buffer(content, {
           check_down = "none",
           check_up = "direct_children",
         })
 
         -- check Child 1.2 - this should cascade up
         vim.api.nvim_win_set_cursor(0, { 4, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- should check Child 1.2, Parent 1, and Grandparent
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Grandparent", lines[1])
-        assert.matches("- " .. checked .. " Parent 1", lines[2])
-        assert.matches("- " .. checked .. " Child 1%.1", lines[3])
-        assert.matches("- " .. checked .. " Child 1%.2", lines[4])
-        assert.matches("- " .. checked .. " Parent 2", lines[5])
-        assert.matches("- " .. checked .. " Child 2%.1", lines[6])
+        assert.matches("- " .. m.checked .. " Grandparent", lines[1])
+        assert.matches("- " .. m.checked .. " Parent 1", lines[2])
+        assert.matches("- " .. m.checked .. " Child 1%.1", lines[3])
+        assert.matches("- " .. m.checked .. " Child 1%.2", lines[4])
+        assert.matches("- " .. m.checked .. " Parent 2", lines[5])
+        assert.matches("- " .. m.checked .. " Child 2%.1", lines[6])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
       it("should handle smart toggle with mixed custom states", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-        local pending = h.get_pending_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. pending .. [[ Child pending
-  - ]] .. unchecked .. [[ Child unchecked
-  - ]] .. checked .. [[ Child checked
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.pending .. [[ Child pending
+  - ]] .. m.unchecked .. [[ Child unchecked
+  - ]] .. m.checked .. [[ Child checked
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(content, {
+        local bufnr, cm = setup_smart_toggle_buffer(content, {
           check_down = "direct_children",
           check_up = "direct_children",
         })
 
         -- toggle parent to checked
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
         vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
         -- parent becomes checked
-        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
         -- pending child stays pending (custom states don't changed during propagation)
-        assert.matches("- " .. pending .. " Child pending", lines[2])
+        assert.matches("- " .. m.pending .. " Child pending", lines[2])
         -- unchecked child becomes checked
-        assert.matches("- " .. checked .. " Child unchecked", lines[3])
+        assert.matches("- " .. m.checked .. " Child unchecked", lines[3])
         -- checked child stays checked
-        assert.matches("- " .. checked .. " Child checked", lines[4])
+        assert.matches("- " .. m.checked .. " Child checked", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
     end)
     describe("edge cases", function()
       it("should not propagate when smart_toggle is disabled", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Task A
-  - ]] .. unchecked .. [[ Task A.1
-  - ]] .. unchecked .. [[ Task A.2
-- ]] .. unchecked .. [[ Task B
+- ]] .. m.unchecked .. [[ Task A
+  - ]] .. m.unchecked .. [[ Task A.1
+  - ]] .. m.unchecked .. [[ Task A.2
+- ]] .. m.unchecked .. [[ Task B
 ]]
 
-        local bufnr, file_path = setup_smart_toggle_buffer(
+        local bufnr, cm = setup_smart_toggle_buffer(
           content,
           { enabled = false, check_down = "direct_children", check_up = "direct_children" }
         )
 
         -- toggle first task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").toggle()
+        cm.toggle()
 
-        vim.wait(20)
+        vim.wait(10)
 
         -- only first task should be checked
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. checked .. " Task A", lines[1])
-        assert.matches("- " .. unchecked .. " Task A%.1", lines[2])
-        assert.matches("- " .. unchecked .. " Task A%.2", lines[3])
-        assert.matches("- " .. unchecked .. " Task B", lines[4])
+        assert.matches("- " .. m.checked .. " Task A", lines[1])
+        assert.matches("- " .. m.unchecked .. " Task A%.1", lines[2])
+        assert.matches("- " .. m.unchecked .. " Task A%.2", lines[3])
+        assert.matches("- " .. m.unchecked .. " Task B", lines[4])
 
         -- reset first task
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        require("checkmate").uncheck()
+        cm.uncheck()
 
         -- select both child tasks in visual mode
         h.make_selection(2, 0, 3, 0, "V")
 
-        require("checkmate").check()
-        vim.wait(20)
+        cm.check()
+        vim.wait(10)
 
         -- first task should not be checked (no propagation from children)
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        assert.matches("- " .. unchecked .. " Task A", lines[1])
-        assert.matches("- " .. checked .. " Task A%.1", lines[2])
-        assert.matches("- " .. checked .. " Task A%.2", lines[3])
-        assert.matches("- " .. unchecked .. " Task B", lines[4])
+        assert.matches("- " .. m.unchecked .. " Task A", lines[1])
+        assert.matches("- " .. m.checked .. " Task A%.1", lines[2])
+        assert.matches("- " .. m.checked .. " Task A%.2", lines[3])
+        assert.matches("- " .. m.unchecked .. " Task B", lines[4])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -3471,32 +3326,28 @@ Some other content]]
       -- checked or unchecked. i.e. a "pending" state could be set to behave as "unchecked", thus
       -- blocking the below `check_up` (whereas it does not block currently)
       it("should ignore custom states when deciding parent propagation", function()
-        local unchecked = h.get_unchecked_marker()
-        local checked = h.get_checked_marker()
-        local pending = h.get_pending_marker()
-
         local content = [[
-- ]] .. unchecked .. [[ Parent task
-  - ]] .. pending .. [[ Child custom
-  - ]] .. unchecked .. [[ Child unchecked
+- ]] .. m.unchecked .. [[ Parent task
+  - ]] .. m.pending .. [[ Child custom
+  - ]] .. m.unchecked .. [[ Child unchecked
 ]]
 
         -- only looking at check_up/all_children, no down propagation
-        local bufnr, file_path = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
+        local bufnr, cm = setup_smart_toggle_buffer(content, { check_up = "all_children", check_down = "none" })
 
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
-        require("checkmate").toggle()
-        vim.wait(20)
+        cm.toggle()
+        vim.wait(10)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         -- child “pending” stays pending, the other child becomes checked,
         -- and parent becomes checked because “pending” is ignored.
-        assert.matches("- " .. checked .. " Parent task", lines[1])
+        assert.matches("- " .. m.checked .. " Parent task", lines[1])
         assert.matches("Child custom", lines[2])
         assert.matches("Child unchecked", lines[3])
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
     end)
@@ -3504,17 +3355,15 @@ Some other content]]
 
   describe("archive system", function()
     it("should not create archive section when no checked todos exist", function()
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
 
       local content = [[
 # Todo List
-- ]] .. unchecked .. [[ Task 1
-- ]] .. unchecked .. [[ Task 2
-  - ]] .. unchecked .. [[ Subtask 2.1
+- ]] .. m.unchecked .. [[ Task 1
+- ]] .. m.unchecked .. [[ Task 2
+  - ]] .. m.unchecked .. [[ Subtask 2.1
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3533,9 +3382,9 @@ Some other content]]
 
       local expected_main_content = {
         "# Todo List",
-        "- " .. unchecked .. " Task 1",
-        "- " .. unchecked .. " Task 2",
-        "  - " .. unchecked .. " Subtask 2.1",
+        "- " .. m.unchecked .. " Task 1",
+        "- " .. m.unchecked .. " Task 2",
+        "  - " .. m.unchecked .. " Subtask 2.1",
       }
 
       -- original content is unchanged
@@ -3543,29 +3392,25 @@ Some other content]]
       assert.equal(result, true, err)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should archive completed todo items to specified section", function()
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
       local content = [[
 # Todo List
 
-- ]] .. unchecked .. [[ Unchecked task 1
-- ]] .. checked .. [[ Checked task 1
-  - ]] .. checked .. [[ Checked subtask 1.1
-  - ]] .. unchecked .. [[ Unchecked subtask 1.2
-- ]] .. unchecked .. [[ Unchecked task 2
-- ]] .. checked .. [[ Checked task 2
-  - ]] .. checked .. [[ Checked subtask 2.1
+- ]] .. m.unchecked .. [[ Unchecked task 1
+- ]] .. m.checked .. [[ Checked task 1
+  - ]] .. m.checked .. [[ Checked subtask 1.1
+  - ]] .. m.unchecked .. [[ Unchecked subtask 1.2
+- ]] .. m.unchecked .. [[ Unchecked task 2
+- ]] .. m.checked .. [[ Checked task 2
+  - ]] .. m.checked .. [[ Checked subtask 2.1
 
 ## Existing Section
 Some content here
@@ -3587,12 +3432,12 @@ Some content here
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       -- checked top-level tasks were removed
-      assert.no.matches("- " .. checked .. " Checked task 1", main_section)
-      assert.no.matches("- " .. checked .. " Checked task 2", main_section)
+      assert.no.matches("- " .. m.checked .. " Checked task 1", main_section)
+      assert.no.matches("- " .. m.checked .. " Checked task 2", main_section)
 
       -- unchecked tasks remain
-      assert.matches("- " .. unchecked .. " Unchecked task 1", main_section)
-      assert.matches("- " .. unchecked .. " Unchecked task 2", main_section)
+      assert.matches("- " .. m.unchecked .. " Unchecked task 1", main_section)
+      assert.matches("- " .. m.unchecked .. " Unchecked task 2", main_section)
 
       -- archive section was created
       assert.matches(archive_heading_string, buffer_content)
@@ -3604,11 +3449,11 @@ Some content here
       local expected_archive = {
         "## " .. heading_title,
         "",
-        "- " .. checked .. " Checked task 1",
-        "  - " .. checked .. " Checked subtask 1.1",
-        "  - " .. unchecked .. " Unchecked subtask 1.2",
-        "- " .. checked .. " Checked task 2",
-        "  - " .. checked .. " Checked subtask 2.1",
+        "- " .. m.checked .. " Checked task 1",
+        "  - " .. m.checked .. " Checked subtask 1.1",
+        "  - " .. m.unchecked .. " Unchecked subtask 1.2",
+        "- " .. m.checked .. " Checked task 2",
+        "  - " .. m.checked .. " Checked subtask 2.1",
       }
 
       local archive_success, err = h.verify_content_lines(archive_section, expected_archive)
@@ -3619,30 +3464,25 @@ Some content here
       assert.matches("Some content here", buffer_content)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should work with custom archive heading", function()
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
-
       -- setup with custom archive heading
       local heading_title = "Completed Items"
       local heading_level = 4 -- ####
 
-      local cm = require("checkmate")
       ---@diagnostic disable-next-line: missing-fields
-      cm.setup({
+      local cm = h.cm_setup({
         archive = { heading = { title = heading_title, level = heading_level } },
       })
 
       local content = [[
 # Custom Archive Heading Test
 
-- ]] .. unchecked .. [[ Unchecked task
-- ]] .. checked .. [[ Checked task
+- ]] .. m.unchecked .. [[ Unchecked task
+- ]] .. m.checked .. [[ Checked task
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3662,22 +3502,18 @@ Some content here
       -- content was archived correctly
       local archive_section = buffer_content:match("#### Completed Items" .. ".*$")
       assert.is_not_nil(archive_section)
-      assert.matches("- " .. checked .. " Checked task", archive_section)
+      assert.matches("- " .. m.checked .. " Checked task", archive_section)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should merge with existing archive section", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
-      local cm = require("checkmate")
       ---@diagnostic disable-next-line: missing-fields
-      cm.setup({
+      local cm = h.cm_setup({
         ---@diagnostic disable-next-line: missing-fields
         archive = {
           newest_first = false, -- ensure newly added todos end up at top of archive section
@@ -3692,12 +3528,12 @@ Some content here
       local content = [[
 # Existing Archive Test
 
-- ]] .. unchecked .. [[ Unchecked task
-- ]] .. checked .. [[ Checked task to archive
+- ]] .. m.unchecked .. [[ Unchecked task
+- ]] .. m.checked .. [[ Checked task to archive
 
 ]] .. archive_heading_string .. [[
 
-- ]] .. checked .. [[ Previously archived task
+- ]] .. m.checked .. [[ Previously archived task
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3710,10 +3546,10 @@ Some content here
       -- checked task was removed from main content
       local main_content = buffer_content:match("^(.-)" .. archive_heading_string)
       assert.is_not_nil(main_content)
-      assert.no.matches("- " .. checked .. " Checked task to archive", main_content)
+      assert.no.matches("- " .. m.checked .. " Checked task to archive", main_content)
 
       -- unchecked task remains in main content
-      assert.matches("- " .. unchecked .. " Unchecked task", main_content)
+      assert.matches("- " .. m.unchecked .. " Unchecked task", main_content)
 
       local archive_section = buffer_content:match(archive_heading_string .. ".*$")
       assert.is_not_nil(archive_section)
@@ -3721,8 +3557,8 @@ Some content here
       local expected_archive = {
         "## " .. config.get_defaults().archive.heading.title,
         "",
-        "- " .. checked .. " Previously archived task",
-        "- " .. checked .. " Checked task to archive",
+        "- " .. m.checked .. " Previously archived task",
+        "- " .. m.checked .. " Checked task to archive",
       }
 
       local archive_success, err = h.verify_content_lines(archive_section, expected_archive)
@@ -3738,32 +3574,28 @@ Some content here
       end
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should insert the configured parent_spacing between archived parent blocks", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
       for _, spacing in ipairs({ 0, 1, 2 }) do
-        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        cm.setup({ archive = { parent_spacing = spacing } })
+        local cm = h.cm_setup({ archive = { parent_spacing = spacing } })
         local content = [[
 # Tasks
-- ]] .. unchecked .. [[ Active task
-- ]] .. checked .. [[ Done task A
-  - ]] .. checked .. [[ Done subtask A.1
-- ]] .. checked .. [[ Done task B
+- ]] .. m.unchecked .. [[ Active task
+- ]] .. m.checked .. [[ Done task A
+  - ]] .. m.checked .. [[ Done subtask A.1
+- ]] .. m.checked .. [[ Done task B
 ]]
 
         local bufnr = h.setup_test_buffer(content)
 
         cm.archive()
-        vim.wait(20)
+        vim.wait(10)
         vim.cmd("redraw")
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -3784,8 +3616,8 @@ Some content here
         local archive_lines = vim.split(archive_section, "\n", { plain = true })
 
         -- locate the two parent tasks
-        local first_root = "- " .. checked .. " Done task A"
-        local second_root = "- " .. checked .. " Done task B"
+        local first_root = "- " .. m.checked .. " Done task A"
+        local second_root = "- " .. m.checked .. " Done task B"
         local first_idx, second_idx
 
         for idx, l in ipairs(archive_lines) do
@@ -3824,27 +3656,24 @@ Some content here
           )
         )
 
-        cm.stop()
+        -- not in finally since part of a loop
         h.cleanup_buffer(bufnr)
       end
     end)
 
     it("should preserve single blank line when todo has spacing on both sides", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local content = [[
 # Todo List
 
-- ]] .. unchecked .. [[ Task A
+- ]] .. m.unchecked .. [[ Task A
 
-- ]] .. checked .. [[ Task B (to archive)
+- ]] .. m.checked .. [[ Task B (to archive)
 
-- ]] .. unchecked .. [[ Task C
+- ]] .. m.unchecked .. [[ Task C
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3864,9 +3693,9 @@ Some content here
       local expected_main_content = {
         "# Todo List",
         "",
-        "- " .. unchecked .. " Task A",
+        "- " .. m.unchecked .. " Task A",
         "",
-        "- " .. unchecked .. " Task C",
+        "- " .. m.unchecked .. " Task C",
         "",
       }
 
@@ -3874,26 +3703,22 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should not create double spacing when archiving adjacent todos", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local content = [[
-- ]] .. unchecked .. [[ Task A
+- ]] .. m.unchecked .. [[ Task A
 
-- ]] .. checked .. [[ Task B (to archive)
-- ]] .. checked .. [[ Task C (to archive)
+- ]] .. m.checked .. [[ Task B (to archive)
+- ]] .. m.checked .. [[ Task C (to archive)
 
-- ]] .. unchecked .. [[ Task D
+- ]] .. m.unchecked .. [[ Task D
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3911,9 +3736,9 @@ Some content here
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       local expected_main_content = {
-        "- " .. unchecked .. " Task A",
+        "- " .. m.unchecked .. " Task A",
         "",
-        "- " .. unchecked .. " Task D",
+        "- " .. m.unchecked .. " Task D",
         "",
       }
 
@@ -3921,23 +3746,19 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should handle no spacing between todos correctly", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local content = [[
-- ]] .. unchecked .. [[ Task A
-- ]] .. checked .. [[ Task B (to archive)
-- ]] .. unchecked .. [[ Task C
+- ]] .. m.unchecked .. [[ Task A
+- ]] .. m.checked .. [[ Task B (to archive)
+- ]] .. m.unchecked .. [[ Task C
 ]]
 
       local bufnr = h.setup_test_buffer(content)
@@ -3955,8 +3776,8 @@ Some content here
       local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
       local expected_main_content = {
-        "- " .. unchecked .. " Task A",
-        "- " .. unchecked .. " Task C",
+        "- " .. m.unchecked .. " Task A",
+        "- " .. m.unchecked .. " Task C",
         "",
       }
 
@@ -3964,38 +3785,34 @@ Some content here
       assert.equal(success, true, err)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should handle spacing for complex mixed content correctly", function()
       local config = require("checkmate.config")
-      local unchecked = h.get_unchecked_marker()
-      local checked = h.get_checked_marker()
 
-      local cm = require("checkmate")
-      cm.setup()
+      local cm = h.cm_setup()
 
       local content = [[
 # Project
 
 Some intro text.
 
-- ]] .. unchecked .. [[ Task A
+- ]] .. m.unchecked .. [[ Task A
 
-- ]] .. checked .. [[ Task B (to archive)
-  - ]] .. checked .. [[ Subtask B.1
+- ]] .. m.checked .. [[ Task B (to archive)
+  - ]] .. m.checked .. [[ Subtask B.1
 
 ## Section 1
 
 Content for section 1.
 
-- ]] .. checked .. [[ Task C (to archive)
+- ]] .. m.checked .. [[ Task C (to archive)
 
 More content.
 
-- ]] .. unchecked .. [[ Task D
+- ]] .. m.unchecked .. [[ Task D
 
 ## Section 2
 
@@ -4021,7 +3838,7 @@ Final content.
         "",
         "Some intro text.",
         "",
-        "- " .. unchecked .. " Task A",
+        "- " .. m.unchecked .. " Task A",
         "",
         "## Section 1",
         "",
@@ -4029,7 +3846,7 @@ Final content.
         "",
         "More content.",
         "",
-        "- " .. unchecked .. " Task D",
+        "- " .. m.unchecked .. " Task D",
         "",
         "## Section 2",
         "",
@@ -4041,17 +3858,15 @@ Final content.
       assert.equal(success, true, err)
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)
 
     it("should be idempotent when run twice", function()
-      local cm = require("checkmate")
-      cm.setup()
-      local checked = h.get_checked_marker()
+      local cm = h.cm_setup()
+
       local content = [[
-- ]] .. checked .. [[ A
+- ]] .. m.checked .. [[ A
 ]]
       local bufnr = h.setup_test_buffer(content)
 
@@ -4063,7 +3878,6 @@ Final content.
       assert.equal(once, twice, "Second archive changed buffer")
 
       finally(function()
-        cm.stop()
         h.cleanup_buffer(bufnr)
       end)
     end)

@@ -34,6 +34,17 @@ M.DEFAULT_TEST_CONFIG = {
   },
 }
 
+---Calls `require("checkmate").setup()` and merges with helpers.DEFAULT_TEST_CONFIG`
+---@param _config? checkmate.Config
+---@param cm? Checkmate
+function M.cm_setup(_config, cm)
+  if not cm then
+    cm = require("checkmate")
+  end
+  cm.setup(vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, _config or {}))
+  return cm
+end
+
 --- Creates a temp file and sets up a Checkmate buffer for this file
 --- @param content string|string[]
 --- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
@@ -93,15 +104,26 @@ function M.cleanup_buffer(bufnr, file_path)
   -- Clear any pending operations
   vim.cmd("redraw!")
 
-  pcall(function()
-    require("checkmate").stop()
-  end)
+  pcall(require("checkmate").stop)
 
   pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
 
   if file_path then
     pcall(os.remove, file_path)
   end
+end
+
+function M.delete_all_buffers()
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    pcall(vim.api.nvim_buf_delete, b, { force = true })
+  end
+end
+
+function M.wait_for_write(bufnr)
+  local ok = vim.wait(100, function()
+    return not vim.bo[bufnr].modified
+  end, 10)
+  assert(ok, "Timeout waiting for buffer write")
 end
 
 -- Create a temporary file for testing

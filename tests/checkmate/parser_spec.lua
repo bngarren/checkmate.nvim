@@ -555,16 +555,17 @@ This is another line
 - [.] Pending
         ]]
 
-        local bufnr, file_path = h.setup_todo_file_buffer(content, {
-          config = {
-            todo_states = {
-              pending = {
-                marker = pending_marker,
-                markdown = ".", -- i.e. [.]
-              },
+        ---@diagnostic disable-next-line: missing-fields
+        require("checkmate").setup({
+          todo_states = {
+            pending = {
+              marker = pending_marker,
+              markdown = ".", -- i.e. [.]
             },
           },
         })
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
@@ -576,7 +577,7 @@ This is another line
         assert.is_truthy(todo_item.todo_text:match("Pending"))
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_buffer(bufnr)
         end)
       end)
 
@@ -587,7 +588,9 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item1 = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item1.todo_text:match("This is a todo line"))
@@ -617,7 +620,9 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         -- test each nested list item
         for i = 1, 3 do
@@ -642,7 +647,10 @@ This is another line
       - Even deeper nesting
 - [ ] Another parent
     ]]
-        local bufnr = h.setup_todo_file_buffer(content)
+
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         -- cursor on wrapped portion of nested todo
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 10))
@@ -664,7 +672,9 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 0))
         assert.is_truthy(todo_item.todo_text:match("Separate todo"))
@@ -807,7 +817,7 @@ This is another line
 - [x] This is some extra content @started(06/30/25 20:21) @done(06/30/25 
   20:21) @branch(fix/multi-line-todos)
     ]]
-      local bufnr = h.setup_todo_file_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- First todo
       local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))

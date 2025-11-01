@@ -4,36 +4,33 @@
 
 
 ### Get stuff done
-
-[![Lua](https://img.shields.io/badge/Lua-blue.svg?style=for-the-badge&logo=lua)](http://www.lua.org)
-[![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim&color=%2343743f)](https://neovim.io)
-![GitHub Release](https://img.shields.io/github/v/release/bngarren/checkmate.nvim?style=for-the-badge&logoSize=200&color=%23f3d38a&labelColor=%23061914)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/bngarren/checkmate.nvim/lint-test.yml?branch=main&style=for-the-badge&label=CI&labelColor=%23061914&color=%2343743f)
-
+<p align="center">
+<a href="#table-of-contents">Table of Contents</a>&nbsp;&bull;&nbsp;
+<a href="https://github.com/bngarren/checkmate.nvim/wiki">Wiki</a>
+</p>
 
 </div><br/>
 
-A Markdown-based todo/task plugin for Neovim.
+<i>A Markdown-based todo/task plugin for Neovim.</i>
 
-### Features
-- Saves files in plain Markdown format (compatible with other apps)
+# Features
+- Create and toggle Markdown todos
 - Customizable markers and styling
-- Visual mode support for toggling multiple items at once
+- Visual mode support for multiple todos
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts/percentage
 - Smart toggling behavior
-- Archive completed todos
+- Archive (reorganize) completed todos
 - Todo templates with LuaSnip snippet integration
 - Custom todo states
   - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
 - Automatic todo creation (list continuation in insert mode)
 
-> [!NOTE]
-> Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
+#### Check out the [wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
 > - [Advanced metadata](https://github.com/bngarren/checkmate.nvim/wiki/Metadata)
 > - [Snippets](https://github.com/bngarren/checkmate.nvim/wiki/Snippets)
-> - How to setup a per-project, low-friction `checkmate.nvim` buffer with [snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
+> - [How to setup a per-project, low-friction `checkmate.nvim` buffer with snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
 
 <br/>
 
@@ -45,7 +42,7 @@ A Markdown-based todo/task plugin for Neovim.
 https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <!-- panvimdoc-ignore-start -->
-## Table of Contents
+# Table of Contents
 - [Installation](#installation)
 - [Requirements](#requirements)
 - [Usage](#usage)
@@ -66,11 +63,9 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <!-- panvimdoc-ignore-end -->
 
-<br>
-
 <a id="installation"><a/>
 
-# ☑️ Installation
+# Installation
 
 ## Requirements
 
@@ -96,7 +91,7 @@ If you'd like _stable-ish_ version during pre-release, can add a minor version t
 ```
 <a id="usage"><a/>
 
-# ☑️ Usage
+# Usage
 
 ### 1. Open or Create a Todo File
 
@@ -148,11 +143,11 @@ Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,b
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
-The Checkmate buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
+Your buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
 
 <a id="commands"><a/>
 
-# ☑️ Commands
+# Commands
 
 #### User commands
 `:Checkmate [subcommand]`
@@ -176,15 +171,14 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. Without a parameter, toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands. |
 | `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
 
-<br>
-
 <a id="config"><a/>
 
-# ☑️ Config
+# Config
 
 For config definitions/annotations, see [here](https://github.com/bngarren/checkmate.nvim/blob/main/lua/checkmate/config/init.lua#L34).
 
 ## Defaults
+```lua
 ---@type checkmate.Config
 return {
   enabled = true,
@@ -382,7 +376,7 @@ return {
 ```
 
 ## Keymapping
-Default keymaps can be disabled by setting `keys = false`.
+[Default](#defaults) keymaps can be disabled by setting `keys = false`.
 
 The `keys` table overrides the defaults (does not merge). If you want some custom and some defaults, you need to copy the defaults into your own `keys` table.
 
@@ -520,7 +514,8 @@ todo_states = {
 <img width="800" height="145" alt="checkmate_custom_states" src="https://github.com/user-attachments/assets/b8f89d00-4523-4106-8dbe-82059b1a1334" />
 
 #### State types
-States have three behavior types that affect smart toggle and todo counts:
+States may be one of three types that give the state semantic and functional meaning:
+
 | Type | Behavior | Example States |
 |------|----------|----------------|
 | `incomplete` | Counts as "not done" | **unchecked**, in_progress, pending, future |
@@ -633,7 +628,7 @@ opts = {
 ```
 <a id="metadata"><a/>
 
-# ☑️ Metadata
+# Metadata
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
@@ -673,7 +668,7 @@ For in-depth guide and recipes for custom metadata, see the [Wiki](https://githu
 
 <a id="archiving"><a/>
 
-# ☑️ Archiving
+# Archiving
 Allows you to easily reorganize the buffer by moving all **completed** todo items to a Markdown section beneath all other content. The remaining unchecked/incomplete todos are reorganized up top and spacing is adjusted.
 
 Archiving collects all todos with the "completed" [state type](#state-types), which includes the default "checked" state, but possibly others based on custom todo states.
@@ -726,7 +721,7 @@ E.g. `parent_spacing = 1`
 
 <a id="integrations"><a/>
 
-# ☑️ Integrations
+# Integrations
 
 Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
 
@@ -734,12 +729,12 @@ Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additiona
 |----------------|----------|
 | [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#render-markdownnvim)|
 | [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki/Snippets) |
-| scratch buffer/floating window for quick todos, e.g. [snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
+| [scratch buffer/floating window for quick todos, e.g. snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
 
 
 <a id="linting"><a/>
 
-# ☑️ Linting
+# Linting
 Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
 
 > The embedded linter is NOT a general-purpose Markdown linter and _may_ interfere with other linting tools. Though, in testing with conform.nvim and prettier, I have not found any issues.
@@ -770,7 +765,7 @@ If you feel comfortable with the nuances of Markdown list syntax, you can disabl
 
 <a id="roadmap"><a/>
 
-# ☑️ Roadmap
+# Roadmap
 
 Planned features:
 
@@ -787,15 +782,19 @@ Planned features:
 - [x] **Custom todo states** - support beyond binary "checked" and "unchecked", allowing for todos to be in custom states, e.g. pending, not-planned, on-hold, etc. _Added v0.10.0_
 
 - [x] **List (todo) continuation** - automatically created new todo lines in insert mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
+    
+- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos.
+
+- [ ] **Improved todo search** - Expose a `find_todos` and `find_metadata` that return lists of todos, based on search criteria that can be used to populate qflists and pickers.
 
 <a id="contributing"><a/>
 
-# ☑️ Contributing
+# Contributing
 
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!
 
 <a id="credits"><a/>
 
-# ☑️ Credits
+# Credits
 
 - Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))

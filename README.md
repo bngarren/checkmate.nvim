@@ -5,16 +5,16 @@
 
 ### Get stuff done
 <hr>
-<div>
-<a href="#table-of-contents">Table of Contents</a> |
+<p align="center">
+<a href="#table-of-contents">Table of Contents</a>&nbsp;&bull;&nbsp;
 <a href="https://github.com/bngarren/checkmate.nvim/wiki">Wiki</a>
-</div>
+</p>
 
 </div><br/>
 
-> A Markdown-based todo/task plugin for Neovim.
+<i>A Markdown-based todo/task plugin for Neovim.</i>
 
-### Features
+# Features
 - Saves files in plain Markdown format (compatible with other apps)
 - Customizable markers and styling
 - Visual mode support for toggling multiple items at once
@@ -44,7 +44,7 @@
 https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <!-- panvimdoc-ignore-start -->
-## Table of Contents
+# Table of Contents
 - [Installation](#installation)
 - [Requirements](#requirements)
 - [Usage](#usage)
@@ -69,7 +69,7 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <a id="installation"><a/>
 
-# ☑️ Installation
+# Installation
 
 ## Requirements
 
@@ -95,7 +95,7 @@ If you'd like _stable-ish_ version during pre-release, can add a minor version t
 ```
 <a id="usage"><a/>
 
-# ☑️ Usage
+# Usage
 
 ### 1. Open or Create a Todo File
 
@@ -151,7 +151,7 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 <a id="commands"><a/>
 
-# ☑️ Commands
+# Commands
 
 #### User commands
 `:Checkmate [subcommand]`
@@ -179,11 +179,12 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 
 <a id="config"><a/>
 
-# ☑️ Config
+# Config
 
 For config definitions/annotations, see [here](https://github.com/bngarren/checkmate.nvim/blob/main/lua/checkmate/config/init.lua#L34).
 
 ## Defaults
+```lua
 ---@type checkmate.Config
 return {
   enabled = true,
@@ -632,7 +633,7 @@ opts = {
 ```
 <a id="metadata"><a/>
 
-# ☑️ Metadata
+# Metadata
 
 Metadata tags allow you to add custom `@tag(value)` annotations to todo items.
 
@@ -672,7 +673,7 @@ For in-depth guide and recipes for custom metadata, see the [Wiki](https://githu
 
 <a id="archiving"><a/>
 
-# ☑️ Archiving
+# Archiving
 Allows you to easily reorganize the buffer by moving all **completed** todo items to a Markdown section beneath all other content. The remaining unchecked/incomplete todos are reorganized up top and spacing is adjusted.
 
 Archiving collects all todos with the "completed" [state type](#state-types), which includes the default "checked" state, but possibly others based on custom todo states.
@@ -725,7 +726,7 @@ E.g. `parent_spacing = 1`
 
 <a id="integrations"><a/>
 
-# ☑️ Integrations
+# Integrations
 
 Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
 
@@ -738,7 +739,7 @@ Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additiona
 
 <a id="linting"><a/>
 
-# ☑️ Linting
+# Linting
 Checkmate uses a _very_ limited custom linter in order require zero dependencies but attempt to warn the user of Markdown (CommonMark spec) formatting issues that could cause unexpected plugin behavior.
 
 > The embedded linter is NOT a general-purpose Markdown linter and _may_ interfere with other linting tools. Though, in testing with conform.nvim and prettier, I have not found any issues.
@@ -769,7 +770,7 @@ If you feel comfortable with the nuances of Markdown list syntax, you can disabl
 
 <a id="roadmap"><a/>
 
-# ☑️ Roadmap
+# Roadmap
 
 Planned features:
 
@@ -789,12 +790,12 @@ Planned features:
 
 <a id="contributing"><a/>
 
-# ☑️ Contributing
+# Contributing
 
 If you have feature suggestions or ideas, please feel free to open an issue on GitHub!
 
 <a id="credits"><a/>
 
-# ☑️ Credits
+# Credits
 
 - Inspired by the [Todo+](https://github.com/fabiospampinato/vscode-todo-plus) VS Code extension (credit to @[fabiospampinato](https://github.com/fabiospampinato))

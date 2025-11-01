@@ -263,8 +263,20 @@ function M.set_todo_state(todo, target_state)
   local transaction = require("checkmate.transaction")
   local config = require("checkmate.config")
   local parser = require("checkmate.parser")
+  local log = require("checkmate.log")
 
   if not todo then
+    log.fmt_error("[main] bad `todo` received in `set_todo_state`:\n %s", vim.inspect(todo))
+    return false
+  end
+
+  local state_def = config.options.todo_states[target_state]
+  if not state_def then
+    log.fmt_warn(
+      "[main] invalid todo state (`target_state`) received in `set_todo_state()` for\n todo on row %d.\n'%s' does not exist in config.",
+      todo.row,
+      target_state
+    )
     return false
   end
 

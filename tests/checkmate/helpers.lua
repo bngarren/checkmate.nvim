@@ -410,7 +410,7 @@ end
 ---
 ---@field action fun(cm: Checkmate, ctx?: any)
 ---@field expected? string[] Expected buffer lines after action
----@field assert? fun(bufnr: integer, lines: string[], ctx?: any) Custom assertion function
+---@field assert? fun(bufnr: integer, lines: string[], ctx?: {buffer: integer, cm: Checkmate}) Custom assertion function
 ---@field wait_ms? integer Duration to wait after action before assertions (default 0 ms)
 ---@field skip? boolean Skip this test case
 ---@field only? boolean Run only this test case
@@ -484,6 +484,7 @@ function M.run_test_cases(test_cases, opts)
     end
 
     ctx.buffer = ctx.buffer or bufnr
+    ctx.cm = ctx.cm or cm
 
     tc.action(cm, ctx)
 

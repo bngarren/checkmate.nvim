@@ -10,6 +10,10 @@
 ![GitHub Release](https://img.shields.io/github/v/release/bngarren/checkmate.nvim?style=for-the-badge&logoSize=200&color=%23f3d38a&labelColor=%23061914)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/bngarren/checkmate.nvim/lint-test.yml?branch=main&style=for-the-badge&label=CI&labelColor=%23061914&color=%2343743f)
 
+<div>
+[Table of Contents](#table-of-contents) |
+[Wiki](https://github.com/bngarren/checkmate.nvim/wiki)
+</div>
 
 </div><br/>
 
@@ -382,7 +386,7 @@ return {
 ```
 
 ## Keymapping
-Default keymaps can be disabled by setting `keys = false`.
+[Default](#defaults) keymaps can be disabled by setting `keys = false`.
 
 The `keys` table overrides the defaults (does not merge). If you want some custom and some defaults, you need to copy the defaults into your own `keys` table.
 

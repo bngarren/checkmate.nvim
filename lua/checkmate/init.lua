@@ -1,150 +1,10 @@
 ---@class Checkmate
 local M = {}
-
--- Helper module
 local H = {}
 
---- internal
-
--- save initial user opts for later restarts
-local user_opts = {}
-
-M._state = {
-  -- initialized is config setup
-  initialized = false,
-  -- core modules are setup (parser, highlights, linter) and autocmds registered
-  running = false,
-  active_buffers = {}, -- bufnr -> true
-}
-
-local state = M._state
-
----@param opts checkmate.Config?
----@return boolean success True if setup completed successfully, false on configuration error
-M.setup = function(opts)
-  local config = require("checkmate.config")
-
-  user_opts = opts or {}
-
-  -- reload if config has changed
-  if M.is_initialized() then
-    local current_config = config.options
-    if opts and not vim.deep_equal(opts, current_config) then
-      M.stop()
-    else
-      return true
-    end
-  end
-
-  local success, err = pcall(function()
-    if M.is_running() then
-      M.stop()
-    end
-
-    -- if config.setup() returns {}, it already notified the validation error
-    ---@type checkmate.Config
-    local cfg = config.setup(opts or {})
-    if type(cfg) ~= "table" or vim.tbl_isempty(cfg) then
-      return
-    end
-
-    if #config.get_deprecations(user_opts) > 0 then
-      vim.notify("Checkmate: deprecated usage. Run `checkhealth checkmate`.", vim.log.levels.WARN)
-    end
-
-    M.set_initialized(true)
-  end)
-
-  if not success then
-    local msg = "Checkmate: Setup failed.\nRun `:checkhealth checkmate` to debug. "
-    if err then
-      msg = msg .. "\n" .. tostring(err)
-    end
-    vim.notify(msg, vim.log.levels.ERROR)
-    M.reset()
-    return false
-  end
-
-  -- got here but not initialized, ?config error, do graceful cleanup
-  if not M.is_initialized() then
-    M.reset()
-    return false
-  end
-
-  if config.options.enabled then
-    M.start()
-  end
-
-  return true
-end
-
--- spin up logger, parser, highlights, linter, autocmds
-function M.start()
-  if M.is_running() then
-    return
-  end
-
-  local config = require("checkmate.config")
-
-  local success, err = pcall(function()
-    local log = require("checkmate.log")
-    log.setup()
-
-    -- each of these should clear any caches they own
-    require("checkmate.parser").setup()
-    require("checkmate.highlights").setup_highlights()
-
-    if config.options.linter and config.options.linter.enabled ~= false then
-      require("checkmate.linter").setup(config.options.linter)
-    end
-
-    M.set_running(true)
-
-    H.setup_autocommands()
-
-    H.setup_existing_markdown_buffers()
-
-    log.info("[main] ✔ Checkmate started successfully")
-  end)
-  if not success then
-    vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
-    M.stop() -- cleanup partial initialization
-  end
-end
-
-function M.stop()
-  if not M.is_running() then
-    return
-  end
-
-  local active_buffers = M.get_active_buffer_list()
-  local active_buffers_count = M.count_active_buffers()
-
-  -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
-  for _, bufnr in ipairs(active_buffers) do
-    require("checkmate.api").shutdown(bufnr)
-  end
-
-  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
-  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
-
-  local parser = require("checkmate.parser")
-  parser.clear_parser_cache()
-
-  if package.loaded["checkmate.log"] then
-    pcall(function()
-      local log = require("checkmate.log")
-      log.fmt_info("[main] Checkmate stopped, with %d active buffers", active_buffers_count)
-      log.shutdown()
-    end)
-  end
-
-  M.reset()
-end
-
--------------- PUBLIC API --------------
-
--- Public Types
+-- ================================================================================
+-- ------------ CHECKMATE PUBLIC API --------------
+-- ================================================================================
 
 ---@class checkmate.Todo
 ---@field row integer 0-based row of the todo (the line containing the list marker and todo marker)
@@ -182,15 +42,16 @@ end
 function M.enable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = true
-  M.setup(user_opts)
+  M.setup(H.state.user_opts)
 end
 
 --- Toggle todo item(s) state under cursor or per todo in visual selection
 ---
 --- - If a `target_state` isn't passed, it will toggle between "unchecked" and "checked" states.
---- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent
+--- - If `smart_toggle` is enabled in the config, changed state will be propagated to nearby siblings and parent.
 --- - To switch to states other than the default unchecked/checked, you can pass a {target_state} or use the `cycle()` API.
---- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_state`.
+--- - To set a _specific_ todo to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_state`.
+---   - To get a `checkmate.Todo` from the buffer, use `get_todo()`
 ---
 ---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc. See `checkmate.Config.todo_states`.
 ---@return boolean success True if operation was performed or queued
@@ -199,6 +60,7 @@ function M.toggle(target_state)
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local config = require("checkmate.config")
+  local log = require("checkmate.log")
 
   local profiler = require("checkmate.profiler")
   profiler.start("M.toggle")
@@ -234,7 +96,19 @@ function M.toggle(target_state)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `toggle` on invalid buffer")
+    return false
+  end
+
   local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
+
+  if #todo_items == 0 then
+    H.notify_no_todos_found(is_visual)
+    profiler.stop("M.toggle")
+    return false
+  end
 
   transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled then
@@ -258,7 +132,7 @@ function M.toggle(target_state)
   return true
 end
 
---- Set a todo item to a specific state
+--- Set a todo to a specific state
 ---
 --- To toggle state of todos under cursor or in linewise selection, use `toggle()`
 ---
@@ -305,6 +179,11 @@ function M.set_todo_state(todo, target_state)
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `set_todo_state` on invalid buffer")
+    return false
+  end
 
   -- if smart toggle is enabled, we need the todo_map
   local todo_map = smart_toggle_enabled and parser.get_todo_map(bufnr) or nil
@@ -385,6 +264,7 @@ function M.cycle(opts)
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
   local config = require("checkmate.config")
+  local log = require("checkmate.log")
 
   opts = opts or {}
 
@@ -415,11 +295,16 @@ function M.cycle(opts)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `cycle` on invalid buffer")
+    return false
+  end
+
   local todo_items, todo_map = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    H.notify_no_todos_found(is_visual)
     return false
   end
 
@@ -545,6 +430,7 @@ function M.create(opts)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
+  local log = require("checkmate.log")
 
   local mode = util.get_mode()
   local is_insert = mode == "i"
@@ -569,6 +455,11 @@ function M.create(opts)
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `create` on invalid buffer")
+    return false
+  end
 
   -- determine which api function to use based on current mode:
 
@@ -690,6 +581,7 @@ function M.remove(opts)
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
   local parser = require("checkmate.parser")
+  local log = require("checkmate.log")
 
   -- a gotcha of this code is that when you remove metadata first that spans multiple lines, this will
   -- perform a line replace (instead of text replace), losing the stable todo id extmark. So we cover this
@@ -723,11 +615,17 @@ function M.remove(opts)
   -- normal/visual path: collect once, then run both phases in a single transaction
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `remove` on invalid buffer")
+    return false
+  end
+
   local items = api.collect_todo_items_from_selection(is_visual)
 
   if #items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    local mode_msg = is_visual and "within selection" or "at cursor position"
+    util.notify(string.format("No todo items found %s", mode_msg), vim.log.levels.INFO)
     return false
   end
 
@@ -786,8 +684,9 @@ function M.add_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
+  local log = require("checkmate.log")
 
-  H.ensure_metadata_exists(metadata_name)
+  H.metadata_is_defined(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -806,11 +705,16 @@ function M.add_metadata(metadata_name, value)
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `add_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    H.notify_no_todos_found(is_visual)
     return false
   end
 
@@ -836,10 +740,10 @@ end
 ---@return boolean success True if operation was performed or queued, false if no todos found
 function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
-  local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
-  H.ensure_metadata_exists(metadata_name)
+  H.metadata_is_defined(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -858,11 +762,16 @@ function M.remove_metadata(metadata_name)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `remove_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    H.notify_no_todos_found(is_visual)
     return false
   end
 
@@ -886,8 +795,8 @@ end
 ---@return boolean success True if operation was performed or queued, false if no todos found
 function M.remove_all_metadata()
   local api = require("checkmate.api")
-  local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
   local ctx = transaction.current_context()
   if ctx then
@@ -905,12 +814,18 @@ function M.remove_all_metadata()
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
+
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `remove_all_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    H.notify_no_todos_found(is_visual)
     return false
   end
 
@@ -941,8 +856,9 @@ function M.update_metadata(metadata_name, new_value)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
-  H.ensure_metadata_exists(metadata_name)
+  H.metadata_is_defined(metadata_name)
 
   local ctx = transaction.current_context()
   if ctx then
@@ -959,19 +875,24 @@ function M.update_metadata(metadata_name, new_value)
         ctx.add_op(api.add_metadata, {
           { id = todo_item.id, meta_name = metadata_name, meta_value = new_value },
         })
+        return true
       end
-      return true
-    else
-      return false
     end
+    return false
   end
 
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `update_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items, _ = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    util.notify("No todo items found", vim.log.levels.WARN)
+    H.notify_no_todos_found(is_visual)
     return false
   end
 
@@ -1008,10 +929,10 @@ end
 function M.toggle_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
-  local util = require("checkmate.util")
   local profiler = require("checkmate.profiler")
+  local log = require("checkmate.log")
 
-  H.ensure_metadata_exists(metadata_name)
+  H.metadata_is_defined(metadata_name)
 
   profiler.start("M.toggle_metadata")
 
@@ -1034,11 +955,16 @@ function M.toggle_metadata(metadata_name, value)
 
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `toggle_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(is_visual)
 
   if #todo_items == 0 then
-    local mode_msg = is_visual and "selection" or "cursor position"
-    util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    H.notify_no_todos_found(is_visual)
     profiler.stop("M.toggle_metadata")
     return false
   end
@@ -1124,9 +1050,9 @@ function M.select_metadata_value(opts)
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
+
   if not api.is_valid_buffer(bufnr) then
-    require("checkmate.util").notify("Not in a Checkmate buffer", vim.log.levels.INFO)
-    log.fmt_warn("[main] attempted to call `select_metadata_value` for inactive buffer %d", bufnr)
+    log.warn("[main] Attempted to call `select_metadata_value` on invalid buffer")
     return false
   end
 
@@ -1204,10 +1130,10 @@ end
 function M.jump_next_metadata()
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
   local ctx = transaction.current_context()
   if ctx then
-    -- during a transaction, schedule cursor movement as a cb
     ctx.add_cb(function()
       local bufnr = ctx.get_buf()
       local cursor = vim.api.nvim_win_get_cursor(0)
@@ -1219,8 +1145,13 @@ function M.jump_next_metadata()
     return
   end
 
-  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `jump_next_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(false)
   if #todo_items > 0 then
     api.move_cursor_to_metadata(bufnr, todo_items[1], false)
@@ -1232,10 +1163,10 @@ end
 function M.jump_previous_metadata()
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
   local ctx = transaction.current_context()
   if ctx then
-    -- during a transaction, schedule cursor movement as a cb
     ctx.add_cb(function()
       local bufnr = ctx.get_buf()
       local cursor = vim.api.nvim_win_get_cursor(0)
@@ -1247,8 +1178,13 @@ function M.jump_previous_metadata()
     return
   end
 
-  -- outside transaction, execute immediately
   local bufnr = vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `jump_previous_metadata` on invalid buffer")
+    return false
+  end
+
   local todo_items = api.collect_todo_items_from_selection(false)
   if #todo_items > 0 then
     api.move_cursor_to_metadata(bufnr, todo_items[1], true)
@@ -1271,11 +1207,14 @@ end
 --- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
 --- @return checkmate.Todo? todo The todo item at the specified position, or nil if not found
 function M.get_todo(opts)
+  local api = require("checkmate.api")
+  local log = require("checkmate.log")
   opts = opts or {}
 
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
-  local api = require("checkmate.api")
+
   if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `get_todo` on invalid buffer")
     return nil
   end
 
@@ -1325,8 +1264,10 @@ function M.lint(opts)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
   local api = require("checkmate.api")
+  local log = require("checkmate.log")
 
   if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `lint` on invalid buffer")
     return false, nil
   end
 
@@ -1361,6 +1302,7 @@ function M.archive(opts)
   opts = opts or {}
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
 
   local ctx = transaction.current_context()
   if ctx then
@@ -1371,6 +1313,11 @@ function M.archive(opts)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `archive` on invalid buffer")
+    return false
+  end
+
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.archive_todos, opts)
   end)
@@ -1379,46 +1326,169 @@ end
 
 ----------------------------------------------------------------------
 
+---@param opts checkmate.Config?
+---@return boolean success True if setup completed successfully
+M.setup = function(opts)
+  local config = require("checkmate.config")
+
+  H.state.user_opts = opts or {}
+
+  -- reload if config has changed
+  if M.is_initialized() then
+    local current_config = config.options
+    if opts and not vim.deep_equal(opts, current_config) then
+      M.stop()
+    else
+      return true
+    end
+  end
+
+  local success, err = pcall(function()
+    if M.is_running() then
+      M.stop()
+    end
+
+    -- if config.setup() returns {}, it already notified the validation error
+    ---@type checkmate.Config
+    local cfg = config.setup(opts or {})
+    if type(cfg) ~= "table" or vim.tbl_isempty(cfg) then
+      return
+    end
+
+    if #config.get_deprecations(H.state.user_opts) > 0 then
+      vim.notify("Checkmate: deprecated usage. Run `checkhealth checkmate`.", vim.log.levels.WARN)
+    end
+
+    M.set_initialized(true)
+  end)
+
+  if not success then
+    local msg = "Checkmate: Setup failed.\nRun `:checkhealth checkmate` to debug. "
+    if err then
+      msg = msg .. "\n" .. tostring(err)
+    end
+    vim.notify(msg, vim.log.levels.ERROR)
+    M.reset()
+    return false
+  end
+
+  -- got here but not initialized, ?config error, do graceful cleanup
+  if not M.is_initialized() then
+    M.reset()
+    return false
+  end
+
+  if config.options.enabled then
+    M.start()
+  end
+
+  return true
+end
+
+-- spin up logger, parser, highlights, linter, autocmds
+function M.start()
+  if M.is_running() then
+    return
+  end
+
+  local config = require("checkmate.config")
+
+  local success, err = pcall(function()
+    local log = require("checkmate.log")
+    log.setup()
+
+    -- each of these should clear any caches they own
+    require("checkmate.parser").setup()
+    require("checkmate.highlights").setup_highlights()
+
+    if config.options.linter and config.options.linter.enabled ~= false then
+      require("checkmate.linter").setup(config.options.linter)
+    end
+
+    M.set_running(true)
+
+    H.setup_autocommands()
+
+    H.setup_existing_markdown_buffers()
+
+    log.info("[main] ✔ Checkmate started successfully")
+  end)
+  if not success then
+    vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
+    M.stop() -- cleanup partial initialization
+  end
+end
+
+function M.stop()
+  if not M.is_running() then
+    return
+  end
+
+  local active_buffers = M.get_active_buffer_list()
+  local active_buffers_count = M.count_active_buffers()
+
+  -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
+  for _, bufnr in ipairs(active_buffers) do
+    require("checkmate.api").shutdown(bufnr)
+  end
+
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
+
+  local parser = require("checkmate.parser")
+  parser.clear_parser_cache()
+
+  if package.loaded["checkmate.log"] then
+    pcall(function()
+      local log = require("checkmate.log")
+      log.fmt_info("[main] Checkmate stopped, with %d active buffers", active_buffers_count)
+      log.shutdown()
+    end)
+  end
+
+  M.reset()
+end
+
 function M.get_user_opts()
-  return vim.deepcopy(user_opts)
+  return vim.deepcopy(H.state.user_opts)
 end
 
 function M.is_initialized()
-  return state.initialized
+  return H.state.initialized
 end
 
 function M.set_initialized(value)
-  state.initialized = value
+  H.state.initialized = value
 end
 
 function M.is_running()
-  return state.running
+  return H.state.running
 end
 
 function M.set_running(value)
-  state.running = value
+  H.state.running = value
 end
 
 function M.register_buffer(bufnr)
-  state.active_buffers[bufnr] = true
+  H.state.active_buffers[bufnr] = true
 end
 
 function M.unregister_buffer(bufnr)
-  state.active_buffers[bufnr] = nil
+  H.state.active_buffers[bufnr] = nil
 end
 
 function M.is_buffer_active(bufnr)
-  return state.active_buffers[bufnr] == true
+  return H.state.active_buffers[bufnr] == true
 end
 
 -- Returns array of buffer numbers
 function M.get_active_buffer_list()
   local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
+  for bufnr in pairs(H.state.active_buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       table.insert(buffers, bufnr)
     else
-      state.active_buffers[bufnr] = nil
+      H.state.active_buffers[bufnr] = nil
     end
   end
   return buffers
@@ -1427,11 +1497,11 @@ end
 -- Returns hash table of bufnr -> true
 function M.get_active_buffer_map()
   local buffers = {}
-  for bufnr in pairs(state.active_buffers) do
+  for bufnr in pairs(H.state.active_buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       buffers[bufnr] = true
     else
-      state.active_buffers[bufnr] = nil
+      H.state.active_buffers[bufnr] = nil
     end
   end
   return buffers
@@ -1440,23 +1510,35 @@ end
 -- Convenience function that returns count
 function M.count_active_buffers()
   local count = 0
-  for bufnr in pairs(state.active_buffers) do
+  for bufnr in pairs(H.state.active_buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       count = count + 1
     else
-      state.active_buffers[bufnr] = nil
+      H.state.active_buffers[bufnr] = nil
     end
   end
   return count
 end
 
 function M.reset()
-  state.initialized = false
-  state.running = false
-  state.active_buffers = {}
+  H.state.initialized = false
+  H.state.running = false
+  H.state.active_buffers = {}
 end
 
----- Helpers ----
+-- ================================================================================
+-- ------------ HELPERS --------------
+-- ================================================================================
+
+H.state = {
+  -- initialized is config setup
+  initialized = false,
+  -- core modules are setup (parser, highlights, linter) and autocmds registered
+  running = false,
+  active_buffers = {}, -- bufnr -> true
+  -- save initial user opts for later restarts
+  user_opts = {},
+}
 
 function H.setup_autocommands()
   local log = require("checkmate.log")
@@ -1534,7 +1616,7 @@ end
 --- Checks that is metadata tag name (internally using it's canonical name)
 --- exists in the config.metadata
 ---@return boolean exists
-function H.ensure_metadata_exists(metadata_name)
+function H.metadata_is_defined(metadata_name)
   local meta_mod = require("checkmate.metadata")
   local log = require("checkmate.log")
 
@@ -1567,6 +1649,11 @@ function H.resolve_position(row, col)
   end
   local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", resolved_row, resolved_col)
   return resolved_row, resolved_col, pos_str
+end
+
+function H.notify_no_todos_found(is_visual)
+  local mode_msg = is_visual and "within selection" or "at cursor position"
+  require("checkmate.util").notify(string.format("No todo items found %s", mode_msg), vim.log.levels.INFO)
 end
 
 return M

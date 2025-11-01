@@ -4,7 +4,6 @@
 
 
 ### Get stuff done
-<hr>
 <p align="center">
 <a href="#table-of-contents">Table of Contents</a>&nbsp;&bull;&nbsp;
 <a href="https://github.com/bngarren/checkmate.nvim/wiki">Wiki</a>
@@ -15,24 +14,23 @@
 <i>A Markdown-based todo/task plugin for Neovim.</i>
 
 # Features
-- Saves files in plain Markdown format (compatible with other apps)
+- Create and toggle Markdown todos
 - Customizable markers and styling
-- Visual mode support for toggling multiple items at once
+- Visual mode support for multiple todos
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts/percentage
 - Smart toggling behavior
-- Archive completed todos
+- Archive (reorganize) completed todos
 - Todo templates with LuaSnip snippet integration
 - Custom todo states
   - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
 - Automatic todo creation (list continuation in insert mode)
 
-> [!NOTE]
-> Check out the [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
+#### Check out the [wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
 > - [Advanced metadata](https://github.com/bngarren/checkmate.nvim/wiki/Metadata)
 > - [Snippets](https://github.com/bngarren/checkmate.nvim/wiki/Snippets)
-> - How to setup a per-project, low-friction `checkmate.nvim` buffer with [snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
+> - [How to setup a per-project, low-friction `checkmate.nvim` buffer with snacks.nvim](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim)
 
 <br/>
 

@@ -153,11 +153,15 @@ end
 ---@field indent number Number of spaces before the list marker
 ---@field list_marker string List item marker, e.g. `-`, `*`, `+`
 ---@field todo_marker string Todo marker, e.g. `□`, `✔`
----@field is_checked fun(): boolean Whether todo is checked
+---@field is_checked fun(): boolean Whether todo state is explicitly "checked". If custom states are used, you may want to use `is_complete()`.
+---@field is_unchecked fun(): boolean Whether todo state is explicitly "unchecked". If custom states are used, you may want to use `is_incomplete()`.
+---@field is_complete fun(): boolean Whether todo state type is "complete" (this includes "checked" state, by default)
+---@field is_incomplete fun(): boolean Whether todo state type is "incomplete" (this includes "unchecked" state, by default)
+---@field is_inactive fun(): boolean Whether todo state type is "inactive" (may be used by custom todo states)
 ---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 ---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
----@field _todo_item checkmate.TodoItem internal representation (use at your own risk)
+---@field _todo_item checkmate.TodoItem internal representation (use at your own risk, not guaranteed to be stable)
 
 ---@class checkmate.MetadataContext
 ---@field name string Metadata tag name

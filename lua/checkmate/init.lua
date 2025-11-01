@@ -1527,8 +1527,8 @@ function H.ensure_metadata_exists(metadata_name)
   local meta_mod = require("checkmate.metadata")
   local log = require("checkmate.log")
 
-  metadata_name = meta_mod.get_canonical_name(metadata_name) or ""
-  if #metadata_name == 0 then
+  local canonical = meta_mod.get_canonical_name(metadata_name)
+  if not canonical then
     log.fmt_warn(
       "[main] Metadata with name '%s' does not exist. Is it defined in the `config.metadata`?",
       metadata_name

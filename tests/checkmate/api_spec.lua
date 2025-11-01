@@ -1676,6 +1676,33 @@ describe("API", function()
         end)
       end)
 
+      it("should add_metadata with undefined metadata", function()
+        -- i.e., metadata not defined in config but should still be added
+        h.run_test_cases({
+          {
+            name = "undefined metadata",
+            content = h.todo_line({ text = "Todo A" }),
+            cursor = { 1, 0 },
+            action = function(cm)
+              cm.add_metadata("undefined", "foo")
+            end,
+            expected = { h.todo_line({ text = "Todo A @undefined(foo)" }) },
+            assert = function()
+              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
+              assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
+
+              local metadata = h.exists(todo_item.metadata.by_tag["undefined"])
+              assert.equal("undefined", metadata.tag)
+              assert.equal("foo", metadata.value)
+              assert.is_nil(metadata.alias_for) -- no alias for an undefined metadata
+              assert.no_nil(metadata.range)
+              assert.no_nil(metadata.value_range)
+            end,
+          },
+        })
+      end)
+
       it("should upsert metadata value via `add_metadata` when cursor is on todo with existing metadata", function()
         h.run_test_cases({
           {
@@ -1710,6 +1737,32 @@ describe("API", function()
               assert.matches("@status%(pending%)", lines[1])
               -- line 2 should not have gotten new priority metadata
               assert.Not.matches("@priority%(high%)", lines[2])
+            end,
+          },
+        })
+      end)
+
+      it("should update_metadata with undefined metadata", function()
+        -- i.e., metadata not defined in config but should still be updated, if exists on todo
+        h.run_test_cases({
+          {
+            name = "undefined metadata",
+            content = h.todo_line({ text = "Todo A @undefined(foo)" }),
+            action = function(cm)
+              cm.update_metadata("undefined", "bar")
+            end,
+            expected = { h.todo_line({ text = "Todo A @undefined(bar)" }) },
+            assert = function()
+              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
+              assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
+
+              local metadata = h.exists(todo_item.metadata.by_tag["undefined"])
+              assert.equal("undefined", metadata.tag)
+              assert.equal("bar", metadata.value)
+              assert.is_nil(metadata.alias_for) -- no alias for an undefined metadata
+              assert.no_nil(metadata.range)
+              assert.no_nil(metadata.value_range)
             end,
           },
         })
@@ -1882,6 +1935,29 @@ describe("API", function()
             assert = function(bufnr, lines)
               assert.equal(1, #lines)
               assert.equal("- " .. m.unchecked .. " Task", lines[1])
+            end,
+          },
+        })
+      end)
+
+      it("should remove_metadata with undefined metadata", function()
+        -- i.e., metadata not defined in config but should still be removed, if exists on todo
+        h.run_test_cases({
+          {
+            name = "undefined metadata",
+            content = h.todo_line({ text = "Todo A @undefined(foo) @priority(high)" }),
+            action = function(cm)
+              cm.remove_metadata("undefined")
+            end,
+            expected = { h.todo_line({ text = "Todo A @priority(high)" }) },
+            assert = function(_, lines)
+              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
+              assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
+
+              assert.no.matches("@undefined", lines[1])
+              assert.is_nil(todo_item.metadata.by_tag["undefined"])
+              assert.is_not_nil(todo_item.metadata.by_tag["priority"])
             end,
           },
         })

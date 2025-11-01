@@ -1734,11 +1734,6 @@ end
 --- `hunk`: the diff hunk representing the new/updated metadata, or `nil` if no buffer change would result
 --- `changed`: allows the caller to fire on_change callbacks if we actually update a value
 function M.compute_diff_add_metadata(bufnr, item, meta_name, meta_value)
-  local meta_props = meta_module.get_meta_props(meta_name)
-  if not meta_props then
-    return nil, nil
-  end
-
   ---@type checkmate.TextDiffHunk?
   local hunk = nil
 
@@ -1796,10 +1791,7 @@ function M.add_metadata(ctx, operations)
       return {}
     end
 
-    local meta_props = meta_module.get_meta_props(op.meta_name)
-    if not meta_props then
-      return {}
-    end
+    local meta_props = meta_module.get_meta_props(op.meta_name) or {}
 
     -- get value with fallback to get_value()
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
@@ -1833,21 +1825,23 @@ function M.add_metadata(ctx, operations)
   -- queue on_add cbs
   for meta_name, ids in pairs(new_adds_by_meta) do
     local meta_config = config.options.metadata[meta_name]
-    for _, id in ipairs(ids) do
-      ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_todo_by_id(id)
-        if updated_item then
-          local todo = util.build_todo(updated_item)
-          meta_config.on_add(todo)
-        end
-      end)
+    if meta_config and vim.is_callable(meta_config.on_add) then
+      for _, id in ipairs(ids) do
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(id)
+          if updated_item then
+            local todo = util.build_todo(updated_item)
+            meta_config.on_add(todo)
+          end
+        end)
+      end
     end
   end
 
   -- queue on_change cbs
   for meta_name, changes in pairs(changes_by_meta) do
     local meta_config = config.options.metadata[meta_name]
-    if meta_config.on_change then
+    if meta_config and vim.is_callable(meta_config.on_change) then
       for _, change in ipairs(changes) do
         ctx.add_cb(function(tx_ctx)
           local updated_item = tx_ctx.get_todo_by_id(change.id)
@@ -1984,9 +1978,7 @@ function M._collect_entries_to_remove(item, meta_names)
     -- if not found, try canonical name lookup
     if not entry then
       local canonical = meta_module.get_canonical_name(meta_name)
-      if canonical then
-        entry = item.metadata.by_tag[canonical]
-      end
+      entry = item.metadata.by_tag[canonical]
     end
 
     if entry then
@@ -2004,7 +1996,7 @@ end
 function M._queue_removal_callbacks(ctx, callbacks)
   for _, callback_info in ipairs(callbacks) do
     local meta_config = config.options.metadata[callback_info.canonical_name]
-    if meta_config and meta_config.on_remove then
+    if meta_config and vim.is_callable(meta_config.on_remove) then
       ctx.add_cb(function(tx_ctx)
         local updated_item = tx_ctx.get_todo_by_id(callback_info.id)
         if updated_item then
@@ -2037,9 +2029,9 @@ function M.remove_metadata(ctx, operations)
 
         -- collect callbacks
         for _, entry in ipairs(entries_to_remove) do
-          local canonical = entry.alias_for or entry.tag
+          local canonical = meta_module.get_canonical_name(entry.tag)
           local meta_config = config.options.metadata[canonical]
-          if meta_config and meta_config.on_remove then
+          if meta_config and vim.is_callable(meta_config.on_remove) then
             table.insert(pending_callbacks, {
               id = op.id,
               canonical_name = canonical,
@@ -2106,10 +2098,10 @@ function M.set_metadata_value(ctx, metadata, new_value)
 
   -- queue on_change callback
   if metadata.value ~= new_value then
-    local canonical_name = metadata.alias_for or metadata.tag
+    local canonical_name = meta_module.get_canonical_name(metadata.tag)
     local meta_config = config.options.metadata[canonical_name]
 
-    if meta_config and meta_config.on_change then
+    if meta_config and vim.is_callable(meta_config.on_change) then
       local todo_item = ctx.get_todo_by_row(row)
       if todo_item then
         ctx.add_cb(function(tx_ctx)

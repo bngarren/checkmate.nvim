@@ -63,8 +63,6 @@ https://github.com/user-attachments/assets/d5fa2fc8-085a-4cee-9763-a392d543347e
 
 <!-- panvimdoc-ignore-end -->
 
-<br>
-
 <a id="installation"><a/>
 
 # Installation
@@ -145,7 +143,7 @@ Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,b
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
-The Checkmate buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
+Your buffer is **saved as regular Markdown** which means it's compatible with any Markdown editor!
 
 <a id="commands"><a/>
 
@@ -172,8 +170,6 @@ The Checkmate buffer is **saved as regular Markdown** which means it's compatibl
 | `remove_all_metadata` | Remove *all* metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()` |
 | `toggle` | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. Without a parameter, toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands. |
 | `uncheck` | Mark the todo item under the cursor as unchecked. See api `uncheck()` |
-
-<br>
 
 <a id="config"><a/>
 
@@ -518,7 +514,8 @@ todo_states = {
 <img width="800" height="145" alt="checkmate_custom_states" src="https://github.com/user-attachments/assets/b8f89d00-4523-4106-8dbe-82059b1a1334" />
 
 #### State types
-States have three behavior types that affect smart toggle and todo counts:
+States may be one of three types that give the state semantic and functional meaning:
+
 | Type | Behavior | Example States |
 |------|----------|----------------|
 | `incomplete` | Counts as "not done" | **unchecked**, in_progress, pending, future |
@@ -732,7 +729,7 @@ Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additiona
 |----------------|----------|
 | [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#render-markdownnvim)|
 | [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki/Snippets) |
-| scratch buffer/floating window for quick todos, e.g. [snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
+| [scratch buffer/floating window for quick todos, e.g. snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
 
 
 <a id="linting"><a/>
@@ -785,6 +782,10 @@ Planned features:
 - [x] **Custom todo states** - support beyond binary "checked" and "unchecked", allowing for todos to be in custom states, e.g. pending, not-planned, on-hold, etc. _Added v0.10.0_
 
 - [x] **List (todo) continuation** - automatically created new todo lines in insert mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
+    
+- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos.
+
+- [ ] **Improved todo search** - Expose a `find_todos` and `find_metadata` that return lists of todos, based on search criteria that can be used to populate qflists and pickers.
 
 <a id="contributing"><a/>
 

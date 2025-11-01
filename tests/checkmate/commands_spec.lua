@@ -19,12 +19,11 @@ describe("Commands", function()
     checkmate = require("checkmate")
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup()
-    bufnr, temp_file = h.setup_todo_file_buffer("")
+    bufnr = h.setup_test_buffer("")
   end)
 
   after_each(function()
-    checkmate.stop()
-    h.cleanup_buffer(bufnr, temp_file)
+    h.cleanup_buffer(bufnr)
   end)
 
   it("toggle calls toggle()", function()

@@ -20,7 +20,7 @@ M._state = {
 local state = M._state
 
 ---@param opts checkmate.Config?
----@return boolean success
+---@return boolean success True if setup completed successfully, false on configuration error
 M.setup = function(opts)
   local config = require("checkmate.config")
 
@@ -170,6 +170,7 @@ end
 ---@field buffer integer Buffer number
 
 -- Globally disables/deactivates Checkmate for all buffers
+---@return nil
 function M.disable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = false
@@ -177,6 +178,7 @@ function M.disable()
 end
 
 -- Starts/activates Checkmate
+---@return nil
 function M.enable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = true
@@ -191,7 +193,7 @@ end
 --- - To set a _specific_ todo item to a target state (rather than locating todo by cursor/selection as is done here), use `set_todo_state`.
 ---
 ---@param target_state? string Optional target state, e.g. "checked", "unchecked", etc. See `checkmate.Config.todo_states`.
----@return boolean success
+---@return boolean success True if operation was performed or queued
 function M.toggle(target_state)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -222,9 +224,12 @@ function M.toggle(target_state)
           },
         })
       end
+      profiler.stop("M.toggle")
+      return true
+    else
+      profiler.stop("M.toggle")
+      return false
     end
-    profiler.stop("M.toggle")
-    return true
   end
 
   local is_visual = util.is_visual_mode()
@@ -248,8 +253,6 @@ function M.toggle(target_state)
         _ctx.add_op(api.toggle_state, operations)
       end
     end
-  end, function()
-    -- post_fn
   end)
   profiler.stop("M.toggle")
   return true
@@ -261,7 +264,7 @@ end
 ---
 ---@param todo checkmate.Todo Todo to modify
 ---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if todo/state is invalid
 function M.set_todo_state(todo, target_state)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -315,8 +318,6 @@ function M.set_todo_state(todo, target_state)
         target_state = target_state,
       } })
     end
-  end, function()
-    -- post_fn
   end)
 
   return true
@@ -329,7 +330,7 @@ end
 ---
 ---@param todo_item checkmate.TodoItem|checkmate.Todo Todo item to set state
 ---@param target_state string Todo state, e.g. "checked", "unchecked", or a custom state like "pending". See `checkmate.Config.todo_states`.
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if todo_item is invalid
 function M.set_todo_item(todo_item, target_state)
   vim.notify_once(
     "Checkmate: 'set_todo_item' is deprecated since v0.12.0,\nuse `set_todo_state` instead.",
@@ -356,7 +357,7 @@ end
 --- Set todo item(s) to checked state
 ---
 --- See `toggle()`
----@return boolean success
+---@return boolean success True if operation was performed or queued
 function M.check()
   return M.toggle("checked")
 end
@@ -364,7 +365,7 @@ end
 --- Set todo item(s) to unchecked state
 ---
 --- See `toggle()`
----@return boolean success
+---@return boolean success True if operation was performed or queued
 function M.uncheck()
   return M.toggle("unchecked")
 end
@@ -377,7 +378,7 @@ end
 --- {opts}
 ---   - backward: (boolean) If true, will cycle in reverse
 ---@param opts? {backward?: boolean}
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos found at position/selection
 function M.cycle(opts)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -406,8 +407,10 @@ function M.cycle(opts)
           target_state = next_state,
         } })
       end
+      return true
+    else
+      return false
     end
-    return true
   end
 
   local is_visual = util.is_visual_mode()
@@ -441,8 +444,6 @@ function M.cycle(opts)
         _ctx.add_op(api.toggle_state, operations)
       end
     end
-  end, function()
-    -- post_fn
   end)
 
   return true
@@ -537,13 +538,13 @@ end
 --- ```
 ---
 ---@param opts? checkmate.CreateOptions
+---@return boolean success True if operation was performed, queued, or scheduled
 function M.create(opts)
   opts = opts or {}
 
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local util = require("checkmate.util")
-  local log = require("checkmate.log")
 
   local mode = util.get_mode()
   local is_insert = mode == "i"
@@ -564,7 +565,7 @@ function M.create(opts)
       content = opts.content,
       cursor_pos = { row = row, col = cursor[2] },
     })
-    return
+    return true
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
@@ -617,7 +618,7 @@ function M.create(opts)
       end)
     end)
 
-    return
+    return true
   end
 
   if is_visual then
@@ -660,8 +661,6 @@ function M.create(opts)
       indent = opts.indent or false,
       content = opts.content,
     })
-  end, function()
-    --post_fn
   end)
 
   return true
@@ -681,6 +680,7 @@ end
 --- In other words, this converts a todo line back to a non-todo line
 --- Can use `opts` to specify keeping/removing list marker and metadata
 --- @param opts? checkmate.RemoveOptions
+---@return boolean success True if operation was performed or queued, false if no todos found
 function M.remove(opts)
   opts = opts or {}
   local preserve_list_marker = opts.preserve_list_marker ~= false
@@ -770,9 +770,8 @@ function M.remove(opts)
       end
       _ctx.add_op(api.remove_todo, rm_ops)
     end
-  end, function()
-    --post_fn
   end)
+  return true
 end
 
 --- Insert metadata into todo item(s) under the cursor or per todo in the visual selection
@@ -782,7 +781,7 @@ end
 --- If you desire update-only behavior, see `update_metadata()`.
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 ---@param value string? (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos found
 function M.add_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -799,8 +798,10 @@ function M.add_metadata(metadata_name, value)
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.add_metadata, { { id = todo_item.id, meta_name = metadata_name, meta_value = value } })
+      return true
+    else
+      return false
     end
-    return true
   end
 
   local is_visual = util.is_visual_mode()
@@ -824,8 +825,6 @@ function M.add_metadata(metadata_name, value)
 
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.add_metadata, operations)
-  end, function()
-    -- post_fn
   end)
   return true
 end
@@ -834,7 +833,7 @@ end
 ---
 --- To remove **all** metadata from todo(s), use `remove_all_metadata()`
 ---@param metadata_name string Name of the metadata tag (defined in the config)
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos found
 function M.remove_metadata(metadata_name)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -851,8 +850,10 @@ function M.remove_metadata(metadata_name)
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = { metadata_name } } })
+      return true
+    else
+      return false
     end
-    return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
@@ -875,8 +876,6 @@ function M.remove_metadata(metadata_name)
 
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
-  end, function()
-    --post_fn
   end)
   return true
 end
@@ -884,7 +883,7 @@ end
 --- Remove all metadata from todo item(s) under the cursor or per todo in visual selection
 ---
 --- To remove _specific_ metadata from todo(s), see `remove_metadata()`
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos found
 function M.remove_all_metadata()
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -899,8 +898,10 @@ function M.remove_all_metadata()
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.remove_metadata, { { id = todo_item.id, meta_names = true } })
+      return true
+    else
+      return false
     end
-    return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
@@ -923,8 +924,6 @@ function M.remove_all_metadata()
 
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.remove_metadata, operations)
-  end, function()
-    -- post_fn
   end)
   return true
 end
@@ -937,7 +936,7 @@ end
 ---
 ---@param metadata_name string The metadata tag name
 ---@param new_value? string (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos with the metadata were found
 function M.update_metadata(metadata_name, new_value)
   local api = require("checkmate.api")
   local util = require("checkmate.util")
@@ -961,8 +960,10 @@ function M.update_metadata(metadata_name, new_value)
           { id = todo_item.id, meta_name = metadata_name, meta_value = new_value },
         })
       end
+      return true
+    else
+      return false
     end
-    return true
   end
 
   local is_visual = util.is_visual_mode()
@@ -1003,7 +1004,7 @@ end
 --- Toggle metadata for todo item(s) under the cursor or per todo in the visual selection
 ---@param metadata_name string Name of the metadata tag (defined in the config)
 ---@param value string? (Optional) New metadata value. If nil, will attempt to get default value from the metadata's `get_value` field.
----@return boolean success
+---@return boolean success True if operation was performed or queued, false if no todos found
 function M.toggle_metadata(metadata_name, value)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -1023,9 +1024,12 @@ function M.toggle_metadata(metadata_name, value)
       parser.get_todo_item_at_position(ctx.get_buf(), cursor[1] - 1, cursor[2], { todo_map = ctx.get_todo_map() })
     if todo_item then
       ctx.add_op(api.toggle_metadata, { { id = todo_item.id, meta_name = metadata_name, custom_value = value } })
+      profiler.stop("M.toggle_metadata")
+      return true
+    else
+      profiler.stop("M.toggle_metadata")
+      return false
     end
-    profiler.stop("M.toggle_metadata")
-    return true
   end
 
   local is_visual = require("checkmate.util").is_visual_mode()
@@ -1035,6 +1039,7 @@ function M.toggle_metadata(metadata_name, value)
   if #todo_items == 0 then
     local mode_msg = is_visual and "selection" or "cursor position"
     util.notify(string.format("No todo items found at %s", mode_msg), vim.log.levels.INFO)
+    profiler.stop("M.toggle_metadata")
     return false
   end
 
@@ -1049,8 +1054,6 @@ function M.toggle_metadata(metadata_name, value)
 
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.toggle_metadata, operations)
-  end, function()
-    -- post_fn
   end)
 
   profiler.stop("M.toggle_metadata")
@@ -1102,6 +1105,7 @@ end
 ---```
 ---
 ---@param opts? checkmate.SelectMetadataValueOpts
+---@return boolean success False if validation failed (no todo/metadata at position), true if picker was opened successfully
 function M.select_metadata_value(opts)
   opts = opts or {}
   local api = require("checkmate.api")
@@ -1116,14 +1120,14 @@ function M.select_metadata_value(opts)
   if picker_fn and not vim.is_callable(picker_fn) then
     require("checkmate.util").notify("`picker_fn` must be a function", vim.log.levels.WARN)
     log.fmt_warn("[main] attempted to call `select_metadata_value` with `picker_fn` not a function")
-    return
+    return false
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
   if not api.is_valid_buffer(bufnr) then
     require("checkmate.util").notify("Not in a Checkmate buffer", vim.log.levels.INFO)
     log.fmt_warn("[main] attempted to call `select_metadata_value` for inactive buffer %d", bufnr)
-    return
+    return false
   end
 
   -- resolve the `position` opt or default to cursor position
@@ -1187,14 +1191,16 @@ function M.select_metadata_value(opts)
   -- custom picker pathway: user provides their own picker_fn that handles generating the choices
   if picker_fn then
     picker.with_custom_picker(context, picker_fn, apply_value_with_transaction)
-    return
+    return true
   end
 
   -- default pathway using config's `choices`value (table or function return) inside checkmate's picker (see `config.ui.picker`)
   picker.open_picker(context, apply_value_with_transaction)
+  return true
 end
 
 --- Move the cursor to the next metadata tag for the todo item under the cursor, if present
+---@return nil
 function M.jump_next_metadata()
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -1222,6 +1228,7 @@ function M.jump_next_metadata()
 end
 
 --- Move the cursor to the previous metadata tag for the todo item under the cursor, if present
+---@return nil
 function M.jump_previous_metadata()
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
@@ -1262,7 +1269,7 @@ end
 ---   - root_only?: boolean        Only match if row is the todo’s first line
 ---
 --- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
---- @return checkmate.Todo? todo
+--- @return checkmate.Todo? todo The todo item at the specified position, or nil if not found
 function M.get_todo(opts)
   opts = opts or {}
 
@@ -1312,8 +1319,8 @@ end
 --- results when using this plugin.
 ---
 ---@param opts? {bufnr?: integer, fix?: boolean} Optional parameters
----@return boolean success Whether lint was successful or failed
----@return table|nil diagnostics Diagnostics table, or nil if failed
+---@return boolean success True if lint operation completed
+---@return table|nil diagnostics Array of diagnostic objects, or nil if lint failed
 function M.lint(opts)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
@@ -1349,6 +1356,7 @@ end
 --- - If a parent todo is checked, all its children will be archived regardless of state
 --- - If a child todo is checked but its parent is not, the child will not be archived
 ---@param opts ArchiveOpts?
+---@return boolean success True if operation was performed or queued
 function M.archive(opts)
   opts = opts or {}
   local api = require("checkmate.api")
@@ -1365,9 +1373,8 @@ function M.archive(opts)
 
   transaction.run(bufnr, function(_ctx)
     _ctx.add_op(api.archive_todos, opts)
-  end, function()
-    -- post_fn
   end)
+  return true
 end
 
 ----------------------------------------------------------------------

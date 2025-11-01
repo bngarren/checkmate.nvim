@@ -4,20 +4,15 @@
 
 
 ### Get stuff done
-
-[![Lua](https://img.shields.io/badge/Lua-blue.svg?style=for-the-badge&logo=lua)](http://www.lua.org)
-[![Neovim](https://img.shields.io/badge/Neovim%200.10+-green.svg?style=for-the-badge&logo=neovim&color=%2343743f)](https://neovim.io)
-![GitHub Release](https://img.shields.io/github/v/release/bngarren/checkmate.nvim?style=for-the-badge&logoSize=200&color=%23f3d38a&labelColor=%23061914)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/bngarren/checkmate.nvim/lint-test.yml?branch=main&style=for-the-badge&label=CI&labelColor=%23061914&color=%2343743f)
-
+<hr>
 <div>
-[Table of Contents](#table-of-contents) |
-[Wiki](https://github.com/bngarren/checkmate.nvim/wiki)
+<a href="#table-of-contents">Table of Contents</a> |
+<a href="https://github.com/bngarren/checkmate.nvim/wiki">Wiki</a>
 </div>
 
 </div><br/>
 
-A Markdown-based todo/task plugin for Neovim.
+> A Markdown-based todo/task plugin for Neovim.
 
 ### Features
 - Saves files in plain Markdown format (compatible with other apps)

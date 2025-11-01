@@ -54,8 +54,24 @@ describe("Metadata", function()
       assert.are_same(todo.metadata, { { "priority", "high" }, { "started", "today" } })
 
       assert.is_function(todo.is_checked)
-      local c = todo.is_checked()
+      local ch = todo.is_checked()
+      assert.is_false(ch)
+
+      assert.is_function(todo.is_unchecked)
+      local uch = todo.is_unchecked()
+      assert.is_true(uch)
+
+      assert.is_function(todo.is_complete)
+      local c = todo.is_complete()
       assert.is_false(c)
+
+      assert.is_function(todo.is_incomplete)
+      local ic = todo.is_incomplete()
+      assert.is_true(ic)
+
+      assert.is_function(todo.is_inactive)
+      local ia = todo.is_inactive()
+      assert.is_false(ia)
 
       assert.is_function(todo.get_metadata)
 

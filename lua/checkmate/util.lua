@@ -712,6 +712,22 @@ function M.build_todo(todo_item)
     return todo_item.state == "checked"
   end
 
+  local function is_unchecked()
+    return todo_item.state == "unchecked"
+  end
+
+  local function is_complete()
+    return todo_item.state_type == "complete"
+  end
+
+  local function is_incomplete()
+    return todo_item.state_type == "incomplete"
+  end
+
+  local function is_inactive()
+    return todo_item.state_type == "inactive"
+  end
+
   local function get_metadata(name)
     local result = vim
       .iter(metadata_array)
@@ -743,6 +759,10 @@ function M.build_todo(todo_item)
     todo_marker = todo_item.todo_marker.text,
     metadata = metadata_array,
     is_checked = is_checked,
+    is_unchecked = is_unchecked,
+    is_complete = is_complete,
+    is_incomplete = is_incomplete,
+    is_inactive = is_inactive,
     get_metadata = get_metadata,
     get_parent = get_parent,
     _todo_item = todo_item,

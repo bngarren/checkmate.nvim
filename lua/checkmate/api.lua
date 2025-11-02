@@ -322,10 +322,10 @@ function M.setup_autocmds(bufnr)
       callback = function()
         -- Guard against re-entrancy
         -- Previously had bug due to setting modified flag causing BufWriteCmd to run multiple times
-        if vim.b[bufnr]._checkmate_writing then
+        if bl:get("writing") then
           return
         end
-        vim.b[bufnr]._checkmate_writing = true
+        bl:set("writing", true)
 
         -- this allows other plugins like conform.nvim to format before we save
         -- see #133
@@ -348,7 +348,7 @@ function M.setup_autocmds(bufnr)
         if not success then
           vim.api.nvim_buf_delete(temp_bufnr, { force = true })
           vim.notify("Checkmate: Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
-          vim.b[bufnr]._checkmate_writing = false
+          bl:set("writing", false)
           return false
         end
 
@@ -380,7 +380,7 @@ function M.setup_autocmds(bufnr)
             end)
             vim.notify("Checkmate: Failed to save file", vim.log.levels.ERROR)
             vim.bo[bufnr].modified = was_modified
-            vim.b[bufnr]._checkmate_writing = false
+            bl:set("writing", false)
             return false
           end
 
@@ -397,7 +397,7 @@ function M.setup_autocmds(bufnr)
 
           vim.defer_fn(function()
             if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.b[bufnr]._checkmate_writing = false
+              bl:set("writing", false)
             end
           end, 0)
         else
@@ -408,7 +408,7 @@ function M.setup_autocmds(bufnr)
           end)
           util.notify("Failed to write file", vim.log.levels.ERROR)
           vim.bo[bufnr].modified = was_modified
-          vim.b[bufnr]._checkmate_writing = nil
+          bl:set("writing", false)
 
           return false
         end

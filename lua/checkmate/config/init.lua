@@ -94,9 +94,12 @@ M.options = {}
 ---@field ui? checkmate.UISettings
 ---
 ---Highlight settings (merges with defaults, user config takes precedence)
----Default style will attempt to integrate with current colorscheme (experimental)
----May need to tweak some colors to your liking
----@field style checkmate.StyleSettings?
+---Default style will attempt to integrate with current colorscheme
+---
+---#### Disabling highlights
+---To disable *all* checkmate.nvim highlight groups, set to false. _This will include metadata highlighting_.
+---This may be helpful when integrating with Markdown rendering plugins.
+---@field style? checkmate.StyleSettings|false
 ---
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---Default: true
@@ -562,8 +565,10 @@ function M.setup(opts)
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}
 
     -- make theme-aware style defaults
-    local theme_style = require("checkmate.theme").generate_style_defaults()
-    config.style = vim.tbl_deep_extend("keep", config.style or {}, theme_style)
+    if config.style ~= false then
+      local theme_style = require("checkmate.theme").generate_style_defaults()
+      config.style = vim.tbl_deep_extend("keep", config.style or {}, theme_style)
+    end
 
     M.options = config
 

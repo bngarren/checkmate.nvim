@@ -1,4 +1,4 @@
-if vim.g.loaded_checkmate_plugin == 1 then
+if vim.g.loaded_checkmate == 1 then
   return
 end
-vim.g.loaded_checkmate_plugin = 1
+vim.g.loaded_checkmate = 1

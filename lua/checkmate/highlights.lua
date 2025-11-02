@@ -385,6 +385,11 @@ end
 function M.setup_highlights()
   M.clear_highlight_cache()
 
+  -- style == false should disable checkmate highlights
+  if config.options.style == false then
+    return
+  end
+
   M.register_highlight_groups()
 
   -- autocmd to re-apply highlighting when colorscheme changes
@@ -394,25 +399,27 @@ function M.setup_highlights()
       vim.defer_fn(function()
         log.info("[autocmd] ColorScheme")
 
-        M.clear_highlight_cache()
+        if config.options.style ~= false then
+          M.clear_highlight_cache()
 
-        -- Get fresh theme-based defaults
-        local theme = require("checkmate.theme")
-        local colorscheme_aware_style = theme.generate_style_defaults()
+          -- Get fresh theme-based defaults
+          local theme = require("checkmate.theme")
+          local colorscheme_aware_style = theme.generate_style_defaults()
 
-        -- Get user's style (if any was explicitly set)
-        local user_style = config._state.user_style or {}
+          -- Get user's style (if any was explicitly set)
+          local user_style = config._state.user_style or {}
 
-        -- Update the style with a fresh merge of user settings and theme defaults
-        config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
+          -- Update the style with a fresh merge of user settings and theme defaults
+          config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
 
-        -- Re-apply highlights with updated styles
-        M.register_highlight_groups()
+          -- Re-apply highlights with updated styles
+          M.register_highlight_groups()
 
-        -- Re-apply to all active buffers
-        for bufnr, _ in pairs(require("checkmate").get_active_buffer_list()) do
-          if vim.api.nvim_buf_is_valid(bufnr) then
-            M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
+          -- Re-apply to all active buffers
+          for bufnr, _ in pairs(require("checkmate").get_active_buffer_list()) do
+            if vim.api.nvim_buf_is_valid(bufnr) then
+              M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
+            end
           end
         end
       end, 10)
@@ -430,6 +437,11 @@ end
 --- @param bufnr? integer
 --- @param opts? ApplyHighlightingOpts
 function M.apply_highlighting(bufnr, opts)
+  -- style == false should disable checkmate highlights
+  if config.options.style == false then
+    return
+  end
+
   profiler.start("highlights.apply_highlighting")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()

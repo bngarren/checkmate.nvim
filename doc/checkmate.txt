@@ -34,6 +34,7 @@ A Markdown-based todo/task plugin for Neovim.
 
 - Create and toggle Markdown todos
 - Customizable markers and styling
+- Compatible with popular Neovim Markdown plugins (e.g., render-markdown, markview)
 - Visual mode support for multiple todos
 - Metadata e.g. `@tag(value)` annotations with extensive customization
     - e.g. @started, @done, @priority, @your-custom-tag
@@ -506,6 +507,9 @@ Individual styles can still be overriden using the `style` option and passing a
 'highlight definition map' according to |nvim_set_hl()| and
 `vim.api.keyset.highlight` for the desired highlight group (see below).
 
+Checkmate highlighting can be completely disabled by setting `style` to
+_false_.
+
 
 HIGHLIGHT GROUPS ~
 
@@ -897,17 +901,19 @@ E.g. `parent_spacing = 1`
 ==============================================================================
 8. Integrations                                       *checkmate-integrations*
 
-Please see Wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
+Please see wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
 additional details/recipes.
 
   -----------------------------------------------------------------------
   Integration                                 Capable?
   ------------------------------------------- ---------------------------
-  render-markdown                             wiki
+  render-markdown                             
 
-  LuaSnip                                     wiki
+  markview                                    
 
-  scratch buffer/floating window for quick    wiki
+  LuaSnip                                     
+
+  scratchbuffer/floating window for quick     
   todos, e.g. snacks.nvim                     
   -----------------------------------------------------------------------
 
@@ -916,9 +922,9 @@ additional details/recipes.
 ==============================================================================
 9. Linting                                                 *checkmate-linting*
 
-Checkmate uses a _very_ limited custom linter in order require zero
-dependencies but attempt to warn the user of Markdown (CommonMark spec)
-formatting issues that could cause unexpected plugin behavior.
+Checkmateuses a _very_ limited custom linter in order require zero dependencies
+but attempt to warn the user of Markdown (CommonMark spec) formatting issues
+that could cause unexpected plugin behavior.
 
 
   The embedded linter is NOT a general-purpose Markdown linter and _may_

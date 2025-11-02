@@ -16,6 +16,7 @@
 # Features
 - Create and toggle Markdown todos
 - Customizable markers and styling
+- Compatible with popular Neovim Markdown plugins (e.g., render-markdown, markview)
 - Visual mode support for multiple todos
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
@@ -407,6 +408,8 @@ Default styles are calculated based on the current _colorscheme_. This attempts 
 
 Individual styles can still be overriden using the `style` option and passing a 'highlight definition map' according to `:h nvim_set_hl()` and `vim.api.keyset.highlight` for the desired highlight group (see below).
 
+Checkmate highlighting can be completely disabled by setting `style` to _false_.
+
 ### Highlight groups
 | hl_group | description |
 |----------|-------------|
@@ -723,13 +726,14 @@ E.g. `parent_spacing = 1`
 
 # Integrations
 
-Please see [Wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
+Please see [wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional details/recipes.
 
 | Integration | Capable? |
 |----------------|----------|
-| [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#render-markdownnvim)|
-| [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki/Snippets) |
-| [scratch buffer/floating window for quick todos, e.g. snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ [wiki](https://github.com/bngarren/checkmate.nvim/wiki#snacksnvim) |
+| [render-markdown](https://github.com/MeanderingProgrammer/render-markdown.nvim) | ✅ |
+| [markview](https://github.com/OXY2DEV/markview.nvim) | ✅ |
+| [LuaSnip](https://github.com/L3MON4D3/LuaSnip) | ✅ |
+| [scratch buffer/floating window for quick todos, e.g. snacks.nvim](https://github.com/folke/snacks.nvim/blob/main/docs/scratch.md) | ✅ |
 
 
 <a id="linting"><a/>

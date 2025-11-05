@@ -1325,6 +1325,15 @@ function M.archive(opts)
   return true
 end
 
+-- NOTE: remove
+
+function M.pick()
+  local picker = require("checkmate.picker.init")
+  picker.select({ "A", "B", "C" }, { backend_opts = { snacks = {
+    layout = "dropdown",
+  } } })
+end
+
 ----------------------------------------------------------------------
 
 ---@param opts checkmate.Config?

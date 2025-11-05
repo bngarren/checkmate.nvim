@@ -2,31 +2,47 @@
 local M = {}
 
 ---@param ctx checkmate.picker.AdapterContext
-function M.select(ctx)
-  local snacks = require("snacks")
+function M.pick(ctx)
+  local Snacks = require("snacks")
 
-  ---@type snacks.picker.ui_select.Opts
-  local opts = vim.tbl_extend("force", ctx.backend_opts or {}, {
-    prompt = ctx.prompt or "Select",
-    kind = ctx.kind,
-    format_item = function(item)
-      -- item is checkmate.picker.Item
-      return ctx.format_item(item)
-    end,
-  })
-
-  snacks.picker.select(ctx.items, opts, function(chosen, idx)
-    if not idx or not chosen then
-      if ctx.on_cancel then
-        ctx.on_cancel()
+  ---@type snacks.picker.Config
+  local base = {
+    title = (ctx.prompt or "Select"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
+    finder = function()
+      ---@type snacks.picker.finder.Item[]
+      local ret = {}
+      for idx, item in ipairs(ctx.items) do
+        local text = ctx.format_item and ctx.format_item(item) or item.text
+        ---@type snacks.picker.finder.Item
+        local it = { text = text, item = item, idx = idx, preview = { text = vim.inspect(item.value) } }
+        ret[#ret + 1] = it
       end
-      return
-    end
-    -- chosen is our original item (checkmate.picker.Item)
-    if ctx.on_accept then
-      ctx.on_accept(chosen)
-    end
-  end)
+      return ret
+    end,
+    -- preview = "preview",
+    format = "text",
+    actions = {
+      confirm = function(picker, it)
+        picker:close()
+        if it and ctx.on_accept then
+          ctx.on_accept(it.item) -- return the original checkmate.picker.Item
+        end
+      end,
+      cancel = function(picker)
+        picker:close()
+        if ctx.on_cancel then
+          ctx.on_cancel()
+        end
+      end,
+    },
+    layout = ctx.preview and "dropdown" or "select",
+  }
+
+  -- Merge user backend_opts (they can provide preview, layout, sorts, etc.)
+  ---@type snacks.picker.Config
+  local opts = Snacks.config.merge({}, base, ctx.backend_opts or {})
+
+  return Snacks.picker.pick(opts)
 end
 
 return M

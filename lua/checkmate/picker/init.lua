@@ -9,16 +9,17 @@ local H = {}
 
 ---@alias checkmate.picker.BackendName "auto"|"telescope"|"snacks"|"mini"|"native"
 
----@class checkmate.picker.SelectOpts
+---@class checkmate.picker.PickOpts
 ---@field prompt? string
 ---@field kind? string
 ---@field backend? "auto"|"telescope"|"snacks"|"mini"|"native"
 ---@field backend_opts? table<string, any> -- backend name -> opts (safer), or a raw table passed as-is
+---@field preview? boolean If true, attempts to open picker with preview, if supported
 ---@field format_item? fun(item: checkmate.picker.Item): string
 ---@field on_choice? fun(value: any, item: checkmate.picker.Item)
 ---@field on_cancel? fun()
 ---picker_fn is a full override. Call resolve(item) on accept, resolve(nil) on cancel
----@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.SelectOpts, resolve: fun(choice_item: any))
+---@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, resolve: fun(choice_item: any))
 
 ---@class checkmate.picker.AdapterContext
 ---@field items checkmate.picker.Item[]
@@ -26,16 +27,17 @@ local H = {}
 ---@field kind? string
 ---@field format_item fun(item: checkmate.picker.Item): string
 ---@field backend_opts table<string, any>
+---@field preview? boolean
 ---@field on_accept fun(item: checkmate.picker.Item)
 ---@field on_cancel fun()
 
 ---@class checkmate.picker.Adapter
----@field select fun(ctx: checkmate.picker.AdapterContext)
+---@field pick fun(ctx: checkmate.picker.AdapterContext)
 
 --- If `opts.picker_fn` is provided, it *fully overrides* the backend call
 ---@param items checkmate.picker.Items
----@param opts? checkmate.picker.SelectOpts
-function M.select(items, opts)
+---@param opts? checkmate.picker.PickOpts
+function M.pick(items, opts)
   opts = opts or {}
 
   local norm_items = H.normalize_items(items)
@@ -85,6 +87,7 @@ function M.select(items, opts)
       kind = opts.kind,
       format_item = format_item,
       backend_opts = backend_opts,
+      preview = opts.preview,
       on_accept = function(choice_item)
         if choice_item and type(opts.on_choice) == "function" then
           pcall(opts.on_choice, choice_item.value, choice_item)
@@ -96,7 +99,7 @@ function M.select(items, opts)
         end
       end,
     }
-    adapter.select(ctx)
+    adapter.pick(ctx)
   end)
 
   if not ok_run then

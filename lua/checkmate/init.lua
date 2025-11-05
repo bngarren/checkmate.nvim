@@ -1329,7 +1329,7 @@ end
 
 function M.pick()
   local picker = require("checkmate.picker.init")
-  picker.select({ "A", "B", "C" }, { backend_opts = { snacks = {
+  picker.pick({ "A", "B", "C" }, { backend_opts = { snacks = {
     layout = "dropdown",
   } } })
 end

@@ -54,16 +54,17 @@ function M.open_picker(context, apply_value_with_transaction)
     end
 
     vim.schedule(function()
-      picker.select(items, {
+      require("checkmate.picker.init").pick(items, {
         prompt = "Select value for @" .. context.name,
         kind = "checkmate_metadata_value",
         format_item = function(item)
-          if item == context.value then
-            return item .. " (current)"
+          if item.text == context.value then
+            return item.text .. " (current)"
           end
-          return item
+          return item.text
         end,
         on_choice = receive_selection_from_ui,
+        preview = true,
       })
     end)
   end

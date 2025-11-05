@@ -1308,6 +1308,157 @@ function M.get_todo(opts)
   return item:build_todo(parser.get_todo_map(bufnr))
 end
 
+---@class checkmate.FilterOpts
+---@field states? string[] Filter by todo state names (e.g., {"checked", "unchecked", "pending"}). Matches ANY.
+---@field state_types? string[] Filter by state types: "complete", "incomplete", "inactive". Matches ANY.
+---@field metadata? table<string, string|boolean> Filter by metadata key-value pairs. For tags, use true (tag exists) or false (tag absent). For metadata with values, use the string value (e.g., {urgent = true, priority = "high"}). Default: match ANY.
+---@field metadata_match_all? boolean If true, require ALL metadata pairs to match (default: false - match ANY)
+
+---@class checkmate.GetTodosOpts
+---@field bufnr? integer (default: current buffer)
+---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
+---@field filter? checkmate.FilterOpts
+
+--- Get todos from buffer with optional filtering
+---
+--- Returns an array of todos that can be used to populate quickfix lists, pickers, or custom UIs.
+--- Supports filtering by state, state type, and metadata.
+---
+--- Examples:
+---   -- Get all todos in buffer
+---   local todos = checkmate.get_todos()
+---
+---   -- Get todos in specific range
+---   local todos = checkmate.get_todos({ range = {10, 50} })
+---
+---   -- Get all incomplete todos
+---   local todos = checkmate.get_todos({ state_types = {"incomplete"} })
+---
+---   -- Get todos with "urgent" tag (tag exists)
+---   local todos = checkmate.get_todos({ metadata = { urgent = true } })
+---
+---   -- Get todos without "archived" tag
+---   local todos = checkmate.get_todos({ metadata = { archived = false } })
+---
+---   -- Get todos with BOTH "urgent" tag AND high priority
+---   local todos = checkmate.get_todos({
+---     metadata = { urgent = true, priority = "high" },
+---     metadata_match_all = true
+---   })
+---
+---   -- Complex filtering
+---   local todos = checkmate.get_todos({
+---     range = {0, 100},
+---     state_types = {"incomplete"},
+---     metadata = { urgent = true, priority = "high" }
+---   })
+---
+---@param opts? checkmate.GetTodosOpts Options for filtering and range
+---@return checkmate.Todo[] todos Array of todos matching the criteria
+function M.get_todos(opts)
+  local api = require("checkmate.api")
+  local parser = require("checkmate.parser")
+  local util = require("checkmate.util")
+  local log = require("checkmate.log")
+
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+
+  if not api.is_valid_buffer(bufnr) then
+    log.warn("[main] Attempted to call `get_todos` on invalid buffer")
+    return {}
+  end
+
+  local todo_map = parser.get_todo_map(bufnr)
+  if not todo_map or vim.tbl_count(todo_map) == 0 then
+    return {}
+  end
+
+  local start_row, end_row
+  if opts.range then
+    start_row = opts.range[1]
+    end_row = opts.range[2]
+
+    if end_row == -1 then
+      end_row = vim.api.nvim_buf_line_count(bufnr) - 1
+    end
+  else
+    -- no range, use entire buffer
+    start_row = 0
+    end_row = vim.api.nvim_buf_line_count(bufnr) - 1
+  end
+
+  -- clamp to buffer bounds
+  local max_row = math.max(0, vim.api.nvim_buf_line_count(bufnr) - 1)
+  start_row = math.max(0, start_row)
+  end_row = math.min(max_row, end_row)
+
+  local candidates = {}
+  for _, todo_item in pairs(todo_map) do
+    local row = todo_item.todo_marker.position.row
+    if row >= start_row and row <= end_row then
+      candidates[#candidates + 1] = todo_item
+    end
+  end
+
+  -- if we sort by pos, can return a deterministic order
+  table.sort(candidates, function(a, b)
+    local ar, br = a.todo_marker.position.row, b.todo_marker.position.row
+    if ar == br then
+      return a.todo_marker.position.col < b.todo_marker.position.col
+    end
+    return ar < br
+  end)
+
+  local filtered = {}
+  for _, todo_item in ipairs(candidates) do
+    if H.matches_filters(todo_item, opts.filter) then
+      local todo = util.build_todo(todo_item)
+      filtered[#filtered + 1] = todo
+    end
+  end
+
+  return filtered
+end
+
+---@class checkmate.SelectTodoOpts
+---@field bufnr? integer (default: current buffer)
+---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
+---@field filter? checkmate.FilterOpts
+---@field picker_fn? fun(todos: checkmate.Todo[]): any
+
+---@param opts? checkmate.SelectTodoOpts
+function M.select_todo(opts)
+  opts = opts or {}
+  local picker = require("checkmate.picker")
+
+  local todos = M.get_todos({
+    bufnr = opts.bufnr,
+    range = opts.range,
+    filter = opts.filter,
+  })
+
+  if opts.picker_fn and vim.is_callable(opts.picker_fn) then
+    opts.picker_fn(todos)
+    return
+  end
+
+  picker.select(todos, {
+    format_item = function(i)
+      ---@cast i checkmate.Todo
+      return i.text
+    end,
+    on_choice = function(c)
+      ---@cast c checkmate.Todo?
+      if c then
+        vim.schedule(function()
+          vim.api.nvim_win_set_cursor(0, { c.row + 1, 0 })
+        end)
+      end
+    end,
+  })
+end
+
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules
 ---
 --- This is not intended to be a comprehensive Markdown linter
@@ -1656,6 +1807,104 @@ function H.resolve_position(row, col)
   end
   local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", resolved_row, resolved_col)
   return resolved_row, resolved_col, pos_str
+end
+
+--- Check if a todo item matches the specified filters
+---@param todo_item checkmate.TodoItem
+---@param opts? checkmate.FilterOpts
+---@return boolean matches True if todo matches all filter criteria
+function H.matches_filters(todo_item, opts)
+  if not opts or vim.tbl_isempty(opts) then
+    return true
+  end
+
+  local config = require("checkmate.config")
+
+  -- Filter by state names
+  if opts.states and #opts.states > 0 then
+    local state_match = false
+    for _, state in ipairs(opts.states) do
+      if todo_item.state == state then
+        state_match = true
+        break
+      end
+    end
+    if not state_match then
+      return false
+    end
+  end
+
+  -- Filter by state types (complete, incomplete, inactive)
+  if opts.state_types and #opts.state_types > 0 then
+    local state_def = config.options.todo_states[todo_item.state]
+    if not state_def then
+      return false -- invalid state, skip
+    end
+
+    local todo_state_type = config.get_todo_state_type(todo_item.state)
+
+    local type_match = false
+    for _, requested_type in ipairs(opts.state_types) do
+      if todo_state_type == requested_type then
+        type_match = true
+        break
+      end
+    end
+    if not type_match then
+      return false
+    end
+  end
+
+  -- Filter by metadata (handles both tags and key-value metadata)
+  -- For tags: use key = true (must exist) or key = false (must not exist)
+  -- For metadata with values: use key = "value" (must match exactly)
+  if opts.metadata and next(opts.metadata) then
+    if opts.metadata_match_all then
+      -- Require ALL metadata conditions to match
+      for key, expected in pairs(opts.metadata) do
+        local meta = todo_item.metadata.by_tag[key]
+
+        if type(expected) == "boolean" then
+          -- Tag existence check: true = must exist, false = must not exist
+          local exists = meta ~= nil
+          if exists ~= expected then
+            return false
+          end
+        else
+          -- Value match: metadata must exist and value must match
+          if not meta or meta.value ~= expected then
+            return false
+          end
+        end
+      end
+    else
+      -- Match ANY metadata condition
+      local meta_match = false
+      for key, expected in pairs(opts.metadata) do
+        local meta = todo_item.metadata.by_tag[key]
+
+        if type(expected) == "boolean" then
+          -- Tag existence check
+          local exists = meta ~= nil
+          if exists == expected then
+            meta_match = true
+            break
+          end
+        else
+          -- Value match
+          if meta and meta.value == expected then
+            meta_match = true
+            break
+          end
+        end
+      end
+      if not meta_match then
+        return false
+      end
+    end
+  end
+
+  return true
 end
 
 function H.notify_no_todos_found(is_visual)

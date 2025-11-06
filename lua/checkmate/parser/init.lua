@@ -30,6 +30,7 @@ local M = {}
 --- Stable key. Uses extmark id positioned just prior to the todo marker.
 --- This allows tracking the same todo item across buffer modifications.
 --- @field id integer
+--- @field bufnr integer Source buffer
 --- @field state string The todo state, e.g. "checked", "unchecked", or a custom state like "pending"
 --- @field state_type checkmate.TodoStateType
 --- @field node TSNode The Treesitter node
@@ -847,6 +848,7 @@ function M.discover_todos(bufnr)
       ---@type checkmate.TodoItem
       local todo_item = {
         id = extmark_id,
+        bufnr = bufnr,
         state = todo_state,
         state_type = config.get_todo_state_type(todo_state),
         node = item.node,

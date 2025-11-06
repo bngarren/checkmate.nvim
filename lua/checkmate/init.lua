@@ -7,6 +7,7 @@ local H = {}
 -- ================================================================================
 
 ---@class checkmate.Todo
+---@field bufnr integer Source buffer of Todo
 ---@field row integer 0-based row of the todo (the line containing the list marker and todo marker)
 ---@field state string Todo state, e.g. "checked", "unchecked", or custom state like "pending". See config `todo_states`
 ---@field text string First line of the todo

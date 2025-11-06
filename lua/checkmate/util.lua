@@ -751,6 +751,7 @@ function M.build_todo(todo_item)
 
   ---@type checkmate.Todo
   return {
+    bufnr = todo_item.bufnr,
     row = todo_item.range.start.row,
     state = todo_item.state,
     text = todo_item.todo_text,

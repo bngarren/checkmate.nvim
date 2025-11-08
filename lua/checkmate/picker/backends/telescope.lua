@@ -56,7 +56,7 @@ function M.pick(ctx)
     format_item = ctx.format_item,
   })
 
-  local choose, cancel = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, resolve, {
     schedule = true,
   })
 
@@ -87,21 +87,8 @@ function M.pick(ctx)
 
           if entry and entry.value then
             choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
-          else
-            cancel()
           end
         end)
-
-        -- explicit cancel mappings
-        local function do_cancel()
-          tel.actions.close(prompt_bufnr)
-          cancel()
-        end
-
-        map("i", "<esc>", do_cancel)
-        map("n", "<esc>", do_cancel)
-        map("i", "<C-c>", do_cancel)
-        map("n", "<C-c>", do_cancel)
 
         return true
       end,
@@ -213,7 +200,7 @@ function M.pick_todo(ctx)
     })
   end
 
-  local choose, cancel = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, resolve, {
     schedule = true,
     after_select = after_select,
   })
@@ -245,20 +232,8 @@ function M.pick_todo(ctx)
 
           if entry and entry.value then
             choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
-          else
-            cancel()
           end
         end)
-
-        local function do_cancel()
-          tel.actions.close(prompt_bufnr)
-          cancel()
-        end
-
-        map("i", "<esc>", do_cancel)
-        map("n", "<esc>", do_cancel)
-        map("i", "<C-c>", do_cancel)
-        map("n", "<C-c>", do_cancel)
 
         return true
       end,

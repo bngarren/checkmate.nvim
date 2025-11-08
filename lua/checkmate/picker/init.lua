@@ -15,7 +15,6 @@ local H = {}
 ---@field adapter_method? string Defaults to `pick`
 ---@field format_item? fun(item: checkmate.picker.Item): string
 ---@field on_select? fun(value: any, item: checkmate.picker.Item)
----@field on_cancel? fun()
 ---picker_fn is a full override. Call done(item) on select, done(nil) on cancel
 ---@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, done: fun(choice_item: any))
 
@@ -26,7 +25,6 @@ local H = {}
 ---@field format_item fun(item: checkmate.picker.Item): string
 ---@field backend_opts table<string, any>
 ---@field on_select_item fun(item: checkmate.picker.Item)
----@field on_cancel fun()
 
 --- Backend adapter surface. Must implement `pick()`, others are optional for improved out-of-box UX
 --- for checkmate-specific actions
@@ -50,11 +48,7 @@ function M.pick(items, opts)
   if type(opts.picker_fn) == "function" then
     local ok, err = pcall(function()
       opts.picker_fn(norm_items, opts, function(choice_item)
-        if choice_item == nil then
-          if type(opts.on_cancel) == "function" then
-            pcall(opts.on_cancel)
-          end
-        else
+        if choice_item ~= nil then
           if type(opts.on_select) == "function" then
             pcall(opts.on_select, choice_item.value, choice_item)
           end
@@ -106,11 +100,6 @@ function M.pick(items, opts)
           pcall(opts.on_select, choice_item.value, choice_item)
         end
       end,
-      on_cancel = function()
-        if type(opts.on_cancel) == "function" then
-          pcall(opts.on_cancel)
-        end
-      end,
     }
     -- resolve the adapter method
     local method_name = opts.adapter_method or "pick"
@@ -152,6 +141,9 @@ function M.pick(items, opts)
   end
 end
 
+-- for a list of items, converts each to a {text, value}
+-- `text_key` determines which field to use for `text` (required)
+-- `value_key` determines which field to use for `value` (optional, default is entire item)
 function M.map_items(items, text_key, value_key)
   if type(items) ~= "table" then
     return items

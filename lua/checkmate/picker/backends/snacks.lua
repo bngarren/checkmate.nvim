@@ -22,7 +22,7 @@ function M.pick(ctx)
     format_item = ctx.format_item,
   })
 
-  local choose, cancel = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, resolve, {
     schedule = true,
   })
 
@@ -42,9 +42,6 @@ function M.pick(ctx)
         picker:close()
       end,
     },
-    on_close = function()
-      cancel()
-    end,
   }
 
   ---@type snacks.picker.Config
@@ -85,7 +82,7 @@ function M.pick_todo(ctx)
     end
   end
 
-  local choose, cancel = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, resolve, {
     schedule = true,
     after_select = after_select,
   })
@@ -104,14 +101,7 @@ function M.pick_todo(ctx)
         choose(item, { picker = picker, item = item, action = action })
         picker:close()
       end,
-      cancel = function(picker)
-        cancel()
-        picker:close()
-      end,
     },
-    on_close = function()
-      cancel()
-    end,
   }
 
   local opts = Snacks.config.merge({}, base, ctx.backend_opts or {})

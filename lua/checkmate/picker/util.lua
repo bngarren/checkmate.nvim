@@ -9,8 +9,6 @@ local M = {}
 ---  `extra` = backend-defined metadata (picker instance, action, index, etc), or
 ---  with vim.ui.select, extra will be the selected item idx
 ---@field after_select? checkmate.picker.after_select
----  Optional backend-specific hook for cancel/close
----@field after_cancel? checkmate.picker.after_cancel
 
 ---@alias checkmate.picker.after_select fun(orig: checkmate.picker.Item, proxy: any, extra?: any)
 ---@alias checkmate.picker.after_cancel fun()
@@ -21,18 +19,15 @@ local M = {}
 ---  - optionally schedule via vim.schedule
 ---  - optionally run backend-specific hooks
 ---
----Will call `cancel` for if `choose` is called with nil
 ---
 ---@param ctx checkmate.picker.AdapterContext
 ---@param resolve fun(proxy: any): any
 ---@param opts? checkmate.picker.MakeChooseOpts
 ---@return fun(proxy: any, extra?: any) choose
----@return fun() cancel
 function M.make_choose(ctx, resolve, opts)
   opts = opts or {}
   local schedule = opts.schedule
   local after_select = opts.after_select
-  local after_cancel = opts.after_cancel
 
   local completed = false
 
@@ -44,21 +39,6 @@ function M.make_choose(ctx, resolve, opts)
     end
   end
 
-  local function cancel()
-    if completed then
-      return
-    end
-    completed = true
-    run(function()
-      if ctx.on_cancel then
-        pcall(ctx.on_cancel)
-      end
-      if after_cancel then
-        pcall(after_cancel)
-      end
-    end)
-  end
-
   ---@param proxy any
   ---@param extra any -- backend-specific metadata (e.g. picker instance, action)
   ---or, when handed to vim.ui.select as on_choice, `extra` will be the selected item idx
@@ -68,7 +48,7 @@ function M.make_choose(ctx, resolve, opts)
     end
 
     if proxy == nil then
-      return cancel()
+      return
     end
 
     completed = true
@@ -85,7 +65,7 @@ function M.make_choose(ctx, resolve, opts)
     end)
   end
 
-  return choose, cancel
+  return choose
 end
 
 -- ==================================================================

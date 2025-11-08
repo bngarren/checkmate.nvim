@@ -1373,7 +1373,7 @@ M.setup = function(opts)
     end
 
     if #config.get_deprecations(H.state.user_opts) > 0 then
-      vim.notify("Checkmate: deprecated usage. Run `checkhealth checkmate`.", vim.log.levels.WARN)
+      vim.notify("Checkmate: deprecated usage detected. Run `checkhealth checkmate`.", vim.log.levels.WARN)
     end
 
     M.set_initialized(true)

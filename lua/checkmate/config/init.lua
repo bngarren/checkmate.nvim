@@ -224,10 +224,10 @@ M.options = {}
 
 ---@class checkmate.UISettings
 ---
----@alias checkmate.Picker "telescope" | "snacks" | "mini" | false
+---@alias checkmate.Picker "telescope" | "snacks" | "mini" | "select"
 ---
 ---Default behavior: attempt to use an installed plugin, if found
----If false, will default to vim.ui.select
+---If nil or "select", will use vim.ui.select
 ---@field picker? checkmate.Picker
 
 -----------------------------------------------------
@@ -458,6 +458,11 @@ function M.get_deprecations(user_opts)
   end
 
   -- [add deprecations here]
+  -- NOTE: deprecated v0.12
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    add("ui.picker 'false' is deprecated since v0.12. Use 'select' to use vim.ui.select as the default picker.")
+  end
 
   return res
 end
@@ -467,6 +472,16 @@ end
 ---@param user_opts? checkmate.Config
 local function merge_deprecated_opts(current_opts, user_opts)
   user_opts = user_opts or {}
+
+  -----------------------
+  ---@deprecated ui.picker "false" opt deprecated v0.12
+
+  -- convert false to "select"
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    current_opts.ui = vim.tbl_extend("force", current_opts.ui or {}, { picker = "select" })
+  end
+  -----------------------
 
   --[[ Kept as an example (commented out in v0.12)
   -----------------------

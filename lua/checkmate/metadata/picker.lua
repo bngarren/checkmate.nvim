@@ -63,7 +63,7 @@ function M.open_picker(context, apply_value_with_transaction)
           end
           return item.text
         end,
-        on_choice = receive_selection_from_ui,
+        on_select = receive_selection_from_ui,
         preview = true,
       })
     end)

@@ -1,3 +1,6 @@
+-- telescope
+-- NOTE: tested with v0.1.8
+
 ---@class checkmate.picker.TelescopeAdapter : checkmate.picker.Adapter
 local M = {}
 
@@ -30,8 +33,8 @@ function M.select(ctx)
         local accept = function(bufnr)
           local entry = state.get_selected_entry()
           actions.close(bufnr)
-          if entry and ctx.on_accept then
-            ctx.on_accept(entry.value)
+          if entry and ctx.on_select_item then
+            ctx.on_select_item(entry.value)
           end
         end
         map("i", "<CR>", accept)

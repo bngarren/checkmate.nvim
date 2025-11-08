@@ -1328,10 +1328,17 @@ end
 -- NOTE: remove
 
 function M.pick()
+  local util = require("checkmate.util")
   local picker = require("checkmate.picker.init")
-  picker.pick({ "A", "B", "C" }, { backend_opts = { snacks = {
-    layout = "dropdown",
-  } } })
+  local todo_map = require("checkmate.parser").get_todo_map(vim.api.nvim_get_current_buf())
+  local todos = {}
+  for _, item in pairs(todo_map) do
+    todos[#todos + 1] = util.build_todo(item)
+  end
+  picker.pick(
+    picker.map_items(todos, "text"),
+    { adapter_method = "pick_todo", preview = true, backend_opts = { title = "Todos" } }
+  )
 end
 
 ----------------------------------------------------------------------

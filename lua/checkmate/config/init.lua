@@ -224,11 +224,10 @@ M.options = {}
 
 ---@class checkmate.UISettings
 ---
----@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
+---@alias checkmate.Picker "telescope" | "snacks" | "mini" | false
 ---
 ---Default behavior: attempt to use an installed plugin, if found
 ---If false, will default to vim.ui.select
----If a function is passed, will use this picker implementation
 ---@field picker? checkmate.Picker
 
 -----------------------------------------------------

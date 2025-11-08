@@ -69,31 +69,22 @@ end
 --- stops checkmate
 --- ensures normal mode
 --- deletes buffer
---- removes file, if present
 ---@param bufnr integer?
----@param file_path string?
-function M.cleanup_buffer(bufnr, file_path)
+function M.cleanup_test(bufnr)
+  M.ensure_normal_mode()
+
+  pcall(require("checkmate").stop)
+
   if not bufnr then
     return
   end
 
-  -- Ensure we're in normal mode
-  vim.cmd("stopinsert")
-  vim.cmd("normal! \27") -- ESC
-  vim.cmd("redraw!")
-
-  pcall(require("checkmate").stop)
-
   pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-
-  if file_path then
-    pcall(os.remove, file_path)
-  end
 end
 
-function M.delete_all_buffers()
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    pcall(vim.api.nvim_buf_delete, b, { force = true })
+function M.cleanup_file(file_path)
+  if file_path then
+    pcall(os.remove, file_path)
   end
 end
 

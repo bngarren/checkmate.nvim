@@ -30,6 +30,10 @@ if vim.env.DEBUG == "1" then
   })
 end
 
+-- sets up plugin environment via lazy.nvim
+-- installs/loads plugin and test dependencies
+-- configures tests path
+-- runs busted in a single neovim process
 require("lazy.minit").busted({
   spec = spec,
   headless = {

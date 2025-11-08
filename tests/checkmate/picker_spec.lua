@@ -1,6 +1,10 @@
-local h, checkmate
-
 describe("Picker", function()
+  ---@module "tests.checkmate.helpers"
+  local h
+
+  ---@module "checkmate.picker"
+  local picker
+
   lazy_setup(function()
     -- suppress echo
     stub(vim.api, "nvim_echo")
@@ -15,52 +19,42 @@ describe("Picker", function()
     _G.reset_state()
 
     h = require("tests.checkmate.helpers")
-    checkmate = require("checkmate")
-    checkmate.setup()
+    picker = require("checkmate.picker")
 
     h.ensure_normal_mode()
   end)
 
-  after_each(function()
-    checkmate.stop()
-  end)
+  describe("internal picker", function()
+    it("should use native vim.ui.select when ui.picker is 'select'", function()
+      ---@diagnostic disable-next-line: missing-fields
+      h.cm_setup({
+        ui = {
+          picker = "select",
+        },
+      })
+      local bufnr = h.setup_test_buffer("- [ ] Todo")
 
-  it("should fall back to vim.ui.select when ui.picker is false", function()
-    local config = require("checkmate.config")
-    local picker = require("checkmate.picker")
+      local select_received_items
 
-    config.options.ui = { picker = false }
-    local items = { "x", "y" }
-    local select_stub = stub(vim.ui, "select")
+      local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
+        select_received_items = items
+        on_choice(items[1])
+      end)
 
-    picker.select(items, {})
+      local got
+      picker.pick({ "a", "b", "c" }, {
+        on_select = function(v)
+          got = v
+        end,
+      })
 
-    assert.stub(select_stub).was.called(1)
-    ---@diagnostic disable-next-line: undefined-field
-    vim.ui.select:revert()
-  end)
+      assert.is_table(select_received_items)
+      assert.equal(3, #select_received_items)
+      assert.equal("a", got)
 
-  it("should use a ui.picker function as the backend", function()
-    local config = require("checkmate.config")
-    local picker = require("checkmate.picker")
-
-    local picker_called = false
-    local received_items
-    local received_on_choice
-
-    local custom_picker = function(items, opts)
-      picker_called = true
-      received_items = items
-      received_on_choice = opts.on_choice
-    end
-
-    config.options.ui = { picker = custom_picker }
-    local items = { "x", "y" }
-
-    picker.select(items, { on_choice = function() end })
-
-    assert.is_true(picker_called)
-    assert.are_equal(items, received_items)
-    assert.is_function(received_on_choice)
+      finally(function()
+        ui_select_stub:revert()
+      end)
+    end)
   end)
 end)

@@ -37,6 +37,9 @@ describe("API", function()
   before_each(function()
     _G.reset_state()
 
+    -- debug correct test state
+    -- assert.equal(1, #vim.api.nvim_list_bufs())
+
     h = require("tests.checkmate.helpers")
     api = require("checkmate.api")
     parser = require("checkmate.parser")
@@ -49,7 +52,6 @@ describe("API", function()
     }
 
     h.ensure_normal_mode()
-    h.delete_all_buffers()
   end)
 
   describe("file operations", function()
@@ -116,7 +118,7 @@ describe("API", function()
       assert.no.matches(m.pending, saved_content)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -141,7 +143,7 @@ describe("API", function()
       assert.equal(3, vim.tbl_count(todo_map))
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -183,7 +185,7 @@ describe("API", function()
       assert.equal("checked", task_2_reloaded.state)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -202,7 +204,7 @@ describe("API", function()
       assert.is_true(require("checkmate").is_buffer_active(bufnr))
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -239,8 +241,8 @@ describe("API", function()
         assert.equal("- [ ] File 2 new\n", content2)
 
         finally(function()
-          h.cleanup_buffer(bufnr1, file1)
-          h.cleanup_buffer(bufnr2, file2)
+          h.cleanup_file(file1)
+          h.cleanup_file(file2)
         end)
       end)
 
@@ -262,7 +264,7 @@ describe("API", function()
 
         finally(function()
           vim.fn.writefile = original_writefile
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_file(file_path)
         end)
       end)
 
@@ -298,7 +300,7 @@ describe("API", function()
         assert.is_true(buf_write_post_called)
 
         finally(function()
-          h.cleanup_buffer(bufnr, file_path)
+          h.cleanup_file(file_path)
           vim.api.nvim_clear_autocmds({ group = augroup })
         end)
       end)
@@ -860,7 +862,7 @@ describe("API", function()
           assert.equal(opts.expect_cursor_line, cursor[1], (opts.name or "") .. ": cursor line")
         end
 
-        h.cleanup_buffer(bufnr)
+        h.cleanup_test(bufnr)
         return lines
       end
 
@@ -1480,10 +1482,6 @@ describe("API", function()
           expected_col = get_content_end_pos(lines[1])
           assert.are.equal(7, insert_pos.row)
           assert.are.equal(expected_col, insert_pos.col)
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should respect sort_order when metadata exists", function()
@@ -1525,10 +1523,6 @@ describe("API", function()
           local high_entry = todo_item.metadata.by_tag.high
           assert.are.equal(high_entry.range.start.row, insert_pos.row)
           assert.are.equal(high_entry.range.start.col, insert_pos.col)
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should handle complex multi-line scenarios", function()
@@ -1559,10 +1553,6 @@ describe("API", function()
           local b_entry = todo_item.metadata.by_tag.b
           assert.are.equal(b_entry.range["end"].row, insert_pos.row)
           assert.are.equal(b_entry.range["end"].col, insert_pos.col)
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
       end)
 
@@ -1621,10 +1611,6 @@ describe("API", function()
 
         assert.matches("- " .. m.unchecked .. " Parent todo @priority%(medium%)", lines[1])
         assert.matches("- " .. m.unchecked .. " Child todo", lines[2])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should add metadata to a multi-line todo", function()
@@ -1671,10 +1657,6 @@ describe("API", function()
 
         lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         assert.matches("     @test3%(baz%) @test4%(gah%)$", lines[2])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should add_metadata with undefined metadata", function()
@@ -1918,10 +1900,6 @@ describe("API", function()
 
         -- third todo's line text wasn't changed
         assert.matches("A todo without metadata", lines[6])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should handle metadata removal at end of buffer", function()
@@ -2032,10 +2010,6 @@ describe("API", function()
         assert.equal("assignee", received_context.name)
         assert.equal(bufnr, received_context.buffer)
         assert.same({ "john", "jane", "jack", "jill", "bob", "alice" }, results)
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should support asynchronous 'choices' functions", function()
@@ -2084,10 +2058,6 @@ describe("API", function()
         assert.is_not_nil(received_context)
         assert.is_true(type(received_context) == "table")
         assert.same({ "project-a", "project-b", "project-c" }, results)
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should use `position` opt with `select_metadata_value`", function()
@@ -2206,10 +2176,6 @@ describe("API", function()
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@test%(test_value%)", lines[3])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should call on_remove only when metadata is successfully removed", function()
@@ -2255,10 +2221,6 @@ describe("API", function()
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.no.matches("@test", lines[3])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should call on_add callback for all todos in bulk (normal and visual mode)", function()
@@ -2330,10 +2292,6 @@ describe("API", function()
             local line = vim.api.nvim_buf_get_lines(bufnr, i - 1, i, false)[1]
             assert.matches("@bulk", line)
           end
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should not call on_add when updating existing metadata value", function()
@@ -2374,10 +2332,6 @@ describe("API", function()
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@test%(new_value%)", lines[1])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should call on_change when metadata value is updated", function()
@@ -2430,10 +2384,6 @@ describe("API", function()
 
           vim.wait(10)
           assert.is_false(on_change_called)
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should call on_change via metadata picker selection", function()
@@ -2482,10 +2432,6 @@ describe("API", function()
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@priority%(high%)", lines[1])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should handle on_change callbacks that trigger other metadata operations", function()
@@ -2532,10 +2478,6 @@ describe("API", function()
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@status%(done%)", lines[1])
           assert.matches("@completed%(today%)", lines[1])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should call on_change for bulk operations in visual mode", function()
@@ -2587,10 +2529,6 @@ describe("API", function()
           for i = 1, 3 do
             assert.matches("@priority%(urgent%)", lines[i])
           end
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
 
         it("should handle errors in metadata callbacks gracefully", function()
@@ -2673,10 +2611,6 @@ describe("API", function()
 
           lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("- " .. m.checked .. " Task for testing", lines[1])
-
-          finally(function()
-            h.cleanup_buffer(bufnr)
-          end)
         end)
       end)
     end)
@@ -2736,7 +2670,7 @@ describe("API", function()
       }, "read from file")
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -2786,7 +2720,7 @@ describe("API", function()
       assert.matches("- %[x%] Task 3", saved_content)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
 
@@ -3057,10 +2991,6 @@ describe("API", function()
       api.move_cursor_to_metadata(bufnr, todo_item)
       local _, col4 = unpack(vim.api.nvim_win_get_cursor(0))
       assert.equal(todo_item.metadata.entries[1].range.start.col, col4)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should move cursor to previous metadata entry and wrap around, skipping current metadata", function()
@@ -3084,10 +3014,6 @@ describe("API", function()
       api.move_cursor_to_metadata(bufnr, todo_item, true)
       local _, col2 = unpack(vim.api.nvim_win_get_cursor(0))
       assert.equal(todo_item.metadata.entries[3].range.start.col, col2)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -3305,10 +3231,6 @@ describe("API", function()
         assert.matches("- " .. m.checked .. " Child 2", lines[3])
         assert.matches("- " .. m.checked .. " Grandchild 1", lines[4])
         assert.matches("- " .. m.checked .. " Grandchild 2", lines[5])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should uncheck parent when any direct child is unchecked (uncheck_up='direct_children')", function()
@@ -3567,10 +3489,6 @@ describe("API", function()
         assert.matches("- " .. m.checked .. " Task A%.1", lines[2])
         assert.matches("- " .. m.checked .. " Task A%.2", lines[3])
         assert.matches("- " .. m.unchecked .. " Task B", lines[4])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       -- NOTE: may update this in the future if we allow custom states to mimic behavior of
@@ -3890,7 +3808,7 @@ describe("API", function()
         )
 
         -- not in finally since part of a loop
-        h.cleanup_buffer(bufnr)
+        h.cleanup_test(bufnr)
       end
     end)
 
@@ -4093,10 +4011,6 @@ describe("API", function()
       local twice = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
 
       assert.equal(once, twice, "Second archive changed buffer")
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 end)

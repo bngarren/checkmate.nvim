@@ -107,8 +107,6 @@ describe("Config", function()
       assert.stub(uncheck_stub).called(1)
 
       finally(function()
-        h.cleanup_buffer(bufnr)
-
         archive_stub:revert()
         check_stub:revert()
         uncheck_stub:revert()
@@ -212,10 +210,6 @@ describe("Config", function()
         end)
 
         assert.is_nil(r)
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("fills in missing style but keeps user-supplied values", function()

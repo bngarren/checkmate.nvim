@@ -13,8 +13,6 @@ local H = {}
 ---@field backend? checkmate.Picker Defaults to user-specific `config.ui.picker`, an auto-detected installed picker, or native `vim.ui.select`
 ---@field backend_opts? table<string, any> -- either a plain table or a map: { [backendName]=opts }
 ---@field adapter_method? string Defaults to `pick`
----@field preview? boolean If true, attempts to open picker with preview, if supported
----@field source_buf? integer Source buffer
 ---@field format_item? fun(item: checkmate.picker.Item): string
 ---@field on_select? fun(value: any, item: checkmate.picker.Item)
 ---@field on_cancel? fun()
@@ -27,7 +25,6 @@ local H = {}
 ---@field kind? string
 ---@field format_item fun(item: checkmate.picker.Item): string
 ---@field backend_opts table<string, any>
----@field preview? boolean
 ---@field on_select_item fun(item: checkmate.picker.Item)
 ---@field on_cancel fun()
 
@@ -78,11 +75,10 @@ function M.pick(items, opts)
 
   -- native is `vim.ui.select` (which could still be overriden by an installed picker plugin
   -- depending on the user's neovim config)
-  local backend_name = backend == false and "native" or tostring(backend)
 
-  local ok, adapter = pcall(H.get_adapter, backend_name)
+  local ok, adapter = pcall(H.get_adapter, backend)
   if not ok then
-    H.notify_err("failed to load picker backend '" .. backend_name .. "': " .. tostring(adapter))
+    H.notify_err("failed to load picker backend '" .. backend .. "': " .. tostring(adapter))
     return
   end
 
@@ -93,7 +89,7 @@ function M.pick(items, opts)
       backend_opts = opts.backend_opts
     else
       -- per-backend map
-      backend_opts = opts.backend_opts[backend_name] or {}
+      backend_opts = opts.backend_opts[backend] or {}
     end
   end
 
@@ -105,7 +101,6 @@ function M.pick(items, opts)
       kind = opts.kind,
       format_item = format_item,
       backend_opts = backend_opts,
-      preview = opts.preview,
       on_select_item = function(choice_item)
         if choice_item and type(opts.on_select) == "function" then
           pcall(opts.on_select, choice_item.value, choice_item)
@@ -126,12 +121,12 @@ function M.pick(items, opts)
         local ok_fallback, err_fallback = pcall(adapter.pick, ctx)
         if not ok_fallback then
           H.notify_err(
-            ("picker adapter error (%s): fallback 'pick' failed: %s"):format(backend_name, tostring(err_fallback))
+            ("picker adapter error (%s): fallback 'pick' failed: %s"):format(backend, tostring(err_fallback))
           )
         end
       else
         H.notify_err(
-          ("picker adapter error (%s): method '%s' missing and no 'pick' fallback"):format(backend_name, method_name)
+          ("picker adapter error (%s): method '%s' missing and no 'pick' fallback"):format(backend, method_name)
         )
       end
     end
@@ -153,7 +148,7 @@ function M.pick(items, opts)
   end)
 
   if not ok_run then
-    H.notify_err(("picker adapter error (%s): %s"):format(backend_name, tostring(err_run)))
+    H.notify_err(("picker adapter error (%s): %s"):format(backend, tostring(err_run)))
   end
 end
 
@@ -209,7 +204,7 @@ function H.detect_backend()
   if pcall(require, "mini.pick") then
     return "mini"
   end
-  return false
+  return "native"
 end
 
 function H.get_adapter(name)

@@ -29,7 +29,7 @@ function M.pick(ctx)
   ---@type snacks.picker.Config
   local base = {
     title = (ctx.prompt or "Select"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
-    layout = ctx.preview and "dropdown" or "select",
+    layout = "select",
     format = "text",
     finder = function()
       -- Snacks finder expects a list of items

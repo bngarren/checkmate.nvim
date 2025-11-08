@@ -153,7 +153,7 @@ function M.pick_todo(ctx)
   end
 
   local previewer = false
-  if ctx.preview and tel.previewers then
+  if tel.previewers then
     previewer = tel.previewers.new_buffer_previewer({
       define_preview = function(self, entry, status)
         if not (self and self.state and self.state.bufnr) then

@@ -38,7 +38,7 @@ function M.pick(ctx)
     schedule = true,
   })
 
-  local start_opts = vim.tbl_extend("force", {
+  local start_opts = vim.tbl_deep_extend("force", {
     source = {
       items = proxies,
       name = ctx.prompt or "Select",
@@ -95,7 +95,7 @@ function M.pick_todo(ctx)
 
   local choose = make_choose(ctx, resolve, { schedule = true, after_select = after_select })
 
-  local start_opts = vim.tbl_extend("force", {
+  local start_opts = vim.tbl_deep_extend("force", {
     source = {
       items = proxies,
       name = ctx.prompt or "Todos",

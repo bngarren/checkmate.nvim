@@ -19,13 +19,17 @@ function M.pick(ctx)
 
   ---vim.ui.select cb has signature:
   ---`on_choice fun(item: T|nil, idx: integer|nil)`
-  vim.ui.select(proxies, {
-    prompt = ctx.prompt or "Select",
-    kind = ctx.kind,
-    format_item = function(p)
-      return p.text or ""
-    end,
-  }, choose)
+  vim.ui.select(
+    proxies,
+    vim.tbl_deep_extend("force", {
+      prompt = ctx.prompt or "Select",
+      kind = ctx.kind,
+      format_item = function(p)
+        return p.text or ""
+      end,
+    }, ctx.backend_opts),
+    choose
+  )
 end
 
 ---**Callbacks**:
@@ -52,13 +56,17 @@ function M.pick_todo(ctx)
     end
   end
 
-  vim.ui.select(proxies, {
-    prompt = ctx.prompt or "Todos",
-    kind = ctx.kind,
-    format_item = function(p)
-      return p.text or ""
-    end,
-  }, make_choose(ctx, resolve, { after_select = after_select }))
+  vim.ui.select(
+    proxies,
+    vim.tbl_deep_extend("force", {
+      prompt = ctx.prompt or "Todos",
+      kind = ctx.kind,
+      format_item = function(p)
+        return p.text or ""
+      end,
+    }, ctx.backend_opts),
+    make_choose(ctx, resolve, { after_select = after_select })
+  )
 end
 
 return M

@@ -320,7 +320,7 @@ describe("API", function()
           action = function(_, ctx)
             ctx.items = api.collect_todo_items_from_selection(false)
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             assert.equal(1, #ctx.items)
             assert.matches("Task A", ctx.items[1].todo_text)
           end,
@@ -338,10 +338,10 @@ describe("API", function()
             "  - [ ] Task C",
           },
           selection = { 1, 0, 2, 0, "V" },
-          action = function(cm, ctx)
+          action = function(_, ctx)
             ctx.items = api.collect_todo_items_from_selection(true)
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             assert.equal(2, #ctx.items)
 
             local foundA, foundB = false, false
@@ -1365,7 +1365,9 @@ describe("API", function()
             content = "- " .. m.unchecked .. " Todo",
             action = function(cm, ctx)
               local todo = cm.get_todo({ bufnr = ctx.buffer, row = 0 })
-              cm.set_todo_state(todo, "checked")
+              if todo then
+                cm.set_todo_state(todo, "checked")
+              end
             end,
             assert = function(bufnr, lines)
               assert.match(m.checked, lines[1])
@@ -1376,7 +1378,9 @@ describe("API", function()
             content = "1. " .. m.checked .. " Todo",
             action = function(cm, ctx)
               local todo = cm.get_todo({ bufnr = ctx.buffer, row = 0 })
-              cm.set_todo_state(todo, "unchecked")
+              if todo then
+                cm.set_todo_state(todo, "unchecked")
+              end
             end,
             assert = function(bufnr, lines)
               assert.match(m.unchecked, lines[1])
@@ -1387,9 +1391,11 @@ describe("API", function()
             content = "+ " .. m.unchecked .. " Todo",
             action = function(cm, ctx)
               local todo = cm.get_todo({ bufnr = ctx.buffer, row = 0 })
-              cm.set_todo_state(todo, "pending")
+              if todo then
+                cm.set_todo_state(todo, "pending")
+              end
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.match(m.pending, lines[1])
             end,
           },
@@ -1569,7 +1575,7 @@ describe("API", function()
             action = function(cm, ctx)
               ctx.success = cm.add_metadata("priority", "high")
             end,
-            assert = function(bufnr, lines, ctx)
+            assert = function(_, lines, ctx)
               assert.is_true(ctx.success)
               assert.matches("- " .. m.unchecked .. " Task without metadata @priority%(high%)", lines[3])
             end,
@@ -1590,7 +1596,7 @@ describe("API", function()
         -- move cursor to the Child todo A on line 2 (1-indexed)
         vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-        local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 1, 0)) -- 0-indexed
+        h.exists(parser.get_todo_item_at_position(bufnr, 1, 0)) -- 0-indexed
 
         cm.add_metadata("priority", "high")
 
@@ -2073,7 +2079,7 @@ describe("API", function()
             action = function(cm)
               cm.select_metadata_value({
                 position = { row = 0, col = 18 }, -- pos within @due() metadata
-                picker_fn = function(_, complete)
+                custom_picker = function(_, complete)
                   complete("tomorrow")
                 end,
               })
@@ -2104,7 +2110,7 @@ describe("API", function()
             end,
             action = function(cm, ctx)
               cm.select_metadata_value({
-                picker_fn = function(context, complete)
+                custom_picker = function(context, complete)
                   ctx.received_context = context
                   vim.schedule(function()
                     complete("hello")
@@ -2114,6 +2120,7 @@ describe("API", function()
             end,
             wait_ms = 10,
             assert = function(bufnr, lines, ctx)
+              ---@diagnostic disable-next-line: undefined-field
               assert.is_not_nil(ctx.received_context)
               assert.equal("- " .. m.unchecked .. " Task needing data @project(hello)", lines[1])
             end,
@@ -2129,7 +2136,7 @@ describe("API", function()
           local test_todo
 
           ---@diagnostic disable-next-line: missing-fields
-          local cm = h.cm_setup({
+          h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
@@ -2185,7 +2192,7 @@ describe("API", function()
           local test_todo
 
           ---@diagnostic disable-next-line: missing-fields
-          local cm = h.cm_setup({
+          h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               test = {
@@ -2392,7 +2399,7 @@ describe("API", function()
           local received_new_value = nil
 
           ---@diagnostic disable-next-line: missing-fields
-          local cm = h.cm_setup({
+          h.cm_setup({
             metadata = {
               ---@diagnostic disable-next-line: missing-fields
               priority = {
@@ -2803,7 +2810,7 @@ describe("API", function()
             action = function(cm)
               cm.cycle()
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("- " .. m.checked, lines[1])
             end,
           },
@@ -2815,7 +2822,7 @@ describe("API", function()
             action = function(cm)
               cm.cycle()
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("- " .. m.unchecked, lines[1])
             end,
           },
@@ -2827,7 +2834,7 @@ describe("API", function()
             action = function(cm)
               cm.cycle({ backward = true })
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("- " .. m.checked, lines[1])
             end,
           },

@@ -1,5 +1,28 @@
+--[[
+
+Picker architecture:
+0. Feature layer (e.g. metadata/picker.lua)
+  - Business logic, generates items, handles plugin related callbacks
+1. Picker orchestration (this module)
+  - Normalizes `items` to checkmate.picker.Item
+  - Resolves a backend with fallback to native
+  - Dispatches the correct adapter_method -> adapter
+2. Backend adapters (pickers/backends/*)
+  - Plugin-specific implementations
+  - interface via checkmate.picker.Adapter and AdapterContext
+
+
+Config merging (increasing) priority:
+For each backend:
+  1. Checkmate's base defaults (defined in the adapter)
+  2. Top level AdapterContext fields, such as prompt, format_item
+  3. `backend_opts` - derived from merge of picker_opts.config + optional picker_opts[backend] (priority)
+]]
+
 local M = {}
 local H = {}
+
+local log = require("checkmate.log")
 
 ---@class checkmate.picker.Item
 ---@field text string Display text
@@ -9,44 +32,56 @@ local H = {}
 
 ---@class checkmate.picker.PickOpts
 ---@field prompt? string
----@field kind? string
----@field backend? checkmate.Picker Defaults to user-specific `config.ui.picker`, an auto-detected installed picker, or native `vim.ui.select`
----@field backend_opts? table<string, any> -- either a plain table or a map: { [backendName]=opts }
----@field adapter_method? string Defaults to `pick`
 ---@field format_item? fun(item: checkmate.picker.Item): string
+---@field kind? string Kind hint for vim.ui.select
+---@field picker_opts? checkmate.PickerOpts
+---@field method? checkmate.picker.Method Defaults to `pick`
 ---@field on_select? fun(value: any, item: checkmate.picker.Item)
----picker_fn is a full override. Call done(item) on select, done(nil) on cancel
----@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, done: fun(choice_item: any))
+---picker_fn is a full override. Call complete(item) on select, complete(nil) on cancel
+---@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, complete: fun(choice_item: any))
 
 ---@class checkmate.picker.AdapterContext
 ---@field items checkmate.picker.Item[]
 ---@field prompt? string
 ---@field kind? string
 ---@field format_item fun(item: checkmate.picker.Item): string
----@field backend_opts table<string, any>
+---@field backend_opts table<string, any> Backend-specific config extracted from picker_opts
 ---@field on_select_item fun(item: checkmate.picker.Item)
 
---- Backend adapter surface. Must implement `pick()`, others are optional for improved out-of-box UX
---- for checkmate-specific actions
+---A backend/adapter specific implementation for a specific picker behavior
+---@enum checkmate.picker.Method
+M.METHODS = {
+  -- Generic picker (default)
+  PICK = "pick",
+  -- Todo picker with preview/jump on select/confirm
+  PICK_TODO = "pick_todo",
+}
+
+--- Backend adapter surface, implements M.METHODS
 ---@class checkmate.picker.Adapter
----@field pick fun(ctx: checkmate.picker.AdapterContext)
----@field pick_todo? fun(ctx: checkmate.picker.AdapterContext)
+---@field [fun(ctx: checkmate.picker.AdapterContext)] checkmate.picker.Method
 
 --- If `opts.picker_fn` is provided, it *fully overrides* the backend call
 ---@param items checkmate.picker.Items
 ---@param opts? checkmate.picker.PickOpts
 function M.pick(items, opts)
-  local log = require("checkmate.log")
   local config = require("checkmate.config")
 
   opts = opts or {}
+  local picker_opts = opts.picker_opts or {}
+
+  local valid, validate_err = H.validate_pick_opts(opts)
+  if not valid then
+    H.notify_err(validate_err)
+    return
+  end
 
   local norm_items = H.normalize_items(items)
   local format_item = opts.format_item or H.default_format_item
 
   -- full override
   if type(opts.picker_fn) == "function" then
-    local ok, err = pcall(function()
+    local ok, picker_fn_err = pcall(function()
       opts.picker_fn(norm_items, opts, function(choice_item)
         if choice_item ~= nil then
           if type(opts.on_select) == "function" then
@@ -56,19 +91,22 @@ function M.pick(items, opts)
       end)
     end)
     if not ok then
-      H.notify_err("picker_fn error: " .. tostring(err))
+      H.notify_err("picker_fn error: " .. tostring(picker_fn_err))
     end
     return
   end
 
   -- resolve backend
-  local backend = opts.backend or vim.tbl_get(config.options, "ui", "picker")
+  -- - 1. from direct opt.backend.picker argument for this function
+  -- - 2. from global config.ui.picker
+  -- - 3. auto choose a backend based on what is installed, with fallback to vim.ui.select (native)
+  --
+  -- remember: "native" vim.ui.select can still be overriden/registered by an installed picker plugin
+  -- depending on the user's neovim config
+  local backend = vim.tbl_get(picker_opts, "picker") or vim.tbl_get(config.options, "ui", "picker")
   if backend == nil then
-    backend = H.detect_backend()
+    backend = H.auto_choose_backend()
   end
-
-  -- native is `vim.ui.select` (which could still be overriden by an installed picker plugin
-  -- depending on the user's neovim config)
 
   local ok, adapter = pcall(H.get_adapter, backend)
   if not ok then
@@ -76,16 +114,8 @@ function M.pick(items, opts)
     return
   end
 
-  local backend_opts = {}
-  if type(opts.backend_opts) == "table" then
-    if vim.islist(opts.backend_opts) then
-      -- plain table of opts
-      backend_opts = opts.backend_opts
-    else
-      -- per-backend map
-      backend_opts = opts.backend_opts[backend] or {}
-    end
-  end
+  -- the backend specific table resolved from picker_opts
+  local backend_opts = vim.tbl_extend("force", picker_opts.config or {}, picker_opts[backend] or {}) or {}
 
   local ok_run, err_run = pcall(function()
     ---@type checkmate.picker.AdapterContext
@@ -102,7 +132,8 @@ function M.pick(items, opts)
       end,
     }
     -- resolve the adapter method
-    local method_name = opts.adapter_method or "pick"
+    ---@type checkmate.picker.Method
+    local method_name = opts.method or "pick"
     local method = adapter[method_name]
 
     local function fallback()
@@ -159,6 +190,44 @@ end
 
 -- ---- helpers -------------------------------------------------------------
 
+---@param opts checkmate.picker.PickOpts
+function H.validate_pick_opts(opts)
+  local PICKERS = require("checkmate").PICKERS
+
+  if not opts then
+    return true
+  end
+
+  local must_be_one_of = string.format(
+    "must be one of: %s",
+    table.concat(
+      vim.tbl_map(function(i)
+        return string.format("'%s'", i)
+      end, vim.tbl_values(PICKERS)),
+      ", "
+    )
+  )
+
+  if opts.picker_opts then
+    local picker = opts.picker_opts.picker
+    if picker and type(picker) ~= "string" then
+      return false, "`picker` must be a string and " .. must_be_one_of
+    end
+
+    if picker and not vim.tbl_contains(vim.tbl_values(PICKERS), picker) then
+      return false, string.format("Invalid picker backend: '%s',\n%s", picker, must_be_one_of)
+    end
+
+    for backend, cfg in pairs(opts.picker_opts) do
+      if backend ~= "picker" and type(cfg) ~= "table" then
+        return false, string.format("Backend config for '%s' must be a table, got %s", backend, type(cfg))
+      end
+    end
+  end
+
+  return true
+end
+
 ---@param items checkmate.picker.Items
 ---@return checkmate.picker.Item[]
 function H.normalize_items(items)
@@ -186,7 +255,8 @@ function H.default_format_item(item)
   return item.text or ""
 end
 
-function H.detect_backend()
+---@return checkmate.Picker
+function H.auto_choose_backend()
   if pcall(require, "telescope") then
     return "telescope"
   end

@@ -24,11 +24,11 @@ describe("Picker", function()
     h.ensure_normal_mode()
   end)
 
-  it("should use native vim.ui.select when ui.picker is 'select'", function()
+  it("should use native vim.ui.select when ui.picker is 'native'", function()
     ---@diagnostic disable-next-line: missing-fields
     h.cm_setup({
       ui = {
-        picker = "select",
+        picker = "native",
       },
     })
     h.setup_test_buffer("- [ ] Todo")
@@ -130,7 +130,7 @@ describe("Picker", function()
           selected_value = v
           selected_item = i
         end,
-        backend_opts = {
+        picker_opts = {
           [backend_name] = { title = "Picker" },
         },
       })
@@ -179,4 +179,14 @@ describe("Picker", function()
       spy_backend_pick:revert()
     end)
   end)
+
+  -- Test that picker_opts.picker overrides config.ui.picker
+  -- Test that config.ui.picker works when picker_opts.picker is nil
+  -- Test auto-detection fallback
+  -- Test that invalid config types are caught
+  -- Test that each backend receives correct options
+  -- Test empty items array
+  -- Test items with nil/missing text fields
+  -- Test on_select callback failures
+  -- Test backend not available (plugin not installed)
 end)

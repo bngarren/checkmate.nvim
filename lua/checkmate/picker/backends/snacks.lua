@@ -45,7 +45,7 @@ function M.pick(ctx)
   }
 
   ---@type snacks.picker.Config
-  local opts = Snacks.config.merge({}, base, ctx.backend_opts or {})
+  local opts = Snacks.config.merge({}, base, ctx.backend_opts or {}) -- deep merge
 
   return Snacks.picker.pick(opts)
 end

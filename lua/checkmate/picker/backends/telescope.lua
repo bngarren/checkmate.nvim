@@ -66,7 +66,7 @@ function M.pick(ctx)
   }, ctx.backend_opts)
 
   tel.pickers
-    .new(theme_opts, {
+    .new({
       finder = tel.finders.new_table({
         results = proxies,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
@@ -92,7 +92,7 @@ function M.pick(ctx)
 
         return true
       end,
-    })
+    }, theme_opts)
     :find()
 end
 
@@ -139,7 +139,7 @@ function M.pick_todo(ctx)
     end)
   end
 
-  local previewer = false
+  local previewer
   if tel.previewers then
     previewer = tel.previewers.new_buffer_previewer({
       define_preview = function(self, entry, status)
@@ -211,7 +211,7 @@ function M.pick_todo(ctx)
   }, ctx.backend_opts)
 
   tel.pickers
-    .new(theme_opts, {
+    .new({
       finder = tel.finders.new_table({
         results = proxies,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
@@ -237,7 +237,7 @@ function M.pick_todo(ctx)
 
         return true
       end,
-    })
+    }, theme_opts)
     :find()
 end
 

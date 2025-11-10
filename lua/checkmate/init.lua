@@ -46,10 +46,10 @@ M.PICKERS = {
 ---  3. auto-detection - tries telescope -> snacks -> mini -> native
 ---
 ---Checkmate uses reasonable defaults for each builtin picker implementation. You can
----merge your own opts (overriding these specific fields via deep extend) by using a generic `config` table, or
+---merge your own opts (overriding these specific fields via deep extend) by using a generic `opts` table, or
 ---a backend-specific table keyed by the picker name.
 ---
----Note: A backend-specific table field will override the same key in the `config` table if both are passed.
+---Note: A backend-specific table field will override the same key in the `opts` table if both are passed.
 ---
 ---**Example**:
 ---```lua
@@ -63,7 +63,7 @@ M.PICKERS = {
 ---
 ---@class checkmate.PickerOpts
 ---@field picker? checkmate.Picker Force a specific picker backend
----@field config? table<string, any> Generic table that will be merged with current backend
+---@field opts? table<string, any> Generic table that will be merged with current backend
 ---@field telescope? table<string, any> Telescope.pickers.new opts
 ---@field snacks? table<string, any> Snacks.pickers.pick opts
 ---@field mini? table<string, any> mini.pick.start opts

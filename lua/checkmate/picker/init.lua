@@ -17,6 +17,27 @@ For each backend:
   1. Checkmate's base defaults (defined in the adapter)
   2. Top level AdapterContext fields, such as prompt, format_item
   3. `backend_opts` - derived from merge of picker_opts.config + optional picker_opts[backend] (priority)
+
+Flow:
+
+    User Items (strings or tables)
+        │
+        ↓ H.normalize_items()
+    Normalized Items: {text, value}[]
+        │
+        ↓ proxy.build()
+    Proxy Items: {__cm_idx, text, ...}[]
+        │
+        ├─> Backend Adapter (displays proxies)
+        │
+        ↓ User selects
+    Selected Proxy
+        │
+        ↓ resolve(proxy)
+    Original Item
+        │
+        ↓ on_select_item(item)
+    User Callback
 ]]
 
 local M = {}
@@ -53,7 +74,7 @@ local log = require("checkmate.log")
 M.METHODS = {
   -- Generic picker (default)
   PICK = "pick",
-  -- Todo picker with preview/jump on select/confirm
+  -- Todo picker with preview and jump to buf/line on select/confirm
   PICK_TODO = "pick_todo",
 }
 
@@ -111,64 +132,72 @@ function M.pick(items, opts)
   local ok, adapter = pcall(H.get_adapter, backend)
   if not ok then
     H.notify_err("failed to load picker backend '" .. backend .. "': " .. tostring(adapter))
-    return
   end
 
   -- the backend specific table resolved from picker_opts
-  local backend_opts = vim.tbl_extend("force", picker_opts.config or {}, picker_opts[backend] or {}) or {}
+  local backend_opts = vim.tbl_extend("force", picker_opts.opts or {}, picker_opts[backend] or {}) or {}
 
-  local ok_run, err_run = pcall(function()
-    ---@type checkmate.picker.AdapterContext
-    local ctx = {
-      items = norm_items,
-      prompt = opts.prompt,
-      kind = opts.kind,
-      format_item = format_item,
-      backend_opts = backend_opts,
-      on_select_item = function(choice_item)
-        if choice_item and type(opts.on_select) == "function" then
-          pcall(opts.on_select, choice_item.value, choice_item)
-        end
-      end,
-    }
-    -- resolve the adapter method
-    ---@type checkmate.picker.Method
-    local method_name = opts.method or "pick"
-    local method = adapter[method_name]
-
-    local function fallback()
-      if type(adapter.pick) == "function" then
-        local ok_fallback, err_fallback = pcall(adapter.pick, ctx)
-        if not ok_fallback then
-          H.notify_err(
-            ("picker adapter error (%s): fallback 'pick' failed: %s"):format(backend, tostring(err_fallback))
-          )
-        end
-      else
-        H.notify_err(
-          ("picker adapter error (%s): method '%s' missing and no 'pick' fallback"):format(backend, method_name)
-        )
+  ---@type checkmate.picker.AdapterContext
+  local ctx = {
+    items = norm_items,
+    prompt = opts.prompt,
+    kind = opts.kind,
+    format_item = format_item,
+    backend_opts = backend_opts,
+    on_select_item = function(choice_item)
+      if choice_item and type(opts.on_select) == "function" then
+        pcall(opts.on_select, choice_item.value, choice_item)
       end
+    end,
+  }
+
+  -- resolve the adapter method
+  ---@type checkmate.picker.Method
+  local method_name = opts.method or "pick"
+  local method = adapter[method_name]
+
+  local function try_adapter_method(adapter_name, try_method, try_method_name)
+    if type(try_method) ~= "function" then
+      return false, ("method '%s' not found on %s adapter"):format(try_method_name, adapter_name)
     end
 
-    if type(method) == "function" then
-      local adapter_method_ok, adapter_method_err = pcall(method, ctx)
-      if not adapter_method_ok then
-        log.fmt_error(
-          "[picker] attempted to call %s backend's '%s' but failed: %s\nFallback to `pick` method.",
+    local ok_method, err_method = pcall(try_method, ctx)
+    if not ok_method then
+      return false, ("method '%s' on %s adapter failed: %s"):format(try_method_name, adapter_name, tostring(err_method))
+    end
+
+    return true
+  end
+
+  local success, err = try_adapter_method(backend, method, method_name)
+
+  if not success then
+    log.fmt_warn(
+      "[picker] attempted to call %s backend's '%s' method but failed: %s\nFalling back to native adapter with same method.",
+      backend,
+      method_name,
+      err
+    )
+
+    -- fallback to native
+    local ok_native, native_adapter = pcall(H.get_adapter, "native")
+    if not ok_native then
+      H.notify_err("failed to load native picker backend: " .. tostring(native_adapter))
+      return
+    end
+
+    local native_method = native_adapter[method_name]
+    local native_success, native_err = try_adapter_method("native", native_method, method_name)
+
+    if not native_success then
+      H.notify_err(
+        ("picker error: both %s and native backends failed for method '%s'. Native error: %s"):format(
           backend,
           method_name,
-          adapter_method_err
+          native_err
         )
-        fallback()
-      end
-    else
-      fallback()
+      )
     end
-  end)
-
-  if not ok_run then
-    H.notify_err(("picker adapter error (%s): %s"):format(backend, tostring(err_run)))
   end
 end
 
@@ -241,7 +270,7 @@ function H.normalize_items(items)
       out[#out + 1] = { text = it, value = it }
     elseif type(it) == "table" then
       local text = it.text or it[1]
-      local value = (it.value ~= nil) and it.value or text
+      local value = (it.value ~= nil) and it.value or it[2] or text
       out[#out + 1] = { text = tostring(text or ""), value = value }
     else
       out[#out + 1] = { text = tostring(it), value = it }

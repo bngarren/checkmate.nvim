@@ -24,6 +24,46 @@ describe("Picker", function()
     h.ensure_normal_mode()
   end)
 
+  it("should deep merge picker_opts.opts with picker_opts[backend]", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "snacks",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local backend = require("checkmate.picker.backends.snacks")
+    local received_ctx
+
+    local orig_pick = backend.pick
+    backend.pick = function(ctx)
+      received_ctx = ctx
+      ctx.on_select_item(ctx.items[1])
+    end
+
+    picker.pick({ "item" }, {
+      picker_opts = {
+        opts = {
+          title = "Pick One",
+          layout = "sidebar",
+        },
+        snacks = {
+          layout = "ivy",
+          previewer = true,
+        },
+      },
+    })
+
+    assert.is_table(received_ctx.backend_opts)
+    -- backend-specific opts should override picker.opts
+    assert.equal("ivy", received_ctx.backend_opts.layout)
+    assert.equal(true, received_ctx.backend_opts.previewer)
+    assert.equal("Pick One", received_ctx.backend_opts.title)
+
+    backend.pick = orig_pick
+  end)
+
   it("should use native vim.ui.select when ui.picker is 'native'", function()
     ---@diagnostic disable-next-line: missing-fields
     h.cm_setup({
@@ -31,7 +71,7 @@ describe("Picker", function()
         picker = "native",
       },
     })
-    h.setup_test_buffer("- [ ] Todo")
+    h.setup_test_buffer({})
 
     local select_received_items
 
@@ -67,7 +107,7 @@ describe("Picker", function()
         picker = nil,
       },
     })
-    h.setup_test_buffer("- [ ] Todo")
+    h.setup_test_buffer({})
 
     local select_received_items
 
@@ -95,7 +135,7 @@ describe("Picker", function()
           picker = backend_name,
         },
       })
-      local bufnr = h.setup_test_buffer("- [ ] Todo")
+      local bufnr = h.setup_test_buffer({})
 
       -- should not be called
       local spy_ui_select = spy.on(vim.ui, "select")
@@ -150,7 +190,79 @@ describe("Picker", function()
     end
   end)
 
-  it("uses picker_fn override instead of backend", function()
+  it("should use specific backend when available and config.ui.picker is nil", function()
+    -- mock snacks and backend/snacks
+    package.loaded["snacks"] = { picker = {} }
+    package.loaded["checkmate.picker.backends.snacks"] = {
+      pick = function(ctx)
+        ctx.on_select_item(ctx.items[1])
+      end,
+    }
+
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = nil, -- nil means auto-detect
+      },
+    })
+    h.setup_test_buffer({})
+
+    local spy_ui_select = spy.on(vim.ui, "select")
+
+    local selected
+    picker.pick({ "a", "b" }, {
+      on_select = function(v)
+        selected = v
+      end,
+    })
+
+    -- should NOT use native vim.ui.select
+    assert.spy(spy_ui_select).called(0)
+    assert.equal("a", selected)
+
+    finally(function()
+      spy_ui_select:revert()
+      package.loaded["snacks"] = nil
+      package.loaded["checkmate.picker.backends.snacks"] = nil
+    end)
+  end)
+
+  it("should fallback to native when configured backend is not available", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "snacks",
+      },
+    })
+
+    local orig_snacks = package.loaded["snacks"]
+    package.loaded["snacks"] = nil
+
+    h.setup_test_buffer({})
+
+    local select_called = false
+    local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
+      select_called = true
+      on_choice(items[1])
+    end)
+
+    local selected
+    picker.pick({ "fallback" }, {
+      on_select = function(v)
+        selected = v
+      end,
+    })
+
+    assert.is_true(select_called)
+    assert.equal("fallback", selected)
+
+    finally(function()
+      ui_select_stub:revert()
+      package.loaded["snacks"] = orig_snacks
+    end)
+  end)
+
+  it("should use picker_fn override instead of backend", function()
     ---@diagnostic disable-next-line: missing-fields
     h.cm_setup({ ui = { picker = "telescope" } })
 
@@ -180,13 +292,168 @@ describe("Picker", function()
     end)
   end)
 
-  -- Test that picker_opts.picker overrides config.ui.picker
-  -- Test that config.ui.picker works when picker_opts.picker is nil
-  -- Test auto-detection fallback
-  -- Test that invalid config types are caught
-  -- Test that each backend receives correct options
-  -- Test empty items array
-  -- Test items with nil/missing text fields
-  -- Test on_select callback failures
-  -- Test backend not available (plugin not installed)
+  it("should allow picker_opts.picker to override config.ui.picker", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        -- should use native despite config saying snacks
+        picker = "snacks",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local select_received_items
+    local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
+      select_received_items = items
+      on_choice(items[1])
+    end)
+
+    local got
+    picker.pick({ "x", "y" }, {
+      picker_opts = {
+        picker = "native", -- override to native
+      },
+      on_select = function(v)
+        got = v
+      end,
+    })
+
+    assert.is_table(select_received_items)
+    assert.equal(2, #select_received_items)
+    assert.equal("x", got)
+
+    finally(function()
+      ui_select_stub:revert()
+    end)
+  end)
+
+  it("should handle empty items array gracefully", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "native",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local select_called = false
+    local ui_select_stub = stub(vim.ui, "select", function(_, _, on_choice)
+      select_called = true
+      on_choice(nil)
+    end)
+
+    local on_select_called = false
+    -- empty items
+    picker.pick({}, {
+      on_select = function()
+        on_select_called = true
+      end,
+    })
+
+    assert.is_true(select_called)
+    -- on_select should not be called
+    assert.is_false(on_select_called)
+
+    finally(function()
+      ui_select_stub:revert()
+    end)
+  end)
+
+  it("should handle items with nil values gracefully", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "native",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local received_items
+    package.loaded["checkmate.picker.backends.native"] = {
+      pick = function(ctx)
+        received_items = ctx.items
+        ctx.on_select_item(ctx.items[1])
+      end,
+    }
+
+    -- item with nil value should be normalized to {text, value=text}
+    picker.pick({ { text = "display" } })
+
+    assert.is_table(received_items)
+    assert.equal(1, #received_items)
+    assert.same({ text = "display", value = "display" }, received_items[1])
+
+    finally(function()
+      package.loaded["checkmate.picker.backends.native"] = nil
+    end)
+  end)
+
+  it("should handle on_select callback errors gracefully", function()
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "native",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
+      on_choice(items[1])
+    end)
+
+    -- dont throw when on_select errors
+    local did_complete = false
+    local ok = pcall(function()
+      picker.pick({ "item" }, {
+        on_select = function()
+          error("BOOM")
+        end,
+      })
+      did_complete = true
+    end)
+
+    assert.is_true(ok)
+    assert.is_true(did_complete)
+
+    finally(function()
+      ui_select_stub:revert()
+    end)
+  end)
+
+  it("should handle backend pick errors gracefully", function()
+    -- mock snacks and backend/snacks
+    package.loaded["snacks"] = { picker = {} }
+    package.loaded["checkmate.picker.backends.snacks"] = {
+      pick = function(_)
+        error("BOOM")
+      end,
+    }
+
+    local ran_native = false
+    local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
+      ran_native = true
+      on_choice(items[1])
+    end)
+
+    ---@diagnostic disable-next-line: missing-fields
+    h.cm_setup({
+      ui = {
+        picker = "snacks",
+      },
+    })
+    h.setup_test_buffer({})
+
+    local ok = pcall(function()
+      picker.pick({ "item" })
+    end)
+
+    assert.is_true(ok)
+    assert.is_true(ran_native)
+
+    finally(function()
+      ui_select_stub:revert()
+      package.loaded["snacks"] = nil
+      package.loaded["checkmate.picker.backends.snacks"] = nil
+    end)
+  end)
 end)

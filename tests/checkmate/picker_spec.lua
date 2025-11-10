@@ -87,6 +87,10 @@ describe("Picker", function()
       end,
     })
 
+    vim.wait(100, function()
+      return got ~= nil
+    end)
+
     assert.is_table(select_received_items)
     assert.equal(3, #select_received_items)
     assert.equal("a", got)
@@ -175,6 +179,10 @@ describe("Picker", function()
         },
       })
 
+      vim.wait(100, function()
+        return selected_value ~= nil
+      end)
+
       assert.spy(spy_ui_select).called(0)
       -- on_select should receive the value from normalized item
       assert.equal("a", selected_value)
@@ -216,6 +224,10 @@ describe("Picker", function()
       end,
     })
 
+    vim.wait(100, function()
+      return selected ~= nil
+    end)
+
     -- should NOT use native vim.ui.select
     assert.spy(spy_ui_select).called(0)
     assert.equal("a", selected)
@@ -252,6 +264,10 @@ describe("Picker", function()
         selected = v
       end,
     })
+
+    vim.wait(100, function()
+      return selected ~= nil
+    end)
 
     assert.is_true(select_called)
     assert.equal("fallback", selected)
@@ -317,6 +333,10 @@ describe("Picker", function()
         got = v
       end,
     })
+
+    vim.wait(100, function()
+      return got ~= nil
+    end)
 
     assert.is_table(select_received_items)
     assert.equal(2, #select_received_items)

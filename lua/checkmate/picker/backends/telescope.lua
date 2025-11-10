@@ -40,10 +40,11 @@ local function make_theme_opts(tel, base, backend_opts)
   base = base or {}
 
   if tel.themes and tel.themes.get_dropdown then
-    return tel.themes.get_dropdown(vim.tbl_extend("force", base, backend_opts))
+    -- merge (highest priority) backend_opts -> base -> theme
+    return tel.themes.get_dropdown(vim.tbl_deep_extend("force", base, backend_opts))
   end
 
-  return vim.tbl_extend("force", base, backend_opts)
+  return vim.tbl_deep_extend("force", base, backend_opts)
 end
 
 ---@param ctx checkmate.picker.AdapterContext
@@ -52,21 +53,19 @@ function M.pick(ctx)
 
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
-  })
+  local proxies, resolve = proxy.build(items)
 
   local choose = make_choose(ctx, resolve, {
     schedule = true,
   })
 
-  local theme_opts = make_theme_opts(tel, {
+  local opts = make_theme_opts(tel, {
     prompt_title = ctx.prompt or "Select an item",
     previewer = false,
   }, ctx.backend_opts)
 
   tel.pickers
-    .new({
+    .new(opts, {
       finder = tel.finders.new_table({
         results = proxies,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
@@ -74,25 +73,25 @@ function M.pick(ctx)
           local text = p.text or ""
           return {
             value = p,
-            display = text,
+            display = function(entry)
+              return entry.value.text
+            end,
             ordinal = text,
           }
         end,
       }),
-      sorter = tel.conf.generic_sorter(theme_opts) or tel.conf.generic_sorter({}),
+      sorter = tel.conf.generic_sorter(opts) or tel.conf.generic_sorter({}),
       attach_mappings = function(prompt_bufnr, map)
         tel.actions.select_default:replace(function()
-          local entry = tel.action_state.get_selected_entry()
           tel.actions.close(prompt_bufnr)
-
+          local entry = tel.action_state.get_selected_entry()
           if entry and entry.value then
             choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
           end
         end)
-
-        return true
+        return true -- keeps other default actions
       end,
-    }, theme_opts)
+    })
     :find()
 end
 
@@ -104,7 +103,6 @@ function M.pick_todo(ctx)
 
   -- Proxies carry jump/preview metadata for each todo
   local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
     decorate = function(p, item)
       ---@type checkmate.Todo|any
       local todo = item.value
@@ -113,6 +111,7 @@ function M.pick_todo(ctx)
         p.bufnr = todo.bufnr
         p.lnum = todo.row + 1
         p.col = 0
+        p.todo_marker = todo.todo_marker
       end
     end,
   })
@@ -139,10 +138,9 @@ function M.pick_todo(ctx)
     end)
   end
 
-  local previewer
-  if tel.previewers then
-    previewer = tel.previewers.new_buffer_previewer({
-      define_preview = function(self, entry, status)
+  local previewer = tel.previewers.new_buffer_previewer({
+    define_preview = function(self, entry)
+      local ok, err = pcall(function()
         if not (self and self.state and self.state.bufnr) then
           return
         end
@@ -196,22 +194,25 @@ function M.pick_todo(ctx)
             pcall(vim.cmd, "normal! zz")
           end)
         end)
-      end,
-    })
-  end
+      end)
+      if not ok then
+        require("checkmate.log").fmt_error("[picker.backend.telescope] previewer failed:\n%s", tostring(err))
+        return
+      end
+    end,
+  })
 
   local choose = make_choose(ctx, resolve, {
     schedule = true,
     after_select = after_select,
   })
 
-  local theme_opts = make_theme_opts(tel, {
+  local opts = make_theme_opts(tel, {
     prompt_title = ctx.prompt or "Todos",
-    previewer = previewer,
   }, ctx.backend_opts)
 
   tel.pickers
-    .new({
+    .new(opts, {
       finder = tel.finders.new_table({
         results = proxies,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
@@ -219,25 +220,27 @@ function M.pick_todo(ctx)
           local text = p.text or ""
           return {
             value = p,
-            display = text,
+            display = function(entry)
+              local d = vim.trim(entry.value.text)
+              return d
+            end,
             ordinal = text,
           }
         end,
       }),
-      sorter = tel.conf.generic_sorter(theme_opts) or tel.conf.generic_sorter({}),
+      previewer = previewer,
+      sorter = tel.conf.generic_sorter(opts) or tel.conf.generic_sorter({}),
       attach_mappings = function(prompt_bufnr, map)
         tel.actions.select_default:replace(function()
-          local entry = tel.action_state.get_selected_entry()
           tel.actions.close(prompt_bufnr)
-
+          local entry = tel.action_state.get_selected_entry()
           if entry and entry.value then
             choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
           end
         end)
-
-        return true
+        return true -- keeps other default actions
       end,
-    }, theme_opts)
+    })
     :find()
 end
 

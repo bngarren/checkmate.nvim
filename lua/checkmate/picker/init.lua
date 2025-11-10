@@ -2,7 +2,7 @@
 
 Picker architecture:
 0. Feature layer (e.g. metadata/picker.lua)
-  - Business logic, generates items, handles plugin related callbacks
+  - API specific logic, generates items, handles plugin related callbacks
 1. Picker orchestration (this module)
   - Normalizes `items` to checkmate.picker.Item
   - Resolves a backend with fallback to native
@@ -15,8 +15,8 @@ Picker architecture:
 Config merging (increasing) priority:
 For each backend:
   1. Checkmate's base defaults (defined in the adapter)
-  2. Top level AdapterContext fields, such as prompt, format_item
-  3. `backend_opts` - derived from merge of picker_opts.config + optional picker_opts[backend] (priority)
+  2. Top level AdapterContext fields, such as prompt
+  3. `backend_opts` - derived from merge of picker_opts.opts + optional picker_opts[backend] (priority)
 
 Flow:
 
@@ -53,7 +53,12 @@ local log = require("checkmate.log")
 
 ---@class checkmate.picker.PickOpts
 ---@field prompt? string
----@field format_item? fun(item: checkmate.picker.Item): string
+---Updates each item.text to the returned string. This occurs before passing the item to the backend picker.
+---Therefore, the picker implementation may also run a "format" function per item to get the display value
+---for the finder/selection buffer.
+---The latter should be configured via the apppropriate `picker_opts` field for that picker, if desired.
+---  e.g. `snacks.picker.format`
+---@field format_item_text? fun(item: checkmate.picker.Item): string
 ---@field kind? string Kind hint for vim.ui.select
 ---@field picker_opts? checkmate.PickerOpts
 ---@field method? checkmate.picker.Method Defaults to `pick`
@@ -65,7 +70,7 @@ local log = require("checkmate.log")
 ---@field items checkmate.picker.Item[]
 ---@field prompt? string
 ---@field kind? string
----@field format_item fun(item: checkmate.picker.Item): string
+---@field format_item_text fun(item: checkmate.picker.Item): string See `checkmate.PickOpts.format_item_text`
 ---@field backend_opts table<string, any> Backend-specific config extracted from picker_opts
 ---@field on_select_item fun(item: checkmate.picker.Item)
 
@@ -97,8 +102,8 @@ function M.pick(items, opts)
     return
   end
 
-  local norm_items = H.normalize_items(items)
-  local format_item = opts.format_item or H.default_format_item
+  local format_item_text = opts.format_item_text or H.default_format_item_text
+  local norm_items = H.normalize_items(items, { formatter = format_item_text })
 
   -- full override
   if type(opts.picker_fn) == "function" then
@@ -118,9 +123,9 @@ function M.pick(items, opts)
   end
 
   -- resolve backend
-  -- - 1. from direct opt.backend.picker argument for this function
-  -- - 2. from global config.ui.picker
-  -- - 3. auto choose a backend based on what is installed, with fallback to vim.ui.select (native)
+  -- - 1. from direct picker_opts.picker argument (per-call override)
+  -- - 2. from config.ui.picker (global default)
+  -- - 3. auto choose a backend based on installed plugins, with fallback to vim.ui.select (native)
   --
   -- remember: "native" vim.ui.select can still be overriden/registered by an installed picker plugin
   -- depending on the user's neovim config
@@ -142,7 +147,7 @@ function M.pick(items, opts)
     items = norm_items,
     prompt = opts.prompt,
     kind = opts.kind,
-    format_item = format_item,
+    format_item_text = format_item_text,
     backend_opts = backend_opts,
     on_select_item = function(choice_item)
       if choice_item and type(opts.on_select) == "function" then
@@ -227,6 +232,10 @@ function H.validate_pick_opts(opts)
     return true
   end
 
+  if opts.format_item_text and not vim.is_callable(opts.format_item_text) then
+    return false, "`format_item_text` must be callable"
+  end
+
   local must_be_one_of = string.format(
     "must be one of: %s",
     table.concat(
@@ -258,29 +267,61 @@ function H.validate_pick_opts(opts)
 end
 
 ---@param items checkmate.picker.Items
+---@param opts? { formatter?: fun(item: checkmate.picker.Item): string }
 ---@return checkmate.picker.Item[]
-function H.normalize_items(items)
+function H.normalize_items(items, opts)
   if type(items) ~= "table" then
     return {}
   end
+
+  opts = opts or {}
+  local formatter = opts.formatter
   local out = {}
+
   for i = 1, #items do
     local it = items[i]
-    if type(it) == "string" then
-      out[#out + 1] = { text = it, value = it }
-    elseif type(it) == "table" then
+    local item_type = type(it)
+    local item
+
+    if item_type == "string" then
+      item = { text = it, value = it }
+    elseif item_type == "table" then
       local text = it.text or it[1]
-      local value = (it.value ~= nil) and it.value or it[2] or text
-      out[#out + 1] = { text = tostring(text or ""), value = value }
+      local value = it.value or it[2]
+
+      if value == nil then
+        value = tostring(text or "")
+      end
+
+      item = {
+        text = tostring(text or ""),
+        value = value,
+      }
+
+      for k, v in pairs(it) do
+        if item[k] == nil then
+          item[k] = v
+        end
+      end
     else
-      out[#out + 1] = { text = tostring(it), value = it }
+      item = { text = tostring(it), value = it }
     end
+
+    if formatter then
+      local ok, formatted = pcall(formatter, item)
+      if ok and formatted ~= nil then
+        item.text = tostring(formatted)
+      end
+    end
+
+    out[#out + 1] = item
   end
+
   return out
 end
 
 ---@param item checkmate.picker.Item
-function H.default_format_item(item)
+function H.default_format_item_text(item)
   return item.text or ""
 end
 

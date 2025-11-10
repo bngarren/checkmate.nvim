@@ -57,7 +57,7 @@ function M.open_picker(context, apply_value_with_transaction, picker_opts)
       require("checkmate.picker").pick(items, {
         prompt = "Select value for @" .. context.name,
         kind = "checkmate_metadata_value",
-        format_item = function(item)
+        format_item_text = function(item)
           if item.text == context.value then
             return item.text .. " (current)"
           end

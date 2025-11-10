@@ -30,9 +30,7 @@ function M.pick(ctx)
 
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
-  })
+  local proxies, resolve = proxy.build(items)
 
   local choose = make_choose(ctx, resolve, {
     schedule = true,
@@ -63,7 +61,6 @@ function M.pick_todo(ctx)
   -- see MiniPick-source.items-stritems: it will use the `text` field of the proxy to serve as the string representation
   -- for matching, i.e. the `stritem`
   local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
     decorate = function(p, item)
       local todo = item.value
       if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then

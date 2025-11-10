@@ -77,28 +77,25 @@ end
 --   Some picker implementations may try to inspect/deepcopy the raw items and can choke.
 -- - Instead, we call `proxy.build(items, opts)` to:
 --     - create a thin picker-specific representation:
---         { idx = <original index>, text = <display>, ... }
+--         { __cm_idx = <original index>, text = <display>, ... }
 --     - get a `resolve(proxy)` function to map back to the original checkmate.picker.Item
 --
 -- Backends:
---   1. Call build(ctx.items, { format_item = ..., decorate = ... })
+--   1. Call build(ctx.items, { format_item_text = ..., decorate = ... })
 --   2. Pass `proxies` to the picker
 --   3. In picker callbacks: `local orig = resolve(chosen) or chosen`
 
 local Proxy = {}
 
 ---@class checkmate.picker.ProxyBuildOpts
----@field format_item? fun(item: checkmate.picker.Item): string
 --- Optional hook for backend-specific fields
 --- Must remain lightweight & picker-safe
 ---@field decorate? fun(proxy: table, item: checkmate.picker.Item, idx: integer)
 
----Build lightweight proxy items and a resolver for mapping back
----
 ---Proxies are:
----  - plain tables (no metatable)
+---  - plain tables
 ---  - shape: `{ __cm_idx = integer, text = string, ... }`
----  - safe to hand to vim.ui.select, mini.pick, snacks, etc.
+---  - safe to hand to vim.ui.select, mini.pick, snacks.picker, etc.
 ---
 ---@param items checkmate.picker.Item[]
 ---@param opts? checkmate.picker.ProxyBuildOpts
@@ -107,7 +104,6 @@ local Proxy = {}
 function Proxy.build(items, opts)
   opts = opts or {}
 
-  local format_item = opts.format_item
   local decorate = opts.decorate
 
   local proxies = {}
@@ -121,12 +117,7 @@ function Proxy.build(items, opts)
       items[i] = item
     end
 
-    local text
-    if type(format_item) == "function" then
-      text = format_item(item)
-    else
-      text = item.text or tostring(item.text or item.value or "")
-    end
+    local text = item.text or tostring(item.text or item.value or "")
 
     local proxy = {
       __cm_idx = i,
@@ -145,14 +136,20 @@ function Proxy.build(items, opts)
   ---@param proxy any
   ---@return checkmate.picker.Item|nil
   local function resolve(proxy)
-    if type(proxy) ~= "table" then
+    if not proxy or type(proxy) ~= "table" then
       return nil
     end
     local idx = proxy.__cm_idx
-    if type(idx) == "number" then
-      return items[idx]
+    if type(idx) ~= "number" then
+      return nil
     end
-    return nil
+
+    if idx < 1 or idx > #items then
+      require("checkmate.log").fmt_warn("[picker.util] proxy index %d out of bounds (items: %d)", idx, #items)
+      return nil
+    end
+
+    return items[idx]
   end
 
   return proxies, resolve

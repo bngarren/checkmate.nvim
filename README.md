@@ -685,7 +685,7 @@ require("checkmate").select_metadata_value({
   picker_opts = {
     picker = "snacks",  -- force snacks for this call
     snacks = {
-      layout = "dropdown"
+      layout = { preset = "dropdown" }
     }
   }
 })

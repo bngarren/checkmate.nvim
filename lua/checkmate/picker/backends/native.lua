@@ -11,11 +11,11 @@ local make_choose = picker_util.make_choose
 function M.pick(ctx)
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
-  })
+  local proxies, resolve = proxy.build(items)
 
-  local choose = make_choose(ctx, resolve)
+  local choose = make_choose(ctx, resolve, {
+    schedule = true,
+  })
 
   ---vim.ui.select cb has signature:
   ---`on_choice fun(item: T|nil, idx: integer|nil)`
@@ -38,9 +38,7 @@ end
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick_todo(ctx)
   local items = ctx.items or {}
-  local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
-  })
+  local proxies, resolve = proxy.build(items)
 
   ---@type checkmate.picker.after_select
   local function after_select(orig)
@@ -65,7 +63,7 @@ function M.pick_todo(ctx)
         return p.text or ""
       end,
     }, ctx.backend_opts),
-    make_choose(ctx, resolve, { after_select = after_select })
+    make_choose(ctx, resolve, { schedule = true, after_select = after_select })
   )
 end
 

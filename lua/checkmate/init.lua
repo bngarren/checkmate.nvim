@@ -1376,7 +1376,7 @@ end
 
 function M.pick()
   local picker = require("checkmate.picker")
-  picker.pick({ "a", "b", "c" }, { picker_opts = { picker = "fzf-lua", snacks = { layout = { preset = "sidebar" } } } })
+  picker.pick({ "a", "b", "c" }, { picker_opts = { snacks = { layout = { preset = "sidebar" } } } })
 end
 
 function M.pick_todo()
@@ -1387,7 +1387,7 @@ function M.pick_todo()
   for _, item in pairs(todo_map) do
     todos[#todos + 1] = util.build_todo(item)
   end
-  picker.pick(picker.map_items(todos, "text"), { method = "pick_todo", picker_opts = { prompt = "Todos" } })
+  picker.pick(picker.map_items(todos, "text"), { method = "pick_todo" })
 end
 
 ----------------------------------------------------------------------

@@ -18,9 +18,7 @@ function M.pick(ctx)
   end
 
   local items = ctx.items or {}
-  local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
-  })
+  local proxies, resolve = proxy.build(items)
 
   local choose = make_choose(ctx, resolve, {
     schedule = true,
@@ -59,7 +57,6 @@ function M.pick_todo(ctx)
   local items = ctx.items or {}
 
   local proxies, resolve = proxy.build(items, {
-    format_item = ctx.format_item,
     decorate = function(p, item)
       ---@type checkmate.Todo
       local todo = item.value
@@ -67,6 +64,7 @@ function M.pick_todo(ctx)
         -- Snacks preview and jump expect buf/pos fields
         p.buf = todo.bufnr
         p.pos = { todo.row + 1, 0 }
+        p.todo_marker = todo.todo_marker
       end
     end,
   })
@@ -91,7 +89,12 @@ function M.pick_todo(ctx)
   local base = {
     title = (ctx.prompt or "Todos"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
     layout = "dropdown",
-    format = "text",
+    format = function(item)
+      local ret = {} ---@type snacks.picker.Highlight
+      local display = vim.trim(item.text)
+      ret[#ret + 1] = { display }
+      return ret
+    end,
     finder = function()
       return proxies -- {__cm_idx, text, ...}
     end,

@@ -389,27 +389,6 @@ function M.get_sorted_todo_list(todo_map)
   return todo_list
 end
 
---- Returns a shallow copy of the source table with the field(s) removed
----@param source_tbl table
----@param remove string|table
-function M.remove_fields(source_tbl, remove)
-  if type(source_tbl) ~= "table" then
-    return source_tbl
-  end
-  local copy_tbl = {}
-  for k, v in pairs(source_tbl) do
-    copy_tbl[k] = v
-  end
-  if type(remove) == string then
-    remove = { remove }
-    ---@cast remove table
-  end
-  for _, r in ipairs(remove) do
-    copy_tbl[r] = nil
-  end
-  return copy_tbl
-end
-
 --- Converts TreeSitter's technical range to a semantically meaningful range for todo items
 ---
 --- TreeSitter ranges have two quirks to address:

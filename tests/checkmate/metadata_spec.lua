@@ -48,7 +48,7 @@ describe("Metadata", function()
 
       local todo = context.todo
       assert.is_table(todo)
-      assert.are_equal(todo._todo_item, todo_item)
+      assert.are_equal(todo._get_todo_item(), todo_item)
       assert.are_equal(todo.state, "unchecked")
       assert.are_equal(todo.text, content)
       assert.are_same(todo.metadata, { { "priority", "high" }, { "started", "today" } })

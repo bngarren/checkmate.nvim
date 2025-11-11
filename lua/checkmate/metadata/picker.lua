@@ -70,7 +70,7 @@ function M.open_picker(context, apply_value_with_transaction)
 
   -- this is step 1: request choices from the metadata module, i.e. resolve the `choices` table or function
   local success, result = pcall(function()
-    return meta_module.get_choices(context.name, receive_choices, context.todo._todo_item, bufnr)
+    return meta_module.get_choices(context.name, receive_choices, context.todo._get_todo_item(), bufnr)
   end)
 
   if not success then

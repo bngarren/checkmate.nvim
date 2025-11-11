@@ -86,10 +86,6 @@ describe("Metadata", function()
       local u1, u2 = todo.get_metadata("unknown")
       assert.is_nil(u1)
       assert.is_nil(u2)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should evaluate style fn", function()
@@ -166,7 +162,6 @@ describe("Metadata", function()
 
     describe("evaluate choices fn", function()
       local meta_module = require("checkmate.metadata")
-      local config = require("checkmate.config")
 
       local bufnr, todo_item, context
 
@@ -179,10 +174,6 @@ describe("Metadata", function()
         assert.is_not_nil(todo_item)
         ---@cast todo_item checkmate.TodoItem
         context = meta_module.create_context(todo_item, "priority", "high", bufnr)
-      end)
-
-      after_each(function()
-        h.cleanup_buffer(bufnr)
       end)
 
       it("should handle static table", function()

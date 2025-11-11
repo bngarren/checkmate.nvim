@@ -82,6 +82,7 @@ return {
     },
   },
   default_list_marker = "-",
+  ui = {},
   todo_states = {
     -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
     ---@diagnostic disable-next-line: missing-fields

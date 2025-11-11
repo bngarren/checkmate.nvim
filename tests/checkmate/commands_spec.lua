@@ -1,10 +1,12 @@
 describe("Commands", function()
-  local h, checkmate
-  local bufnr, temp_file
+  ---@module "checkmate"
+  local checkmate
+
+  ---@module "tests.checkmate.helpers"
+  local h
 
   lazy_setup(function()
     stub(vim.api, "nvim_echo")
-    vim.wait(10)
   end)
 
   lazy_teardown(function()
@@ -15,15 +17,13 @@ describe("Commands", function()
   before_each(function()
     _G.reset_state()
 
-    h = require("tests.checkmate.helpers")
     checkmate = require("checkmate")
+    h = require("tests.checkmate.helpers")
+
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup()
-    bufnr = h.setup_test_buffer("")
-  end)
 
-  after_each(function()
-    h.cleanup_buffer(bufnr)
+    h.setup_test_buffer("")
   end)
 
   it("toggle calls toggle()", function()

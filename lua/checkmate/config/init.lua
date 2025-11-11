@@ -224,11 +224,16 @@ M.options = {}
 
 ---@class checkmate.UISettings
 ---
----@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
----
+---Sets the default picker
 ---Default behavior: attempt to use an installed plugin, if found
----If false, will default to vim.ui.select
----If a function is passed, will use this picker implementation
+---  - see `checkmate.Picker` values
+---If nil or "native", will use vim.ui.select
+---
+---Note, some Checkmate API functions provide additional levels of picker configuration that
+---may override or bypass this option:
+---  - `picker_opts`: used to set picker and opts for that call. See `checkmate.PickerOpts`
+---  - `custom_picker`: a function that receives Checkmate data and a `complete(value)` callback that can be used
+---  to run an arbitrary picker and run the Checkmate behavior on complete()
 ---@field picker? checkmate.Picker
 
 -----------------------------------------------------
@@ -459,6 +464,11 @@ function M.get_deprecations(user_opts)
   end
 
   -- [add deprecations here]
+  -- NOTE: deprecated v0.12
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    add("ui.picker 'false' is deprecated since v0.12. Use 'native' to use vim.ui.select as the default picker.")
+  end
 
   return res
 end
@@ -468,6 +478,16 @@ end
 ---@param user_opts? checkmate.Config
 local function merge_deprecated_opts(current_opts, user_opts)
   user_opts = user_opts or {}
+
+  -----------------------
+  ---@deprecated ui.picker "false" opt deprecated v0.12
+
+  -- convert false to "native"
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    current_opts.ui = vim.tbl_extend("force", current_opts.ui or {}, { picker = "native" })
+  end
+  -----------------------
 
   --[[ Kept as an example (commented out in v0.12)
   -----------------------

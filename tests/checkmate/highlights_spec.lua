@@ -57,10 +57,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got)
       assert.same(expected, got)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should correctly highlight within-todo list markers", function()
@@ -123,10 +119,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got_ordered)
       assert.same(expected, got_ordered)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should correctly highlight the todo marker", function()
@@ -191,10 +183,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got_checked)
       assert.same(expected, got_checked)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -313,7 +301,7 @@ describe("Highlights", function()
       assert.same(expected_additional, got_additional)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
   end)
@@ -520,7 +508,6 @@ describe("Highlights", function()
         stub_apply_highlighting:revert()
         stub_clear_hl_ns:revert()
         stub_clear_hl_ns_range:revert()
-        h.cleanup_buffer(bufnr)
       end)
     end)
   end)

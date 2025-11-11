@@ -200,10 +200,6 @@ describe("checkmate init and lifecycle", function()
       assert.equal(0, checkmate.count_active_buffers())
 
       vim.api.nvim_buf_delete(bufnr, { force = true })
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle a disable then enable cycle", function()
@@ -262,10 +258,6 @@ describe("checkmate init and lifecycle", function()
       buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
       ok = h.verify_content_lines(buf_string, expected_lines)
       assert.is_true(ok)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -285,10 +277,6 @@ describe("checkmate init and lifecycle", function()
       assert.is_true(bl:get("setup_complete"))
 
       checkmate.stop()
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should not activate for non-matching files", function()

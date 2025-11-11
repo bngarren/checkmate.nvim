@@ -1372,24 +1372,6 @@ function M.archive(opts)
   return true
 end
 
--- NOTE: remove
-
-function M.pick()
-  local picker = require("checkmate.picker")
-  picker.pick({ "a", "b", "c" }, { picker_opts = { snacks = { layout = { preset = "sidebar" } } } })
-end
-
-function M.pick_todo()
-  local util = require("checkmate.util")
-  local picker = require("checkmate.picker")
-  local todo_map = require("checkmate.parser").get_todo_map(vim.api.nvim_get_current_buf())
-  local todos = {}
-  for _, item in pairs(todo_map) do
-    todos[#todos + 1] = util.build_todo(item)
-  end
-  picker.pick(picker.map_items(todos, "text"), { method = "pick_todo" })
-end
-
 ----------------------------------------------------------------------
 
 ---@param opts checkmate.Config?

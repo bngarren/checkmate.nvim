@@ -77,7 +77,7 @@ describe("Picker", function()
 
     local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
       select_received_items = items
-      on_choice(items[1])
+      on_choice(items[1], 1)
     end)
 
     local got
@@ -117,7 +117,7 @@ describe("Picker", function()
 
     local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
       select_received_items = items
-      on_choice(items[1])
+      on_choice(items[1], 1)
     end)
 
     picker.pick({ "a", "b", "c" })
@@ -255,7 +255,7 @@ describe("Picker", function()
     local select_called = false
     local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
       select_called = true
-      on_choice(items[1])
+      on_choice(items[1], 1)
     end)
 
     local selected
@@ -321,7 +321,7 @@ describe("Picker", function()
     local select_received_items
     local ui_select_stub = stub(vim.ui, "select", function(items, _, on_choice)
       select_received_items = items
-      on_choice(items[1])
+      on_choice(items[1], 1)
     end)
 
     local got
@@ -370,7 +370,7 @@ describe("Picker", function()
       end,
     })
 
-    assert.is_true(select_called)
+    assert.is_false(select_called)
     -- on_select should not be called
     assert.is_false(on_select_called)
 

@@ -17,7 +17,6 @@ For each backend:
   1. Checkmate's base defaults (defined in the adapter)
   2. Top level AdapterContext fields, such as prompt
   3. `backend_opts` - derived from merge of picker_opts.opts + optional picker_opts[backend] (priority)
-
 ]]
 
 local M = {}

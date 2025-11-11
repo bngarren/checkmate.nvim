@@ -6,21 +6,33 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local proxy = picker_util.proxy
 local make_choose = picker_util.make_choose
+
+local function load_snacks()
+  local ok, snacks = pcall(require, "snacks")
+  if not ok then
+    -- picker.init fallback path will handle this
+    error("snacks.nvim not available")
+  end
+  return snacks
+end
 
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick(ctx)
-  local ok, Snacks = pcall(require, "snacks")
-  if not ok then
-    -- core fallback path will handle this (adapter is wrapped with pcall & fallback)
-    error("snacks.nvim not available")
-  end
+  local snacks = load_snacks()
 
   local items = ctx.items or {}
-  local proxies, resolve = proxy.build(items)
 
-  local choose = make_choose(ctx, resolve, {
+  local entry_maker = function(i)
+    return {
+      __cm_item = i,
+      --
+      -- used by snacks
+      text = i.text or "",
+    }
+  end
+
+  local choose = make_choose(ctx, {
     schedule = true,
   })
 
@@ -29,87 +41,70 @@ function M.pick(ctx)
     title = (ctx.prompt or "Select"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
     layout = "select",
     format = "text",
-    finder = function()
-      -- Snacks finder expects a list of items
-      -- Each proxy is: { idx = number, text = string, ... }
-      return proxies
-    end,
+    items = vim.tbl_map(entry_maker, items),
     actions = {
-      confirm = function(picker, it, action)
-        choose(it, { action = action })
+      confirm = function(picker, it)
         picker:close()
+        choose(it)
       end,
     },
   }
 
   ---@type snacks.picker.Config
-  local opts = Snacks.config.merge({}, base, ctx.backend_opts or {}) -- deep merge
+  local opts = snacks.config.merge({}, base, ctx.backend_opts or {}) -- deep merge
 
-  return Snacks.picker.pick(opts)
+  return snacks.picker.pick(opts)
 end
 
 function M.pick_todo(ctx)
-  local ok, Snacks = pcall(require, "snacks")
-  if not ok then
-    error("snacks.nvim not available")
-  end
+  local snacks = load_snacks()
 
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items, {
-    decorate = function(p, item)
-      ---@type checkmate.Todo
-      local todo = item.value
-      if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
-        -- Snacks preview and jump expect buf/pos fields
-        p.buf = todo.bufnr
-        p.pos = { todo.row + 1, 0 }
-        p.todo_marker = todo.todo_marker
-      end
-    end,
-  })
-
-  ---@type checkmate.picker.after_select
-  local function after_select(_, item, extra)
-    -- must match how we decorated the proxy item
-    local bufnr = item.buf
-    local pos = item.pos
-
-    if bufnr and pos then
-      require("snacks.picker.actions").jump(extra.picker, extra.item, extra.action)
+  local entry_maker = function(i)
+    local e = {
+      __cm_item = i,
+      --
+      -- used by snacks
+      text = i.text,
+    }
+    ---@type checkmate.Todo
+    local todo = i.value
+    if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
+      -- Snacks preview and jump expect buf/pos fields
+      e.buf = todo.bufnr
+      e.pos = { todo.row + 1, 0 }
     end
+    return e
   end
 
-  local choose = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, {
     schedule = true,
-    after_select = after_select,
   })
 
   ---@type snacks.picker.Config
   local base = {
     title = (ctx.prompt or "Todos"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
     layout = "dropdown",
-    format = function(item)
+    format = function(entry)
       local ret = {} ---@type snacks.picker.Highlight
-      local display = vim.trim(item.text)
+      local display = vim.trim(entry.text)
       ret[#ret + 1] = { display }
       return ret
     end,
-    finder = function()
-      return proxies -- {__cm_idx, text, ...}
-    end,
+    items = vim.tbl_map(entry_maker, items),
     actions = {
       confirm = function(picker, item, action)
-        -- item = proxy item fields + snack's finder.Item fields {idx, score, ...}
-        choose(item, { picker = picker, item = item, action = action })
         picker:close()
+        choose(item)
+        snacks.picker.actions.jump(picker, item, action)
       end,
     },
   }
 
-  local opts = Snacks.config.merge({}, base, ctx.backend_opts or {})
+  local opts = snacks.config.merge({}, base, ctx.backend_opts or {})
 
-  return Snacks.picker.pick(opts)
+  return snacks.picker.pick(opts)
 end
 
 return M

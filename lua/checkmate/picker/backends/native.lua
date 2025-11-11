@@ -4,66 +4,112 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local proxy = picker_util.proxy
 local make_choose = picker_util.make_choose
+local api = vim.api
 
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick(ctx)
   local items = ctx.items or {}
+  if #items == 0 then
+    return
+  end
 
-  local proxies, resolve = proxy.build(items)
+  local labels = vim.tbl_map(function(item)
+    return item.text or ""
+  end, items)
 
-  local choose = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, {
     schedule = true,
   })
 
-  ---vim.ui.select cb has signature:
-  ---`on_choice fun(item: T|nil, idx: integer|nil)`
   vim.ui.select(
-    proxies,
+    labels,
     vim.tbl_deep_extend("force", {
       prompt = ctx.prompt or "Select",
       kind = ctx.kind,
-      format_item = function(p)
-        return p.text or ""
+      format_item = function(label)
+        return label
       end,
-    }, ctx.backend_opts),
-    choose
+    }, ctx.backend_opts or {}),
+    function(_, idx)
+      if not idx then
+        return
+      end
+
+      local item = items[idx]
+      if not item then
+        return
+      end
+
+      -- pass the Item directly...`make_choose` will treat it as the resolved item
+      choose(item)
+    end
   )
 end
 
----**Callbacks**:
---- - will call ctx.on_select_item(Todo) (user callback) then
---- perform a basic jump
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick_todo(ctx)
   local items = ctx.items or {}
-  local proxies, resolve = proxy.build(items)
-
-  ---@type checkmate.picker.after_select
-  local function after_select(orig)
-    local todo = orig and orig.value
-    if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
-      if vim.api.nvim_buf_is_valid(todo.bufnr) then
-        if not vim.api.nvim_buf_is_loaded(todo.bufnr) then
-          pcall(vim.fn.bufload, todo.bufnr)
-        end
-        pcall(vim.api.nvim_set_current_buf, todo.bufnr)
-        pcall(vim.api.nvim_win_set_cursor, 0, { todo.row + 1, 0 })
-      end
-    end
+  if #items == 0 then
+    return
   end
 
+  local labels = vim.tbl_map(function(item)
+    return item.text or ""
+  end, items)
+
+  --- Jump to the todo's buffer/row after user callback
+  local function after_select(item)
+    local todo = item.value
+    if type(todo) ~= "table" then
+      return
+    end
+
+    local bufnr = todo.bufnr
+    local row = todo.row
+
+    if not (bufnr and type(row) == "number") then
+      return
+    end
+
+    if not api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
+    if not api.nvim_buf_is_loaded(bufnr) then
+      pcall(vim.fn.bufload, bufnr)
+    end
+
+    pcall(api.nvim_set_current_buf, bufnr)
+    pcall(api.nvim_win_set_cursor, 0, { row + 1, 0 })
+  end
+
+  local choose = make_choose(ctx, {
+    schedule = true,
+    after_select = after_select,
+  })
+
   vim.ui.select(
-    proxies,
+    labels,
     vim.tbl_deep_extend("force", {
       prompt = ctx.prompt or "Todos",
       kind = ctx.kind,
-      format_item = function(p)
-        return p.text or ""
+      format_item = function(label)
+        return label
       end,
-    }, ctx.backend_opts),
-    make_choose(ctx, resolve, { schedule = true, after_select = after_select })
+    }, ctx.backend_opts or {}),
+    function(_, idx)
+      if not idx then
+        return
+      end
+
+      local item = items[idx]
+      if not item then
+        return
+      end
+
+      choose(item)
+    end
   )
 end
 

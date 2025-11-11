@@ -9,8 +9,8 @@ Picker architecture:
   - Dispatches the correct adapter_method -> adapter
 2. Backend adapters (pickers/backends/*)
   - Plugin-specific implementations
-  - interface via checkmate.picker.Adapter and AdapterContext
-
+  - Interface via checkmate.picker.Adapter and AdapterContext
+    - receive `checkmate.picker.Item[]`, make picker-specific entries
 
 Config merging (increasing) priority:
 For each backend:
@@ -18,26 +18,6 @@ For each backend:
   2. Top level AdapterContext fields, such as prompt
   3. `backend_opts` - derived from merge of picker_opts.opts + optional picker_opts[backend] (priority)
 
-Flow:
-
-    User Items (strings or tables)
-        │
-        ↓ H.normalize_items()
-    Normalized Items: {text, value}[]
-        │
-        ↓ proxy.build()
-    Proxy Items: {__cm_idx, text, ...}[]
-        │
-        ├─> Backend Adapter (displays proxies)
-        │
-        ↓ User selects
-    Selected Proxy
-        │
-        ↓ resolve(proxy)
-    Original Item
-        │
-        ↓ on_select_item(item)
-    User Callback
 ]]
 
 local M = {}
@@ -47,24 +27,22 @@ local log = require("checkmate.log")
 
 ---@class checkmate.picker.Item
 ---@field text string Display text
----@field value any Payload
-
----@alias checkmate.picker.Items (string|checkmate.picker.Item)[]
+---@field value any Payload (used as the value for callbacks)
 
 ---@class checkmate.picker.PickOpts
 ---@field prompt? string
----Updates each item.text to the returned string. This occurs before passing the item to the backend picker.
----Therefore, the picker implementation may also run a "format" function per item to get the display value
+---Updates each item.text to the returned string, before being passed to the item to the backend picker.
+---Note, the picker implementation may also run a "format" function per item to get the display value
 ---for the finder/selection buffer.
 ---The latter should be configured via the apppropriate `picker_opts` field for that picker, if desired.
 ---  e.g. `snacks.picker.format`
 ---@field format_item_text? fun(item: checkmate.picker.Item): string
----@field kind? string Kind hint for vim.ui.select
+---@field kind? string hint for vim.ui.select
 ---@field picker_opts? checkmate.PickerOpts
 ---@field method? checkmate.picker.Method Defaults to `pick`
 ---@field on_select? fun(value: any, item: checkmate.picker.Item)
----picker_fn is a full override. Call complete(item) on select, complete(nil) on cancel
----@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, complete: fun(choice_item: any))
+---picker_fn is a full override. Call complete(item) on select. `item` must be a `checkmate.picker.Item`
+---@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, complete: fun(choice_item: checkmate.picker.Item))
 
 ---@class checkmate.picker.AdapterContext
 ---@field items checkmate.picker.Item[]
@@ -88,7 +66,7 @@ M.METHODS = {
 ---@field [fun(ctx: checkmate.picker.AdapterContext)] checkmate.picker.Method
 
 --- If `opts.picker_fn` is provided, it *fully overrides* the backend call
----@param items checkmate.picker.Items
+---@param items (string|checkmate.picker.Item)[]
 ---@param opts? checkmate.picker.PickOpts
 function M.pick(items, opts)
   local config = require("checkmate.config")
@@ -123,8 +101,8 @@ function M.pick(items, opts)
   end
 
   -- resolve backend
-  -- - 1. from direct picker_opts.picker argument (per-call override)
-  -- - 2. from config.ui.picker (global default)
+  -- - 1. per-call picker_opts.picker
+  -- - 2. config.ui.picker (global default)
   -- - 3. auto choose a backend based on installed plugins, with fallback to vim.ui.select (native)
   --
   -- remember: "native" vim.ui.select can still be overriden/registered by an installed picker plugin
@@ -142,6 +120,16 @@ function M.pick(items, opts)
   -- the backend specific table resolved from picker_opts
   local backend_opts = vim.tbl_extend("force", picker_opts.opts or {}, picker_opts[backend] or {}) or {}
 
+  ---@param item checkmate.picker.Item
+  local function handle_on_select(item)
+    if item and type(opts.on_select) == "function" then
+      local ok_cb, err_cb = pcall(opts.on_select, item.value, item)
+      if not ok_cb then
+        H.notify_err("picker on_select failed: " .. tostring(err_cb))
+      end
+    end
+  end
+
   ---@type checkmate.picker.AdapterContext
   local ctx = {
     items = norm_items,
@@ -149,16 +137,12 @@ function M.pick(items, opts)
     kind = opts.kind,
     format_item_text = format_item_text,
     backend_opts = backend_opts,
-    on_select_item = function(choice_item)
-      if choice_item and type(opts.on_select) == "function" then
-        pcall(opts.on_select, choice_item.value, choice_item)
-      end
-    end,
+    on_select_item = handle_on_select,
   }
 
   -- resolve the adapter method
   ---@type checkmate.picker.Method
-  local method_name = opts.method or "pick"
+  local method_name = opts.method or M.METHODS.PICK
   local method = adapter[method_name]
 
   local function try_adapter_method(adapter_name, try_method, try_method_name)
@@ -206,9 +190,11 @@ function M.pick(items, opts)
   end
 end
 
--- for a list of items, converts each to a {text, value}
--- `text_key` determines which field to use for `text` (required)
--- `value_key` determines which field to use for `value` (optional, default is entire item)
+-- Map arbitrary tables to {text, value} items
+---@param items table[]
+---@param text_key string determines which field to use for `text` (required)
+---@param value_key? string determines which field to use for `value` (optional, default is entire item)
+---@return checkmate.picker.Item[]
 function M.map_items(items, text_key, value_key)
   if type(items) ~= "table" then
     return items
@@ -266,7 +252,7 @@ function H.validate_pick_opts(opts)
   return true
 end
 
----@param items checkmate.picker.Items
+---@param items (string|checkmate.picker.Item)[]
 ---@param opts? { formatter?: fun(item: checkmate.picker.Item): string }
 ---@return checkmate.picker.Item[]
 function H.normalize_items(items, opts)
@@ -298,11 +284,12 @@ function H.normalize_items(items, opts)
         value = value,
       }
 
-      for k, v in pairs(it) do
-        if item[k] == nil then
-          item[k] = v
-        end
-      end
+      -- preserves extra fields?
+      -- for k, v in pairs(it) do
+      --   if item[k] == nil then
+      --     item[k] = v
+      --   end
+      -- end
     else
       item = { text = tostring(it), value = it }
     end

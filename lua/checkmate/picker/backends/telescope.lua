@@ -6,7 +6,6 @@ local M = {}
 
 local api = vim.api
 local picker_util = require("checkmate.picker.util")
-local proxy = picker_util.proxy
 local make_choose = picker_util.make_choose
 
 local ns = api.nvim_create_namespace("checkmate_picker_telescope_todo")
@@ -53,9 +52,20 @@ function M.pick(ctx)
 
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items)
+  local entry_maker = function(i)
+    local text = i.text or ""
+    return {
+      __cm_item = i, -- orig checkmate.picker.Item
+      --
+      -- require by telescope
+      display = function(entry)
+        return vim.trim(entry.value.text)
+      end,
+      ordinal = text,
+    }
+  end
 
-  local choose = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, {
     schedule = true,
   })
 
@@ -67,26 +77,17 @@ function M.pick(ctx)
   tel.pickers
     .new(opts, {
       finder = tel.finders.new_table({
-        results = proxies,
+        results = items,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
-        entry_maker = function(p)
-          local text = p.text or ""
-          return {
-            value = p,
-            display = function(entry)
-              return entry.value.text
-            end,
-            ordinal = text,
-          }
-        end,
+        entry_maker = entry_maker,
       }),
-      sorter = tel.conf.generic_sorter(opts) or tel.conf.generic_sorter({}),
-      attach_mappings = function(prompt_bufnr, map)
+      sorter = tel.conf.generic_sorter(opts),
+      attach_mappings = function(prompt_bufnr)
         tel.actions.select_default:replace(function()
           tel.actions.close(prompt_bufnr)
           local entry = tel.action_state.get_selected_entry()
-          if entry and entry.value then
-            choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
+          if entry then
+            choose(entry)
           end
         end)
         return true -- keeps other default actions
@@ -101,26 +102,35 @@ function M.pick_todo(ctx)
 
   local items = ctx.items or {}
 
-  -- Proxies carry jump/preview metadata for each todo
-  local proxies, resolve = proxy.build(items, {
-    decorate = function(p, item)
-      ---@type checkmate.Todo|any
-      local todo = item.value
-      if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
-        -- we need these to be available to telescope's entry maker
-        p.bufnr = todo.bufnr
-        p.lnum = todo.row + 1
-        p.col = 0
-        p.todo_marker = todo.todo_marker
-      end
-    end,
-  })
+  local entry_maker = function(i)
+    ---@type checkmate.Todo|any
+    local todo = i.value
+
+    local e = {
+      __cm_item = i,
+      --
+      -- required by telescope
+      value = i,
+      display = function(entry)
+        return vim.trim(entry.value.text)
+      end,
+      ordinal = i.text,
+    }
+
+    if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
+      e.bufnr = todo.bufnr
+      e.lnum = todo.row + 1
+      e.col = 0
+    end
+
+    return e
+  end
 
   ---@type checkmate.picker.after_select
-  local function after_select(_, proxy_item)
-    local bufnr = proxy_item and proxy_item.bufnr
-    local lnum = proxy_item and proxy_item.lnum
-    local col = (proxy_item and proxy_item.col) or 0
+  local function after_select(_, entry)
+    local bufnr = entry and entry.bufnr
+    local lnum = entry and entry.lnum
+    local col = (entry and entry.col) or 0
 
     if not (bufnr and lnum) then
       return
@@ -138,6 +148,11 @@ function M.pick_todo(ctx)
     end)
   end
 
+  local choose = make_choose(ctx, {
+    schedule = true,
+    after_select = after_select,
+  })
+
   local previewer = tel.previewers.new_buffer_previewer({
     define_preview = function(self, entry)
       local ok, err = pcall(function()
@@ -145,10 +160,9 @@ function M.pick_todo(ctx)
           return
         end
 
-        local p = entry and entry.value
-        local src_bufnr = p and p.bufnr
-        local lnum = (p and p.lnum) or 1
-        local col = (p and p.col) or 0
+        local src_bufnr = entry.bufnr
+        local lnum = entry.lnum or 1
+        local col = entry.col or 0
 
         if not (src_bufnr and api.nvim_buf_is_valid(src_bufnr)) then
           return
@@ -202,11 +216,6 @@ function M.pick_todo(ctx)
     end,
   })
 
-  local choose = make_choose(ctx, resolve, {
-    schedule = true,
-    after_select = after_select,
-  })
-
   local opts = make_theme_opts(tel, {
     prompt_title = ctx.prompt or "Todos",
   }, ctx.backend_opts)
@@ -214,28 +223,18 @@ function M.pick_todo(ctx)
   tel.pickers
     .new(opts, {
       finder = tel.finders.new_table({
-        results = proxies,
+        results = items,
         -- see https://github.com/nvim-telescope/telescope.nvim/blob/master/lua/telescope/make_entry.lua
-        entry_maker = function(p)
-          local text = p.text or ""
-          return {
-            value = p,
-            display = function(entry)
-              local d = vim.trim(entry.value.text)
-              return d
-            end,
-            ordinal = text,
-          }
-        end,
+        entry_maker = entry_maker,
       }),
       previewer = previewer,
-      sorter = tel.conf.generic_sorter(opts) or tel.conf.generic_sorter({}),
-      attach_mappings = function(prompt_bufnr, map)
+      sorter = tel.conf.generic_sorter(opts),
+      attach_mappings = function(prompt_bufnr)
         tel.actions.select_default:replace(function()
           tel.actions.close(prompt_bufnr)
           local entry = tel.action_state.get_selected_entry()
-          if entry and entry.value then
-            choose(entry.value, { prompt_bufnr = prompt_bufnr, entry = entry })
+          if entry then
+            choose(entry)
           end
         end)
         return true -- keeps other default actions

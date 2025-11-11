@@ -766,7 +766,6 @@ function M.build_todo(todo_item)
     is_inactive = is_inactive,
     get_metadata = get_metadata,
     get_parent = get_parent,
-    _todo_item = todo_item,
     _get_todo_item = function()
       return todo_item
     end,

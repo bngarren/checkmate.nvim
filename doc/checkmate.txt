@@ -1,4 +1,4 @@
-*checkmate.txt*       For Neovim >= 0.10.0       Last change: 2025 November 02
+*checkmate.txt*       For Neovim >= 0.10.0       Last change: 2025 November 11
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -12,9 +12,9 @@ Table of Contents                                *checkmate-table-of-contents*
   - Defaults                                       |checkmate-config-defaults|
   - Keymapping                                   |checkmate-config-keymapping|
   - Styling                                         |checkmate-config-styling|
-  - Todo states                                 |checkmate-config-todo-states|
   - Todo count indicator               |checkmate-config-todo-count-indicator|
   - Smart Toggle                               |checkmate-config-smart-toggle|
+  - Pickers                                         |checkmate-config-pickers|
 6. Metadata                                               |checkmate-metadata|
 7. Archiving                                             |checkmate-archiving|
 8. Integrations                                       |checkmate-integrations|
@@ -107,8 +107,11 @@ version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>:
 Checkmate automatically activates when you open a Markdown file that matches
 your configured file name patterns.
 
-**Default patterns:** - `todo` or `TODO` (exact filename) - `todo.md` or
-`TODO.md` - Files with `.todo` extension (e.g., `project.todo`, `work.todo.md`)
+**Default patterns:**
+
+- `todo` or `TODO` (exact filename)
+- `todo.md` or `TODO.md`
+- Files with `.todo` extension (e.g., `project.todo`, `work.todo.md`)
 
 
 
@@ -172,88 +175,68 @@ USER COMMANDS
 
 `:Checkmate [subcommand]`
 
-  --------------------------------------------------------------------------------
-  subcommand                           Description
-  ------------------------------------ -------------------------------------------
-  archive                              Archive all completed todo items in the
-                                       buffer. This extracts them and moves them
-                                       to a bottom section. See api archive() and
-                                       Archiving section.
+  -------------------------------------------------------------------------------------------
+  subcommand               Description
+  ------------------------ ------------------------------------------------------------------
+  archive                  Archive all completed todo items in the buffer. This extracts them
+                           and moves them to a bottom section. See api archive() and
+                           Archiving section.
 
-  check                                Mark the todo item under the cursor as
-                                       checked. See api check()
+  check                    Mark the todo item under the cursor as checked. See api check()
 
-  create                               In normal mode, converts the current line
-                                       into a todo (or if already a todo, creates
-                                       a sibling below). In visual mode, converts
-                                       each selected line into a todo. In insert
-                                       mode, creates a new todo on the next line
-                                       and keeps you in insert mode. For more
-                                       advanced placement, indentation, and state
-                                       options, see the create(opts) API.
+  create                   In normal mode, converts the current line into a todo (or if
+                           already a todo, creates a sibling below). In visual mode, converts
+                           each selected line into a todo. In insert mode, creates a new todo
+                           on the next line and keeps you in insert mode. For more advanced
+                           placement, indentation, and state options, see the create(opts)
+                           API.
 
-  cycle_next                           Cycle a todo’s state to the next available.
-                                       See api cycle()
+  cycle_next               Cycle a todo’s state to the next available. See api cycle()
 
-  cycle_previous                       Cycle a todo’s state to the previous. See
-                                       api cycle()
+  cycle_previous           Cycle a todo’s state to the previous. See api cycle()
 
-  lint                                 Lint this buffer for Checkmate formatting
-                                       issues. Runs automatically on InsertLeave
-                                       and TextChanged. See api lint() andLinting
-                                       section.
+  lint                     Lint this buffer for Checkmate formatting issues. Runs
+                           automatically on InsertLeave and TextChanged. See api lint()
+                           andLinting section.
 
-  metadata add                         Add a metadata tag to the todo under the
-                                       cursor or within the selection. Usage:
-                                       :Checkmate metadata add <key> [value]. See
-                                       api add_metadata(key, value) and Metadata
-                                       section.
+  metadata add             Add a metadata tag to the todo under the cursor or within the
+                           selection. Usage: :Checkmate metadata add <key> [value]. See api
+                           add_metadata(key, value) and Metadata section.
 
-  metadata jump_next                   Move the cursor to the next metadata tag
-                                       for the todo item under the cursor. See api
-                                       jump_next_metadata()
+  metadata jump_next       Move the cursor to the next metadata tag for the todo item under
+                           the cursor. See api jump_next_metadata()
 
-  metadata jump_previous               Move the cursor to the previous metadata
-                                       tag for the todo item under the cursor. See
-                                       api jump_previous_metadata()
+  metadata jump_previous   Move the cursor to the previous metadata tag for the todo item
+                           under the cursor. See api jump_previous_metadata()
 
-  metadata remove                      Remove a specific metadata tag from the
-                                       todo under the cursor or within the
-                                       selection. Usage:
-                                       :Checkmate metadata remove <key>. See api
-                                       remove_metadata(key)
+  metadata remove          Remove a specific metadata tag from the todo under the cursor or
+                           within the selection. Usage: :Checkmate metadata remove <key>. See
+                           api remove_metadata(key)
 
-  metadata select_value                Select a value from the ‘choices’ option
-                                       for the metadata tag under the cursor. See
-                                       api select_metadata_value()
+  metadata select_value    Select a value from the ‘choices’ option for the metadata tag
+                           under the cursor. See api select_metadata_value()
 
-  metadata toggle                      Toggle a metadata tag on/off for the todo
-                                       under the cursor or within the selection.
-                                       Usage:
-                                       :Checkmate metadata toggle <key> [value].
-                                       See api toggle_metadata(key, value)
+  metadata toggle          Toggle a metadata tag on/off for the todo under the cursor or
+                           within the selection. Usage:
+                           :Checkmate metadata toggle <key> [value]. See api
+                           toggle_metadata(key, value)
 
-  remove                               Convert a todo line back to regular text.
-                                       See api remove(opts). By default, will
-                                       preserve the list item marker and remove
-                                       any metadata. This can be configured via
-                                       opts.
+  remove                   Convert a todo line back to regular text. See api remove(opts). By
+                           default, will preserve the list item marker and remove any
+                           metadata. This can be configured via opts.
 
-  remove_all_metadata                  Remove all metadata tags from the todo
-                                       under the cursor or within the selection.
-                                       See api remove_all_metadata()
+  remove_all_metadata      Remove all metadata tags from the todo under the cursor or within
+                           the selection. See api remove_all_metadata()
 
-  toggle                               Toggle the todo item under the cursor
-                                       (normal mode) or all todo items within the
-                                       selection (visual mode). See api toggle().
-                                       Without a parameter, toggles between
-                                       unchecked and checked. To change to custom
-                                       states, use the api toggle(target_state) or
-                                       the cycle_* commands.
+  toggle                   Toggle the todo item under the cursor (normal mode) or all todo
+                           items within the selection (visual mode). See api toggle().
+                           Without a parameter, toggles between unchecked and checked. To
+                           change to custom states, use the api toggle(target_state) or the
+                           cycle_* commands.
 
-  uncheck                              Mark the todo item under the cursor as
-                                       unchecked. See api uncheck()
-  --------------------------------------------------------------------------------
+  uncheck                  Mark the todo item under the cursor as unchecked. See api
+                           uncheck()
+  -------------------------------------------------------------------------------------------
 
 
 
@@ -351,6 +334,7 @@ DEFAULTS                                           *checkmate-config-defaults*
         },
       },
       default_list_marker = "-",
+      ui = {},
       todo_states = {
         -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
         ---@diagnostic disable-next-line: missing-fields
@@ -513,39 +497,36 @@ _false_.
 
 HIGHLIGHT GROUPS ~
 
-  ------------------------------------------------------------------------------
+  ------------------------------------------------------------------------------------------
   hl_group                              description
-  ------------------------------------- ----------------------------------------
-  CheckmateListMarkerUnordered          Unordered list markers, e.g. -,*, and +.
-                                        (Only those associated with a todo)
+  ------------------------------------- ----------------------------------------------------
+  CheckmateListMarkerUnordered          Unordered list markers, e.g. -,*, and +. (Only those
+                                        associated with a todo)
 
-  CheckmateListMarkerOrdered            Ordered list markers, e.g. 1., 2). (Only
-                                        those associated with a todo)
+  CheckmateListMarkerOrdered            Ordered list markers, e.g. 1., 2). (Only those
+                                        associated with a todo)
 
-  CheckmateUncheckedMarker              Unchecked todo marker, e.g. □. See
-                                        todo_states marker option
+  CheckmateUncheckedMarker              Unchecked todo marker, e.g. □. See todo_states
+                                        marker option
 
-  CheckmateUncheckedMainContent         The main content of an unchecked todo
-                                        (typically the first paragraph)
+  CheckmateUncheckedMainContent         The main content of an unchecked todo (typically the
+                                        first paragraph)
 
-  CheckmateUncheckedAdditionalContent   Additional content for an unchecked todo
-                                        (subsequent paragraphs, list items,
-                                        etc.)
+  CheckmateUncheckedAdditionalContent   Additional content for an unchecked todo (subsequent
+                                        paragraphs, list items, etc.)
 
-  CheckmateCheckedMarker                Checked todo marker, e.g. ✔. See
-                                        todo_states marker option
+  CheckmateCheckedMarker                Checked todo marker, e.g. ✔. See todo_states marker
+                                        option
 
-  CheckmateCheckedMainContent           The main content of a checked todo
-                                        (typically the first paragraph)
+  CheckmateCheckedMainContent           The main content of a checked todo (typically the
+                                        first paragraph)
 
-  CheckmateCheckedAdditionalContent     Additional content for a checked todo
-                                        (subsequent paragraphs, list items,
-                                        etc.)
+  CheckmateCheckedAdditionalContent     Additional content for a checked todo (subsequent
+                                        paragraphs, list items, etc.)
 
-  CheckmateTodoCountIndicator           The todo count indicator, e.g. 1/4,
-                                        shown on the todo line, if enabled. See
-                                        show_todo_count option
-  ------------------------------------------------------------------------------
+  CheckmateTodoCountIndicator           The todo count indicator, e.g. 1/4, shown on the
+                                        todo line, if enabled. See show_todo_count option
+  ------------------------------------------------------------------------------------------
 Metadata highlights are prefixed with `CheckmateMeta_` and keyed with the tag
 name and style.
 
@@ -594,10 +575,7 @@ You can then style it:
 
 
   State names will be converted to CamelCase when used in highlight group names.
-  E.g. `not_planned` = `NotPlanned`
-
-TODO STATES                                     *checkmate-config-todo-states*
-
+  E.g. `not_planned` = `NotPlanned` ## Todo states
 Checkmate supports both standard GitHub-flavored Markdown states and custom
 states for more nuanced task management.
 
@@ -634,7 +612,7 @@ Add custom states to track tasks more precisely. Each state needs:
       -- Built-in states (cannot change markdown or type)
       unchecked = { marker = "□" },
       checked = { marker = "✔" },
-      
+    
       -- Custom states
       in_progress = {
         marker = "◐",
@@ -644,7 +622,7 @@ Add custom states to track tasks more precisely. Each state needs:
       },
       cancelled = {
         marker = "✗",
-        markdown = "c",     -- Saved as `- [c]` 
+        markdown = "c",     -- Saved as `- [c]`
         type = "complete",   -- Counts as "done"
         order = 2,
       },
@@ -665,17 +643,16 @@ STATE TYPES
 States may be one of three types that give the state semantic and functional
 meaning:
 
-  ------------------------------------------------------------------------
-  Type          Behavior               Example States
-  ------------- ---------------------- -----------------------------------
-  incomplete    Counts as “not done”   unchecked, in_progress, pending,
-                                       future
+  -------------------------------------------------------------------------
+  Type         Behavior             Example States
+  ------------ -------------------- ---------------------------------------
+  incomplete   Counts as “not done” unchecked, in_progress, pending, future
 
-  complete      Counts as “done”       checked, cancelled
+  complete     Counts as “done”     checked, cancelled
 
-  inactive      Ignored in             on_hold, not_planned
-                calculations           
-  ------------------------------------------------------------------------
+  inactive     Ignored in           on_hold, not_planned
+               calculations         
+  -------------------------------------------------------------------------
 
   [!WARNING] Custom states like `- [.]` or `- [/]` are not standard Markdown and
   may not be recognized by other apps.
@@ -752,10 +729,10 @@ your configuration.
 
 HOW IT WORKS ~
 
-Smart toggle operates in two phases: 1. **Downward propagation**: When toggling
-a parent, optionally propagate the state change to children 2. **Upward
-propagation**: When toggling a child, optionally update the parent based on
-children states
+Smart toggle operates in two phases:
+
+1. **Downward propagation**: When toggling a parent, optionally propagate the state change to children
+2. **Upward propagation**: When toggling a child, optionally update the parent based on children states
 
 
 CONFIGURATION ~
@@ -776,6 +753,69 @@ the behavior:
 <
 
 
+
+
+PICKERS                                             *checkmate-config-pickers*
+
+Checkmate uses a picker for various API functions. To provide a reasonable,
+out-of-the-box experience, several popular external picker plugin backends are
+implemented: - snacks.nvim - mini.pick - telescope.nvim
+
+or, as a fallback native `vim.ui.select`
+
+
+CONFIGURATION ~
+
+
+GLOBAL CONFIGURATION
+
+Set the default picker in the setup opts:
+
+>lua
+    ui = {
+      picker = "snacks" -- or "mini", "telescope", or "native"
+    }
+<
+
+
+PER-CALL CONFIGURATION
+
+Some API functions allow passing `picker_opts`:
+
+>lua
+    require("checkmate").select_metadata_value({
+      picker_opts = {
+        picker = "snacks",  -- force snacks for this call
+        snacks = {
+          layout = { preset = "dropdown" }
+        }
+      }
+    })
+<
+
+
+CUSTOM PICKERS
+
+Some API functions support a `custom_picker` function that is intended to
+receive data related to that API and expects the `complete(value)` callback to
+finalize the Checkmate behavior.
+
+>lua
+    require("checkmate").select_metadata_value({
+      custom_picker = function(ctx, complete)
+        require("snacks").picker.files({
+          confirm = function(picker, item)
+            if item then
+              vim.schedule(function()
+                complete(item.text)
+              end)
+            end
+            picker:close()
+          end,
+        })
+      end,
+    })
+<
 
 
 ==============================================================================
@@ -804,7 +844,7 @@ function and use the selected item to update your metadata!
 >lua
     -- Update metadata under the cursor using a snacks.nvim picker
     require("checkmate").select_metadata_value({
-      picker_fn = function(ctx, complete)
+      custom_picker = function(ctx, complete)
         require("snacks").picker.files({
           confirm = function(picker, item)
             if item then
@@ -878,9 +918,9 @@ E.g. `parent_spacing = 0`
 >lua
     ## Archive
     
-    - ✔ Update the dependencies 
+    - ✔ Update the dependencies
     - ✔ Refactor the User api
-    - ✔ Add additional tests 
+    - ✔ Add additional tests
 <
 
 E.g. `parent_spacing = 1`
@@ -888,11 +928,11 @@ E.g. `parent_spacing = 1`
 >lua
     ## Archive
     
-    - ✔ Update the dependencies 
+    - ✔ Update the dependencies
     
     - ✔ Refactor the User api
     
-    - ✔ Add additional tests 
+    - ✔ Add additional tests
 <
 
 
@@ -904,18 +944,17 @@ E.g. `parent_spacing = 1`
 Please see wiki <https://github.com/bngarren/checkmate.nvim/wiki> for
 additional details/recipes.
 
-  -----------------------------------------------------------------------
-  Integration                                 Capable?
-  ------------------------------------------- ---------------------------
-  render-markdown                             
+  -----------------------------------------------------------------------------
+  Integration                                                        Capable?
+  ------------------------------------------------------------------ ----------
+  render-markdown                                                    
 
-  markview                                    
+  markview                                                           
 
-  LuaSnip                                     
+  LuaSnip                                                            
 
-  scratchbuffer/floating window for quick     
-  todos, e.g. snacks.nvim                     
-  -----------------------------------------------------------------------
+  scratchbuffer/floating window for quick todos, e.g. snacks.nvim    
+  -----------------------------------------------------------------------------
 
 
 
@@ -937,7 +976,8 @@ misaligned list marker
 
 >md
     1. ☐ Parent todo item
-      - ☐ Child todo item (indented only 2 spaces!)
+    
+    - ☐ Child todo item (indented only 2 spaces!)
 <
 
 correctly aligned list marker

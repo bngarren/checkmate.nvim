@@ -18,10 +18,6 @@ describe("Transaction", function()
     h.ensure_normal_mode()
   end)
 
-  after_each(function()
-    checkmate.stop()
-  end)
-
   it("should reject nested transactions in same buffer", function()
     local bufnr = h.setup_test_buffer("")
 
@@ -30,10 +26,6 @@ describe("Transaction", function()
         transaction.run(bufnr, function() end)
       end)
     end, "Nested transactions are not supported for buffer " .. bufnr)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should apply queued operations and clear state", function()
@@ -60,10 +52,6 @@ describe("Transaction", function()
     end)
 
     assert.is_false(transaction.is_active())
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should execute queued callbacks within a transaction", function()
@@ -83,10 +71,6 @@ describe("Transaction", function()
 
     assert.is_true(called)
     assert.equal(123, received)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should batch multiple operations into single apply_diff call", function()
@@ -121,10 +105,6 @@ describe("Transaction", function()
     end
 
     diff.apply_diff = original_apply_diff
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should update todo map after operations for subsequent callbacks", function()
@@ -154,10 +134,6 @@ describe("Transaction", function()
     -- Callback should see the checked state
     assert.equal(1, #states_in_callback)
     assert.equal("checked", states_in_callback[1])
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should execute callbacks after all operations in a batch (even if no hunks)", function()
@@ -201,10 +177,6 @@ describe("Transaction", function()
 
     -- not called, since no hunks were returned
     assert(spy_apply_diff:called(0))
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should provide current_context when transaction is active", function()
@@ -222,10 +194,6 @@ describe("Transaction", function()
 
     context_outside = transaction.current_context(bufnr)
     assert.is_nil(context_outside)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should deduplicate repeated operations", function()
@@ -244,10 +212,6 @@ describe("Transaction", function()
     end)
 
     assert.equal(2, op_called)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should execute post function after transaction completes", function()
@@ -261,10 +225,6 @@ describe("Transaction", function()
     end)
 
     assert.is_true(post_called)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should not crash transaction when callback throws error", function()
@@ -290,10 +250,6 @@ describe("Transaction", function()
     assert.is_false(transaction.is_active())
 
     assert.equal(2, #other_callbacks_executed)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should handle callback errors with operations present", function()
@@ -322,10 +278,6 @@ describe("Transaction", function()
     assert.matches(h.get_checked_marker(), line)
 
     assert.is_false(transaction.is_active())
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should run callbacks queued during ops (micro) before sibling callbacks (macro)", function()
@@ -362,10 +314,6 @@ describe("Transaction", function()
     end)
 
     assert.same({ "op", "micro", "macro" }, order)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should apply ops enqueued by micro-callbacks before macros run", function()
@@ -407,10 +355,6 @@ describe("Transaction", function()
     assert.equal(1, #batches)
 
     diff.apply_diff = original_apply_diff
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should drain chained micro-callbacks fully before any macro runs", function()
@@ -439,10 +383,6 @@ describe("Transaction", function()
     end)
 
     assert.same({ "op", "micro-1", "micro-2", "macro" }, order)
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 
   it("should keep apply_diff batching correct when micro enqueues additional ops", function()
@@ -494,9 +434,5 @@ describe("Transaction", function()
     assert.equal(2, apply_calls)
 
     diff.apply_diff = original_apply_diff
-
-    finally(function()
-      h.cleanup_buffer(bufnr)
-    end)
   end)
 end)

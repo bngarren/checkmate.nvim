@@ -21,7 +21,7 @@ if vim.env.DEBUG == "1" then
   end
 end
 
--- This function can be called by tests to reset the state between test runs
+-- This function is called by tests to reset the state between test runs
 ---@param close_buffers boolean? Closes all buffers (default true)
 _G.reset_state = function(close_buffers)
   if package.loaded["checkmate"] then
@@ -35,16 +35,14 @@ _G.reset_state = function(close_buffers)
 
   -- closing buffers unless explicitly told not to
   if close_buffers ~= false then
-    local buffers = vim.api.nvim_list_bufs()
-    for _, bufnr in ipairs(buffers) do
-      if vim.api.nvim_buf_is_loaded(bufnr) then
-        -- force delete all buffers except the current one
-        if bufnr ~= vim.api.nvim_get_current_buf() then
-          pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-        end
+    -- delete all buffers except current
+    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+      if bufnr ~= vim.api.nvim_get_current_buf() and vim.api.nvim_buf_is_valid(bufnr) then
+        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
       end
     end
 
+    -- replace current buffer with empty one if it has a name
     local current = vim.api.nvim_get_current_buf()
     local name = vim.api.nvim_buf_get_name(current)
     if name ~= "" then
@@ -57,32 +55,12 @@ _G.reset_state = function(close_buffers)
   vim.schedule(function() end)
   vim.wait(10)
 
-  local modules = {
-    "checkmate",
-    "checkmate.config",
-    "checkmate.parser",
-    "checkmate.util",
-    "checkmate.log",
-    "checkmate.api",
-    "checkmate.commands",
-    "checkmate.highlights",
-    "checkmate.linter",
-    "checkmate.theme",
-    "checkmate.transaction",
-    "checkmate.profiler",
-    "checkmate.buf_local",
-    "checkmate.init",
-  }
-
-  for _, mod in ipairs(modules) do
-    package.loaded[mod] = nil
+  -- clear all checkmate modules from cache
+  for key in pairs(package.loaded) do
+    if key:match("^checkmate") then
+      package.loaded[key] = nil
+    end
   end
 
-  if _G.checkmate then
-    _G.checkmate = nil
-  end
-
-  collectgarbage("collect")
-
-  vim.wait(10)
+  _G.checkmate = nil
 end

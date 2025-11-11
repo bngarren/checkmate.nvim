@@ -22,7 +22,7 @@ local log = require("checkmate.log")
 ---
 ---@param context checkmate.MetadataContext
 ---@param apply_value_with_transaction fun(value: string)
-function M.open_picker(context, apply_value_with_transaction)
+function M.open_picker(context, apply_value_with_transaction, picker_opts)
   local bufnr = context.buffer
   --- Receive the choices items from metadata module
   --- This cb is passed to |meta_module.get_choices()| and invoked when items are ready
@@ -54,16 +54,17 @@ function M.open_picker(context, apply_value_with_transaction)
     end
 
     vim.schedule(function()
-      picker.select(items, {
+      require("checkmate.picker").pick(items, {
         prompt = "Select value for @" .. context.name,
         kind = "checkmate_metadata_value",
-        format_item = function(item)
-          if item == context.value then
-            return item .. " (current)"
+        format_item_text = function(item)
+          if item.text == context.value then
+            return item.text .. " (current)"
           end
-          return item
+          return item.text
         end,
-        on_choice = receive_selection_from_ui,
+        on_select = receive_selection_from_ui,
+        picker_opts = picker_opts,
       })
     end)
   end
@@ -88,19 +89,19 @@ end
 ---   1. Receives metadata context (todo, selected metadata) from caller
 ---   2. Builds user-facing context object
 ---   3. Creates `user_complete_callback` (the "complete" function user calls)
----   4. Invokes user's `picker_fn(context, user_complete_callback)`
+---   4. Invokes user's `custom_picker(context, user_complete_callback)`
 ---   5. User's picker eventually calls `user_complete_callback(value)`
 ---   6. `user_complete_callback` calls `apply_value_with_transaction`
 ---
 ---@param context checkmate.MetadataContext
----@param picker_fn fun(context: checkmate.MetadataContext, user_complete_callback: fun(value: string?))
+---@param custom_picker fun(context: checkmate.MetadataContext, user_complete_callback: fun(value: string?))
 ---@param apply_value_with_transaction fun(value: string?)
-function M.with_custom_picker(context, picker_fn, apply_value_with_transaction)
+function M.with_custom_picker(context, custom_picker, apply_value_with_transaction)
   local bufnr = context.buffer
   local completed = false
 
   --- Completion callback that user invokes with their selected value
-  --- This is the "complete" function passed to the user's custom picker_fn,
+  --- This is the "complete" function passed to the user's custom_picker fn,
   --- and the user would typically call within their picker's "confirm" or "select" action/handler
   ---@param value string? Selected value, or nil if cancelled
   local function user_complete_callback(value)
@@ -116,12 +117,12 @@ function M.with_custom_picker(context, picker_fn, apply_value_with_transaction)
   end
 
   -- step 1 for the with_custom_picker path:
-  -- Call the user's picker_fn, giving it metadata context and a `complete` callback to use
-  local success, err = pcall(picker_fn, context, user_complete_callback)
+  -- Call the user's custom_picker fn, giving it metadata context and a `complete` callback to use
+  local success, err = pcall(custom_picker, context, user_complete_callback)
 
   if not success then
     local err_msg =
-      string.format("Checkmate: Error in the user's `picker_fn` passed to `with_custom_picker`: %s", tostring(err))
+      string.format("Checkmate: Error in the user's `custom_picker` passed to `with_custom_picker`: %s", tostring(err))
     vim.notify(err_msg, vim.log.levels.ERROR)
     log.log_error(err, "[metadata/picker] " .. err_msg)
     return false

@@ -22,7 +22,7 @@ local H = {}
 ---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 ---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
----@field _todo_item checkmate.TodoItem internal representation (use at your own risk, not guaranteed to be stable)
+---@field _get_todo_item fun(): checkmate.TodoItem Returns the todo_item internal representation (use at your own risk, not guaranteed to be stable)
 
 ---@class checkmate.MetadataContext
 ---@field name string Metadata tag name
@@ -162,14 +162,14 @@ function M.set_todo_state(todo, target_state)
     return false
   end
 
-  local todo_id = todo._todo_item.id
+  local todo_id = todo._get_todo_item().id
   local smart_toggle_enabled = config.options.smart_toggle and config.options.smart_toggle.enabled
 
   local ctx = transaction.current_context()
   if ctx then
     if smart_toggle_enabled then
       local todo_map = ctx.get_todo_map()
-      api.propagate_toggle(ctx, { todo._todo_item }, todo_map, target_state)
+      api.propagate_toggle(ctx, { todo._get_todo_item() }, todo_map, target_state)
     else
       ctx.add_op(api.toggle_state, { {
         id = todo_id,
@@ -191,7 +191,7 @@ function M.set_todo_state(todo, target_state)
 
   transaction.run(bufnr, function(_ctx)
     if smart_toggle_enabled and todo_map then
-      api.propagate_toggle(_ctx, { todo._todo_item }, todo_map, target_state)
+      api.propagate_toggle(_ctx, { todo._get_todo_item() }, todo_map, target_state)
     else
       _ctx.add_op(api.toggle_state, { {
         id = todo_id,

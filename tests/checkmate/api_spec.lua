@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 --[[
 
 Some notes:
@@ -194,7 +195,7 @@ describe("API", function()
 
       vim.api.nvim_buf_set_lines(bufnr, -2, -1, false, { "- [ ] New line" })
 
-      local ok = pcall(vim.cmd, "write")
+      local ok = pcall(vim.cmd --[[@as fun()]], "write")
       assert.is_false(ok)
 
       assert.is_true(vim.bo[bufnr].modified)
@@ -314,7 +315,7 @@ describe("API", function()
             "- " .. m.unchecked .. " Task B",
           },
           cursor = { 1, 0 },
-          action = function(cm, ctx)
+          action = function(_, ctx)
             ctx.items = api.collect_todo_items_from_selection(false)
           end,
           assert = function(bufnr, lines, ctx)
@@ -2201,7 +2202,7 @@ describe("API", function()
           assert.equal(m.unchecked, test_todo.todo_marker)
           assert.is_not_nil(test_todo.get_metadata("test"))
           assert.is_nil(test_todo.get_parent())
-          assert.is_not_nil(test_todo._todo_item)
+          assert.is_not_nil(test_todo._get_todo_item())
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.matches("@test%(test_value%)", lines[3])
@@ -2250,7 +2251,7 @@ describe("API", function()
           assert.is_true(on_remove_called)
           -- check that the todo item was passed to the callback
           assert.is_not_nil(test_todo)
-          assert.is_not_nil(test_todo._todo_item)
+          assert.is_not_nil(test_todo._get_todo_item())
 
           local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
           assert.no.matches("@test", lines[3])
@@ -2903,15 +2904,6 @@ describe("API", function()
   end)
 
   describe("get_todo()", function()
-    local cm
-    before_each(function()
-      cm = h.cm_setup()
-      h.ensure_normal_mode()
-    end)
-    after_each(function()
-      cm.stop()
-    end)
-
     it("should return todo under cursor in normal mode", function()
       h.run_test_cases({
         {
@@ -2922,9 +2914,13 @@ describe("API", function()
             ctx.todo = cm.get_todo()
           end,
           assert = function(bufnr, lines, ctx)
+            ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.equal("unchecked", todo.state)
             assert.matches("Task A", todo.text)
+
+            local todo_item = require("checkmate.parser").get_todo_item_at_position(bufnr, 0, 0, { root_only = true })
+            assert.same(todo_item, todo._get_todo_item())
           end,
         },
       })
@@ -2960,6 +2956,7 @@ describe("API", function()
             ctx.todo = cm.get_todo()
           end,
           assert = function(bufnr, lines, ctx)
+            ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.matches("First", todo.text)
           end,
@@ -2980,6 +2977,7 @@ describe("API", function()
             ctx.todo = cm.get_todo()
           end,
           assert = function(bufnr, lines, ctx)
+            ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.matches("Todo item", todo.text)
           end,

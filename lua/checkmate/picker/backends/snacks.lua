@@ -43,9 +43,11 @@ function M.pick(ctx)
     format = "text",
     items = vim.tbl_map(entry_maker, items),
     actions = {
-      confirm = function(picker, it)
+      confirm = function(picker, item)
         picker:close()
-        choose(it)
+        if item then
+          choose(item)
+        end
       end,
     },
   }
@@ -85,19 +87,25 @@ function M.pick_todo(ctx)
   ---@type snacks.picker.Config
   local base = {
     title = (ctx.prompt or "Todos"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
-    layout = "dropdown",
-    format = function(entry)
+    layout = {
+      preset = "sidebar",
+      preview = "main",
+    },
+    format = function(item)
+      -- "item" is the snacks.picker.Item (derived from our entry_maker)
       local ret = {} ---@type snacks.picker.Highlight
-      local display = vim.trim(entry.text)
+      local display = vim.trim(item.text)
       ret[#ret + 1] = { display }
       return ret
     end,
     items = vim.tbl_map(entry_maker, items),
     actions = {
-      confirm = function(picker, item, action)
+      confirm = function(picker, item)
         picker:close()
-        choose(item)
-        snacks.picker.actions.jump(picker, item, action)
+        if item then
+          choose(item)
+          picker:action("jump")
+        end
       end,
     },
   }

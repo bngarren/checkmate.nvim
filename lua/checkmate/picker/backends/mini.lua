@@ -6,8 +6,16 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local proxy = picker_util.proxy
 local make_choose = picker_util.make_choose
+
+local function load_minipick()
+  local ok, minipick = pcall(require, "mini.pick")
+  if not ok then
+    -- picker.init fallback path will handle this
+    error("mini.pick not available")
+  end
+  return minipick
+end
 
 local centered_win_config = function()
   local height = math.floor(0.618 * vim.o.lines)
@@ -23,60 +31,63 @@ end
 
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick(ctx)
-  local ok, Pick = pcall(require, "mini.pick")
-  if not ok then
-    error("mini.pick not available")
-  end
+  local Pick = load_minipick()
 
   local items = ctx.items or {}
 
-  local proxies, resolve = proxy.build(items)
+  local entry_maker = function(i)
+    return {
+      __cm_item = i,
+      text = i.text or "",
+    }
+  end
 
-  local choose = make_choose(ctx, resolve, {
+  local choose = make_choose(ctx, {
     schedule = true,
   })
 
   local start_opts = vim.tbl_deep_extend("force", {
     source = {
-      items = proxies,
       name = ctx.prompt or "Select",
+      items = vim.tbl_map(entry_maker, items),
       choose = choose,
     },
     window = { config = centered_win_config },
   }, ctx.backend_opts or {})
 
-  local ok_run, err = pcall(Pick.start, start_opts)
-  if not ok_run then
-    error("mini.pick.start failed: " .. tostring(err))
-  end
+  Pick.start(start_opts)
 end
 
 function M.pick_todo(ctx)
-  local ok, Pick = pcall(require, "mini.pick")
-  if not ok then
-    error("mini.pick not available")
-  end
+  local Pick = load_minipick()
 
   local items = ctx.items or {}
+
   -- see MiniPick-source.items-stritems: it will use the `text` field of the proxy to serve as the string representation
   -- for matching, i.e. the `stritem`
-  local proxies, resolve = proxy.build(items, {
-    decorate = function(p, item)
-      local todo = item.value
-      if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
-        -- provide to mini.pick for e.g. preview
-        p.bufnr = todo.bufnr
-        p.lnum = todo.row + 1 -- mini.pick's lnum is 1-indexed
-        p.col = 0
-      end
-    end,
-  })
+
+  local entry_maker = function(i)
+    ---@type checkmate.Todo|any
+    local todo = i.value
+
+    local e = {
+      __cm_item = i,
+      text = i.text or "",
+    }
+
+    if type(todo) == "table" and todo.bufnr and type(todo.row) == "number" then
+      -- mini uses `buf` + `pos = {lnum, col}`
+      e.buf = todo.bufnr
+      e.pos = { todo.row + 1, 0 }
+    end
+
+    return e
+  end
 
   ---@type checkmate.picker.after_select
-  local function after_select(orig)
-    local todo = orig and orig.value
-    local bufnr = todo and todo.bufnr
-    local row = todo and todo.row
+  local function after_select(_, entry)
+    local bufnr = entry.buf
+    local row = entry.pos[1]
 
     if bufnr and type(row) == "number" then
       if vim.api.nvim_buf_is_valid(bufnr) then
@@ -84,27 +95,24 @@ function M.pick_todo(ctx)
           pcall(vim.fn.bufload, bufnr)
         end
         pcall(vim.api.nvim_set_current_buf, bufnr)
-        pcall(vim.api.nvim_win_set_cursor, 0, { row + 1, 0 })
+        pcall(vim.api.nvim_win_set_cursor, 0, { row, 0 })
       end
     end
     -- implicit nil return will close mini.pick
   end
 
-  local choose = make_choose(ctx, resolve, { schedule = true, after_select = after_select })
+  local choose = make_choose(ctx, { schedule = true, after_select = after_select })
 
   local start_opts = vim.tbl_deep_extend("force", {
     source = {
-      items = proxies,
+      items = vim.tbl_map(entry_maker, items),
       name = ctx.prompt or "Todos",
       choose = choose,
     },
     window = { config = centered_win_config },
   }, ctx.backend_opts or {})
 
-  local ok_run, err = pcall(Pick.start, start_opts)
-  if not ok_run then
-    error("mini.pick.start failed: " .. tostring(err))
-  end
+  Pick.start(start_opts)
 end
 
 return M

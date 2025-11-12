@@ -69,6 +69,12 @@ M.PICKERS = {
 ---@field mini? table<string, any> mini.pick.start opts
 ---@field native? table<string, any> vim.ui.select opts
 
+---@class checkmate.FilterOpts
+---@field states? string[] Filter by todo state names (e.g., {"checked", "unchecked", "pending"}). Matches ANY.
+---@field state_types? checkmate.TodoStateType[] Filter by state types: "complete", "incomplete", "inactive". Matches ANY.
+---@field metadata? table<string, string|boolean> Filter by metadata key-value pairs. For tags, use true (tag exists) or false (tag absent). For metadata with values, use the string value (e.g., {urgent = true, priority = "high"}). Default: match ANY.
+---@field metadata_match_all? boolean If true, require ALL metadata pairs to match (default: false - match ANY)
+
 -- Globally disables/deactivates Checkmate for all buffers
 ---@return nil
 function M.disable()
@@ -1308,12 +1314,6 @@ function M.get_todo(opts)
   return item:build_todo(parser.get_todo_map(bufnr))
 end
 
----@class checkmate.FilterOpts
----@field states? string[] Filter by todo state names (e.g., {"checked", "unchecked", "pending"}). Matches ANY.
----@field state_types? string[] Filter by state types: "complete", "incomplete", "inactive". Matches ANY.
----@field metadata? table<string, string|boolean> Filter by metadata key-value pairs. For tags, use true (tag exists) or false (tag absent). For metadata with values, use the string value (e.g., {urgent = true, priority = "high"}). Default: match ANY.
----@field metadata_match_all? boolean If true, require ALL metadata pairs to match (default: false - match ANY)
-
 ---@class checkmate.GetTodosOpts
 ---@field bufnr? integer (default: current buffer)
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
@@ -1425,7 +1425,8 @@ end
 ---@field bufnr? integer (default: current buffer)
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
 ---@field filter? checkmate.FilterOpts
----@field picker_fn? fun(todos: checkmate.Todo[]): any
+---@field picker_opts? checkmate.PickerOpts
+---@field custom_picker? fun(todos: checkmate.Todo[]): any
 
 ---@param opts? checkmate.SelectTodoOpts
 function M.select_todo(opts)
@@ -1438,24 +1439,14 @@ function M.select_todo(opts)
     filter = opts.filter,
   })
 
-  if opts.picker_fn and vim.is_callable(opts.picker_fn) then
-    opts.picker_fn(todos)
+  if opts.custom_picker and vim.is_callable(opts.custom_picker) then
+    opts.custom_picker(todos)
     return
   end
 
-  picker.select(todos, {
-    format_item = function(i)
-      ---@cast i checkmate.Todo
-      return i.text
-    end,
-    on_choice = function(c)
-      ---@cast c checkmate.Todo?
-      if c then
-        vim.schedule(function()
-          vim.api.nvim_win_set_cursor(0, { c.row + 1, 0 })
-        end)
-      end
-    end,
+  picker.pick(picker.map_items(todos, "text"), {
+    method = "pick_todo",
+    picker_opts = opts.picker_opts,
   })
 end
 

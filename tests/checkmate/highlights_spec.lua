@@ -13,10 +13,6 @@ describe("Highlights", function()
     checkmate.setup(h.DEFAULT_TEST_CONFIG)
   end)
 
-  after_each(function()
-    checkmate.stop()
-  end)
-
   describe("list marker", function()
     it("should correctly highlight the todo LIST marker", function()
       local highlights = require("checkmate.highlights")

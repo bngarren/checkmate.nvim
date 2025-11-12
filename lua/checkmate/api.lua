@@ -52,17 +52,17 @@ function M.setup_buffer(bufnr)
   local checkmate = require("checkmate")
 
   -- bail early if we're not running
-  if not checkmate.is_running() then
+  if not checkmate._is_running() then
     log.fmt_error("[api] Call to setup_buffer %d but Checkmate is NOT running", bufnr)
     return false
   end
 
-  if checkmate.is_buffer_active(bufnr) and bl:get("setup_complete") == true then
+  if checkmate._is_buffer_active(bufnr) and bl:get("setup_complete") == true then
     return true
   end
 
   -- the main module tracks active checkmate buffers
-  checkmate.register_buffer(bufnr)
+  checkmate._register_buffer(bufnr)
 
   -- initial conversion of on-disk raw markdown to our in-buffer representation
   -- "unicode" term is loosely applied
@@ -785,7 +785,7 @@ function M.shutdown(bufnr)
       M._debounced_processors[bufnr] = nil
     end
 
-    require("checkmate").unregister_buffer(bufnr)
+    require("checkmate")._unregister_buffer(bufnr)
 
     bl:clear()
     bl:set("cleaned_up", true)

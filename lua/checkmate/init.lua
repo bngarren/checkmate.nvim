@@ -74,7 +74,7 @@ M.PICKERS = {
 function M.disable()
   local cfg = require("checkmate.config")
   cfg.options.enabled = false
-  M.stop()
+  M._stop()
 end
 
 -- Starts/activates Checkmate
@@ -1329,9 +1329,6 @@ function M.lint(opts)
   else
     local msg = string.format("Found %d formatting issues", #results)
     util.notify(msg, vim.log.levels.WARN)
-    for i, issue in ipairs(results) do
-      -- log.warn(string.format("Issue %d, row %d [%s]: %s", i, issue.lnum, issue.severity, issue.message))
-    end
   end
 
   return true, results
@@ -1372,8 +1369,6 @@ function M.archive(opts)
   return true
 end
 
-----------------------------------------------------------------------
-
 ---@param opts checkmate.Config?
 ---@return boolean success True if setup completed successfully
 M.setup = function(opts)
@@ -1382,18 +1377,18 @@ M.setup = function(opts)
   H.state.user_opts = opts or {}
 
   -- reload if config has changed
-  if M.is_initialized() then
+  if H.is_initialized() then
     local current_config = config.options
     if opts and not vim.deep_equal(opts, current_config) then
-      M.stop()
+      H.stop()
     else
       return true
     end
   end
 
   local success, err = pcall(function()
-    if M.is_running() then
-      M.stop()
+    if H.is_running() then
+      H.stop()
     end
 
     -- if config.setup() returns {}, it already notified the validation error
@@ -1407,7 +1402,7 @@ M.setup = function(opts)
       vim.notify("Checkmate: deprecated usage detected. Run `checkhealth checkmate`.", vim.log.levels.WARN)
     end
 
-    M.set_initialized(true)
+    H.set_initialized(true)
   end)
 
   if not success then
@@ -1416,26 +1411,41 @@ M.setup = function(opts)
       msg = msg .. "\n" .. tostring(err)
     end
     vim.notify(msg, vim.log.levels.ERROR)
-    M.reset()
+    H.reset()
     return false
   end
 
   -- got here but not initialized, ?config error, do graceful cleanup
-  if not M.is_initialized() then
-    M.reset()
+  if not H.is_initialized() then
+    H.reset()
     return false
   end
 
   if config.options.enabled then
-    M.start()
+    H.start()
   end
 
   return true
 end
 
+-- ================================================================================
+-- ------------ HELPERS --------------
+-- These are not part of the public API and thus do not have semver stability.
+-- ================================================================================
+
+H.state = {
+  -- initialized is config setup
+  initialized = false,
+  -- core modules are setup (parser, highlights, linter) and autocmds registered
+  running = false,
+  active_buffers = {}, -- bufnr -> true
+  -- save initial user opts for later restarts
+  user_opts = {},
+}
+
 -- spin up logger, parser, highlights, linter, autocmds
-function M.start()
-  if M.is_running() then
+function H.start()
+  if H.is_running() then
     return
   end
 
@@ -1453,7 +1463,7 @@ function M.start()
       require("checkmate.linter").setup(config.options.linter)
     end
 
-    M.set_running(true)
+    H.set_running(true)
 
     H.setup_autocommands()
 
@@ -1463,17 +1473,17 @@ function M.start()
   end)
   if not success then
     vim.notify("Checkmate: Failed to start: " .. tostring(err), vim.log.levels.ERROR)
-    M.stop() -- cleanup partial initialization
+    H.stop() -- cleanup partial initialization
   end
 end
 
-function M.stop()
-  if not M.is_running() then
+function H.stop()
+  if not H.is_running() then
     return
   end
 
-  local active_buffers = M.get_active_buffer_list()
-  local active_buffers_count = M.count_active_buffers()
+  local active_buffers = H.get_active_buffer_list()
+  local active_buffers_count = H.count_active_buffers()
 
   -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
   for _, bufnr in ipairs(active_buffers) do
@@ -1494,99 +1504,8 @@ function M.stop()
     end)
   end
 
-  M.reset()
+  H.reset()
 end
-
-function M.get_user_opts()
-  return vim.deepcopy(H.state.user_opts)
-end
-
-function M.is_initialized()
-  return H.state.initialized
-end
-
-function M.set_initialized(value)
-  H.state.initialized = value
-end
-
-function M.is_running()
-  return H.state.running
-end
-
-function M.set_running(value)
-  H.state.running = value
-end
-
-function M.register_buffer(bufnr)
-  H.state.active_buffers[bufnr] = true
-end
-
-function M.unregister_buffer(bufnr)
-  H.state.active_buffers[bufnr] = nil
-end
-
-function M.is_buffer_active(bufnr)
-  return H.state.active_buffers[bufnr] == true
-end
-
--- Returns array of buffer numbers
-function M.get_active_buffer_list()
-  local buffers = {}
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      table.insert(buffers, bufnr)
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Returns hash table of bufnr -> true
-function M.get_active_buffer_map()
-  local buffers = {}
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      buffers[bufnr] = true
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Convenience function that returns count
-function M.count_active_buffers()
-  local count = 0
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      count = count + 1
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return count
-end
-
-function M.reset()
-  H.state.initialized = false
-  H.state.running = false
-  H.state.active_buffers = {}
-end
-
--- ================================================================================
--- ------------ HELPERS --------------
--- ================================================================================
-
-H.state = {
-  -- initialized is config setup
-  initialized = false,
-  -- core modules are setup (parser, highlights, linter) and autocmds registered
-  running = false,
-  active_buffers = {}, -- bufnr -> true
-  -- save initial user opts for later restarts
-  user_opts = {},
-}
 
 function H.setup_autocommands()
   local log = require("checkmate.log")
@@ -1595,7 +1514,7 @@ function H.setup_autocommands()
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = augroup,
     callback = function()
-      M.stop()
+      H.stop()
     end,
   })
 
@@ -1620,7 +1539,7 @@ function H.setup_autocommands()
     group = augroup,
     callback = function(event)
       if event.match ~= "markdown" then
-        local bufs = M.get_active_buffer_map()
+        local bufs = H.get_active_buffer_map()
 
         if bufs[event.buf] then
           log.fmt_info("[autocmd] Filetype = '%s', turning off Checkmate for bufnr %d", event.match, event.buf)
@@ -1628,7 +1547,7 @@ function H.setup_autocommands()
           local buf = event.buf
           require("checkmate.commands").dispose(buf)
           require("checkmate.api").shutdown(buf)
-          M.unregister_buffer(buf)
+          H.unregister_buffer(buf)
         end
       end
     end,
@@ -1659,6 +1578,83 @@ function H.setup_existing_markdown_buffers()
   if count > 0 then
     log.fmt_info("[main] %d existing Checkmate buffers found during startup: %s", count, existing_buffers)
   end
+end
+
+function H.get_user_opts()
+  return vim.deepcopy(H.state.user_opts)
+end
+
+function H.is_initialized()
+  return H.state.initialized
+end
+
+function H.set_initialized(value)
+  H.state.initialized = value
+end
+
+function H.is_running()
+  return H.state.running
+end
+
+function H.set_running(value)
+  H.state.running = value
+end
+
+function H.register_buffer(bufnr)
+  H.state.active_buffers[bufnr] = true
+end
+
+function H.unregister_buffer(bufnr)
+  H.state.active_buffers[bufnr] = nil
+end
+
+function H.is_buffer_active(bufnr)
+  return H.state.active_buffers[bufnr] == true
+end
+
+-- Returns array of buffer numbers
+function H.get_active_buffer_list()
+  local buffers = {}
+  for bufnr in pairs(H.state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      table.insert(buffers, bufnr)
+    else
+      H.state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Returns hash table of bufnr -> true
+function H.get_active_buffer_map()
+  local buffers = {}
+  for bufnr in pairs(H.state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      buffers[bufnr] = true
+    else
+      H.state.active_buffers[bufnr] = nil
+    end
+  end
+  return buffers
+end
+
+-- Convenience function that returns count
+function H.count_active_buffers()
+  local count = 0
+  for bufnr in pairs(H.state.active_buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      count = count + 1
+    else
+      H.state.active_buffers[bufnr] = nil
+    end
+  end
+  return count
+end
+
+function H.reset()
+  H.state.initialized = false
+  H.state.running = false
+  H.state.active_buffers = {}
 end
 
 --- Checks that is metadata tag name (internally using it's canonical name)
@@ -1703,5 +1699,18 @@ function H.notify_no_todos_found(is_visual)
   local mode_msg = is_visual and "within selection" or "at cursor position"
   require("checkmate.util").notify(string.format("No todo items found %s", mode_msg), vim.log.levels.INFO)
 end
+
+--exposed internals
+M._start = H.start
+M._stop = H.stop
+M._get_user_opts = H.get_user_opts
+M._is_initialized = H.is_initialized
+M._is_running = H.is_running
+M._register_buffer = H.register_buffer
+M._unregister_buffer = H.unregister_buffer
+M._is_buffer_active = H.is_buffer_active
+M._get_active_buffer_list = H.get_active_buffer_list
+M._get_active_buffer_map = H.get_active_buffer_map
+M._count_active_buffers = H.count_active_buffers
 
 return M

@@ -201,7 +201,7 @@ describe("API", function()
       assert.is_false(ok)
 
       assert.is_true(vim.bo[bufnr].modified)
-      assert.is_true(require("checkmate").is_buffer_active(bufnr))
+      assert.is_true(require("checkmate")._is_buffer_active(bufnr))
 
       finally(function()
         h.cleanup_file(file_path)
@@ -815,7 +815,7 @@ describe("API", function()
       end)
 
       after_each(function()
-        cm.stop()
+        cm._stop()
       end)
 
       --[[
@@ -2967,7 +2967,7 @@ describe("API", function()
       cm = h.cm_setup()
     end)
     after_each(function()
-      cm.stop()
+      cm._stop()
     end)
 
     it("should move cursor to next metadata entry and wrap around", function()

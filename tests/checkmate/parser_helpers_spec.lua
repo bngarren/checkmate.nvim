@@ -25,10 +25,6 @@ describe("Parser Helpers", function()
     cm.setup(h.DEFAULT_TEST_CONFIG)
   end)
 
-  after_each(function()
-    cm.stop()
-  end)
-
   describe("util", function()
     it("should correctly calculate todo prefix length", function()
       local cases = {

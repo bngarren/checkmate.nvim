@@ -17,13 +17,9 @@ describe("Metadata", function()
     h = require("tests.checkmate.helpers")
     checkmate = require("checkmate")
 
-    h.ensure_normal_mode()
-
     checkmate.setup()
-  end)
 
-  after_each(function()
-    checkmate.stop()
+    h.ensure_normal_mode()
   end)
 
   describe("metadata context", function()

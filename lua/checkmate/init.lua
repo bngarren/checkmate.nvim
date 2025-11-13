@@ -136,7 +136,7 @@ function M.toggle(target_state)
     end
   end
 
-  local is_visual = util.is_visual_mode()
+  local is_visual = util.mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -335,7 +335,7 @@ function M.cycle(opts)
     end
   end
 
-  local is_visual = util.is_visual_mode()
+  local is_visual = util.mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -474,7 +474,7 @@ function M.create(opts)
   local util = require("checkmate.util")
   local log = require("checkmate.log")
 
-  local mode = util.get_mode()
+  local mode = util.mode.get_mode()
   local is_insert = mode == "i"
   local is_visual = mode == "v"
 
@@ -543,7 +543,7 @@ function M.create(opts)
         })
       end, function()
         -- ensure we stay in insert mode
-        if not util.is_insert_mode() then
+        if not util.mode.is_insert_mode() then
           vim.cmd("startinsert")
         end
 
@@ -655,7 +655,7 @@ function M.remove(opts)
   end
 
   -- normal/visual path: collect once, then run both phases in a single transaction
-  local is_visual = util.is_visual_mode()
+  local is_visual = util.mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -745,7 +745,7 @@ function M.add_metadata(metadata_name, value)
     end
   end
 
-  local is_visual = util.is_visual_mode()
+  local is_visual = util.mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -802,7 +802,7 @@ function M.remove_metadata(metadata_name)
     end
   end
 
-  local is_visual = require("checkmate.util").is_visual_mode()
+  local is_visual = require("checkmate.util").mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -855,7 +855,7 @@ function M.remove_all_metadata()
     end
   end
 
-  local is_visual = require("checkmate.util").is_visual_mode()
+  local is_visual = require("checkmate.util").mode.is_visual_mode()
 
   local bufnr = vim.api.nvim_get_current_buf()
 
@@ -923,7 +923,7 @@ function M.update_metadata(metadata_name, new_value)
     return false
   end
 
-  local is_visual = util.is_visual_mode()
+  local is_visual = util.mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -995,7 +995,7 @@ function M.toggle_metadata(metadata_name, value)
     end
   end
 
-  local is_visual = require("checkmate.util").is_visual_mode()
+  local is_visual = require("checkmate.util").mode.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(bufnr) then
@@ -1257,7 +1257,6 @@ end
 --- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
 --- @return checkmate.Todo? todo The todo item at the specified position, or nil if not found
 function M.get_todo(opts)
-  local api = require("checkmate.api")
   local log = require("checkmate.log")
   opts = opts or {}
 
@@ -1276,7 +1275,7 @@ function M.get_todo(opts)
   if type(opts.row) == "number" then
     row = opts.row
   else
-    if util.is_visual_mode() then
+    if util.mode.is_visual_mode() then
       vim.cmd([[execute "normal! \<Esc>"]])
       local mark = vim.api.nvim_buf_get_mark(bufnr, "<") -- 1-based
       row = (mark and mark[1] or vim.api.nvim_win_get_cursor(0)[1]) - 1
@@ -1313,7 +1312,6 @@ end
 function M.lint(opts)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
-  local api = require("checkmate.api")
   local log = require("checkmate.log")
 
   if not Buffer.is_valid(bufnr) then

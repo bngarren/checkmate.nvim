@@ -39,7 +39,7 @@ local profiler = require("checkmate.profiler")
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
 -- functions that process a buffer need to be debounced and stored
----@type table<number, table<string, Debounced>>
+---@type table<number, table<string, checkmate.Debounced>>
 M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
 -- we can "process" a buffer different ways depending on the need, the frequency we expect it

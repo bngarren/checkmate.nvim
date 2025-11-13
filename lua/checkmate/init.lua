@@ -2,6 +2,8 @@
 local M = {}
 local H = {}
 
+local Buffer = require("checkmate.buffer")
+
 -- ================================================================================
 -- ------------ CHECKMATE PUBLIC API --------------
 -- ================================================================================
@@ -137,7 +139,7 @@ function M.toggle(target_state)
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `toggle` on invalid buffer")
     return false
   end
@@ -220,7 +222,7 @@ function M.set_todo_state(todo, target_state)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `set_todo_state` on invalid buffer")
     return false
   end
@@ -336,7 +338,7 @@ function M.cycle(opts)
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `cycle` on invalid buffer")
     return false
   end
@@ -496,7 +498,7 @@ function M.create(opts)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `create` on invalid buffer")
     return false
   end
@@ -656,7 +658,7 @@ function M.remove(opts)
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `remove` on invalid buffer")
     return false
   end
@@ -746,7 +748,7 @@ function M.add_metadata(metadata_name, value)
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `add_metadata` on invalid buffer")
     return false
   end
@@ -803,7 +805,7 @@ function M.remove_metadata(metadata_name)
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `remove_metadata` on invalid buffer")
     return false
   end
@@ -857,7 +859,7 @@ function M.remove_all_metadata()
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `remove_all_metadata` on invalid buffer")
     return false
   end
@@ -924,7 +926,7 @@ function M.update_metadata(metadata_name, new_value)
   local is_visual = util.is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `update_metadata` on invalid buffer")
     return false
   end
@@ -996,7 +998,7 @@ function M.toggle_metadata(metadata_name, value)
   local is_visual = require("checkmate.util").is_visual_mode()
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `toggle_metadata` on invalid buffer")
     return false
   end
@@ -1099,7 +1101,7 @@ function M.select_metadata_value(opts)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `select_metadata_value` on invalid buffer")
     return false
   end
@@ -1195,7 +1197,7 @@ function M.jump_next_metadata()
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `jump_next_metadata` on invalid buffer")
     return false
   end
@@ -1228,7 +1230,7 @@ function M.jump_previous_metadata()
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `jump_previous_metadata` on invalid buffer")
     return false
   end
@@ -1261,7 +1263,7 @@ function M.get_todo(opts)
 
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `get_todo` on invalid buffer")
     return nil
   end
@@ -1314,7 +1316,7 @@ function M.lint(opts)
   local api = require("checkmate.api")
   local log = require("checkmate.log")
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `lint` on invalid buffer")
     return false, nil
   end
@@ -1358,7 +1360,7 @@ function M.archive(opts)
 
   local bufnr = vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `archive` on invalid buffer")
     return false
   end
@@ -1438,7 +1440,6 @@ H.state = {
   initialized = false,
   -- core modules are setup (parser, highlights, linter) and autocmds registered
   running = false,
-  active_buffers = {}, -- bufnr -> true
   -- save initial user opts for later restarts
   user_opts = {},
 }
@@ -1482,16 +1483,13 @@ function H.stop()
     return
   end
 
-  local active_buffers = H.get_active_buffer_list()
-  local active_buffers_count = H.count_active_buffers()
+  local active_count = Buffer.count_active()
 
-  -- for every buffer that was active, clear extmarks, diagnostics, keymaps, and autocmds.
-  for _, bufnr in ipairs(active_buffers) do
-    require("checkmate.api").shutdown(bufnr)
-  end
+  Buffer.shutdown_all()
 
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_global")
   pcall(vim.api.nvim_del_augroup_by_name, "checkmate_highlights")
+  pcall(vim.api.nvim_del_augroup_by_name, "checkmate_buffer")
 
   local parser = require("checkmate.parser")
   parser.clear_parser_cache()
@@ -1499,7 +1497,7 @@ function H.stop()
   if package.loaded["checkmate.log"] then
     pcall(function()
       local log = require("checkmate.log")
-      log.fmt_info("[main] Checkmate stopped, with %d active buffers", active_buffers_count)
+      log.fmt_info("[main] Checkmate stopped, with %d active buffers", active_count)
       log.shutdown()
     end)
   end
@@ -1530,7 +1528,8 @@ function H.setup_autocommands()
 
       if require("checkmate.file_matcher").should_activate_for_buffer(event.buf, cfg.files) then
         require("checkmate.commands").setup(event.buf)
-        require("checkmate.api").setup_buffer(event.buf)
+        local buf = Buffer.get(event.buf)
+        buf:setup()
       end
     end,
   })
@@ -1539,15 +1538,12 @@ function H.setup_autocommands()
     group = augroup,
     callback = function(event)
       if event.match ~= "markdown" then
-        local bufs = H.get_active_buffer_map()
-
-        if bufs[event.buf] then
+        if Buffer.is_active(event.buf) then
           log.fmt_info("[autocmd] Filetype = '%s', turning off Checkmate for bufnr %d", event.match, event.buf)
 
-          local buf = event.buf
-          require("checkmate.commands").dispose(buf)
-          require("checkmate.api").shutdown(buf)
-          H.unregister_buffer(buf)
+          require("checkmate.commands").dispose(event.buf)
+          local buf = Buffer.get(event.buf)
+          buf:shutdown()
         end
       end
     end,
@@ -1570,11 +1566,12 @@ function H.setup_existing_markdown_buffers()
       and file_matcher.should_activate_for_buffer(bufnr, config.options.files)
     then
       table.insert(existing_buffers, bufnr)
-      require("checkmate.api").setup_buffer(bufnr)
+      local buf = Buffer.get(bufnr)
+      buf:setup()
     end
   end
 
-  local count = vim.tbl_count(existing_buffers)
+  local count = #existing_buffers
   if count > 0 then
     log.fmt_info("[main] %d existing Checkmate buffers found during startup: %s", count, existing_buffers)
   end
@@ -1600,61 +1597,9 @@ function H.set_running(value)
   H.state.running = value
 end
 
-function H.register_buffer(bufnr)
-  H.state.active_buffers[bufnr] = true
-end
-
-function H.unregister_buffer(bufnr)
-  H.state.active_buffers[bufnr] = nil
-end
-
-function H.is_buffer_active(bufnr)
-  return H.state.active_buffers[bufnr] == true
-end
-
--- Returns array of buffer numbers
-function H.get_active_buffer_list()
-  local buffers = {}
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      table.insert(buffers, bufnr)
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Returns hash table of bufnr -> true
-function H.get_active_buffer_map()
-  local buffers = {}
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      buffers[bufnr] = true
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return buffers
-end
-
--- Convenience function that returns count
-function H.count_active_buffers()
-  local count = 0
-  for bufnr in pairs(H.state.active_buffers) do
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      count = count + 1
-    else
-      H.state.active_buffers[bufnr] = nil
-    end
-  end
-  return count
-end
-
 function H.reset()
   H.state.initialized = false
   H.state.running = false
-  H.state.active_buffers = {}
 end
 
 --- Checks that is metadata tag name (internally using it's canonical name)
@@ -1706,11 +1651,5 @@ M._stop = H.stop
 M._get_user_opts = H.get_user_opts
 M._is_initialized = H.is_initialized
 M._is_running = H.is_running
-M._register_buffer = H.register_buffer
-M._unregister_buffer = H.unregister_buffer
-M._is_buffer_active = H.is_buffer_active
-M._get_active_buffer_list = H.get_active_buffer_list
-M._get_active_buffer_map = H.get_active_buffer_map
-M._count_active_buffers = H.count_active_buffers
 
 return M

@@ -201,7 +201,7 @@ describe("API", function()
       assert.is_false(ok)
 
       assert.is_true(vim.bo[bufnr].modified)
-      assert.is_true(require("checkmate")._is_buffer_active(bufnr))
+      assert.is_true(require("checkmate.buffer").is_active(bufnr))
 
       finally(function()
         h.cleanup_file(file_path)

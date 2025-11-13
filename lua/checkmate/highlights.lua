@@ -86,7 +86,7 @@ end
 --- apply immediate full-buffer highlighting (synchronous)
 ---@private
 function M._apply_immediate(bufnr, todo_map)
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   M.clear_hl_ns(bufnr)
 
@@ -107,7 +107,7 @@ function M._apply_region(bufnr, todo_map, region)
     return
   end
 
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   -- clear only the affected range
   -- note: region has end-exclusive rows
@@ -173,7 +173,7 @@ function M._apply_progressive(bufnr, todo_map, opts)
     deferred_roots = all_roots
   end
 
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   -- process viewport's root todos immediately (synchronous)
   if #immediate_roots > 0 then
@@ -197,9 +197,14 @@ end
 ---@private
 local function _progressive_step(bufnr, todo_map, cur_gen)
   local st = M._progressive[bufnr]
-  if not st or st.gen ~= cur_gen or not vim.api.nvim_buf_is_valid(bufnr) then
+  if not st or not vim.api.nvim_buf_is_valid(bufnr) then
     M.clear_buf_line_cache(bufnr)
-    M.cancel_progressive(bufnr)
+    return
+  end
+
+  if st.gen ~= cur_gen then
+    -- this is an step from an old progressive loop (a newer one has been started)
+    -- so we just bail
     return
   end
 
@@ -266,7 +271,7 @@ end
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group
 function M.get_todo_content_highlight(todo_state, is_main_content)
-  local state_name = util.snake_to_camel(todo_state)
+  local state_name = util.string.snake_to_camel(todo_state)
   if is_main_content then
     return "Checkmate" .. state_name .. "MainContent"
   else
@@ -284,8 +289,9 @@ function M.get_buffer_line(bufnr, row)
   if cache then
     return cache:get(row)
   end
-  -- fallback: create a throwaway cache for isolated calls
-  return util.create_line_cache(bufnr):get(row)
+  -- no cache for isolated calls
+  local lines = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)
+  return lines[1] or ""
 end
 
 function M.clear_buf_line_cache(bufnr)
@@ -341,7 +347,7 @@ function M.register_highlight_groups()
 
   -- generate highlight groups for each todo state
   for state_name, _ in pairs(config.options.todo_states) do
-    local state_name_camel = util.snake_to_camel(state_name)
+    local state_name_camel = util.string.snake_to_camel(state_name)
 
     local marker_group = "Checkmate" .. state_name_camel .. "Marker"
     local main_content_group = "Checkmate" .. state_name_camel .. "MainContent"
@@ -601,7 +607,7 @@ function M.highlight_todo_marker(bufnr, todo_item)
   local marker_text = todo_item.todo_marker.text
 
   if marker_pos.col >= 0 then
-    local state_name_camel = require("checkmate.util").snake_to_camel(todo_item.state)
+    local state_name_camel = require("checkmate.util").string.snake_to_camel(todo_item.state)
     local hl_group = "Checkmate" .. state_name_camel .. "Marker"
 
     local line = M.get_buffer_line(bufnr, marker_pos.row)

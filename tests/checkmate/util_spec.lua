@@ -12,7 +12,7 @@ describe("Util", function()
     for _, case in ipairs(cases) do
       assert.equal(
         case.expected,
-        util.is_end_of_line(case.line, case.col), -- default is to include whitespace if not `opts.include_whitespace` passed
+        util.string.is_end_of_line(case.line, case.col), -- default is to include whitespace if not `opts.include_whitespace` passed
         string.format("'%s' end at col %d? %s", case.line, case.col, case.expected)
       )
     end
@@ -27,7 +27,7 @@ describe("Util", function()
     for _, case in ipairs(cases) do
       assert.equal(
         case.expected,
-        util.is_end_of_line(case.line, case.col, { include_whitespace = false }),
+        util.string.is_end_of_line(case.line, case.col, { include_whitespace = false }),
         string.format("'%s' end at col %d? %s", case.line, case.col, case.expected)
       )
     end
@@ -35,31 +35,31 @@ describe("Util", function()
 
   describe("string operations", function()
     it("should convert snake case to camel case", function()
-      assert.equal("HelloWorld", util.snake_to_camel("hello_world"))
-      assert.equal("ThisIsATest", util.snake_to_camel("this_is_a_test"))
-      assert.equal("ABC", util.snake_to_camel("a_b_c"))
-      assert.equal("SnakeCASEInput", util.snake_to_camel("snake_CASE_input"))
+      assert.equal("HelloWorld", util.string.snake_to_camel("hello_world"))
+      assert.equal("ThisIsATest", util.string.snake_to_camel("this_is_a_test"))
+      assert.equal("ABC", util.string.snake_to_camel("a_b_c"))
+      assert.equal("SnakeCASEInput", util.string.snake_to_camel("snake_CASE_input"))
 
       -- preserves existing capitalization
-      assert.equal("AlreadyCamel", util.snake_to_camel("alreadyCamel"))
-      assert.equal("MixedUPAndDown", util.snake_to_camel("mixed_UP_and_down"))
+      assert.equal("AlreadyCamel", util.string.snake_to_camel("alreadyCamel"))
+      assert.equal("MixedUPAndDown", util.string.snake_to_camel("mixed_UP_and_down"))
 
       -- numbers pass through
-      assert.equal("User123Name", util.snake_to_camel("user_123_name"))
-      assert.equal("GetHttp2Response", util.snake_to_camel("get_http2_response"))
+      assert.equal("User123Name", util.string.snake_to_camel("user_123_name"))
+      assert.equal("GetHttp2Response", util.string.snake_to_camel("get_http2_response"))
 
       -- edge‐cases
-      assert.equal("", util.snake_to_camel(""))
-      assert.equal("PrivateVariable", util.snake_to_camel("_private_variable"))
-      assert.equal("Trailing_", util.snake_to_camel("trailing_"))
+      assert.equal("", util.string.snake_to_camel(""))
+      assert.equal("PrivateVariable", util.string.snake_to_camel("_private_variable"))
+      assert.equal("Trailing_", util.string.snake_to_camel("trailing_"))
     end)
 
     it("should get next ordered marker", function()
-      assert.equal("2.", util.get_next_ordered_marker("1. [ ] A"))
-      assert.equal("11.", util.get_next_ordered_marker("10. [ ] B"))
-      assert.equal("50)", util.get_next_ordered_marker("49) [ ] C"))
-      assert.equal("2)", util.get_next_ordered_marker("  1) [ ] D"))
-      assert.equal(nil, util.get_next_ordered_marker("- [ ] E"))
+      assert.equal("2.", util.string.get_next_ordered_marker("1. [ ] A"))
+      assert.equal("11.", util.string.get_next_ordered_marker("10. [ ] B"))
+      assert.equal("50)", util.string.get_next_ordered_marker("49) [ ] C"))
+      assert.equal("2)", util.string.get_next_ordered_marker("  1) [ ] D"))
+      assert.equal(nil, util.string.get_next_ordered_marker("- [ ] E"))
     end)
   end)
 

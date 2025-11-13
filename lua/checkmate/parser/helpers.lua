@@ -85,7 +85,7 @@ function M.create_list_item_patterns(opts)
     bullet_markers = table.concat(bullet_markers, "")
   end
 
-  local cls = require("checkmate.util").escape_for_char_class(bullet_markers)
+  local cls = vim.pesc(bullet_markers)
 
   local patterns = {}
 
@@ -132,7 +132,7 @@ function M.match_list_item(line)
   local lm = vim.trim(lm_raw)
   local lm_trailing_ws = lm_raw:match("^" .. lm .. "(%s*)")
   local content = lm_trailing_ws .. result.captures[3]
-  content = require("checkmate.util").trim_trailing(content)
+  content = require("checkmate.util").string.trim_trailing(content)
 
   return {
     indent = indent,
@@ -273,7 +273,7 @@ function M.match_todo(line)
     local list_seg, todo_marker, _ = line:match(pat)
     if list_seg then
       local indent_ws = list_seg:match("^(%s*)") or ""
-      local list_marker = util.trim_leading(util.trim_trailing(list_seg))
+      local list_marker = util.string.trim_leading(util.string.trim_trailing(list_seg))
 
       for state_name, state in pairs(config.options.todo_states) do
         if state.marker == todo_marker then

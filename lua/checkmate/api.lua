@@ -577,10 +577,10 @@ function M._build_todo_line(opts)
     local is_nested = indent_opt == true
     if is_nested then
       -- nested items may reset numbering
-      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
+      list_marker = util.string.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
     else
       -- siblings increment numbering
-      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, false) or parent_prefix.list_marker
+      list_marker = util.string.get_next_ordered_marker(parent_prefix.list_marker, false) or parent_prefix.list_marker
     end
   else
     -- use default from config or fallback to "-"
@@ -629,7 +629,7 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
     new_line = new_todo.line
   else
     -- not a list item - build from scratch
-    local existing_indent = util.get_line_indent(line)
+    local existing_indent = util.string.get_line_indent(line)
     local existing_content = vim.trim(line)
 
     local content = opts.content or existing_content

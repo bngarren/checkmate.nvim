@@ -2,6 +2,8 @@ local M = {}
 
 M.mode = require("checkmate.util.mode")
 M.debounce = require("checkmate.util.debounce")
+M.string = require("checkmate.util.string")
+M.line_cache = require("checkmate.util.line_cache")
 
 local uv = vim.uv or vim.loop
 
@@ -83,10 +85,6 @@ function M.get_viewport_bounds(win, pad)
   return start0, end0
 end
 
--- --------------------- Debounce --------------------------
-
--- --------------------- end Debounce --------------------------
-
 ---Blends the foreground color with the background color
 ---
 ---Credit to github.com/folke/snacks.nvim
@@ -144,104 +142,6 @@ function M.get_hl_color(hl_group, prop, default)
   end
 
   return default
-end
-
-function M.trim_leading(line)
-  line = line or ""
-  return line:match("^%s*(.*)$")
-end
-
-function M.trim_trailing(line)
-  line = line or ""
-  return line:match("^(.-)%s*$")
-end
-
----Convert a snake_case string to CamelCase
----@param input string input in snake_case (underscores)
----@return string result converted to CamelCase
-function M.snake_to_camel(input)
-  local s = tostring(input)
-  -- uppercase the letter/digit after each underscore, and remove the underscore
-  s = s:gsub("_([%w])", function(c)
-    return c:upper()
-  end)
-  -- uppercase first character if it's a lowercase letter
-  s = s:gsub("^([a-z])", function(c)
-    return c:upper()
-  end)
-  return s
-end
-
---- Returns the line's leading whitespace (indentation)
----@param line string
----@return string indent
-function M.get_line_indent(line)
-  return line:match("^(%s*)") or ""
-end
-
---- Returns true if the col (0-based) is at the end of the trimmed line
---- The 'end' is the position of the last character of the line
----@param line string
----@param col integer (0-based)
----@param opts? {include_whitespace?: boolean}
---- - include_whitespace: Default is true
----@return boolean
-function M.is_end_of_line(line, col, opts)
-  opts = opts or {}
-  local line_length = opts.include_whitespace ~= false and #line or #M.trim_trailing(line)
-  return col + 1 == line_length
-end
-
---- Returns the next ordered marker (incremented)
---- e.g. if `1.` is passed, will return `2.`
---- If the passed string does not match an ordered list marker, will return nil
---- Pass `restart = true` if the numbering should start at 1, i.e. for a nested list item
----@param li_marker_str string Current marker like "1." or "2)"
----@param restart? boolean If true, reset to "1.", e.g., for nested items
----@return string|nil
-function M.get_next_ordered_marker(li_marker_str, restart)
-  local num, delimiter = li_marker_str:match("^%s*(%d+)([%.%)])")
-  local result = nil
-  if num then
-    if not restart then
-      -- same level: increment
-      result = tostring(tonumber(num) + 1) .. delimiter
-    else
-      -- nested: start from 1
-      result = "1" .. delimiter
-    end
-  end
-  return result
-end
-
---- Check if cursor position is valid for list continuation
---- The cursor must be after the checkbox/todo marker to trigger continuation
----@param col integer 0-based cursor column in insert mode
----@param todo_prefix checkmate.TodoPrefix Todo prefix from match_todo
----@return boolean
-function M.is_valid_list_continuation_position(col, todo_prefix)
-  -- this is the position after: indent + list_marker + space + todo_marker
-  local threshold = todo_prefix.indent + #todo_prefix.list_marker + 1 + #todo_prefix.todo_marker
-
-  return col >= threshold
-end
-
---- Escapes special characters in a string for safe use in a Lua pattern character class.
---
--- Use this when dynamically constructing a pattern like `[%s]` or `[-+*]`,
--- since characters like `-`, `]`, `^`, and `%` have special meaning inside `[]`.
---
--- Example:
---   escape_for_char_class("-^]") → "%-%^%]"
---
--- @param s string: Input string to escape
--- @return string: Escaped string safe for use inside a Lua character class
-function M.escape_for_char_class(s)
-  if not s or s == "" then
-    return ""
-  end
-  local result = s:gsub("([%%%^%]%-])", "%%%1")
-  return result
 end
 
 ---Returns a todo_map table sorted by start row
@@ -353,23 +253,6 @@ function M.get_ts_node_range_string(node)
   return ("[%d,%d] → [%d,%d]"):format(start_row, start_col, end_row, end_col)
 end
 
---- Strip trailing blank (all-whitespace) lines, in-place.
----@param lines string[]
----@param max_blank integer max amount of blank lines to allow
----@return table result the same table for convenience
-function M.strip_trailing_blank_lines(lines, max_blank)
-  -- walk backwards until we meet a non-blank line
-  local last = #lines
-  while last >= 1 and lines[last]:match("^%s*$") do
-    last = last - 1
-  end
-
-  for i = #lines, last + 1 + (max_blank or 0), -1 do
-    lines[i] = nil
-  end
-  return lines
-end
-
 ---Build a Markdown heading
 ---@param title string text after the hashes
 ---@param level? integer 1-6; clamped; defaults to 2
@@ -380,110 +263,60 @@ function M.get_heading_string(title, level)
   return string.rep("#", level) .. " " .. title
 end
 
---- Efficiently batch-read buffer lines for multiple row positions
---- Optimizes by reading contiguous ranges in single API calls
----@param bufnr integer Buffer number
----@param rows integer[] Array of 0-based row numbers to read
----@return table<integer, string> Map of row number to line content
-function M.batch_get_lines(bufnr, rows)
-  if #rows == 0 then
+--- Captures the range in a single vim.api.nvim_buf_get_lines call and returns
+--- the per-row content
+---
+--- IMPORTANT: assumes `rows` are sorted in ascending order unless `opts.sort` is true
+--- Returns a map of row number (0-indexed) → line content
+---
+---@param bufnr integer
+---@param rows integer[] 0-based row numbers
+--- If `sort` is true, the rows will be sorted first, leave nil if they are already pre-sorted (expectation)
+---@param opts? { sort?: boolean }
+---@return table<integer, string> lines_by_row
+function M.get_buf_lines_for_rows(bufnr, rows, opts)
+  if not rows or #rows == 0 then
     return {}
   end
 
-  -- For small requests, just read directly
-  if #rows == 1 then
-    local lines = vim.api.nvim_buf_get_lines(bufnr, rows[1], rows[1] + 1, false)
-    return { [rows[1]] = lines[1] or "" }
+  opts = opts or {}
+
+  local count = #rows
+
+  if count == 1 then
+    local row = rows[1]
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+    return { [row] = line }
   end
 
-  -- Sort rows to find contiguous ranges
-  local sorted_rows = vim.tbl_extend("error", {}, rows)
-  table.sort(sorted_rows)
+  local sorted_rows
 
+  if opts.sort then
+    sorted_rows = {}
+    for i = 1, count do
+      sorted_rows[i] = rows[i]
+    end
+    table.sort(sorted_rows)
+  else
+    -- assume rows are in ascending order
+    sorted_rows = rows
+  end
+
+  local min_row = sorted_rows[1]
+  local max_row = sorted_rows[count]
+
+  local block = vim.api.nvim_buf_get_lines(bufnr, min_row, max_row + 1, false)
+
+  ---@type table<integer, string>
   local result = {}
-  local range_start = sorted_rows[1]
-  local range_end = sorted_rows[1]
 
-  local function read_range()
-    if range_start <= range_end then
-      local lines = vim.api.nvim_buf_get_lines(bufnr, range_start, range_end + 1, false)
-      for i = 0, range_end - range_start do
-        result[range_start + i] = lines[i + 1] or ""
-      end
-    end
+  -- map each requested row -> line from nvim_buf_get_lines
+  for i = 1, count do
+    local row = sorted_rows[i]
+    local idx = row - min_row + 1
+    result[row] = block[idx] or ""
   end
 
-  -- Find contiguous ranges and batch read them
-  for i = 2, #sorted_rows do
-    if sorted_rows[i] > range_end + 1 then
-      -- Gap found, read current range
-      read_range()
-      range_start = sorted_rows[i]
-      range_end = sorted_rows[i]
-    else
-      range_end = sorted_rows[i]
-    end
-  end
-
-  -- Read final range
-  read_range()
-
-  return result
-end
-
---- Simple line cache for operations that need repeated access to same lines
----@class LineCache
----@field private bufnr integer
----@field private lines table<integer, string>
----@field get fun(self: LineCache, row: integer): string
----@field get_many fun(self: LineCache, rows: integer[]): table<integer, string>
-local LineCache = {}
-LineCache.__index = LineCache
-
----@param bufnr integer
----@return LineCache
-function M.create_line_cache(bufnr)
-  local self = setmetatable({
-    bufnr = bufnr,
-    lines = {},
-  }, LineCache)
-  return self
-end
-
----@param row integer 0-based row number
----@return string
-function LineCache:get(row)
-  if self.lines[row] == nil then
-    local lines = vim.api.nvim_buf_get_lines(self.bufnr, row, row + 1, false)
-    self.lines[row] = lines[1] or ""
-  end
-  return self.lines[row]
-end
-
----@param rows integer[] Array of 0-based row numbers
----@return table<integer, string>
-function LineCache:get_many(rows)
-  -- Find which rows we need to fetch
-  local missing = {}
-  for _, row in ipairs(rows) do
-    if self.lines[row] == nil then
-      table.insert(missing, row)
-    end
-  end
-
-  -- Batch fetch missing rows
-  if #missing > 0 then
-    local fetched = M.batch_get_lines(self.bufnr, missing)
-    for row, line in pairs(fetched) do
-      self.lines[row] = line
-    end
-  end
-
-  -- Return requested rows
-  local result = {}
-  for _, row in ipairs(rows) do
-    result[row] = self.lines[row]
-  end
   return result
 end
 

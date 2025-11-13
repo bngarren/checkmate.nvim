@@ -773,11 +773,11 @@ function M.discover_todos(bufnr)
 
   -- batch read all needed lines
   local rows_needed = {}
-  local n_items = #list_items
-  for i = 1, n_items do
+  for i = 1, #list_items do
     rows_needed[i] = list_items[i].start_row
   end
-  local first_lines = util.batch_get_lines(bufnr, rows_needed)
+  -- list_items are already sorted (from TS iter_captures)
+  local first_lines = util.get_buf_lines_for_rows(bufnr, rows_needed)
 
   -- map to track node_id -> extmark_id for hierarchy building
   local node_to_extmark = {}

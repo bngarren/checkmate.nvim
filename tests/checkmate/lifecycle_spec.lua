@@ -1,8 +1,6 @@
 local h
 
 describe("checkmate init and lifecycle", function()
-  ---@module "checkmate.buf_local"
-  local buf_local
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
@@ -18,7 +16,6 @@ describe("checkmate init and lifecycle", function()
   before_each(function()
     _G.reset_state()
     h = require("tests.checkmate.helpers")
-    buf_local = require("checkmate.buf_local")
   end)
 
   describe("setup", function()
@@ -125,9 +122,9 @@ describe("checkmate init and lifecycle", function()
 
       vim.wait(20)
 
-      local bl = buf_local.handle(bufnr)
+      local buffer = require("checkmate.buffer").get(bufnr)
 
-      assert.is_true(bl:get("setup_complete"))
+      assert.is_true(buffer._local:get("setup_complete"))
 
       checkmate._stop()
     end)
@@ -177,10 +174,10 @@ describe("checkmate init and lifecycle", function()
 
       local bufnr = h.setup_test_buffer("", "todo")
 
-      local bl = buf_local.handle(bufnr)
+      local buffer = require("checkmate.buffer").get(bufnr)
 
       vim.wait(50, function()
-        return bl:get("setup_complete") == true
+        return buffer._local:get("setup_complete") == true
       end, 10)
 
       assert.equal(1, Buffer.count_active())
@@ -270,9 +267,9 @@ describe("checkmate init and lifecycle", function()
 
       vim.bo[bufnr].filetype = "markdown"
 
-      local bl = buf_local.handle(bufnr)
+      local buffer = require("checkmate.buffer").get(bufnr)
 
-      assert.is_true(bl:get("setup_complete"))
+      assert.is_true(buffer._local:get("setup_complete"))
 
       checkmate._stop()
     end)
@@ -286,9 +283,9 @@ describe("checkmate init and lifecycle", function()
 
       vim.bo[bufnr].filetype = "markdown"
 
-      local bl = buf_local.handle(bufnr)
+      local buffer = require("checkmate.buffer").get(bufnr)
 
-      assert.is_falsy(bl:get("setup_complete"))
+      assert.is_falsy(buffer._local:get("setup_complete"))
 
       checkmate._stop()
     end)
@@ -543,9 +540,9 @@ describe("checkmate init and lifecycle", function()
     local bufnr = vim.api.nvim_get_current_buf()
     vim.bo[bufnr].filetype = "markdown"
 
-    local bl = buf_local.handle(bufnr)
+    local buffer = require("checkmate.buffer").get(bufnr)
 
-    assert.is_true(bl:get("setup_complete"))
+    assert.is_true(buffer._local:get("setup_complete"))
 
     vim.bo[bufnr].filetype = "text"
 
@@ -572,24 +569,24 @@ describe("checkmate init and lifecycle", function()
     local buf1 = vim.api.nvim_get_current_buf()
     vim.bo[buf1].filetype = "markdown"
 
-    local bl1 = buf_local.handle(buf1)
+    local buffer1 = require("checkmate.buffer").get(buf1)
 
     vim.cmd("edit tasks.md")
     local buf2 = vim.api.nvim_get_current_buf()
     vim.bo[buf2].filetype = "markdown"
 
-    local bl2 = buf_local.handle(buf2)
+    local buffer2 = require("checkmate.buffer").get(buf2)
 
-    assert.is_true(bl1:get("setup_complete"))
-    assert.is_falsy(bl2:get("setup_complete"))
+    assert.is_true(buffer1._local:get("setup_complete"))
+    assert.is_falsy(buffer2._local:get("setup_complete"))
 
     -- Change configuration
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup({ files = { "tasks.md" } })
 
     -- buf1 should be deactivated, buf2 should be activated
-    assert.is_falsy(bl1:get("setup_complete"))
-    assert.is_true(bl2:get("setup_complete"))
+    assert.is_falsy(buffer1._local:get("setup_complete"))
+    assert.is_true(buffer2._local:get("setup_complete"))
 
     checkmate._stop()
   end)

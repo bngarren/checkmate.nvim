@@ -1,4 +1,4 @@
----Internal buffer operations API - not for public use
+---Internal API - not for public use
 ---For public API, see checkmate.init module
 
 --[[
@@ -24,6 +24,8 @@ to perform the highlighting.
 If an API is non-editing, then this will need to call apply_highlighting manually.
 --]]
 
+local M = {}
+
 local config = require("checkmate.config")
 local log = require("checkmate.log")
 local parser = require("checkmate.parser")
@@ -32,29 +34,15 @@ local meta_module = require("checkmate.metadata")
 local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
-local Buffer = require("checkmate.buffer")
-
----@class checkmate.Api
-local M = {}
 
 ---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
----@deprecated Use Buffer.get(bufnr):setup()
-function M.setup_buffer(bufnr)
-  if not Buffer.is_valid(bufnr) then
-    return false
-  end
-
-  local buf = Buffer.get(bufnr)
-  return buf:setup()
-end
-
--- functions that process the buffer need to be debounced and stored
+-- functions that process a buffer need to be debounced and stored
 ---@type table<number, table<string, Debounced>>
 M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
--- we can "process" the buffer different ways depending on the need, the frequency we expect it
+-- we can "process" a buffer different ways depending on the need, the frequency we expect it
 -- to occur, etc.
 -- e.g. we don't want to convert during TextChangedI
 M.PROCESS_CONFIGS = {
@@ -78,10 +66,11 @@ function M.process_buffer(bufnr, process_type, reason)
   if not process_config then
     return
   end
-  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  local buffer = require("checkmate.buffer").get(bufnr)
 
   -- do not react to our own conversion writes
-  if bl:get("in_conversion") then
+  if buffer._local:get("in_conversion") then
     return
   end
 
@@ -98,13 +87,13 @@ function M.process_buffer(bufnr, process_type, reason)
 
   if not M._debounced_processors[bufnr][process_type] then
     local function process_impl()
-      bl = require("checkmate.buf_local").handle(bufnr)
-
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_processors[bufnr] = nil
         M._last_call_ctx[bufnr] = nil
         return
       end
+
+      buffer = require("checkmate.buffer").get(bufnr)
 
       -- pull outside data from ctx to avoid stale closure
       local ctx = (M._last_call_ctx[bufnr] and M._last_call_ctx[bufnr][process_type]) or {}
@@ -125,11 +114,11 @@ function M.process_buffer(bufnr, process_type, reason)
       -- this type is used by TextChangedI (insert mode), thus we
       -- try to optimize by only re-highlighting a region rather than full buffer
       if process_type == "highlight_only" then
-        local changed = bl:get("last_changed_region")
+        local changed = buffer._local:get("last_changed_region")
 
         if changed and changed.s ~= nil and changed.e ~= nil then
           -- consume the changed region
-          bl:set("last_changed_region", nil)
+          buffer._local:get("last_changed_region", nil)
 
           -- `changed.s` is 0-based start row; `changed.e` is an INCLUSIVE end row from on_lines
           -- add some small padding around the changed region to be extra conservative
@@ -266,21 +255,6 @@ function M.process_buffer(bufnr, process_type, reason)
   -- update context then trigger the runner
   M._last_call_ctx[bufnr][process_type] = { reason = reason }
   M._debounced_processors[bufnr][process_type]()
-end
-
----@deprecated Use Buffer.get(bufnr):shutdown()
-function M.shutdown(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local buf = Buffer.get(bufnr)
-  buf:shutdown()
-end
-
----@deprecated Use Buffer.is_valid(bufnr)
-function M.is_valid_buffer(bufnr)
-  return Buffer.is_valid(bufnr)
 end
 
 --- Creates todo(s) by converting non-todo lines within the range, or

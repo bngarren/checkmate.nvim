@@ -43,7 +43,7 @@ end
 
 local function assert_valid_buf(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
-    error(("checkmate.buf_local: invalid bufnr: %s"):format(tostring(bufnr)))
+    error(("checkmate.buffer.buf_local: invalid bufnr: %s"):format(tostring(bufnr)))
   end
 end
 

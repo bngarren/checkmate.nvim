@@ -397,7 +397,6 @@ describe("Highlights", function()
       local content = table.concat(lines, "\n") .. "\n"
 
       local bufnr = h.setup_test_buffer(content)
-      assert.is_true(api.setup_buffer(bufnr))
 
       -- initial extmarks
       local before_marks = highlights.get_hl_marks(bufnr)

@@ -1,7 +1,7 @@
 ---@alias checkmate.BufferState "uninitialized"|"setting_up"|"active"|"shutting_down"|"disposed"
 ---@class checkmate.Buffer
 ---@field bufnr integer
----@field private _local checkmate.BufferLocalHandle
+---@field _local checkmate.BufferLocalHandle
 ---@field private _state checkmate.BufferState
 local Buffer = {}
 Buffer.__index = Buffer
@@ -17,6 +17,7 @@ local function augroup()
   return vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
 end
 
+-- keyed by bufnr
 local _instances = {} ---@type table<integer, checkmate.Buffer>
 
 ---Check if buffer is valid for Checkmate
@@ -135,7 +136,7 @@ function Buffer.get(bufnr)
   if not _instances[bufnr] then
     _instances[bufnr] = setmetatable({
       bufnr = bufnr,
-      _local = require("checkmate.buf_local").handle(bufnr),
+      _local = require("checkmate.buffer.buf_local").handle(bufnr),
       _state = "uninitialized",
     }, Buffer)
   end

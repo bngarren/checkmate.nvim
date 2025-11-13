@@ -358,15 +358,15 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
-  local bl = require("checkmate.buf_local").handle(bufnr)
+  local buffer = require("checkmate.buffer").get(bufnr)
 
   -- prevent re-entry:
   -- so our own writes don't trigger downstream autocmds/handlers
   -- or re-run this function (which would break join logic)
-  if bl:get("in_conversion") then
+  if buffer._local:get("in_conversion") then
     return false
   end
-  bl:set("in_conversion", true)
+  buffer._local:set("in_conversion", true)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -419,7 +419,7 @@ function M.convert_markdown_to_unicode(bufnr)
   end
 
   if #changes == 0 then
-    bl:del("in_conversion")
+    buffer._local:del("in_conversion")
     return false
   end
 
@@ -434,12 +434,12 @@ Undo logic
 ]]
 
   -- initial conversion = before any user edit
-  local is_initial = bl:get("last_user_tick") == bl:get("baseline_tick")
+  local is_initial = buffer._local:get("last_user_tick") == buffer._local:get("baseline_tick")
 
   -- for edits after the initial conversion, coalesce this conversion write into the user's last edit when ticks match
   local should_join = not is_initial
-    and bl:get("last_user_tick") ~= nil
-    and (vim.api.nvim_buf_get_changedtick(bufnr) == bl:get("last_user_tick"))
+    and buffer._local:get("last_user_tick") ~= nil
+    and (vim.api.nvim_buf_get_changedtick(bufnr) == buffer._local:get("last_user_tick"))
 
   local original_modified = vim.bo[bufnr].modified
 
@@ -478,8 +478,8 @@ Undo logic
   end)
 
   vim.bo[bufnr].modified = original_modified
-  bl:set("last_conversion_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-  bl:del("in_conversion")
+  buffer._local:set("last_conversion_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+  buffer._local:del("in_conversion")
   return true
 end
 

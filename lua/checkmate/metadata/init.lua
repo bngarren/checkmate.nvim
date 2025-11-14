@@ -253,8 +253,7 @@ function M.get_choices(meta_name, callback, todo_item, bufnr)
     return callback({})
   end
 
-  ---@type checkmate.MetadataEntry
-  local entry = todo_item.metadata and todo_item.metadata.by_tag and todo_item.metadata.by_tag[canonical_name]
+  local entry = todo_item:get_metadata(canonical_name)
   local value = entry and entry.value or ""
 
   local context = M.create_context(todo_item, canonical_name, value, bufnr)
@@ -308,10 +307,13 @@ function M.has_metadata(todo_item, meta_name, predicate)
   end
 
   local canonical = M.get_canonical_name(meta_name)
-  local entry = todo_item.metadata.by_tag[canonical] or todo_item.metadata.by_tag[meta_name]
+  local entry = todo_item:get_metadata(meta_name)
 
   if not entry then
-    return false, nil
+    entry = todo_item:get_metadata(canonical)
+    if not entry then
+      return false, nil
+    end
   end
 
   if predicate ~= nil then

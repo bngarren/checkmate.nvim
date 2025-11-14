@@ -147,6 +147,30 @@ function TodoItem:build_todo(todo_map)
   }
 end
 
+function TodoItem:set_parent(parent_id)
+  self.parent_id = parent_id
+end
+
+function TodoItem:add_child(child_id)
+  table.insert(self.children, child_id)
+end
+
+function TodoItem:has_children()
+  return #self.children > 0
+end
+
+function TodoItem:has_metadata()
+  return #self.metadata.entries > 0
+end
+
+function TodoItem:get_metadata(name)
+  if self.metadata then
+    return self.metadata.by_tag[name]
+  else
+    return nil
+  end
+end
+
 --- Converts TreeSitter's technical range to a semantically meaningful range for todo items
 ---
 --- TreeSitter ranges have two quirks to address:
@@ -225,14 +249,6 @@ function TodoItem._get_semantic_range(range, bufnr)
   new_range.start.col = current_indent_level
 
   return new_range
-end
-
-function TodoItem:set_parent(parent_id)
-  self.parent_id = parent_id
-end
-
-function TodoItem:add_child(child_id)
-  table.insert(self.children, child_id)
 end
 
 return TodoItem

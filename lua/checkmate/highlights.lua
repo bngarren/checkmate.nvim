@@ -564,7 +564,7 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   end
 
   -- process children
-  if opts.recursive and todo_item.children and #todo_item.children > 0 then
+  if opts.recursive and todo_item:has_children() then
     local batch_size = 50
     for i = 1, #todo_item.children, batch_size do
       -- allow event loop to run between batches
@@ -635,24 +635,22 @@ end
 ---@param todo_rows checkmate.TodoMap row to todo lookup table
 function M.highlight_list_markers(bufnr, todo_item, todo_rows)
   -- highlight the todo item's own marker
-  if todo_item.list_marker and todo_item.list_marker.node then
-    local start_row, start_col = todo_item.list_marker.node:range()
-    local marker_text = todo_item.list_marker.text
+  local start_row, start_col = todo_item.list_marker.node:range()
+  local marker_text = todo_item.list_marker.text
 
-    if marker_text then
-      local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
-        or "CheckmateListMarkerUnordered"
+  if marker_text then
+    local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
+      or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
-        end_row = start_row,
-        end_col = start_col + #marker_text,
-        hl_group = hl_group,
-        priority = M.PRIORITY.LIST_MARKER,
-        right_gravity = false,
-        end_right_gravity = false,
-        hl_eol = false,
-      })
-    end
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
+      end_row = start_row,
+      end_col = start_col + #marker_text,
+      hl_group = hl_group,
+      priority = M.PRIORITY.LIST_MARKER,
+      right_gravity = false,
+      end_right_gravity = false,
+      hl_eol = false,
+    })
   end
 
   local query = parser.FULL_TODO_QUERY
@@ -892,7 +890,7 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
     return
   end
 
-  if not todo_item.children or #todo_item.children == 0 then
+  if not todo_item:has_children() then
     return
   end
 

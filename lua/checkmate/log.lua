@@ -20,7 +20,6 @@
 ---@field lazy_error lazy_log
 local M = {}
 
--- Log levels
 M.levels = {
   TRACE = 0,
   DEBUG = 1,
@@ -30,7 +29,6 @@ M.levels = {
   OFF = 5,
 }
 
--- Maps string level names to numeric values
 local level_map = {
   trace = M.levels.TRACE,
   debug = M.levels.DEBUG,

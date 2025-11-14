@@ -422,7 +422,7 @@ function M.setup_highlights()
           M.register_highlight_groups()
 
           -- Re-apply to all active buffers
-          for bufnr, _ in pairs(require("checkmate")._get_active_buffer_list()) do
+          for bufnr, _ in pairs(require("checkmate.buffer").get_active_buffers()) do
             if vim.api.nvim_buf_is_valid(bufnr) then
               M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
             end

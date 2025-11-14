@@ -189,6 +189,18 @@ function M.get_heading_string(title, level)
   return string.rep("#", level) .. " " .. title
 end
 
+--- Check if cursor position is valid for list continuation
+--- The cursor must be after the checkbox/todo marker to trigger continuation
+---@param col integer 0-based cursor column in insert mode
+---@param todo_prefix checkmate.TodoPrefix Todo prefix from match_todo
+---@return boolean
+function M.is_valid_list_continuation_position(col, todo_prefix)
+  -- this is the position after: indent + list_marker + space + todo_marker
+  local threshold = todo_prefix.indent + #todo_prefix.list_marker + 1 + #todo_prefix.todo_marker
+
+  return col >= threshold
+end
+
 --- Captures the range in a single vim.api.nvim_buf_get_lines call and returns
 --- the per-row content
 ---

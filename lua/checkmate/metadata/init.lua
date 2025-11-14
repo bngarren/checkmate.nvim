@@ -12,7 +12,7 @@ M._deprecation_msg_shown = false
 ---@param bufnr integer
 ---@return checkmate.MetadataContext
 function M.create_context(todo_item, meta_name, value, bufnr)
-  local todo = require("checkmate.util").build_todo(todo_item)
+  local todo = todo_item:build_todo(require("checkmate.parser").get_todo_map(bufnr))
   local name = M.get_canonical_name(meta_name) or meta_name
   return {
     value = value,

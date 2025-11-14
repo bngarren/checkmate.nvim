@@ -258,18 +258,16 @@ function M.set_todo_item(todo_item, target_state)
     vim.log.levels.WARN
   )
 
-  local util = require("checkmate.util")
+  local parser = require("checkmate.parser")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+
   local todo
   if todo_item.id then
-    local ok, res = pcall(util.build_todo, todo_item --[[@as checkmate.TodoItem]])
-    if ok then
-      todo = res
-    else
-      vim.notify("Checkmate: Invalid `todo_item` provided to 'set_todo_item: %s'", res)
-      return false
-    end
+    todo = todo_item:build_todo(parser.get_todo_map(bufnr))
   else
-    todo = todo_item --[[@as checkmate.Todo]]
+    require("checkmate.log").error("[main] invalid todo_item (missing id) given to `set_todo_item`")
+    return false
   end
 
   return M.set_todo_state(todo, target_state)
@@ -1128,7 +1126,7 @@ function M.select_metadata_value(opts)
     name = selected_metadata.tag,
     value = selected_metadata.value,
     buffer = bufnr,
-    todo = util.build_todo(todo_item),
+    todo = todo_item:build_todo(parser.get_todo_map(bufnr)),
   }
 
   --- apply (set) the new metadata value via transaction (similar to all APIs)
@@ -1294,7 +1292,7 @@ function M.get_todo(opts)
   if not item then
     return nil
   end
-  return util.build_todo(item)
+  return item:build_todo(parser.get_todo_map(bufnr))
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

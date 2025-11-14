@@ -1,9 +1,8 @@
 ---@diagnostic disable-next-line: missing-fields
-local M = {} ---@type checkmate.DebounceModule
-
----@class checkmate.DebounceModule : table
+---@class checkmate.Util.debounce : table
 ---@field debounce fun(fn: fun(...), opts?: checkmate.DebounceOpts): checkmate.Debounced
 ---@overload fun(fn: fun(...), opts?: checkmate.DebounceOpts): checkmate.Debounced
+local M = {}
 
 ---@class checkmate.Debounced
 ---@field cancel fun(self: checkmate.Debounced)
@@ -104,6 +103,7 @@ function M.debounce(fn, opts)
   })
 end
 
+---@diagnostic disable-next-line: param-type-mismatch
 return setmetatable(M, {
   __call = function(_, fn, opts)
     return M.debounce(fn, opts)

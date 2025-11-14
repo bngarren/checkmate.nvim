@@ -71,6 +71,82 @@ function TodoItem.new(opts)
   return self
 end
 
+---Creates a public facing checkmate.Todo from the internal checkmate.TodoItem representation
+---
+---exposes a public api while still providing access to the underlying todo_item
+---@param todo_map table<integer, checkmate.TodoItem>
+---@return checkmate.Todo
+function TodoItem:build_todo(todo_map)
+  local todo_item = self
+  local metadata_array = {}
+  for _, entry in ipairs(todo_item.metadata.entries) do
+    table.insert(metadata_array, { entry.tag, entry.value })
+  end
+
+  local function is_checked()
+    return todo_item.state == "checked"
+  end
+
+  local function is_unchecked()
+    return todo_item.state == "unchecked"
+  end
+
+  local function is_complete()
+    return todo_item.state_type == "complete"
+  end
+
+  local function is_incomplete()
+    return todo_item.state_type == "incomplete"
+  end
+
+  local function is_inactive()
+    return todo_item.state_type == "inactive"
+  end
+
+  local function get_metadata(name)
+    local result = vim
+      .iter(metadata_array)
+      :filter(function(m)
+        return m[1] == name
+      end)()
+    if not result then
+      return nil, nil
+    end
+    return result[1], result[2]
+  end
+
+  local function get_parent()
+    if not todo_item.parent_id then
+      return nil
+    end
+    ---@type checkmate.TodoItem?
+    local parent_item = todo_map[todo_item.parent_id]
+    return parent_item and parent_item:build_todo(todo_map) or nil
+  end
+
+  ---@type checkmate.Todo
+  return {
+    bufnr = todo_item.bufnr,
+    row = todo_item.range.start.row,
+    state = todo_item.state,
+    text = todo_item.todo_text,
+    indent = todo_item.range.start.col,
+    list_marker = todo_item.list_marker.text,
+    todo_marker = todo_item.todo_marker.text,
+    metadata = metadata_array,
+    is_checked = is_checked,
+    is_unchecked = is_unchecked,
+    is_complete = is_complete,
+    is_incomplete = is_incomplete,
+    is_inactive = is_inactive,
+    get_metadata = get_metadata,
+    get_parent = get_parent,
+    _get_todo_item = function()
+      return todo_item
+    end,
+  }
+end
+
 --- Converts TreeSitter's technical range to a semantically meaningful range for todo items
 ---
 --- TreeSitter ranges have two quirks to address:

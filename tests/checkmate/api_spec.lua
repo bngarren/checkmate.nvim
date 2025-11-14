@@ -162,7 +162,7 @@ describe("API", function()
       local task_2 = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Task 2")
       task_2 = h.exists(task_2)
 
-      local task_2_todo = util.build_todo(task_2)
+      local task_2_todo = task_2:build_todo(parser.get_todo_map(bufnr))
 
       local success = require("checkmate").set_todo_state(task_2_todo, "checked")
       assert.is_true(success)
@@ -2641,7 +2641,7 @@ describe("API", function()
       -- Find parent todo
       local parent_todo_item = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Parent task")
       parent_todo_item = h.exists(parent_todo_item)
-      local parent_todo = util.build_todo(parent_todo_item)
+      local parent_todo = parent_todo_item:build_todo(parser.get_todo_map(bufnr))
 
       assert.equal(3, #parent_todo_item.children)
 

@@ -281,7 +281,7 @@ end
 
 -- Caching
 -- To avoid redundant nvim_buf_get_lines calls during highlighting passes
----@type table<integer, LineCache>
+---@type table<integer, checkmate.Util.line_cache>
 M._line_cache_by_buf = {}
 
 function M.get_buffer_line(bufnr, row)

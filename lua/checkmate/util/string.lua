@@ -1,3 +1,4 @@
+---@class checkmate.Util.string
 local M = {}
 
 ---@param line string

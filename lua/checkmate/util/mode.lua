@@ -1,3 +1,4 @@
+---@class checkmate.Util.mode
 local M = {}
 
 -- Return a normalized family: "n" | "v" | "i" | nil (if none of those)

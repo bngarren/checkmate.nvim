@@ -1,4 +1,4 @@
-*checkmate.txt*       For Neovim >= 0.10.0       Last change: 2025 November 11
+*checkmate.txt*       For Neovim >= 0.10.0       Last change: 2025 November 15
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -196,8 +196,8 @@ USER COMMANDS
   cycle_previous           Cycle a todo’s state to the previous. See api cycle()
 
   lint                     Lint this buffer for Checkmate formatting issues. Runs
-                           automatically on InsertLeave and TextChanged. See api lint()
-                           andLinting section.
+                           automatically on InsertLeave and TextChanged. See api lint() and
+                           Linting section.
 
   metadata add             Add a metadata tag to the todo under the cursor or within the
                            selection. Usage: :Checkmate metadata add <key> [value]. See api
@@ -227,6 +227,10 @@ USER COMMANDS
 
   remove_all_metadata      Remove all metadata tags from the todo under the cursor or within
                            the selection. See api remove_all_metadata()
+
+  select_todo              Open a picker to select a todo from the current buffer. See api
+                           select_todo(), which allows for filtering and picker
+                           customization.
 
   toggle                   Toggle the todo item under the cursor (normal mode) or all todo
                            items within the selection (visual mode). See api toggle().
@@ -315,6 +319,11 @@ DEFAULTS                                           *checkmate-config-defaults*
         ["<leader>Ta"] = {
           rhs = "<cmd>Checkmate archive<CR>",
           desc = "Archive checked/completed todo items (move to bottom section)",
+          modes = { "n" },
+        },
+        ["<leader>TF"] = {
+          rhs = "<cmd>Checkmate select_todo<CR>",
+          desc = "Open a picker to select a todo from the current buffer",
           modes = { "n" },
         },
         ["<leader>Tv"] = {

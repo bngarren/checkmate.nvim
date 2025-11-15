@@ -38,28 +38,28 @@ M.PICKERS = {
   NATIVE = "native",
 }
 
----Configures a per-call picker backend and customization
+--- Configures a per-call picker backend and customization
 ---
----A "picker" is resolved in the following order (highest to lowest priority):
----  1. `picker` field - forces a specific picker backend for this call
----  2. global `config.ui.picker` preference
----  3. auto-detection - tries telescope -> snacks -> mini -> native
+--- A "picker" is resolved in the following order (highest to lowest priority):
+---   1. `picker` field - forces a specific picker backend for this call
+---   2. global `config.ui.picker` preference
+---   3. auto-detection - tries telescope -> snacks -> mini -> native
 ---
----Checkmate uses reasonable defaults for each builtin picker implementation. You can
----merge your own opts (overriding these specific fields via deep extend) by using a generic `opts` table, or
----a backend-specific table keyed by the picker name.
+--- Checkmate uses reasonable defaults for each builtin picker implementation. You can
+--- merge your own opts (overriding these specific fields via deep extend) by using a generic `opts` table, or
+--- a backend-specific table keyed by the picker name.
 ---
----Note: A backend-specific table field will override the same key in the `opts` table if both are passed.
+--- Note: A backend-specific table field will override the same key in the `opts` table if both are passed.
 ---
----**Example**:
----```lua
----  picker_opts = {
----    picker = "snacks",  -- Force snacks.picker
----    snacks = {
----      layout = { preset = "sidebar" }  -- Only override preset, keep other checkmate defaults
----    }
----  }
----```
+--- **Example**:
+--- ```lua
+---   picker_opts = {
+---     picker = "snacks",  -- Force snacks.picker
+---     snacks = {
+---       layout = { preset = "sidebar" }  -- Only override preset, keep other checkmate defaults
+---     }
+---   }
+--- ```
 ---
 ---@class checkmate.PickerOpts
 ---@field picker? checkmate.Picker Force a specific picker backend
@@ -68,6 +68,12 @@ M.PICKERS = {
 ---@field snacks? table<string, any> Snacks.pickers.pick opts
 ---@field mini? table<string, any> mini.pick.start opts
 ---@field native? table<string, any> vim.ui.select opts
+
+---@class checkmate.FilterOpts
+---@field states? string[] Filter by todo state names (e.g., {"checked", "unchecked", "pending"}). Matches ANY.
+---@field state_types? checkmate.TodoStateType[] Filter by state types: "complete", "incomplete", "inactive". Matches ANY.
+---@field metadata? table<string, string|boolean> Filter by metadata key-value pairs. For tags, use true (tag exists) or false (tag absent). For metadata with values, use the string value (e.g., {urgent = true, priority = "high"}). Default: match ANY.
+---@field metadata_match_all? boolean If true, require ALL metadata pairs to match (default: false - match ANY)
 
 -- Globally disables/deactivates Checkmate for all buffers
 ---@return nil
@@ -600,13 +606,12 @@ function M.create(opts)
 end
 
 ---@class checkmate.RemoveOptions
----
----If true, keep the list marker (e.g. "- Text"); if false, remove list marker also ("Text")
----Default: true
+--- If true, keep the list marker (e.g. "- Text"); if false, remove list marker also ("Text")
+--- Default: true
 ---@field preserve_list_marker? boolean
 ---
----Removes all metadata associated with the todo
----Default: true
+--- Removes all metadata associated with the todo
+--- Default: true
 ---@field remove_metadata? boolean
 
 --- Remove todo from the current line (or all todos in a visual selection)
@@ -1036,55 +1041,55 @@ end
 
 ---@class checkmate.SelectMetadataValueOpts
 ---@field position? {row: integer, col?: integer} Position to use to locate metadata rather than cursor (0-indexed)
----For advanced customization
+--- For advanced customization
 ---@field picker_opts? checkmate.PickerOpts
----Call exactly once with:
----  - Selected value (string) to apply the change
----  - nil to cancel (no changes)
+--- Call exactly once with:
+---   - Selected value (string) to apply the change
+---   - nil to cancel (no changes)
 ---@field custom_picker? fun(context: checkmate.MetadataContext, complete: fun(value: string?))
 
----Opens a picker to select a new value for the metadata under the cursor
+--- Opens a picker to select a new value for the metadata under the cursor
 ---
----A `position` opt can be used to specify a metadata rather than use cursor. It must resolve to within the metadata tag/value range.
+--- A `position` opt can be used to specify a metadata rather than use cursor. It must resolve to within the metadata tag/value range.
 ---
----**Default Behavior:**
----Uses the metadata's `choices` field to populate items and opens a picker.
----The global picker can be customized via the `ui.picker` option in the config, or
----a picker-specific config can be passed via `picker_opts`.
+--- **Default Behavior:**
+--- Uses the metadata's `choices` field to populate items and opens a picker.
+--- The global picker can be customized via the `ui.picker` option in the config, or
+--- a picker-specific config can be passed via `picker_opts`.
 ---
 ---
----**Custom Picker:**
----Pass a `opts.custom_picker` for complete control (BYOP). You handle everything: generating choices, UI, calling complete(value).
----Your function will receive:
----  - `context`: Contains metadata details, todo item, and buffer number
----  - `complete`: Callback function to finalize the selection
----Why? If you want a custom picker (e.g., items that aren't generated by the `choices` field,
----such as an optimized picker from a dedicated picker plugin)
+--- **Custom Picker:**
+--- Pass a `opts.custom_picker` for complete control (BYOP). You handle everything: generating choices, UI, calling complete(value).
+--- Your function will receive:
+---   - `context`: Contains metadata details, todo item, and buffer number
+---   - `complete`: Callback function to finalize the selection
+--- Why? If you want a custom picker (e.g., items that aren't generated by the `choices` field,
+--- such as an optimized picker from a dedicated picker plugin)
 ---
----**Important Notes:**
----  - The cursor must be positioned on a metadata region (e.g., @priority(high)), or a `position` opt passed
----  - If metadata value hasn't changed, no operation is performed
+--- **Important Notes:**
+---   - The cursor must be positioned on a metadata region (e.g., @priority(high)), or a `position` opt passed
+---   - If metadata value hasn't changed, no operation is performed
 ---
----@example
----Example: custom picker function:
+--- ## Example
+--- custom picker function:
 ---
----```lua
---- -- Update metadata from a snacks.nvim picker
---- require("checkmate").select_metadata_value({
----  custom_picker = function(ctx, complete)
----    require("snacks").picker.files({
----      confirm = function(picker, item)
----        if item then
----          vim.schedule(function()
----            complete(item.text)
----          end)
----        end
----        picker:close()
----      end,
----    })
----  end,
---- })
----```
+--- ```lua
+---  -- Update metadata from a snacks.nvim picker
+---  require("checkmate").select_metadata_value({
+---   custom_picker = function(ctx, complete)
+---     require("snacks").picker.files({
+---       confirm = function(picker, item)
+---         if item then
+---           vim.schedule(function()
+---             complete(item.text)
+---           end)
+---         end
+---         picker:close()
+---       end,
+---     })
+---   end,
+---  })
+--- ```
 ---
 ---@param opts? checkmate.SelectMetadataValueOpts
 ---@return boolean success False if validation failed (no todo/metadata at position), true if picker was opened successfully
@@ -1250,20 +1255,20 @@ function M.jump_previous_metadata()
   end
 end
 
+---@class checkmate.GetTodoOpts
+---@field bufnr? integer (default: current). Buffer must be loaded.
+---@field row? integer (0-based) row to inspect (overrides cursor/visual selection)
+---@field root_only? boolean Only match if row is the todo's first line (default: false)
+
 --- Get the todo under the cursor (or the first line of a visual selection)
 ---
 --- Behavior:
---- - Uses current buffer and cursor row by default
+--- - Uses current buffer and cursor row by default.
 --- - In visual mode, resolves the todo at the *first* line of the selection (`'<`)
 --- - If `root_only=true`, only returns a todo when the resolved row is the todo's first line (i.e., with list item and todo marker)
 --- - If the buffer is not an active Checkmate buffer, returns nil
 ---
---- Options:
----   - bufnr?: integer            Buffer to inspect (default: current)
----   - row?:   integer (0-based)  Explicit row to inspect (overrides cursor/visual)
----   - root_only?: boolean        Only match if row is the todo’s first line
----
---- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
+--- @param opts? checkmate.GetTodoOpts
 --- @return checkmate.Todo? todo The todo item at the specified position, or nil if not found
 function M.get_todo(opts)
   opts = opts or {}
@@ -1295,17 +1300,199 @@ function M.get_todo(opts)
     end
   end
 
+  -- prefer transaction todo_map snapshot if one exists
   local ctx = transaction.current_context(bufnr)
-  local parse_opts = { root_only = opts.root_only == true }
-  if ctx then
-    parse_opts.todo_map = ctx.get_todo_map()
+  local todo_map = ctx and ctx.get_todo_map() or parser.get_todo_map(bufnr)
+
+  if not todo_map or vim.tbl_isempty(todo_map) then
+    return nil
   end
+
+  local parse_opts = {
+    root_only = opts.root_only == true,
+    todo_map = todo_map,
+  }
 
   local item = parser.get_todo_item_at_position(bufnr, row, 0, parse_opts)
   if not item then
     return nil
   end
-  return item:build_todo(parser.get_todo_map(bufnr))
+
+  return item:build_todo(todo_map)
+end
+
+---@class checkmate.GetTodosOpts
+---@field bufnr? integer (default: current buffer). Buffer must be loaded.
+---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
+---@field filter? checkmate.FilterOpts
+
+--- Get todos from buffer with optional filtering
+---
+--- Returns an array of todos that can be used to populate quickfix lists, pickers, or custom UIs.
+--- Supports filtering by state, state type, and metadata.
+---
+--- ## Examples
+--- ```lua
+--- -- Get all todos in buffer
+--- local todos = checkmate.get_todos()
+---
+--- -- Get todos in specific range
+--- local todos = checkmate.get_todos({ range = {10, 50} })
+---
+--- -- Get all incomplete todos
+--- local todos = checkmate.get_todos({
+---   filter = { state_types = { "incomplete" } },
+--- })
+---
+--- -- Get todos with "urgent" tag (tag exists)
+--- local todos = checkmate.get_todos({
+---   filter = { metadata = { urgent = true } },
+--- })
+---
+--- -- Get todos without "archived" tag
+--- local todos = checkmate.get_todos({
+---   filter = { metadata = { archived = false } },
+--- })
+---
+--- -- Get todos with BOTH "urgent" tag AND high priority
+--- local todos = checkmate.get_todos({
+---   filter = {
+---     metadata = { urgent = true, priority = "high" },
+---     metadata_match_all = true,
+---   },
+--- })
+---
+--- -- Complex filtering
+--- local todos = checkmate.get_todos({
+---   range = {0, 100},
+---   filter = {
+---     state_types = { "incomplete" },
+---     metadata = { urgent = true, priority = "high" },
+---   },
+--- })
+--- ```
+---
+---@param opts? checkmate.GetTodosOpts Options for filtering and range
+---@return checkmate.Todo[] todos Array of todos matching the criteria
+function M.get_todos(opts)
+  opts = opts or {}
+
+  local parser = require("checkmate.parser")
+  local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
+  local Buffer = require("checkmate.buffer")
+
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+
+  if not Buffer.is_valid(bufnr) then
+    log.warn("[main] Attempted to call `get_todos` on invalid buffer")
+    return {}
+  end
+
+  -- use transaction snapshot when active so callers inside API callbacks
+  -- see the same todo_map state as the rest of the transaction
+  local ctx = transaction.current_context(bufnr)
+  local todo_map = ctx and ctx.get_todo_map() or parser.get_todo_map(bufnr)
+
+  if not todo_map or vim.tbl_isempty(todo_map) then
+    return {}
+  end
+
+  local start_row, end_row
+  if opts.range then
+    start_row = opts.range[1]
+    end_row = opts.range[2]
+
+    if end_row == -1 then
+      end_row = vim.api.nvim_buf_line_count(bufnr) - 1
+    end
+  else
+    -- no range, use entire buffer
+    start_row = 0
+    end_row = vim.api.nvim_buf_line_count(bufnr) - 1
+  end
+
+  -- clamp to buffer bounds
+  local max_row = math.max(0, vim.api.nvim_buf_line_count(bufnr) - 1)
+  start_row = math.max(0, start_row)
+  end_row = math.min(max_row, end_row)
+
+  ---@type checkmate.TodoItem[]
+  local candidates = {}
+
+  for _, todo_item in pairs(todo_map) do
+    local row = todo_item.todo_marker.position.row
+    if row >= start_row and row <= end_row then
+      candidates[#candidates + 1] = todo_item
+    end
+  end
+
+  -- if we sort by pos, can return a deterministic order
+  table.sort(candidates, function(a, b)
+    local ar, br = a.todo_marker.position.row, b.todo_marker.position.row
+    if ar == br then
+      return a.todo_marker.position.col < b.todo_marker.position.col
+    end
+    return ar < br
+  end)
+
+  local filtered = {}
+  for _, todo_item in ipairs(candidates) do
+    if todo_item:matches(opts.filter) then
+      local todo = todo_item:build_todo(todo_map)
+      filtered[#filtered + 1] = todo
+    end
+  end
+
+  return filtered
+end
+
+---@class checkmate.SelectTodoOpts
+---@field bufnr? integer (default: current buffer). Buffer must be loaded.
+---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
+---@field filter? checkmate.FilterOpts
+---@field picker_opts? checkmate.PickerOpts
+---@field custom_picker? fun(todos: checkmate.Todo[]): any
+
+--- Opens a picker to select a todo
+---  - Selection of a todo will jump to the todo by default
+---  - Use `opts.filter` to filter the todos prior to the picker, see `get_todos()` for examples.
+---
+--- The global picker can be customized via the `ui.picker` option in the config, or
+--- a picker-specific config can be passed via `picker_opts`.
+---
+--- **Custom Picker:**
+--- Pass a `opts.custom_picker` for complete control (BYOP). You handle everything: calling the picker and then calling complete(value).
+--- Your function will receive:
+---   - `todos`: array of matched todos
+---
+---@param opts? checkmate.SelectTodoOpts
+---@return boolean success True if successful launch of the picker
+function M.select_todo(opts)
+  opts = opts or {}
+  local picker = require("checkmate.picker")
+
+  local todos = M.get_todos({
+    bufnr = opts.bufnr,
+    range = opts.range,
+    filter = opts.filter,
+  })
+
+  if opts.custom_picker and vim.is_callable(opts.custom_picker) then
+    local custom_ok, custom_err = pcall(opts.custom_picker, todos)
+    if not custom_ok then
+      vim.notify(string.format("Checkmate: error in `custom_picker` for `select_todo`:\n%s", custom_err))
+      return false
+    end
+    return true
+  end
+
+  picker.pick(picker.map_items(todos, "text"), {
+    method = "pick_todo",
+    picker_opts = opts.picker_opts,
+  })
+
+  return true
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

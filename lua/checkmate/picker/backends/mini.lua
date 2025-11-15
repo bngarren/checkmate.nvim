@@ -106,7 +106,7 @@ function M.pick_todo(ctx)
   local start_opts = vim.tbl_deep_extend("force", {
     source = {
       items = vim.tbl_map(entry_maker, items),
-      name = ctx.prompt or "Todos",
+      name = ctx.prompt or "Find Todo",
       choose = choose,
     },
     window = { config = centered_win_config },

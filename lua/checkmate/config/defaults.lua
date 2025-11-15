@@ -65,6 +65,11 @@ return {
       desc = "Archive checked/completed todo items (move to bottom section)",
       modes = { "n" },
     },
+    ["<leader>TF"] = {
+      rhs = "<cmd>Checkmate select_todo<CR>",
+      desc = "Open a picker to select a todo from the current buffer",
+      modes = { "n" },
+    },
     ["<leader>Tv"] = {
       rhs = "<cmd>Checkmate metadata select_value<CR>",
       desc = "Update the value of a metadata tag under the cursor",

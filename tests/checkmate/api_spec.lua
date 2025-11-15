@@ -2962,6 +2962,190 @@ describe("API", function()
     end)
   end)
 
+  describe("get_todos", function()
+    it("should return all todos", function()
+      local content = [[
+- [ ] Todo A
+- [ ] Todo B
+- [x] Todo C
+  - [ ] Todo D
+      ]]
+      h.run_test_cases({
+        {
+          name = "without opts",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos()
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(4, #todos)
+            -- should be in document order
+            assert.match("%-.*Todo A", todos[1].text)
+            assert.match("%-.*Todo B", todos[2].text)
+            assert.match("%-.*Todo C", todos[3].text)
+            assert.match("%-.*Todo D", todos[4].text)
+          end,
+        },
+        {
+          name = "with opt.range 0,-1",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ range = { 0, -1 } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+            assert.equal(4, #todos)
+          end,
+        },
+      })
+    end)
+
+    it("should return some todos based on opts", function()
+      local content = [[
+- [ ] Todo A
+- [ ] Todo B
+- [x] Todo C
+  - [ ] Todo D
+- [ ] Todo E @priority(high)
+- [ ] Todo F @due(today)
+- [x] Todo G @priority(medium) @due(tommorrow)
+      ]]
+
+      h.run_test_cases({
+        {
+          name = "with opts.range 0,2",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ range = { 0, 2 } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(3, #todos)
+            -- should be in document order
+            assert.match("%-.*Todo A", todos[1].text)
+            assert.match("%-.*Todo B", todos[2].text)
+            assert.match("%-.*Todo C", todos[3].text)
+          end,
+        },
+        {
+          name = "with opts.filter for incomplete",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ filter = { state_types = { "incomplete" } } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(5, #todos)
+            -- should be in document order
+            assert.match("%-.*Todo A", todos[1].text)
+            assert.match("%-.*Todo B", todos[2].text)
+            assert.match("%-.*Todo D", todos[3].text)
+            assert.match("%-.*Todo E", todos[4].text)
+            assert.match("%-.*Todo F", todos[5].text)
+          end,
+        },
+        {
+          name = "with opts.filter for any 'priority' metadata",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ filter = { metadata = { priority = true } } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(2, #todos)
+            assert.match("%-.*Todo E", todos[1].text)
+            assert.match("%-.*Todo G", todos[2].text)
+          end,
+        },
+        {
+          name = "with opts.filter for 'due' metadata with 'today' value",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ filter = { metadata = { due = "today" } } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(1, #todos)
+            assert.match("%-.*Todo F", todos[1].text)
+          end,
+        },
+        {
+          name = "with opts.filter for 'priority' and 'due' metadata both present",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos =
+              cm.get_todos({ filter = { metadata = { priority = true, due = true }, metadata_match_all = true } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(1, #todos)
+            assert.match("%-.*Todo G", todos[1].text)
+          end,
+        },
+        {
+          name = "with opts.filter for state 'checked'",
+          content = content,
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ filter = { states = { "checked" } } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(2, #todos)
+            assert.match("%-.*Todo C", todos[1].text)
+            assert.match("%-.*Todo G", todos[2].text)
+          end,
+        },
+      })
+    end)
+
+    it("should return empty array with no matches", function()
+      h.run_test_cases({
+        {
+          name = "no todos",
+          content = "Not a todo\nNeither am I\n- Nor me",
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos()
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(0, #todos)
+          end,
+        },
+        {
+          name = "no matching todos",
+          content = "- [ ] Todo A\n- [ ] Todo B",
+          action = function(cm, ctx)
+            ctx.todos = cm.get_todos({ filter = { states = { "checked" } } })
+          end,
+          assert = function(_, _, ctx)
+            ---@type checkmate.Todo[]
+            local todos = ctx.todos
+
+            assert.equal(0, #todos)
+          end,
+        },
+      })
+    end)
+  end)
+
   describe("movement", function()
     local cm
     before_each(function()

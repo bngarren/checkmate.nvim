@@ -217,7 +217,7 @@ function M.pick_todo(ctx)
   })
 
   local opts = make_theme_opts(tel, {
-    prompt_title = ctx.prompt or "Todos",
+    prompt_title = ctx.prompt or "Find Todo",
   }, ctx.backend_opts)
 
   tel.pickers

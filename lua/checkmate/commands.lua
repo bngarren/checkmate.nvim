@@ -83,6 +83,14 @@ local top_commands = {
     end,
   },
 
+  select_todo = {
+    desc = "Open a picker to select a todo from current buffer",
+    nargs = "0",
+    handler = function()
+      require("checkmate").select_todo()
+    end,
+  },
+
   lint = {
     desc = "Lint this buffer for Checkmate formatting issues",
     nargs = "0",

@@ -1,4 +1,4 @@
----Internal buffer operations API - not for public use
+---Internal API - not for public use
 ---For public API, see checkmate.init module
 
 --[[
@@ -24,6 +24,8 @@ to perform the highlighting.
 If an API is non-editing, then this will need to call apply_highlighting manually.
 --]]
 
+local M = {}
+
 local config = require("checkmate.config")
 local log = require("checkmate.log")
 local parser = require("checkmate.parser")
@@ -32,501 +34,15 @@ local meta_module = require("checkmate.metadata")
 local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
-local transaction = require("checkmate.transaction")
-
----@class checkmate.Api
-local M = {}
-
-M.buffer_augroup = vim.api.nvim_create_augroup("checkmate_buffer", { clear = false })
 
 ---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
 ---@field cursor_pos? {row: integer, col: integer} Current cursor position (0-based)
 
----Callers should check `require("checkmate.file_matcher").should_activate_for_buffer()` before calling setup_buffer
-function M.setup_buffer(bufnr)
-  if not M.is_valid_buffer(bufnr) then
-    return false
-  end
-
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  local checkmate = require("checkmate")
-
-  -- bail early if we're not running
-  if not checkmate.is_running() then
-    log.fmt_error("[api] Call to setup_buffer %d but Checkmate is NOT running", bufnr)
-    return false
-  end
-
-  if checkmate.is_buffer_active(bufnr) and bl:get("setup_complete") == true then
-    return true
-  end
-
-  -- the main module tracks active checkmate buffers
-  checkmate.register_buffer(bufnr)
-
-  -- initial conversion of on-disk raw markdown to our in-buffer representation
-  -- "unicode" term is loosely applied
-  parser.convert_markdown_to_unicode(bufnr)
-
-  if config.options.linter and config.options.linter.enabled ~= false then
-    local linter = require("checkmate.linter")
-    linter.lint_buffer(bufnr)
-  end
-
-  local highlights = require("checkmate.highlights")
-  -- don't use adaptive strategy for first pass on buffer setup--run it synchronously
-  highlights.apply_highlighting(bufnr, { strategy = "immediate", debug_reason = "api buffer setup" })
-
-  -- User can opt out of TS highlighting if desired
-  if config.options.disable_ts_highlights == true then
-    vim.treesitter.stop(bufnr)
-  else
-    vim.treesitter.start(bufnr, "markdown")
-    vim.api.nvim_set_option_value("syntax", "off", { buf = bufnr })
-  end
-
-  M.setup_undo(bufnr)
-  M.setup_change_watcher(bufnr)
-  M.setup_keymaps(bufnr)
-  M.setup_autocmds(bufnr)
-
-  bl:set("setup_complete", true)
-  bl:set("cleaned_up", false)
-
-  log.fmt_debug("[api] Setup complete for bufnr %d", bufnr)
-
-  return true
-end
-
-function M.setup_undo(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local bl = require("checkmate.buf_local").handle(bufnr)
-
-  -- NOTE: We disable buffer-local 'undofile' for Checkmate buffers.
-  -- Rationale:
-  --  - In-memory text is Unicode; on-disk text is Markdown. Neovim only restores
-  --    undofiles whose hash matches file bytes; mismatch => undofile ignored.
-  --  - We still provide correct in-session undo/redo; persistent undo is off by design.
-  vim.api.nvim_set_option_value("undofile", false, { buf = bufnr })
-
-  -- Baseline tick at attach/first setup; used to infer "no edits since attach".
-  -- This lets us distinguish the first "conversion" pass on open from later edits.
-  bl:set("baseline_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-end
-
----{mode, lhs}
----@alias checkmate.BufferKeymapItem {[1]: string, [2]: string}
----@alias checkmate.BufferKeymapList checkmate.BufferKeymapItem[]
-
-function M.clear_keymaps(bufnr)
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  ---@type checkmate.BufferKeymapList|nil
-  local items = bl:get("keymaps")
-  if not items or #items == 0 then
-    return
-  end
-  for _, item in ipairs(items) do
-    -- item = { mode, lhs }
-    vim.api.nvim_buf_del_keymap(bufnr, item[1], item[2])
-  end
-  bl:set("keymaps", {} --[[@as checkmate.BufferKeymapList]])
-end
-
-function M.setup_keymaps(bufnr)
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  local keys = config.options.keys or {}
-
-  local function buffer_map(_bufnr, mode, lhs, rhs, desc)
-    local opts = { buffer = _bufnr, silent = true, desc = desc }
-    vim.keymap.set(mode, lhs, rhs, opts)
-  end
-
-  bl:set("keymaps", {})
-
-  local DEFAULT_DESC = "Checkmate <unnamed>"
-  local DEFAULT_MODES = { "n" }
-
-  for key, value in pairs(keys) do
-    if value ~= false then
-      ---@type checkmate.KeymapConfig
-      local mapping_config = {}
-
-      if type(value) == "table" then
-        -- sequence of {rhs, desc, modes}
-        if value[1] ~= nil then
-          local rhs, desc, modes = unpack(value)
-          mapping_config = { rhs = rhs, desc = desc, modes = modes }
-        else -- dict like table
-          mapping_config = vim.deepcopy(value)
-        end
-      else
-      end
-
-      if mapping_config and mapping_config.rhs then
-        -- defaults
-        mapping_config.modes = mapping_config.modes or DEFAULT_MODES
-        mapping_config.desc = mapping_config.desc or DEFAULT_DESC
-
-        for _, mode in ipairs(mapping_config.modes) do
-          local success = false
-
-          if mapping_config.rhs then
-            success = pcall(function()
-              buffer_map(bufnr, mode, key, mapping_config.rhs, mapping_config.desc)
-            end)
-          end
-
-          if success then
-            bl:update("keymaps", function(prev)
-              prev = prev or {}
-              ---@cast prev checkmate.BufferKeymapList
-              prev[#prev + 1] = { mode, key }
-              return prev
-            end)
-          end
-        end
-      end
-    end
-  end
-
-  -- Setup list continuation keymaps (insert mode)
-  if config.options.list_continuation and config.options.list_continuation.enabled then
-    local continuation_keys = config.options.list_continuation.keys or {}
-
-    for key, key_config in pairs(continuation_keys) do
-      local handler, desc
-
-      if type(key_config) == "function" then
-        handler = key_config
-        desc = "List continuation for " .. key
-      elseif type(key_config) == "table" then
-        if type(key_config.rhs) == "function" then
-          handler = key_config.rhs
-          desc = key_config.desc or ("List continuation for " .. key)
-        end
-      end
-
-      if handler then
-        local orig_key = vim.api.nvim_replace_termcodes(key, true, false, true)
-
-        local expr_fn = function()
-          local cursor = vim.api.nvim_win_get_cursor(0)
-          local line = vim.api.nvim_get_current_line()
-
-          local todo = ph.match_todo(line)
-          if not todo then
-            -- not on a todo, return the original key
-            return orig_key
-          end
-
-          -- check if cursor position is valid (after the checkbox)
-          local col = cursor[2] -- 0-based in insert mode
-          if not util.is_valid_list_continuation_position(col, todo) then
-            return orig_key
-          end
-
-          -- split_line behavior
-          local at_eol = col >= #line
-          if not at_eol and config.options.list_continuation.split_line == false then
-            return orig_key
-          end
-
-          -- Add undo breakpoint for non-markdown todos
-          if not todo.is_markdown then
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>u", true, false, true), "n", false)
-          end
-
-          vim.schedule(function()
-            handler()
-          end)
-
-          return "" -- swallow the key
-        end
-
-        local ok, err = pcall(function()
-          vim.keymap.set("i", key, expr_fn, {
-            buffer = bufnr,
-            expr = true,
-            silent = true,
-            desc = desc,
-          })
-
-          bl:update("keymaps", function(prev)
-            prev = prev or {}
-            ---@cast prev checkmate.BufferKeymapList
-            prev[#prev + 1] = { "i", key }
-            return prev
-          end)
-        end)
-        if not ok then
-          log.fmt_debug("[api] Failed to set list continuation keymap for %s: %s", key, err)
-        end
-      end
-    end
-  end
-
-  -- Setup metadata keymaps
-  if config.options.use_metadata_keymaps then
-    for meta_name, meta_props in pairs(config.options.metadata) do
-      if meta_props.key then
-        local modes = { "n", "v" }
-
-        -- Map metadata actions to both normal and visual modes
-        for _, mode in ipairs(modes) do
-          local key, desc
-          -- we allow user to pass [key, desc] tuple
-          if type(meta_props.key) == "table" then
-            key = meta_props.key[1]
-            desc = meta_props.key[2]
-          else
-            key = tostring(meta_props.key)
-            desc = "Toggle '@" .. meta_name .. "' metadata"
-          end
-
-          local rhs = function()
-            require("checkmate").toggle_metadata(meta_name)
-          end
-
-          buffer_map(bufnr, mode, key, rhs, desc)
-
-          bl:update("keymaps", function(prev)
-            prev = prev or {}
-            ---@cast prev checkmate.BufferKeymapList
-            prev[#prev + 1] = { mode, key }
-            return prev
-          end)
-        end
-      end
-    end
-  end
-end
-
-function M.setup_autocmds(bufnr)
-  local bl = require("checkmate.buf_local").handle(bufnr)
-  if not bl:get("autocmds_setup") then
-    -- This implementation addresses several subtle behavior issues:
-    --   1. Atomic write operation - ensures data integrity (either complete write success or
-    -- complete failure, with preservation of the original buffer) by using temp file with a
-    -- rename operation (which is atomic at the POSIX filesystem level)
-    --   2. A temp buffer is used to perform the unicode to markdown conversion in order to
-    -- keep a consistent visual experience for the user, maintain a clean undo history, and
-    -- maintain a clean separation between the display format (unicode) and storage format (Markdown)
-    --   3. BufWritePre and BufWritePost are called manually so that other plugins can still hook into the write events
-    vim.api.nvim_create_autocmd("BufWriteCmd", {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      desc = "Checkmate: Convert and save checkmate.nvim files",
-      callback = function()
-        -- Guard against re-entrancy
-        -- Previously had bug due to setting modified flag causing BufWriteCmd to run multiple times
-        if vim.b[bufnr]._checkmate_writing then
-          return
-        end
-        vim.b[bufnr]._checkmate_writing = true
-
-        -- this allows other plugins like conform.nvim to format before we save
-        -- see #133
-        vim.api.nvim_exec_autocmds("BufWritePre", {
-          buffer = bufnr,
-          modeline = false,
-        })
-
-        local uv = vim.uv
-        local was_modified = vim.bo[bufnr].modified
-
-        local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local filename = vim.api.nvim_buf_get_name(bufnr)
-
-        -- create temp buffer and convert to markdown
-        local temp_bufnr = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)
-
-        local success = parser.convert_unicode_to_markdown(temp_bufnr)
-        if not success then
-          vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-          vim.notify("Checkmate: Failed to save when attemping to convert to Markdown", vim.log.levels.ERROR)
-          vim.b[bufnr]._checkmate_writing = false
-          return false
-        end
-
-        local markdown_lines = vim.api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
-
-        -- ensure that we maintain ending new line per POSIX style
-        if #markdown_lines == 0 or markdown_lines[#markdown_lines] ~= "" then
-          table.insert(markdown_lines, "")
-        end
-
-        local temp_filename = filename .. ".tmp"
-
-        -- write to temp file first
-        -- we use binary mode here to ensure byte-by-byte precision and no unexpected newline behaviors
-        local write_result = vim.fn.writefile(markdown_lines, temp_filename, "b")
-
-        vim.api.nvim_buf_delete(temp_bufnr, { force = true })
-
-        if write_result == 0 then
-          -- atomically rename the temp file to the target file
-          local ok, rename_err = pcall(function()
-            uv.fs_rename(temp_filename, filename)
-          end)
-
-          if not ok then
-            -- If rename fails, try to clean up and report error
-            pcall(function()
-              uv.fs_unlink(temp_filename)
-            end)
-            vim.notify("Checkmate: Failed to save file", vim.log.levels.ERROR)
-            vim.bo[bufnr].modified = was_modified
-            vim.b[bufnr]._checkmate_writing = false
-            return false
-          end
-
-          parser.convert_markdown_to_unicode(bufnr)
-
-          -- For :wq to work, we need to set modified=false synchronously
-          vim.bo[bufnr].modified = false
-          vim.cmd("set nomodified")
-
-          vim.api.nvim_exec_autocmds("BufWritePost", {
-            buffer = bufnr,
-            modeline = false,
-          })
-
-          vim.defer_fn(function()
-            if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.b[bufnr]._checkmate_writing = false
-            end
-          end, 0)
-        else
-          -- Failed to write temp file
-          -- Try to clean up
-          pcall(function()
-            uv.fs_unlink(temp_filename)
-          end)
-          util.notify("Failed to write file", vim.log.levels.ERROR)
-          vim.bo[bufnr].modified = was_modified
-          vim.b[bufnr]._checkmate_writing = nil
-
-          return false
-        end
-      end,
-    })
-
-    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      callback = function()
-        bl:set("insert_enter_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-      end,
-    })
-
-    vim.api.nvim_create_autocmd({ "InsertLeave" }, {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      callback = function()
-        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
-        local modified = bl:get("insert_enter_tick") ~= tick
-        if modified then
-          M.process_buffer(bufnr, "full", "InsertLeave")
-        end
-      end,
-    })
-
-    vim.api.nvim_create_autocmd({ "TextChanged" }, {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      callback = function()
-        local tick = vim.api.nvim_buf_get_changedtick(bufnr)
-        if transaction.is_active(bufnr) or bl:get("last_conversion_tick") == tick then
-          return
-        end
-        M.process_buffer(bufnr, "full", "TextChanged")
-      end,
-    })
-
-    vim.api.nvim_create_autocmd({ "TextChangedI" }, {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      callback = function()
-        if transaction.is_active(bufnr) then
-          return
-        end
-        M.process_buffer(bufnr, "highlight_only", "TextChangedI")
-      end,
-    })
-
-    -- cleanup buffer when buffer is deleted or unloaded
-    vim.api.nvim_create_autocmd({ "BufDelete", "BufUnload" }, {
-      group = M.buffer_augroup,
-      buffer = bufnr,
-      callback = function()
-        M.shutdown(bufnr)
-      end,
-    })
-    bl:set("autocmds_setup", true)
-  end
-end
-
--- Tracks edited row-span via on_lines
--- this is used in `process_buffer` to region-scope highlight only passes
--- Important: this returns as INCLUSIVE end row. Callers should +1 to get end-exclusive row
--- also tracks a `last_user_tick` which is a changedtick that doesn't occur during markdown<->unicode conversion
-function M.setup_change_watcher(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-  local bl = require("checkmate.buf_local").handle(bufnr)
-
-  if bl:get("change_watcher_attached") then
-    return
-  end
-
-  bl:set("last_changed_region", nil)
-
-  vim.api.nvim_buf_attach(bufnr, false, {
-    on_lines = function(_, _, changedtick, firstline, lastline, new_lastline)
-      -- ignore our own writes
-      if bl:get("in_conversion") then
-        return
-      end
-
-      -- record last user changedtick for potential :undojoin by the parser during conversion
-      bl:set("last_user_tick", changedtick)
-
-      -- firstline is 0-based. Replace old [firstline, lastline) with new [firstline, new_lastline)
-      -- inclusive end row that covers either the removed or the inserted span
-      local old_end = (lastline > firstline) and (lastline - 1) or firstline
-      local new_end = (new_lastline > firstline) and (new_lastline - 1) or firstline
-      local srow = firstline
-      local erow = math.max(old_end, new_end)
-
-      -- keep and merge 1 span for the entire debounce window
-      -- when process_buffer eventually runs, it will clear "last_changed_region"
-      local prev = bl:get("last_changed_region")
-      if prev then
-        srow = math.min(srow, prev.s)
-        erow = math.max(erow, prev.e)
-      end
-      bl:set("last_changed_region", { s = srow, e = erow, tick = changedtick })
-    end,
-    on_detach = function()
-      bl:set("change_watcher_attached", nil)
-      bl:set("last_changed_region", nil)
-    end,
-    utf_sizes = false,
-  })
-
-  bl:set("change_watcher_attached", true)
-end
-
--- functions that process the buffer need to be debounced and stored
----@type table<number, table<string, Debounced>>
+-- functions that process a buffer need to be debounced and stored
+---@type table<number, table<string, checkmate.Debounced>>
 M._debounced_processors = {} -- bufnr -> { process_type -> debounced_fn }
 
--- we can "process" the buffer different ways depending on the need, the frequency we expect it
+-- we can "process" a buffer different ways depending on the need, the frequency we expect it
 -- to occur, etc.
 -- e.g. we don't want to convert during TextChangedI
 M.PROCESS_CONFIGS = {
@@ -550,10 +66,11 @@ function M.process_buffer(bufnr, process_type, reason)
   if not process_config then
     return
   end
-  local bl = require("checkmate.buf_local").handle(bufnr)
+
+  local buffer = require("checkmate.buffer").get(bufnr)
 
   -- do not react to our own conversion writes
-  if bl:get("in_conversion") then
+  if buffer._local:get("in_conversion") then
     return
   end
 
@@ -570,13 +87,13 @@ function M.process_buffer(bufnr, process_type, reason)
 
   if not M._debounced_processors[bufnr][process_type] then
     local function process_impl()
-      bl = require("checkmate.buf_local").handle(bufnr)
-
       if not vim.api.nvim_buf_is_valid(bufnr) then
         M._debounced_processors[bufnr] = nil
         M._last_call_ctx[bufnr] = nil
         return
       end
+
+      buffer = require("checkmate.buffer").get(bufnr)
 
       -- pull outside data from ctx to avoid stale closure
       local ctx = (M._last_call_ctx[bufnr] and M._last_call_ctx[bufnr][process_type]) or {}
@@ -597,11 +114,11 @@ function M.process_buffer(bufnr, process_type, reason)
       -- this type is used by TextChangedI (insert mode), thus we
       -- try to optimize by only re-highlighting a region rather than full buffer
       if process_type == "highlight_only" then
-        local changed = bl:get("last_changed_region")
+        local changed = buffer._local:get("last_changed_region")
 
         if changed and changed.s ~= nil and changed.e ~= nil then
           -- consume the changed region
-          bl:set("last_changed_region", nil)
+          buffer._local:get("last_changed_region", nil)
 
           -- `changed.s` is 0-based start row; `changed.e` is an INCLUSIVE end row from on_lines
           -- add some small padding around the changed region to be extra conservative
@@ -740,91 +257,29 @@ function M.process_buffer(bufnr, process_type, reason)
   M._debounced_processors[bufnr][process_type]()
 end
 
--- Cleans up all checkmate state associated with a buffer
-function M.shutdown(bufnr)
-  if vim.api.nvim_buf_is_valid(bufnr) then
-    local bl = require("checkmate.buf_local").handle(bufnr)
-
-    if bl:get("cleaned_up") then
-      return
-    end
-
-    -- Attemp to convert buffer back to Markdown to leave the buffer in an expected state
-    pcall(parser.convert_unicode_to_markdown, bufnr)
-    parser.buf_todo_cache[bufnr] = nil
-
-    M.clear_keymaps(bufnr)
-
-    local highlights = require("checkmate.highlights")
-    highlights.clear_buf_line_cache(bufnr)
-    highlights.cancel_progressive(bufnr)
-
-    require("checkmate.debug.debug_highlights").dispose(bufnr)
-    -- require("checkmate.metadata.picker").cleanup_ui(bufnr)
-
-    vim.api.nvim_buf_clear_namespace(bufnr, config.ns, 0, -1)
-    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_hl, 0, -1)
-    vim.api.nvim_buf_clear_namespace(bufnr, config.ns_todos, 0, -1)
-
-    if package.loaded["checkmate.linter"] then
-      pcall(function()
-        require("checkmate.linter").disable(bufnr)
-      end)
-    end
-
-    vim.api.nvim_clear_autocmds({ group = M.buffer_augroup, buffer = bufnr })
-
-    if M._debounced_processors and M._debounced_processors[bufnr] then
-      for _, d in pairs(M._debounced_processors[bufnr]) do
-        if type(d) == "table" and d.close then
-          pcall(function()
-            d:close()
-          end)
-        end
-      end
-      M._debounced_processors[bufnr] = nil
-    end
-
-    require("checkmate").unregister_buffer(bufnr)
-
-    bl:clear()
-    bl:set("cleaned_up", true)
-  end
-end
-
---- Validates that the buffer is valid (per nvim) and Markdown filetype
-function M.is_valid_buffer(bufnr)
-  if not bufnr or type(bufnr) ~= "number" then
-    vim.notify("Checkmate: Invalid buffer number", vim.log.levels.ERROR)
-    return false
-  end
-
-  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
-  if not ok or not is_valid then
-    vim.notify("Checkmate: Invalid buffer", vim.log.levels.ERROR)
-    log.fmt_error("[api] Invalid buffer %d", bufnr)
-    return false
-  end
-
-  if vim.bo[bufnr].filetype ~= "markdown" then
-    vim.notify("Checkmate: Buffer is not markdown filetype", vim.log.levels.ERROR)
-    return false
-  end
-
-  return true
-end
-
---- Creates todo(s) by converting non-todo lines within the range
+--- Creates todo(s) by converting non-todo lines within the range, or
+--- if a `position` opt is passed, call `create_todo_normal`
 ---@param ctx checkmate.TransactionContext
 ---@param start_row integer start of the selection
 ---@param end_row integer end of the selection
----@param opts? {target_state?: string, list_marker?: string, content?: string}
+---@param opts? checkmate.CreateOptionsInternal
 ---@return checkmate.TextDiffHunk[] hunks
 function M.create_todos_visual(ctx, start_row, end_row, opts)
   opts = opts or {}
   local bufnr = ctx.get_buf()
   local hunks = {}
 
+  -- if `position` opt is used, we behave like `create_todo_normal` and add a todo
+  -- above or below the selection
+  -- this means we don't convert any lines in the selection
+  local position = opts.position
+  if position and position == "above" or position == "below" then
+    local _hunks = M.create_todo_normal(ctx, start_row, opts)
+    vim.list_extend(hunks, _hunks)
+    return hunks
+  end
+
+  -- line conversions
   for row = start_row, end_row do
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
 
@@ -1122,10 +577,10 @@ function M._build_todo_line(opts)
     local is_nested = indent_opt == true
     if is_nested then
       -- nested items may reset numbering
-      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
+      list_marker = util.string.get_next_ordered_marker(parent_prefix.list_marker, true) or parent_prefix.list_marker
     else
       -- siblings increment numbering
-      list_marker = util.get_next_ordered_marker(parent_prefix.list_marker, false) or parent_prefix.list_marker
+      list_marker = util.string.get_next_ordered_marker(parent_prefix.list_marker, false) or parent_prefix.list_marker
     end
   else
     -- use default from config or fallback to "-"
@@ -1174,7 +629,7 @@ function M.compute_diff_convert_to_todo(bufnr, row, opts)
     new_line = new_todo.line
   else
     -- not a list item - build from scratch
-    local existing_indent = util.get_line_indent(line)
+    local existing_indent = util.string.get_line_indent(line)
     local existing_content = vim.trim(line)
 
     local content = opts.content or existing_content
@@ -1722,11 +1177,6 @@ end
 --- `hunk`: the diff hunk representing the new/updated metadata, or `nil` if no buffer change would result
 --- `changed`: allows the caller to fire on_change callbacks if we actually update a value
 function M.compute_diff_add_metadata(bufnr, item, meta_name, meta_value)
-  local meta_props = meta_module.get_meta_props(meta_name)
-  if not meta_props then
-    return nil, nil
-  end
-
   ---@type checkmate.TextDiffHunk?
   local hunk = nil
 
@@ -1784,10 +1234,7 @@ function M.add_metadata(ctx, operations)
       return {}
     end
 
-    local meta_props = meta_module.get_meta_props(op.meta_name)
-    if not meta_props then
-      return {}
-    end
+    local meta_props = meta_module.get_meta_props(op.meta_name) or {}
 
     -- get value with fallback to get_value()
     local context = meta_module.create_context(item, op.meta_name, "", bufnr)
@@ -1821,25 +1268,29 @@ function M.add_metadata(ctx, operations)
   -- queue on_add cbs
   for meta_name, ids in pairs(new_adds_by_meta) do
     local meta_config = config.options.metadata[meta_name]
-    for _, id in ipairs(ids) do
-      ctx.add_cb(function(tx_ctx)
-        local updated_item = tx_ctx.get_todo_by_id(id)
-        if updated_item then
-          meta_config.on_add(updated_item)
-        end
-      end)
+    if meta_config and vim.is_callable(meta_config.on_add) then
+      for _, id in ipairs(ids) do
+        ctx.add_cb(function(tx_ctx)
+          local updated_item = tx_ctx.get_todo_by_id(id)
+          if updated_item then
+            local todo = updated_item:build_todo(tx_ctx.get_todo_map())
+            meta_config.on_add(todo)
+          end
+        end)
+      end
     end
   end
 
   -- queue on_change cbs
   for meta_name, changes in pairs(changes_by_meta) do
     local meta_config = config.options.metadata[meta_name]
-    if meta_config.on_change then
+    if meta_config and vim.is_callable(meta_config.on_change) then
       for _, change in ipairs(changes) do
         ctx.add_cb(function(tx_ctx)
           local updated_item = tx_ctx.get_todo_by_id(change.id)
           if updated_item then
-            meta_config.on_change(updated_item, change.old_value, change.new_value)
+            local todo = updated_item:build_todo(tx_ctx.get_todo_map())
+            meta_config.on_change(todo, change.old_value, change.new_value)
           end
         end)
       end
@@ -1970,9 +1421,7 @@ function M._collect_entries_to_remove(item, meta_names)
     -- if not found, try canonical name lookup
     if not entry then
       local canonical = meta_module.get_canonical_name(meta_name)
-      if canonical then
-        entry = item.metadata.by_tag[canonical]
-      end
+      entry = item.metadata.by_tag[canonical]
     end
 
     if entry then
@@ -1990,11 +1439,12 @@ end
 function M._queue_removal_callbacks(ctx, callbacks)
   for _, callback_info in ipairs(callbacks) do
     local meta_config = config.options.metadata[callback_info.canonical_name]
-    if meta_config and meta_config.on_remove then
+    if meta_config and vim.is_callable(meta_config.on_remove) then
       ctx.add_cb(function(tx_ctx)
         local updated_item = tx_ctx.get_todo_by_id(callback_info.id)
         if updated_item then
-          meta_config.on_remove(updated_item)
+          local todo = updated_item:build_todo(tx_ctx.get_todo_map())
+          meta_config.on_remove(todo)
         end
       end)
     end
@@ -2022,9 +1472,9 @@ function M.remove_metadata(ctx, operations)
 
         -- collect callbacks
         for _, entry in ipairs(entries_to_remove) do
-          local canonical = entry.alias_for or entry.tag
+          local canonical = meta_module.get_canonical_name(entry.tag)
           local meta_config = config.options.metadata[canonical]
-          if meta_config and meta_config.on_remove then
+          if meta_config and vim.is_callable(meta_config.on_remove) then
             table.insert(pending_callbacks, {
               id = op.id,
               canonical_name = canonical,
@@ -2091,16 +1541,17 @@ function M.set_metadata_value(ctx, metadata, new_value)
 
   -- queue on_change callback
   if metadata.value ~= new_value then
-    local canonical_name = metadata.alias_for or metadata.tag
+    local canonical_name = meta_module.get_canonical_name(metadata.tag)
     local meta_config = config.options.metadata[canonical_name]
 
-    if meta_config and meta_config.on_change then
+    if meta_config and vim.is_callable(meta_config.on_change) then
       local todo_item = ctx.get_todo_by_row(row)
       if todo_item then
         ctx.add_cb(function(tx_ctx)
           local updated_item = tx_ctx.get_todo_by_id(todo_item.id)
           if updated_item then
-            meta_config.on_change(updated_item, metadata.value, new_value)
+            local todo = updated_item:build_todo(tx_ctx.get_todo_map())
+            meta_config.on_change(todo, metadata.value, new_value)
           end
         end)
       end

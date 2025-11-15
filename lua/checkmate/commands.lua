@@ -26,7 +26,7 @@ local top_commands = {
     end,
   },
   toggle = {
-    desc = "Toggle todo item under cursor or selection",
+    desc = "Toggle todo item(s) under cursor or within selection",
     nargs = "?",
     handler = function(opts)
       -- opts.fargs[2] may be "checked" or "unchecked"
@@ -36,7 +36,7 @@ local top_commands = {
   },
 
   check = {
-    desc = "Mark todo item as checked",
+    desc = "Mark todo item(s) as checked",
     nargs = "0",
     handler = function()
       require("checkmate").check()
@@ -44,7 +44,7 @@ local top_commands = {
   },
 
   uncheck = {
-    desc = "Mark todo item as unchecked",
+    desc = "Mark todo item(s) as unchecked",
     nargs = "0",
     handler = function()
       require("checkmate").uncheck()
@@ -76,10 +76,18 @@ local top_commands = {
   },
 
   remove = {
-    desc = "Convert a todo item back to a regular list item",
+    desc = "Convert todo item(s) back to a regular list item",
     nargs = "0",
     handler = function()
       require("checkmate").remove()
+    end,
+  },
+
+  select_todo = {
+    desc = "Open a picker to select a todo from current buffer",
+    nargs = "0",
+    handler = function()
+      require("checkmate").select_todo()
     end,
   },
 
@@ -92,17 +100,22 @@ local top_commands = {
   },
 
   archive = {
-    desc = "Archive checked todo items",
+    desc = "Archive completed todo items",
     nargs = "0",
     handler = function()
       require("checkmate").archive()
     end,
   },
 
+  ---@deprecated since v0.12, use `:Checkmate metadata remove_all` instead
   remove_all_metadata = {
-    desc = "Remove all metadata from todo under cursor/selection",
+    desc = "Remove all metadata from todo(s) under cursor/selection",
     nargs = "0",
     handler = function()
+      vim.notify_once(
+        "Checkmate: `remove_all_metadata` command is deprecated.\nUse `:Checkmate metadata remove_all` instead.",
+        vim.log.levels.WARN
+      )
       require("checkmate").remove_all_metadata()
     end,
   },
@@ -123,6 +136,19 @@ local top_commands = {
         end,
       },
 
+      update = {
+        desc = "Update todo(s) under cursor or within selection that have metadata tag with new value",
+        nargs = "+", -- at least name, maybe value
+        handler = function(opts)
+          local name = opts.fargs[2]
+          local value = opts.fargs[3]
+          require("checkmate").update_metadata(name, value)
+        end,
+        complete = function()
+          return vim.tbl_keys(require("checkmate.config").options.metadata)
+        end,
+      },
+
       remove = {
         desc = "Remove a metadata tag",
         nargs = "1",
@@ -134,8 +160,16 @@ local top_commands = {
         end,
       },
 
+      remove_all = {
+        desc = "Remove all metadata from todo(s) under cursor or within selection",
+        nargs = "0",
+        handler = function()
+          require("checkmate").remove_all_metadata()
+        end,
+      },
+
       toggle = {
-        desc = "Toggle a metadata tag on/off",
+        desc = "Toggle a metadata on/off",
         nargs = "+",
         handler = function(opts)
           require("checkmate").toggle_metadata(opts.fargs[2], opts.fargs[3])

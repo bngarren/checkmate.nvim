@@ -15,8 +15,6 @@ describe("Parser", function()
   end)
 
   lazy_teardown(function()
-    checkmate.stop()
-
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
   end)
@@ -38,11 +36,6 @@ describe("Parser", function()
         },
       },
     })
-    vim.wait(20)
-  end)
-
-  after_each(function()
-    checkmate.stop()
   end)
 
   -- Helper to verify todo range is consistent with its content
@@ -164,10 +157,6 @@ describe("Parser", function()
       assert.equal(list_items[10].node, list_items[12].parent_node)
       -- Child list item e.3
       assert.equal(list_items[10].node, list_items[13].parent_node)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -212,10 +201,6 @@ New Section
       verify_todo_range_matches_content(bufnr, multi_line)
       verify_todo_range_matches_content(bufnr, three_line)
       verify_todo_range_matches_content(bufnr, indented_line)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should correctly handle complex hierarchical todos with various indentations", function()
@@ -306,10 +291,6 @@ New Section
 
       -- verify unusual hierarchy jump (top level to level 3)
       h.exists(h.find_todo_by_text(todo_map, "Direct jump to Level 3"))
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should parse todos with custom todo states", function()
@@ -329,10 +310,6 @@ New Section
       local pending_todo = h.exists(h.find_todo_by_text(todo_map, "Pending"))
       assert.equal("pending", pending_todo.state)
       assert.equal(pending_marker, pending_todo.todo_marker.text)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should build correct parent-child relationships with mixed list types", function()
@@ -377,10 +354,6 @@ New Section
       assert.equal("ordered", ordered_parent.list_marker.type)
       assert.equal("ordered", ordered_child.list_marker.type)
       assert.equal("unordered", mixed_child.list_marker.type)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle edge cases", function()
@@ -427,10 +400,6 @@ Line that should not affect parent-child relationship
       assert.is_true(require("checkmate.metadata").has_metadata(setext_todo, "priority", function(val)
         return val == "high"
       end))
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should return correct buffer positions for each discovered todo item", function()
@@ -460,7 +429,7 @@ Line that should not affect parent-child relationship
       end
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
   end)
@@ -555,16 +524,17 @@ This is another line
 - [.] Pending
         ]]
 
-        local bufnr, file_path = h.setup_todo_file_buffer(content, {
-          config = {
-            todo_states = {
-              pending = {
-                marker = pending_marker,
-                markdown = ".", -- i.e. [.]
-              },
+        ---@diagnostic disable-next-line: missing-fields
+        require("checkmate").setup({
+          todo_states = {
+            pending = {
+              marker = pending_marker,
+              markdown = ".", -- i.e. [.]
             },
           },
         })
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item.todo_text:match("This is a todo line"))
@@ -574,10 +544,6 @@ This is another line
 
         todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 0))
         assert.is_truthy(todo_item.todo_text:match("Pending"))
-
-        finally(function()
-          h.cleanup_buffer(bufnr, file_path)
-        end)
       end)
 
       it("should return todo item with cursor on continuation line", function()
@@ -587,7 +553,9 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item1 = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
         assert.is_truthy(todo_item1.todo_text:match("This is a todo line"))
@@ -601,10 +569,6 @@ This is another line
         assert.is_truthy(todo_item3.todo_text:match("Another todo line"))
 
         assert.no.equal(todo_item3.id, todo_item1.id)
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should return todo item with cursor on nested list item", function()
@@ -617,7 +581,9 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         -- test each nested list item
         for i = 1, 3 do
@@ -627,10 +593,6 @@ This is another line
 
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 4, 0))
         assert.is_truthy(todo_item.todo_text:match("Separate todo"))
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should handle deeply nested wrapped todos", function()
@@ -642,17 +604,16 @@ This is another line
       - Even deeper nesting
 - [ ] Another parent
     ]]
-        local bufnr = h.setup_todo_file_buffer(content)
+
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         -- cursor on wrapped portion of nested todo
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 10))
         assert.is_truthy(todo_item.todo_text:match("Deeply nested todo"))
 
         assert.is_falsy(todo_item.todo_text:match("Parent todo"))
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should return todo item with cursor within nested todo item", function()
@@ -664,14 +625,12 @@ This is another line
 - [ ] Another todo line
         ]]
 
-        local bufnr = h.setup_todo_file_buffer(content)
+        require("checkmate").setup()
+
+        local bufnr = h.setup_test_buffer(content)
 
         local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 3, 0))
         assert.is_truthy(todo_item.todo_text:match("Separate todo"))
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
     end)
   end)
@@ -707,10 +666,6 @@ This is another line
       -- length in bytes == 1 past the end in 0-based index
       -- this means that the value_range.end.col points to the `)`
       assert.equal(prefix_length + #"@priority(high", priority_tag.value_range["end"].col) -- end exclusive
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should extract multiple metadata tags", function()
@@ -756,10 +711,6 @@ This is another line
       assert.same(metadata.entries[1], metadata.by_tag.priority)
       assert.same(metadata.entries[2], metadata.by_tag.due)
       assert.same(metadata.entries[3], metadata.by_tag.tags)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle wrapped lines with metadata tags", function()
@@ -788,11 +739,6 @@ This is another line
       assert.equal("2024-12-31", todo_item.metadata.by_tag.due.value)
       assert.equal(1, todo_item.metadata.by_tag["due"].range.start.row)
       assert.equal(#"  more metadata ", todo_item.metadata.by_tag["due"].range.start.col)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle metadata split across wrapped lines", function()
@@ -807,7 +753,7 @@ This is another line
 - [x] This is some extra content @started(06/30/25 20:21) @done(06/30/25 
   20:21) @branch(fix/multi-line-todos)
     ]]
-      local bufnr = h.setup_todo_file_buffer(content)
+      local bufnr = h.setup_test_buffer(content)
 
       -- First todo
       local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
@@ -836,10 +782,6 @@ This is another line
       assert.equal(4, test_tag.range.start.row)
       assert.equal(5, test_tag.range["end"].row)
       assert.equal(#"      20:05)", test_tag.range["end"].col) -- end col is end-exclusive
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should not extract malformed metadata", function()
@@ -854,11 +796,6 @@ This is another line
 
       local metadata = parser.extract_metadata(bufnr, todo_item.first_inline_range)
       assert.equal(0, #metadata.entries)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should preserve metadata with spaces in and around values", function()
@@ -886,11 +823,6 @@ This is another line
       assert.equal(1, #metadata.entries)
       assert.equal("note", metadata.entries[1].tag)
       assert.equal(" T ", metadata.entries[1].value)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle metadata with balanced parentheses in value", function()
@@ -907,11 +839,6 @@ This is another line
       assert.equal(1, #metadata.entries)
       assert.equal("issue", metadata.entries[1].tag)
       assert.equal("fix(api)", metadata.entries[1].value)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle metadata with special characters", function()
@@ -928,11 +855,6 @@ This is another line
       assert.equal(1, #metadata.entries)
       assert.equal("issue", metadata.entries[1].tag)
       assert.equal("value %with $pecial ch@rs!", metadata.entries[1].value)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle metadata aliases", function()
@@ -964,11 +886,6 @@ This is another line
 
       assert.same(metadata.entries[1], metadata.by_tag.pri)
       assert.same(metadata.entries[2], metadata.by_tag.p)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should handle tag names with hyphens and underscores", function()
@@ -985,11 +902,6 @@ This is another line
       assert.equal(2, #metadata.entries)
       assert.equal("tag-with-hyphens", metadata.entries[1].tag)
       assert.equal("tag_with_underscores", metadata.entries[2].tag)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should return empty structure when no metadata present", function()
@@ -1004,11 +916,6 @@ This is another line
 
       assert.equal(0, #metadata.entries)
       assert.same({}, metadata.by_tag)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     -- TODO: Need more robust test coverage here...
@@ -1026,11 +933,6 @@ This is another line
 
       -- last one should win in the by_tag lookup
       assert.equal("high", metadata.by_tag.priority.value)
-
-      finally(function()
-        cm.stop()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -1083,10 +985,6 @@ This is another line
         assert.equal("- " .. checked, converted_lines[13])
         assert.equal("1. " .. unchecked, converted_lines[14])
         assert.equal("1. " .. checked, converted_lines[15])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should convert only single-space [ ] checkboxes", function()
@@ -1109,10 +1007,6 @@ This is another line
         assert.equal("- [  ] too many spaces", lines[2])
         assert.equal("- [ ]another -- missing space after ]", lines[3])
         assert.equal("- " .. unchecked .. "   This is okay", lines[4])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
     end)
 
@@ -1154,10 +1048,6 @@ This is another line
         assert.equal("2. [x] Numbered checked task", converted_lines[8])
         assert.equal("", converted_lines[9]) -- Empty line unchanged
         assert.equal("- Not a task", converted_lines[10]) -- Regular list item unchanged
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
 
       it("should handle indented todo items", function()
@@ -1184,10 +1074,6 @@ This is another line
         assert.equal("- [ ] Parent task", converted_lines[2])
         assert.equal("  - [ ] Indented child task", converted_lines[3])
         assert.equal("    - [x] Deeply indented task", converted_lines[4])
-
-        finally(function()
-          h.cleanup_buffer(bufnr)
-        end)
       end)
     end)
 
@@ -1215,10 +1101,6 @@ This is another line
       for i, line in ipairs(original_lines) do
         assert.equal(line, final_lines[i])
       end
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should not add extra lines", function()
@@ -1238,10 +1120,6 @@ This is another line
 
       assert.equal(1, #final_lines)
       assert.equal("- [ ] Task", final_lines[1])
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -1355,10 +1233,6 @@ This is another line
 
       -- performance should be reasonable even for large documents
       assert.is_true(end_time < 0.1) -- 100 ms
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 end)

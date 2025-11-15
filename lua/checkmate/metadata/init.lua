@@ -5,17 +5,18 @@ local M = {}
 M._deprecation_msg_shown = false
 
 ---Creates a metadata context object
+---This returns a **user-facing** struct
 ---@param todo_item checkmate.TodoItem Todo item containing the metadata
----@param meta_name string The metadata tag name (canonical, not alias)
+---@param meta_name string The metadata tag name (will convert to canonical if an alias)
 ---@param value string Metadata value
----@param bufnr integer Buffer number
+---@param bufnr integer
 ---@return checkmate.MetadataContext
 function M.create_context(todo_item, meta_name, value, bufnr)
-  local todo = require("checkmate.util").build_todo(todo_item)
+  local todo = todo_item:build_todo(require("checkmate.parser").get_todo_map(bufnr))
+  local name = M.get_canonical_name(meta_name) or meta_name
   return {
     value = value,
-    name = meta_name,
-    ---@type checkmate.Todo
+    name = name,
     todo = todo,
     buffer = bufnr,
   }
@@ -252,8 +253,7 @@ function M.get_choices(meta_name, callback, todo_item, bufnr)
     return callback({})
   end
 
-  ---@type checkmate.MetadataEntry
-  local entry = todo_item.metadata and todo_item.metadata.by_tag and todo_item.metadata.by_tag[canonical_name]
+  local entry = todo_item:get_metadata(canonical_name)
   local value = entry and entry.value or ""
 
   local context = M.create_context(todo_item, canonical_name, value, bufnr)
@@ -307,10 +307,13 @@ function M.has_metadata(todo_item, meta_name, predicate)
   end
 
   local canonical = M.get_canonical_name(meta_name)
-  local entry = todo_item.metadata.by_tag[canonical] or todo_item.metadata.by_tag[meta_name]
+  local entry = todo_item:get_metadata(meta_name)
 
   if not entry then
-    return false, nil
+    entry = todo_item:get_metadata(canonical)
+    if not entry then
+      return false, nil
+    end
   end
 
   if predicate ~= nil then

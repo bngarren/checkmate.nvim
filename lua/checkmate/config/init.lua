@@ -1,12 +1,12 @@
 local defaults = require("checkmate.config.defaults")
 local validate = require("checkmate.config.validate")
 
--- Config
 ---@class checkmate.Config.mod
 local M = {}
 
--- Namespace for plugin-related state
 M.ns = vim.api.nvim_create_namespace("checkmate")
+
+-- extmarks for specifically tracking todos (i.e. their "stable" ids)
 M.ns_todos = vim.api.nvim_create_namespace("checkmate_todos")
 
 -- primary highlights namespace
@@ -15,11 +15,6 @@ M.ns_hl = vim.api.nvim_create_namespace("checkmate_hl")
 -- Buffer local checkmate state
 -- e.g. `vim.b[bufnr]._checkmate`
 M.buffer_local_ns = "_checkmate"
-
-function M.get_region_limit(bufnr)
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  return math.max(200, math.floor(line_count * 0.25))
-end
 
 M._state = {
   user_style = nil, -- Track user-provided style settings (to reapply after colorscheme changes)
@@ -86,10 +81,6 @@ M.options = {}
 ---Note: mappings for metadata are set separately in the `metadata` table
 ---@field keys ( table<string, checkmate.KeymapConfig>| false )
 ---
----Characters for todo markers (checked and unchecked)
----@deprecated use todo_states
----@field todo_markers? checkmate.TodoMarkers
----
 ---The states that a todo item may have
 ---Default: "unchecked" and "checked"
 ---Note that Github-flavored Markdown specification only includes "checked" and "unchecked".
@@ -103,16 +94,22 @@ M.options = {}
 ---@field ui? checkmate.UISettings
 ---
 ---Highlight settings (merges with defaults, user config takes precedence)
----Default style will attempt to integrate with current colorscheme (experimental)
----May need to tweak some colors to your liking
----@field style checkmate.StyleSettings?
+---Default style will attempt to integrate with current colorscheme
+---
+---#### Disabling highlights
+---To disable *all* checkmate.nvim highlight groups, set to false. _This will include metadata highlighting_.
+---This may be helpful when integrating with Markdown rendering plugins.
+---@field style? checkmate.StyleSettings|false
 ---
 ---Enter insert mode after `:Checkmate create`, require("checkmate").create()
 ---Default: true
 ---@field enter_insert_after_new boolean
 ---
 ---List continuation refers to the automatic creation of new todo lines when insert mode keymaps are fired, i.e., typically <CR>
----To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option. The list continuation functionality can also be toggled via the `enabled` option.
+---This does not apply to regular list items (you would need to implement your own or use a separate plugin)
+---
+---To offer optimal configurability and integration with other plugins, you can set the exact keymaps and their functions via the `keys` option.
+---The list continuation functionality can also be toggled via the `enabled` option.
 --- - When enabled and keymap calls `create()`, it will create a new todo line, using the origin/current row with reasonable defaults
 --- - Works for both raw Markdown (e.g. `- [ ]`) and Unicode style (e.g. `- ☐`) todos.
 ---@field list_continuation checkmate.ListContinuationSettings
@@ -161,7 +158,7 @@ M.options = {}
 ---@field linter checkmate.LinterConfig?
 ---
 ---Turn off treesitter highlights (on by default)
----Buffer local
+---Buffer local (for Checkmate buffers)
 ---See `:h treesitter-highlight`
 ---@field disable_ts_highlights? boolean
 
@@ -187,6 +184,7 @@ M.options = {}
 -----------------------------------------------------
 
 ---The broad categories used internally that give semantic meaning to each todo state
+---See details in checkmate.TodoStateDefinition |type|
 ---@alias checkmate.TodoStateType "incomplete" | "complete" | "inactive"
 
 ---@class checkmate.TodoStateDefinition
@@ -224,24 +222,18 @@ M.options = {}
 
 -----------------------------------------------------
 
---- DEPRECATED v0.10
----@deprecated use `todo_states`
----@class checkmate.TodoMarkers
----
----Character used for unchecked items
----@field unchecked string
----
----Character used for checked items
----@field checked string
-
------------------------------------------------------
-
 ---@class checkmate.UISettings
 ---
----@alias checkmate.Picker "telescope" | "snacks" | "mini" | false | fun(items: string[], opts: {on_choice: function})
+---Sets the default picker
 ---Default behavior: attempt to use an installed plugin, if found
----If false, will default to vim.ui.select
----If a function is passed, will use this picker implementation
+---  - see `checkmate.Picker` values
+---If nil or "native", will use vim.ui.select
+---
+---Note, some Checkmate API functions provide additional levels of picker configuration that
+---may override or bypass this option:
+---  - `picker_opts`: used to set picker and opts for that call. See `checkmate.PickerOpts`
+---  - `custom_picker`: a function that receives Checkmate data and a `complete(value)` callback that can be used
+---  to run an arbitrary picker and run the Checkmate behavior on complete()
 ---@field picker? checkmate.Picker
 
 -----------------------------------------------------
@@ -287,7 +279,8 @@ M.options = {}
 ---Whether to enable smart toggle behavior
 ---
 ---What is 'smart toggle'?
---- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a sensible manner
+--- - Attempts to propagate a change in state (i.e. checked ←→ unchecked) up and down the hierarchy in a intelligent manner
+--- - E.g., if all children have just become checked, then check the parent too.
 --- - In this mode, changing the state of a todo maybe also affect nearby todos
 ---Default: true
 ---@field enabled boolean?
@@ -404,15 +397,15 @@ M.options = {}
 ---
 ---Callback to run when this metadata tag is added to a todo item
 ---E.g. can be used to change the todo item state
----@field on_add? fun(todo_item: checkmate.TodoItem)
+---@field on_add? fun(todo: checkmate.Todo)
 ---
 ---Callback to run when this metadata tag is removed from a todo item
 ---E.g. can be used to change the todo item state
----@field on_remove? fun(todo_item: checkmate.TodoItem)
+---@field on_remove? fun(todo: checkmate.Todo)
 ---
----Callback to run when this metadata tag's value is changed (not on initial add or removal)
+---Callback to run when this metadata tag's value is programatically changed (not on initial add or removal)
 ---Receives the todo item, old value, and new value
----@field on_change? fun(todo_item: checkmate.TodoItem, old_value: string, new_value: string)
+---@field on_change? fun(todo: checkmate.Todo, old_value: string, new_value: string)
 
 -----------------------------------------------------
 
@@ -465,27 +458,18 @@ function M.get_deprecations(user_opts)
 
   local res = {}
 
+  ---@diagnostic disable-next-line: unused-local
   local function add(msg)
     table.insert(res, msg)
   end
 
-  ---@deprecated v0.10.1
-  if user_opts.log and user_opts.log.use_buffer then
-    add("`config.log.use_buffer` has been removed. Use `use_file` to enable/disable logging.")
+  -- [add deprecations here]
+  -- NOTE: deprecated v0.12
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    add("ui.picker 'false' is deprecated since v0.12. Use 'native' to use vim.ui.select as the default picker.")
   end
 
-  ---@deprecated v0.10
-  if user_opts.todo_markers then
-    add("`config.todo_markers` is deprecated. Use `todo_states` instead.")
-  end
-
-  ---removed in v0.10
-  ---@diagnostic disable-next-line: undefined-field
-  if user_opts.todo_action_depth then
-    add(
-      "`config.todo_action_depth` has been removed (v0.10). Note, todos can now be interacted from any depth in their hierarchy"
-    )
-  end
   return res
 end
 
@@ -493,11 +477,22 @@ end
 ---@param current_opts checkmate.Config
 ---@param user_opts? checkmate.Config
 local function merge_deprecated_opts(current_opts, user_opts)
+  user_opts = user_opts or {}
+
+  -----------------------
+  ---@deprecated ui.picker "false" opt deprecated v0.12
+
+  -- convert false to "native"
+  local user_picker = vim.tbl_get(user_opts, "ui", "picker")
+  if user_picker == false then
+    current_opts.ui = vim.tbl_extend("force", current_opts.ui or {}, { picker = "native" })
+  end
+  -----------------------
+
+  --[[ Kept as an example (commented out in v0.12)
   -----------------------
   --- todo_markers
   ---@deprecated v0.10
-
-  user_opts = user_opts or {}
 
   -- if the user set todo_markers but did not explicitly override todo_states,
   -- build a new todo_states table from their markers, preserving the default order.
@@ -525,13 +520,13 @@ local function merge_deprecated_opts(current_opts, user_opts)
     checked = current_opts.todo_states.checked.marker,
   }
   -----------------------
+  ]]
 end
 
 ---@param opts? checkmate.Config
 ---@return checkmate.Config config
 function M.setup(opts)
   local success, result = pcall(function()
-    -- start with static defaults
     local config = vim.deepcopy(defaults)
 
     --- Some config options should not be merged but rather overriden
@@ -590,8 +585,10 @@ function M.setup(opts)
     M._state.user_style = config.style and vim.deepcopy(config.style) or {}
 
     -- make theme-aware style defaults
-    local theme_style = require("checkmate.theme").generate_style_defaults()
-    config.style = vim.tbl_deep_extend("keep", config.style or {}, theme_style)
+    if config.style ~= false then
+      local theme_style = require("checkmate.theme").generate_style_defaults()
+      config.style = vim.tbl_deep_extend("keep", config.style or {}, theme_style)
+    end
 
     M.options = config
 
@@ -614,6 +611,14 @@ end
 function M.get_todo_state_type(state_name)
   local state_def = M.options.todo_states[state_name]
   return state_def and state_def.type or "inactive"
+end
+
+-- Determines the line count threshold for what constitutes a "region", for
+-- region-scoped processing vs. full buffer
+-- I.e, if a region is too large, it may warrant a full re-process
+function M.get_region_limit(bufnr)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  return math.max(200, math.floor(line_count * 0.25))
 end
 
 return M

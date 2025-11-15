@@ -16,10 +16,6 @@ describe("Linter", function()
     cm.setup()
   end)
 
-  after_each(function()
-    cm.stop()
-  end)
-
   -- helper to run linter & fetch diags in one go
   local function run(bufnr, linter_opts)
     linter.setup(linter_opts)

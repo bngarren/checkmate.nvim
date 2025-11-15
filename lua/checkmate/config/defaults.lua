@@ -65,6 +65,11 @@ return {
       desc = "Archive checked/completed todo items (move to bottom section)",
       modes = { "n" },
     },
+    ["<leader>TF"] = {
+      rhs = "<cmd>Checkmate select_todo<CR>",
+      desc = "Open a picker to select a todo from the current buffer",
+      modes = { "n" },
+    },
     ["<leader>Tv"] = {
       rhs = "<cmd>Checkmate metadata select_value<CR>",
       desc = "Update the value of a metadata tag under the cursor",
@@ -82,6 +87,7 @@ return {
     },
   },
   default_list_marker = "-",
+  ui = {},
   todo_states = {
     -- we don't need to set the `markdown` field for `unchecked` and `checked` as these can't be overriden
     ---@diagnostic disable-next-line: missing-fields
@@ -171,11 +177,11 @@ return {
         return tostring(os.date("%m/%d/%y %H:%M"))
       end,
       key = "<leader>Td",
-      on_add = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "checked")
+      on_add = function(todo)
+        require("checkmate").set_todo_state(todo, "checked")
       end,
-      on_remove = function(todo_item)
-        require("checkmate").set_todo_item(todo_item, "unchecked")
+      on_remove = function(todo)
+        require("checkmate").set_todo_state(todo, "unchecked")
       end,
       sort_order = 30,
     },

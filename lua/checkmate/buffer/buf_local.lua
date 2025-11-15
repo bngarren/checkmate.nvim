@@ -1,4 +1,4 @@
--- made this module to help manage checkmate buffer local state consistently
+-- helps manage checkmate buffer local state consistently
 --
 -- each field is stored at: vim.b[bufnr]["<ns>_<name>"]
 -- eg: with ns="_checkmate", key "in_conversion" -> b:_checkmate_in_conversion
@@ -6,7 +6,7 @@
 ---@class checkmate.BufferLocalHandle
 ---@field get fun(self, name: string, default?: any): any
 ---@field set fun(self, name: string, value: any)
----@field update fun(self: checkmate.BufferLocalHandle, name: string, fn: fun(prev: any): any, default: any|nil): any
+---@field update fun(self: checkmate.BufferLocalHandle, name: string, fn: (fun(prev: any):any), default: any|nil): any
 ---@field del fun(self, name: string)
 ---@field clear fun(self)
 ---@field table fun(self): table
@@ -43,24 +43,13 @@ end
 
 local function assert_valid_buf(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
-    error(("checkmate.buf_local: invalid bufnr: %s"):format(tostring(bufnr)))
+    error(("checkmate.buffer.buf_local: invalid bufnr: %s"):format(tostring(bufnr)))
   end
 end
 
 local function make_key(name)
   return get_prefix() .. name
 end
-
-local function matches_prefix(key)
-  local prefix = get_prefix()
-  return type(key) == "string" and key:sub(1, #prefix) == prefix
-end
-
-local function strip_prefix(key)
-  return key:sub(#get_prefix() + 1)
-end
-
--- Public API
 
 ---Mutating the returned table will NOT persist
 ---Use set/update/del/clear to persist
@@ -166,6 +155,7 @@ function M.handle(bufnr)
   bufnr = resolve_bufnr(bufnr)
   local h = {}
   local mt = {
+    ---@type checkmate.BufferLocalHandle
     __index = {
       get = function(_, name, default)
         return M.get(name, { bufnr = bufnr, default = default })

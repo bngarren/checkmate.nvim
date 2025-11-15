@@ -1,10 +1,12 @@
 describe("Commands", function()
-  local h, checkmate
-  local bufnr, temp_file
+  ---@module "checkmate"
+  local checkmate
+
+  ---@module "tests.checkmate.helpers"
+  local h
 
   lazy_setup(function()
     stub(vim.api, "nvim_echo")
-    vim.wait(10)
   end)
 
   lazy_teardown(function()
@@ -15,16 +17,13 @@ describe("Commands", function()
   before_each(function()
     _G.reset_state()
 
-    h = require("tests.checkmate.helpers")
     checkmate = require("checkmate")
+    h = require("tests.checkmate.helpers")
+
     ---@diagnostic disable-next-line: missing-fields
     checkmate.setup()
-    bufnr, temp_file = h.setup_todo_file_buffer("")
-  end)
 
-  after_each(function()
-    checkmate.stop()
-    h.cleanup_buffer(bufnr, temp_file)
+    h.setup_test_buffer("")
   end)
 
   it("toggle calls toggle()", function()
@@ -67,6 +66,7 @@ describe("Commands", function()
     s:revert()
   end)
 
+  -- TODO: deprecated in v0.12, moved to `:Checkmate metadata remove_all`
   it("remove_all_metadata calls remove_all_metadata()", function()
     local s = spy.on(checkmate, "remove_all_metadata")
     vim.cmd("Checkmate remove_all_metadata")
@@ -87,11 +87,26 @@ describe("Commands", function()
       s:revert()
     end)
 
+    it("metadata update calls update_metadata()", function()
+      local s = spy.on(checkmate, "update_metadata")
+      vim.cmd("Checkmate metadata update foo bar")
+      assert.spy(s).was.called(1)
+      assert.spy(s).was.called_with("foo", "bar")
+      s:revert()
+    end)
+
     it("metadata remove calls remove_metadata()", function()
       local s = spy.on(checkmate, "remove_metadata")
       vim.cmd("Checkmate metadata remove baz")
       assert.spy(s).was.called(1)
       assert.spy(s).was.called_with("baz")
+      s:revert()
+    end)
+
+    it("metadata remove_all calls remove_all_metadata()", function()
+      local s = spy.on(checkmate, "remove_all_metadata")
+      vim.cmd("Checkmate metadata remove_all")
+      assert.spy(s).was.called(1)
       s:revert()
     end)
 
@@ -104,6 +119,27 @@ describe("Commands", function()
       vim.cmd("Checkmate metadata toggle priority high")
       assert.spy(s).was.called(1)
       assert.spy(s).was.called_with("priority", "high")
+      s:revert()
+    end)
+
+    it("metadata select_value calls select_metadata_value()", function()
+      local s = spy.on(checkmate, "select_metadata_value")
+      vim.cmd("Checkmate metadata select_value")
+      assert.spy(s).was.called(1)
+      s:revert()
+    end)
+
+    it("metadata jump_next calls jump_next_metadata()", function()
+      local s = spy.on(checkmate, "jump_next_metadata")
+      vim.cmd("Checkmate metadata jump_next")
+      assert.spy(s).was.called(1)
+      s:revert()
+    end)
+
+    it("metadata jump_previous calls jump_previous_metadata()", function()
+      local s = spy.on(checkmate, "jump_previous_metadata")
+      vim.cmd("Checkmate metadata jump_previous")
+      assert.spy(s).was.called(1)
       s:revert()
     end)
   end)

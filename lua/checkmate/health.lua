@@ -3,6 +3,7 @@ local health = vim.health or require("health")
 local start = health.start or health.report_start
 local ok = health.ok or health.report_ok
 local warn = health.warn or health.report_warn
+local info = health.info or warn
 local error = health.error or health.report_error
 
 local M = {}
@@ -18,7 +19,7 @@ function M.check()
   end
 
   -- check markdown parser
-  -- though i think neovim includes Markdown by default
+  -- though neovim includes Markdown by default
   local has_md_parser, _ = vim.treesitter.language.add("markdown")
   if has_md_parser then
     ok("Markdown parser present")
@@ -28,7 +29,7 @@ function M.check()
 
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
-  local user_opts = checkmate.get_user_opts()
+  local user_opts = checkmate._get_user_opts()
 
   local validation_ok, validation_errors
   if user_opts and not vim.tbl_isempty(user_opts) then
@@ -49,6 +50,10 @@ function M.check()
         "Set `enabled = true` in your config to enable",
       })
     end
+
+    if user_opts.style == false then
+      warn("Checkmate highlights are disabled (`style` is false)\nIf this is intentional, this is okay.")
+    end
   end
 
   -- WHICH BUFFERS MEET ACTIVATION CRITERIA
@@ -63,7 +68,7 @@ end
 
 function M._deprecations_check()
   local checkmate = require("checkmate")
-  local deprecations = require("checkmate.config").get_deprecations(checkmate.get_user_opts())
+  local deprecations = require("checkmate.config").get_deprecations(checkmate._get_user_opts())
 
   if #deprecations > 0 then
     warn("Deprecation warnings:\n" .. table.concat(deprecations, "\n"))
@@ -152,7 +157,18 @@ function M._compatibility_check()
       lines = {
         "Should not conflict.",
         "If you see issues with checkbox styling, consider:",
-        "`require('render-markdown').setup({ checkbox = { enabled = false }})`",
+        "In `render-markdown` config, setting { checkbox = { enabled = false }}`",
+        "More info at https://github.com/bngarren/checkmate.nvim/wiki",
+      },
+    },
+    {
+      name = "markview.nvim",
+      module = "markview",
+      level = "info",
+      lines = {
+        "Should not conflict.",
+        "If you see issues with checkbox styling, consider:",
+        "In `markview` config: setting the `markdown_inline.checkboxes` to `{ enabled = false }`",
         "More info at https://github.com/bngarren/checkmate.nvim/wiki",
       },
     },

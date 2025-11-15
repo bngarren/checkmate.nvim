@@ -1,8 +1,8 @@
 describe("Config", function()
+  ---@module "tests.checkmate.helpers"
   local h
 
   lazy_setup(function()
-    -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
   end)
 
@@ -16,30 +16,27 @@ describe("Config", function()
 
     h = require("tests.checkmate.helpers")
 
-    -- Back up globals
+    -- back up globals
     _G.loaded_checkmate_bak = vim.g.loaded_checkmate
     _G.checkmate_config_bak = vim.g.checkmate_config
-    _G.checkmate_user_opts_bak = vim.g.checkmate_user_opts
 
-    -- Reset globals
+    -- reset globals
     vim.g.loaded_checkmate = nil
     vim.g.checkmate_config = nil
-    vim.g.checkmate_user_opts = nil
 
     vim.g.mapleader = " "
   end)
 
   after_each(function()
-    -- Restore globals
+    -- restore globals
     vim.g.loaded_checkmate = _G.loaded_checkmate_bak
     vim.g.checkmate_config = _G.checkmate_config_bak
-    vim.g.checkmate_user_opts = _G.checkmate_user_opts_bak
   end)
 
   describe("initializaiton", function()
     it("should load with default options", function()
-      local checkmate = require("checkmate")
-      checkmate.setup()
+      local cm = require("checkmate")
+      cm.setup()
 
       local config = require("checkmate.config")
 
@@ -50,33 +47,31 @@ describe("Config", function()
       assert.equal("-", config.options.default_list_marker)
       assert.is_true(config.options.enter_insert_after_new)
 
-      checkmate.stop()
+      cm._stop()
     end)
 
     it("should correctly setup keymaps", function()
-      local checkmate = require("checkmate")
-
-      local bufnr, file_path = h.setup_todo_file_buffer("", {
-        config = {
-          keys = {
-            ["<leader>Ta"] = { -- cmd
-              rhs = "<cmd>Checkmate archive<CR>",
-              desc = "Archive todos",
-              modes = { "n" },
-            },
-            ["<leader>Tc"] = { -- callback
-              rhs = function()
-                require("checkmate").check()
-              end,
-              desc = "Check todo",
-              modes = { "n", "v" },
-            },
-            ["<leader>Tu"] = { "<cmd>lua require('checkmate').uncheck()<CR>", "UNCHECK", { "n", "v" } },
+      local cm = require("checkmate")
+      ---@diagnostic disable-next-line: missing-fields
+      cm.setup({
+        keys = {
+          ["<leader>Ta"] = { -- cmd
+            rhs = "<cmd>Checkmate archive<CR>",
+            desc = "Archive todos",
+            modes = { "n" },
           },
+          ["<leader>Tc"] = { -- callback
+            rhs = function()
+              require("checkmate").check()
+            end,
+            desc = "Check todo",
+            modes = { "n", "v" },
+          },
+          ["<leader>Tu"] = { "<cmd>lua require('checkmate').uncheck()<CR>", "UNCHECK", { "n", "v" } },
         },
       })
-      vim.api.nvim_set_current_buf(bufnr)
-      vim.api.nvim_win_set_buf(0, bufnr)
+
+      local bufnr = h.setup_test_buffer("")
 
       -- keymaps were created
       local keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
@@ -99,21 +94,19 @@ describe("Config", function()
       assert.is_true(found_check)
       assert.is_true(found_uncheck)
 
-      local archive_stub = stub(checkmate, "archive")
+      local archive_stub = stub(cm, "archive")
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Ta", true, false, true), "x", false)
       assert.stub(archive_stub).called(1)
 
-      local check_stub = stub(checkmate, "check")
+      local check_stub = stub(cm, "check")
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tc", true, false, true), "x", false)
       assert.stub(check_stub).called(1)
 
-      local uncheck_stub = stub(checkmate, "uncheck")
+      local uncheck_stub = stub(cm, "uncheck")
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>Tu", true, false, true), "x", false)
       assert.stub(uncheck_stub).called(1)
 
       finally(function()
-        checkmate.stop()
-        h.cleanup_buffer(bufnr, file_path)
         archive_stub:revert()
         check_stub:revert()
         uncheck_stub:revert()
@@ -123,16 +116,16 @@ describe("Config", function()
 
   describe("setup function", function()
     it("should overwrite defaults with user options", function()
-      local checkmate = require("checkmate")
+      local cm = require("checkmate")
 
       local config = require("checkmate.config")
 
-      -- Default checks
+      -- Default markers
       assert.equal("□", h.get_unchecked_marker())
       assert.equal("✔", h.get_checked_marker())
 
       ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({
+      cm.setup({
         todo_states = {
           ---@diagnostic disable-next-line: missing-fields
           checked = {
@@ -153,14 +146,14 @@ describe("Config", function()
       -- shouldn't touch unrelated options
       assert.is_true(config.options.enabled)
 
-      checkmate.stop()
+      cm._stop()
     end)
 
     it("should not duplicate user configured + default `keys`", function()
-      local checkmate = require("checkmate")
+      local cm = require("checkmate")
 
       ---@diagnostic disable-next-line: missing-fields
-      checkmate.setup({
+      cm.setup({
         -- overwrite the keys
         keys = {
           ["<leader>Ct"] = {
@@ -176,10 +169,10 @@ describe("Config", function()
       assert.equal(1, vim.tbl_count(config.options.keys))
       assert.is_true(vim.list_contains(vim.tbl_keys(config.options.keys), "<leader>Ct"))
 
-      checkmate.stop()
+      cm._stop()
     end)
 
-    describe("style merging", function()
+    describe("style", function()
       local theme
       local orig_theme
 
@@ -194,16 +187,37 @@ describe("Config", function()
           }, orig_theme)
         end)
       end)
+
       after_each(function()
         theme.generate_style_defaults:revert()
       end)
 
+      it("should not generate checkmate highlights if style == false", function()
+        vim.cmd("hi clear")
+
+        local cm = require("checkmate")
+        ---@diagnostic disable-next-line: missing-fields
+        cm.setup({
+          style = false,
+        })
+
+        local bufnr = h.setup_test_buffer("- [ ] Todo")
+
+        local hls = vim.api.nvim_get_hl(0, { create = false })
+
+        local r = vim.iter(hls):find(function(hl_name)
+          return string.match(hl_name, "Checkmate*") ~= nil
+        end)
+
+        assert.is_nil(r)
+      end)
+
       it("fills in missing style but keeps user-supplied values", function()
-        local checkmate = require("checkmate")
+        local cm = require("checkmate")
         local config = require("checkmate.config")
 
         ---@diagnostic disable-next-line: missing-fields
-        checkmate.setup({
+        cm.setup({
           style = {
             CheckmateUncheckedMarker = { fg = "#ff0000" }, -- user overrides fg only
           },
@@ -223,15 +237,15 @@ describe("Config", function()
 
         assert.stub(theme.generate_style_defaults).was.called(1)
 
-        checkmate.stop()
+        cm._stop()
       end)
 
       it("never overwrites an explicit user value on style back-fill", function()
-        local checkmate = require("checkmate")
+        local cm = require("checkmate")
         local config = require("checkmate.config")
 
         ---@diagnostic disable-next-line: missing-fields
-        checkmate.setup({
+        cm.setup({
           style = {
             CheckmateUncheckedMarker = { fg = "#00ff00", bold = false }, -- user sets both
           },
@@ -249,7 +263,7 @@ describe("Config", function()
         -- Again, ensure we only called the style factory once
         assert.stub(theme.generate_style_defaults).was.called(1)
 
-        checkmate.stop()
+        cm._stop()
       end)
     end)
 
@@ -262,10 +276,12 @@ describe("Config", function()
       end)
 
       it("should not start if validation fails", function()
+        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
-        require("checkmate").setup({ enabled = "cant be string" })
+        cm.setup({ enabled = "cant be string" })
         vim.wait(20)
-        assert.is_not_true(require("checkmate").is_running())
+        assert.is_not_true(require("checkmate")._is_running())
+        cm._stop()
       end)
 
       it("should successfully validate default options", function()
@@ -275,9 +291,9 @@ describe("Config", function()
       end)
 
       it("should allow user to redefine a default metadata entry while keeping other defaults", function()
-        local checkmate = require("checkmate")
+        local cm = require("checkmate")
         ---@diagnostic disable-next-line: missing-fields
-        checkmate.setup({
+        cm.setup({
           metadata = {
             ---@diagnostic disable-next-line: missing-fields
             done = {
@@ -293,7 +309,7 @@ describe("Config", function()
 
         assert.same(config.options.metadata.started, config.get_defaults().metadata.started)
 
-        checkmate.stop()
+        cm._stop()
       end)
 
       it("should fail to validate bad opts", function()

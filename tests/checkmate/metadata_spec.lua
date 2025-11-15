@@ -17,13 +17,9 @@ describe("Metadata", function()
     h = require("tests.checkmate.helpers")
     checkmate = require("checkmate")
 
-    h.ensure_normal_mode()
-
     checkmate.setup()
-  end)
 
-  after_each(function()
-    checkmate.stop()
+    h.ensure_normal_mode()
   end)
 
   describe("metadata context", function()
@@ -48,14 +44,30 @@ describe("Metadata", function()
 
       local todo = context.todo
       assert.is_table(todo)
-      assert.are_equal(todo._todo_item, todo_item)
+      assert.are_equal(todo._get_todo_item(), todo_item)
       assert.are_equal(todo.state, "unchecked")
       assert.are_equal(todo.text, content)
       assert.are_same(todo.metadata, { { "priority", "high" }, { "started", "today" } })
 
       assert.is_function(todo.is_checked)
-      local c = todo.is_checked()
+      local ch = todo.is_checked()
+      assert.is_false(ch)
+
+      assert.is_function(todo.is_unchecked)
+      local uch = todo.is_unchecked()
+      assert.is_true(uch)
+
+      assert.is_function(todo.is_complete)
+      local c = todo.is_complete()
       assert.is_false(c)
+
+      assert.is_function(todo.is_incomplete)
+      local ic = todo.is_incomplete()
+      assert.is_true(ic)
+
+      assert.is_function(todo.is_inactive)
+      local ia = todo.is_inactive()
+      assert.is_false(ia)
 
       assert.is_function(todo.get_metadata)
 
@@ -70,10 +82,6 @@ describe("Metadata", function()
       local u1, u2 = todo.get_metadata("unknown")
       assert.is_nil(u1)
       assert.is_nil(u2)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should evaluate style fn", function()
@@ -150,7 +158,6 @@ describe("Metadata", function()
 
     describe("evaluate choices fn", function()
       local meta_module = require("checkmate.metadata")
-      local config = require("checkmate.config")
 
       local bufnr, todo_item, context
 
@@ -163,10 +170,6 @@ describe("Metadata", function()
         assert.is_not_nil(todo_item)
         ---@cast todo_item checkmate.TodoItem
         context = meta_module.create_context(todo_item, "priority", "high", bufnr)
-      end)
-
-      after_each(function()
-        h.cleanup_buffer(bufnr)
       end)
 
       it("should handle static table", function()

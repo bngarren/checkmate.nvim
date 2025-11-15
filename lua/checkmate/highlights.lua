@@ -86,7 +86,7 @@ end
 --- apply immediate full-buffer highlighting (synchronous)
 ---@private
 function M._apply_immediate(bufnr, todo_map)
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   M.clear_hl_ns(bufnr)
 
@@ -107,7 +107,7 @@ function M._apply_region(bufnr, todo_map, region)
     return
   end
 
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   -- clear only the affected range
   -- note: region has end-exclusive rows
@@ -173,7 +173,7 @@ function M._apply_progressive(bufnr, todo_map, opts)
     deferred_roots = all_roots
   end
 
-  M._line_cache_by_buf[bufnr] = util.create_line_cache(bufnr)
+  M._line_cache_by_buf[bufnr] = util.line_cache.new(bufnr)
 
   -- process viewport's root todos immediately (synchronous)
   if #immediate_roots > 0 then
@@ -197,9 +197,14 @@ end
 ---@private
 local function _progressive_step(bufnr, todo_map, cur_gen)
   local st = M._progressive[bufnr]
-  if not st or st.gen ~= cur_gen or not vim.api.nvim_buf_is_valid(bufnr) then
+  if not st or not vim.api.nvim_buf_is_valid(bufnr) then
     M.clear_buf_line_cache(bufnr)
-    M.cancel_progressive(bufnr)
+    return
+  end
+
+  if st.gen ~= cur_gen then
+    -- this is an step from an old progressive loop (a newer one has been started)
+    -- so we just bail
     return
   end
 
@@ -266,7 +271,7 @@ end
 ---@param is_main_content boolean Whether this is main content or additional content
 ---@return string highlight_group
 function M.get_todo_content_highlight(todo_state, is_main_content)
-  local state_name = util.snake_to_camel(todo_state)
+  local state_name = util.string.snake_to_camel(todo_state)
   if is_main_content then
     return "Checkmate" .. state_name .. "MainContent"
   else
@@ -276,7 +281,7 @@ end
 
 -- Caching
 -- To avoid redundant nvim_buf_get_lines calls during highlighting passes
----@type table<integer, LineCache>
+---@type table<integer, checkmate.Util.line_cache>
 M._line_cache_by_buf = {}
 
 function M.get_buffer_line(bufnr, row)
@@ -284,8 +289,9 @@ function M.get_buffer_line(bufnr, row)
   if cache then
     return cache:get(row)
   end
-  -- fallback: create a throwaway cache for isolated calls
-  return util.create_line_cache(bufnr):get(row)
+  -- no cache for isolated calls
+  local lines = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)
+  return lines[1] or ""
 end
 
 function M.clear_buf_line_cache(bufnr)
@@ -341,7 +347,7 @@ function M.register_highlight_groups()
 
   -- generate highlight groups for each todo state
   for state_name, _ in pairs(config.options.todo_states) do
-    local state_name_camel = util.snake_to_camel(state_name)
+    local state_name_camel = util.string.snake_to_camel(state_name)
 
     local marker_group = "Checkmate" .. state_name_camel .. "Marker"
     local main_content_group = "Checkmate" .. state_name_camel .. "MainContent"
@@ -385,6 +391,11 @@ end
 function M.setup_highlights()
   M.clear_highlight_cache()
 
+  -- style == false should disable checkmate highlights
+  if config.options.style == false then
+    return
+  end
+
   M.register_highlight_groups()
 
   -- autocmd to re-apply highlighting when colorscheme changes
@@ -394,25 +405,27 @@ function M.setup_highlights()
       vim.defer_fn(function()
         log.info("[autocmd] ColorScheme")
 
-        M.clear_highlight_cache()
+        if config.options.style ~= false then
+          M.clear_highlight_cache()
 
-        -- Get fresh theme-based defaults
-        local theme = require("checkmate.theme")
-        local colorscheme_aware_style = theme.generate_style_defaults()
+          -- Get fresh theme-based defaults
+          local theme = require("checkmate.theme")
+          local colorscheme_aware_style = theme.generate_style_defaults()
 
-        -- Get user's style (if any was explicitly set)
-        local user_style = config._state.user_style or {}
+          -- Get user's style (if any was explicitly set)
+          local user_style = config._state.user_style or {}
 
-        -- Update the style with a fresh merge of user settings and theme defaults
-        config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
+          -- Update the style with a fresh merge of user settings and theme defaults
+          config.options.style = vim.tbl_deep_extend("keep", user_style, colorscheme_aware_style)
 
-        -- Re-apply highlights with updated styles
-        M.register_highlight_groups()
+          -- Re-apply highlights with updated styles
+          M.register_highlight_groups()
 
-        -- Re-apply to all active buffers
-        for bufnr, _ in pairs(require("checkmate").get_active_buffer_list()) do
-          if vim.api.nvim_buf_is_valid(bufnr) then
-            M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
+          -- Re-apply to all active buffers
+          for bufnr, _ in pairs(require("checkmate.buffer").get_active_buffers()) do
+            if vim.api.nvim_buf_is_valid(bufnr) then
+              M.apply_highlighting(bufnr, { debug_reason = "colorscheme_changed" })
+            end
           end
         end
       end, 10)
@@ -430,6 +443,11 @@ end
 --- @param bufnr? integer
 --- @param opts? ApplyHighlightingOpts
 function M.apply_highlighting(bufnr, opts)
+  -- style == false should disable checkmate highlights
+  if config.options.style == false then
+    return
+  end
+
   profiler.start("highlights.apply_highlighting")
 
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -546,7 +564,7 @@ function M.highlight_todo_item(bufnr, todo_item, todo_map, opts)
   end
 
   -- process children
-  if opts.recursive and todo_item.children and #todo_item.children > 0 then
+  if opts.recursive and todo_item:has_children() then
     local batch_size = 50
     for i = 1, #todo_item.children, batch_size do
       -- allow event loop to run between batches
@@ -589,7 +607,7 @@ function M.highlight_todo_marker(bufnr, todo_item)
   local marker_text = todo_item.todo_marker.text
 
   if marker_pos.col >= 0 then
-    local state_name_camel = require("checkmate.util").snake_to_camel(todo_item.state)
+    local state_name_camel = require("checkmate.util").string.snake_to_camel(todo_item.state)
     local hl_group = "Checkmate" .. state_name_camel .. "Marker"
 
     local line = M.get_buffer_line(bufnr, marker_pos.row)
@@ -617,24 +635,22 @@ end
 ---@param todo_rows checkmate.TodoMap row to todo lookup table
 function M.highlight_list_markers(bufnr, todo_item, todo_rows)
   -- highlight the todo item's own marker
-  if todo_item.list_marker and todo_item.list_marker.node then
-    local start_row, start_col = todo_item.list_marker.node:range()
-    local marker_text = todo_item.list_marker.text
+  local start_row, start_col = todo_item.list_marker.node:range()
+  local marker_text = todo_item.list_marker.text
 
-    if marker_text then
-      local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
-        or "CheckmateListMarkerUnordered"
+  if marker_text then
+    local hl_group = todo_item.list_marker.type == "ordered" and "CheckmateListMarkerOrdered"
+      or "CheckmateListMarkerUnordered"
 
-      vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
-        end_row = start_row,
-        end_col = start_col + #marker_text,
-        hl_group = hl_group,
-        priority = M.PRIORITY.LIST_MARKER,
-        right_gravity = false,
-        end_right_gravity = false,
-        hl_eol = false,
-      })
-    end
+    vim.api.nvim_buf_set_extmark(bufnr, hl_ns(), start_row, start_col, {
+      end_row = start_row,
+      end_col = start_col + #marker_text,
+      hl_group = hl_group,
+      priority = M.PRIORITY.LIST_MARKER,
+      right_gravity = false,
+      end_right_gravity = false,
+      hl_eol = false,
+    })
   end
 
   local query = parser.FULL_TODO_QUERY
@@ -874,7 +890,7 @@ function M.show_todo_count_indicator(bufnr, todo_item, todo_map)
     return
   end
 
-  if not todo_item.children or #todo_item.children == 0 then
+  if not todo_item:has_children() then
     return
   end
 

@@ -9,9 +9,8 @@
 
 -- It also warns when ordered & unordered markers are mixed at the same indent.
 
--- Design:
--- Uses a validator-based approach where each rule is encapsulated
--- in a validator object that implements an expected interface
+-- Uses a validator-based approach...each rule is encapsulated
+-- in a validator object 
 --
 -- Each validator receives a LintContext containing all necessary information to
 -- perform validation and report issues

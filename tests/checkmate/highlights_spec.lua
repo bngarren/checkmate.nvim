@@ -13,10 +13,6 @@ describe("Highlights", function()
     checkmate.setup(h.DEFAULT_TEST_CONFIG)
   end)
 
-  after_each(function()
-    checkmate.stop()
-  end)
-
   describe("list marker", function()
     it("should correctly highlight the todo LIST marker", function()
       local highlights = require("checkmate.highlights")
@@ -57,10 +53,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got)
       assert.same(expected, got)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should correctly highlight within-todo list markers", function()
@@ -123,10 +115,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got_ordered)
       assert.same(expected, got_ordered)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
 
     it("should correctly highlight the todo marker", function()
@@ -191,10 +179,6 @@ describe("Highlights", function()
 
       assert.equal(#expected, #got_checked)
       assert.same(expected, got_checked)
-
-      finally(function()
-        h.cleanup_buffer(bufnr)
-      end)
     end)
   end)
 
@@ -313,7 +297,7 @@ describe("Highlights", function()
       assert.same(expected_additional, got_additional)
 
       finally(function()
-        h.cleanup_buffer(bufnr, file_path)
+        h.cleanup_file(file_path)
       end)
     end)
   end)
@@ -413,7 +397,6 @@ describe("Highlights", function()
       local content = table.concat(lines, "\n") .. "\n"
 
       local bufnr = h.setup_test_buffer(content)
-      assert.is_true(api.setup_buffer(bufnr))
 
       -- initial extmarks
       local before_marks = highlights.get_hl_marks(bufnr)
@@ -520,7 +503,6 @@ describe("Highlights", function()
         stub_apply_highlighting:revert()
         stub_clear_hl_ns:revert()
         stub_clear_hl_ns_range:revert()
-        h.cleanup_buffer(bufnr)
       end)
     end)
   end)

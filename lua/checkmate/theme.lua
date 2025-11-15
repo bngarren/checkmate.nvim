@@ -8,7 +8,6 @@ function M.is_valid_hex_color(color)
   return color:match("^#%x%x%x%x%x%x$") ~= nil
 end
 
--- Ensure we have a valid hex color or use a default
 function M.ensure_hex_color(color, default)
   if M.is_valid_hex_color(color) then
     return color
@@ -16,7 +15,7 @@ function M.ensure_hex_color(color, default)
   return M.is_valid_hex_color(default) and default or "#000000"
 end
 
--- Get primary foreground and background colors from current colorscheme
+-- get primary foreground and background colors from current colorscheme
 function M.get_base_colors()
   local util = require("checkmate.util")
   local colors = {}
@@ -26,38 +25,32 @@ function M.get_base_colors()
 
   colors.is_light_bg = vim.o.background == "light"
 
-  -- If we couldn't get colors from highlights, use fallbacks based on vim.o.background
+  -- if we couldn't get colors from highlights, use fallbacks based on vim.o.background
   colors.bg = M.ensure_hex_color(colors.bg, colors.is_light_bg and "#ffffff" or "#222222")
   colors.fg = M.ensure_hex_color(colors.fg, colors.is_light_bg and "#000000" or "#eeeeee")
 
-  -- Now that we have valid bg color, determine actual brightness
+  -- now that we have valid bg color, determine actual brightness
   local perceived_brightness = M.get_color_brightness(colors.bg)
 
-  -- Override the is_light_bg setting based on actual calculated brightness
+  -- override the is_light_bg setting based on actual calculated brightness
   colors.is_light_bg = perceived_brightness > 128
 
   return colors
 end
 
--- Get accent colors from commonly available highlight groups
 function M.get_accent_colors()
   local util = require("checkmate.util")
 
-  -- Extract colors from commonly available highlight groups, with fallbacks
+  -- extract colors from commonly available highlight groups, with fallbacks
   local colors = {
-    -- Warning color (oranges/yellows usually)
     diagnostic_warn = util.get_hl_color({ "DiagnosticWarn", "WarningMsg" }, "fg"),
 
-    -- Success/OK color (greens usually)
     diagnostic_ok = util.get_hl_color({ "DiagnosticOk", "DiagnosticHint", "String" }, "fg"),
 
-    -- Default comments (usually grays)
     comment = util.get_hl_color("Comment", "fg"),
 
-    -- Keywords (often blues or purples)
     keyword = util.get_hl_color({ "Keyword", "Statement", "Function" }, "fg"),
 
-    -- Special chars (often distinct purples or oranges)
     special = util.get_hl_color({ "Special", "SpecialChar", "Type" }, "fg"),
   }
 
@@ -75,7 +68,7 @@ function M.get_color_brightness(hex_color)
   local g = tonumber(hex_color:sub(4, 5), 16) or 0
   local b = tonumber(hex_color:sub(6, 7), 16) or 0
 
-  -- Perceived brightness gives more weight to green, less to blue
+  -- perceived brightness gives more weight to green, less to blue
   return (r * 299 + g * 587 + b * 114) / 1000
 end
 
@@ -111,7 +104,6 @@ function M.get_contrast_ratio(fg, bg)
   return (lighter + 0.05) / (darker + 0.05)
 end
 
--- Simple function to lighten or darken a color by percentage
 function M.adjust_color_brightness(hex_color, percent)
   if not M.is_valid_hex_color(hex_color) then
     return hex_color
@@ -161,7 +153,7 @@ function M.ensure_contrast(color, bg, min_ratio)
   local attempts = 0
   local max_attempts = 5
 
-  --   clamp attempt counter AND force larger steps the closer we are.
+  -- clamp attempt counter AND force larger steps the closer we are.
   while ratio < min_ratio and attempts < max_attempts do
     local step = adjustment * (1 + attempts) -- 20%, 40%, 60% ...
     adjusted = M.adjust_color_brightness(adjusted, step)
@@ -182,7 +174,7 @@ function M.generate_style_defaults()
   -- Detect "startup phase": Normal highlight missing → fg/bg = nil.
   local ok, normal = pcall(vim.api.nvim_get_hl, 0, { name = "Normal", link = false })
   if not ok or (not normal.fg and not normal.bg) then
-    return {} -- nothing to work with *yet*
+    return {} -- nothing to work with yet
   end
 
   local util = require("checkmate.util")
@@ -192,7 +184,7 @@ function M.generate_style_defaults()
   -- contrast thresholds
   local text_contrast_ratio = 4.5 -- Standard for normal text (WCAG AA)
   local ui_contrast_ratio = 3.0 -- Standard for UI elements (WCAG AA)
-  local dim_contrast_ratio = 2.5 -- For less important elements like done items
+  local dim_contrast_ratio = 2.5
 
   -- ensure accent colors have adequate contrast against the background
   local colors = {}
@@ -202,16 +194,15 @@ function M.generate_style_defaults()
     end
   end
 
-  -- Default colors if accent colors weren't available
+  -- default colors if accent colors weren't available
   local default_warn = M.ensure_contrast(base.is_light_bg and "#e65100" or "#ff9500", base.bg, ui_contrast_ratio) -- orange
   local default_ok = M.ensure_contrast(base.is_light_bg and "#008800" or "#00cc66", base.bg, ui_contrast_ratio) -- green
   local default_special = M.ensure_contrast(base.is_light_bg and "#8060a0" or "#e3b3ff", base.bg, ui_contrast_ratio) -- purple
 
-  -- Style settings for highlights
   ---@type table<checkmate.HighlightGroup, vim.api.keyset.highlight>
   local style = {}
 
-  -- List markers - use different colors for ordered vs unordered
+  -- list markers - use different colors for ordered vs unordered
   style.CheckmateListMarkerUnordered = {
     fg = colors.comment or M.ensure_contrast(base.is_light_bg and "#888888" or "#aaaaaa", base.bg, ui_contrast_ratio),
   }
@@ -220,21 +211,21 @@ function M.generate_style_defaults()
     fg = colors.keyword or M.ensure_contrast(base.is_light_bg and "#555577" or "#8888aa", base.bg, ui_contrast_ratio),
   }
 
-  -- Unchecked todos - should be very visible
+  -- unchecked todos - should be very visible
   style.CheckmateUncheckedMarker = {
     fg = colors.diagnostic_warn or default_warn,
     bold = true,
   }
 
   style.CheckmateUncheckedMainContent = {
-    fg = base.fg, -- Use normal text color
+    fg = base.fg, -- normal text color
   }
 
   style.CheckmateUncheckedAdditionalContent = {
     fg = M.ensure_contrast(util.blend(base.fg, base.bg, 0.9), base.bg, text_contrast_ratio),
   }
 
-  -- Checked todos - should look "completed"
+  -- checked todos - should look "completed"
   style.CheckmateCheckedMarker = {
     fg = colors.diagnostic_ok or default_ok,
     bold = true,
@@ -249,7 +240,6 @@ function M.generate_style_defaults()
     fg = M.ensure_contrast(util.blend(base.fg, base.bg, 0.6), base.bg, dim_contrast_ratio),
   }
 
-  -- For todo count indicators (e.g. "2/5" completed)
   style.CheckmateTodoCountIndicator = {
     fg = colors.special or default_special,
     italic = true,

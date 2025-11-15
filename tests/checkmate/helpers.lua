@@ -73,7 +73,7 @@ end
 function M.cleanup_test(bufnr)
   M.ensure_normal_mode()
 
-  pcall(require("checkmate").stop)
+  pcall(require("checkmate")._stop)
 
   if not bufnr then
     return
@@ -440,7 +440,7 @@ function M.run_test_cases(test_cases, opts)
     end
 
     if tc.config then
-      cm.stop()
+      cm._stop()
 
       local merge_config = true
       if tc.merge_default_config == false then
@@ -455,7 +455,7 @@ function M.run_test_cases(test_cases, opts)
 
     local bufnr = M.setup_test_buffer(tc.content)
 
-    if not cm.is_running() then
+    if not cm._is_running() then
       error("failed to run test case because checkmate isn't running")
       return
     end
@@ -500,7 +500,7 @@ function M.run_test_cases(test_cases, opts)
     run_single_case(tc)
   end
 
-  pcall(cm.stop)
+  pcall(cm._stop)
 end
 
 ---Runner for basic content (string or string[]) -> action -> expected (string [])

@@ -3,6 +3,7 @@ local util = require("checkmate.util")
 local profiler = require("checkmate.profiler")
 local log = require("checkmate.log")
 local ph = require("checkmate.parser.helpers")
+local TodoItem = require("checkmate.lib.todo_item")
 
 local M = {}
 
@@ -25,31 +26,6 @@ local M = {}
 ---@class checkmate.TodoMetadata
 ---@field entries checkmate.MetadataEntry[] List of metadata entries
 ---@field by_tag table<string, checkmate.MetadataEntry> Quick access by tag name
-
---- @class checkmate.TodoItem
---- Stable key. Uses extmark id positioned just prior to the todo marker.
---- This allows tracking the same todo item across buffer modifications.
---- @field id integer
---- @field bufnr integer Source buffer
---- @field state string The todo state, e.g. "checked", "unchecked", or a custom state like "pending"
---- @field state_type checkmate.TodoStateType
---- @field node TSNode The Treesitter node
---- Todo item's buffer range
---- This range is adjusted from the raw TS node range via *get_semantic_range*:
----   - The start col is adjusted to the indentation level
----   - The end col is adjusted so that it accurately reflects the end of the content
---- @field range checkmate.Range
---- @field ts_range checkmate.Range
---- This is the range of the first inline node of the first paragraph which is (currently) the best representation
---- of the todo item's main content. This allows the first todo line to be hard-wrapped but still
---- allow the broken subsequent lines to work, e.g. have metadata extracted.
---- @field first_inline_range checkmate.Range
---- @field todo_marker TodoMarkerInfo Information about the todo marker (0-indexed position)
---- @field list_marker checkmate.ListMarkerInfo Information about the list marker (0-indexed position)
---- @field metadata checkmate.TodoMetadata | {} Metadata for this todo item
---- @field todo_text string Text content of the todo item line (first line, including the markers)
---- @field children integer[] IDs of child todo items
---- @field parent_id integer? ID of parent todo item
 
 --- This struct represents the result of a parsed checkmate buffer
 --- Generated via `discover_todos`
@@ -358,15 +334,15 @@ function M.convert_markdown_to_unicode(bufnr)
     return false
   end
 
-  local bl = require("checkmate.buf_local").handle(bufnr)
+  local buffer = require("checkmate.buffer").get(bufnr)
 
   -- prevent re-entry:
   -- so our own writes don't trigger downstream autocmds/handlers
   -- or re-run this function (which would break join logic)
-  if bl:get("in_conversion") then
+  if buffer._local:get("in_conversion") then
     return false
   end
-  bl:set("in_conversion", true)
+  buffer._local:set("in_conversion", true)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -419,7 +395,7 @@ function M.convert_markdown_to_unicode(bufnr)
   end
 
   if #changes == 0 then
-    bl:del("in_conversion")
+    buffer._local:del("in_conversion")
     return false
   end
 
@@ -434,12 +410,12 @@ Undo logic
 ]]
 
   -- initial conversion = before any user edit
-  local is_initial = bl:get("last_user_tick") == bl:get("baseline_tick")
+  local is_initial = buffer._local:get("last_user_tick") == buffer._local:get("baseline_tick")
 
   -- for edits after the initial conversion, coalesce this conversion write into the user's last edit when ticks match
   local should_join = not is_initial
-    and bl:get("last_user_tick") ~= nil
-    and (vim.api.nvim_buf_get_changedtick(bufnr) == bl:get("last_user_tick"))
+    and buffer._local:get("last_user_tick") ~= nil
+    and (vim.api.nvim_buf_get_changedtick(bufnr) == buffer._local:get("last_user_tick"))
 
   local original_modified = vim.bo[bufnr].modified
 
@@ -478,8 +454,8 @@ Undo logic
   end)
 
   vim.bo[bufnr].modified = original_modified
-  bl:set("last_conversion_tick", vim.api.nvim_buf_get_changedtick(bufnr))
-  bl:del("in_conversion")
+  buffer._local:set("last_conversion_tick", vim.api.nvim_buf_get_changedtick(bufnr))
+  buffer._local:del("in_conversion")
   return true
 end
 
@@ -704,8 +680,8 @@ function M.discover_todos(bufnr)
   local list_items = {}
   local ancestor_stack = {} -- {node, item_idx}
 
-  local markers_by_list = {} -- list_item node id -> marker nodes array
-  local first_inlines_by_list = {} -- list_item node id -> first inline node
+  local li_markers_by_li_node = {} -- list_item node id -> marker nodes array
+  local first_inlines_by_li_node = {} -- list_item node id -> first inline node
 
   local current_list_item = nil
   local current_list_idx = nil
@@ -746,8 +722,8 @@ function M.discover_todos(bufnr)
       local parent = node:parent()
       if parent then
         local parent_id = parent:id()
-        markers_by_list[parent_id] = markers_by_list[parent_id] or {}
-        table.insert(markers_by_list[parent_id], {
+        li_markers_by_li_node[parent_id] = li_markers_by_li_node[parent_id] or {}
+        table.insert(li_markers_by_li_node[parent_id], {
           node = node,
           type = M.get_marker_type_from_capture_name(capture_name),
         })
@@ -763,8 +739,8 @@ function M.discover_todos(bufnr)
 
         if enclosing_list_item == current_list_item then
           local list_item_id = current_list_item:id()
-          if not first_inlines_by_list[list_item_id] then
-            first_inlines_by_list[list_item_id] = node
+          if not first_inlines_by_li_node[list_item_id] then
+            first_inlines_by_li_node[list_item_id] = node
           end
         end
       end
@@ -773,11 +749,11 @@ function M.discover_todos(bufnr)
 
   -- batch read all needed lines
   local rows_needed = {}
-  local n_items = #list_items
-  for i = 1, n_items do
+  for i = 1, #list_items do
     rows_needed[i] = list_items[i].start_row
   end
-  local first_lines = util.batch_get_lines(bufnr, rows_needed)
+  -- list_items are already sorted (from TS iter_captures)
+  local first_lines = util.get_buf_lines_for_rows(bufnr, rows_needed)
 
   -- map to track node_id -> extmark_id for hierarchy building
   local node_to_extmark = {}
@@ -788,11 +764,11 @@ function M.discover_todos(bufnr)
 
     if todo_state then
       local start_row = item.start_row
-      local todo_marker = config.options.todo_states[todo_state].marker
+      local todo_marker_str = config.options.todo_states[todo_state].marker
 
       -- todo extmark is placed right before todo marker
       local marker_col = 0
-      local todo_marker_byte_pos = first_line:find(todo_marker, 1, true)
+      local todo_marker_byte_pos = first_line:find(todo_marker_str, 1, true)
       if todo_marker_byte_pos then
         marker_col = todo_marker_byte_pos - 1
       end
@@ -809,74 +785,79 @@ function M.discover_todos(bufnr)
       end
       extmark_by_pos[pos_key] = nil -- mark as used
 
-      local raw_range = {
-        start = { row = start_row, col = item.start_col },
-        ["end"] = { row = item.end_row, col = item.end_col },
-      }
-      local semantic_range = util.get_semantic_range(raw_range, bufnr)
-
-      -- get list marker info
-      local list_marker = nil
-      local node_id = item.node:id()
-      local markers = markers_by_list[node_id]
+      -- List marker info
+      local li_node_id = item.node:id()
+      local li_markers = li_markers_by_li_node[li_node_id]
 
       local line_from_marker = first_line:gsub("^%s+", "")
-      local marker_text = line_from_marker:match("^[%-%*%+]") or line_from_marker:match("^%d+[%.%)]")
-      list_marker = {
-        node = markers[1].node,
-        type = markers[1].type,
-        text = marker_text,
-      }
+      local list_marker_text = line_from_marker:match("^[%-%*%+]") or line_from_marker:match("^%d+[%.%)]")
 
-      -- get first inline range
-      local first_inline_node = first_inlines_by_list[node_id]
-      local first_inline_range = nil
-
-      if first_inline_node then
-        local inline_start_row, inline_start_col, inline_end_row, inline_end_col = first_inline_node:range()
-        first_inline_range = {
-          start = { row = inline_start_row, col = inline_start_col },
-          ["end"] = { row = inline_end_row, col = inline_end_col },
+      local list_marker
+      if li_markers[1] then
+        list_marker = {
+          node = li_markers[1].node,
+          type = li_markers[1].type,
+          text = list_marker_text,
         }
       else
-        first_inline_range = semantic_range
+        -- shouldn't normally happen
+        list_marker = {
+          node = nil,
+          type = "unordered",
+          text = list_marker_text or "",
+        }
+      end
+
+      -- Ranges
+      local ts_range = {
+        start = { row = item.start_row, col = item.start_col },
+        ["end"] = { row = item.end_row, col = item.end_col },
+      }
+
+      local first_inline_node = first_inlines_by_li_node[li_node_id]
+      local first_inline_range
+      if first_inline_node then
+        local isr, isc, ier, iec = first_inline_node:range()
+        first_inline_range = {
+          start = { row = isr, col = isc },
+          ["end"] = { row = ier, col = iec },
+        }
       end
 
       local metadata = M.extract_metadata(bufnr, first_inline_range)
 
       -- create todo item
       ---@type checkmate.TodoItem
-      local todo_item = {
+      local todo_item = TodoItem.new({
         id = extmark_id,
         bufnr = bufnr,
-        state = todo_state,
-        state_type = config.get_todo_state_type(todo_state),
         node = item.node,
-        range = semantic_range,
-        ts_range = raw_range,
+        state = todo_state,
+        ts_range = ts_range,
         first_inline_range = first_inline_range,
-        todo_text = first_line,
         todo_marker = {
           position = { row = start_row, col = marker_col },
-          text = todo_marker,
+          text = todo_marker_str,
         },
         list_marker = list_marker,
         metadata = metadata,
-        children = {},
-        parent_id = nil,
-      }
+        todo_text = first_line,
+      })
 
       todo_map[extmark_id] = todo_item
-      node_to_extmark[node_id] = extmark_id
+      node_to_extmark[li_node_id] = extmark_id
 
       -- set parent relationship
       if item.parent_idx then
         local parent_item = list_items[item.parent_idx]
         local parent_extmark_id = node_to_extmark[parent_item.node:id()]
 
-        if parent_extmark_id and todo_map[parent_extmark_id] then
-          todo_item.parent_id = parent_extmark_id
-          table.insert(todo_map[parent_extmark_id].children, extmark_id)
+        if parent_extmark_id then
+          local parent_todo = todo_map[parent_extmark_id]
+          if parent_todo then
+            todo_item:set_parent(parent_extmark_id)
+            parent_todo:add_child(extmark_id)
+          end
         end
       end
     end

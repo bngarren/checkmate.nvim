@@ -311,7 +311,9 @@ function M.metadata(opts)
         local col = vim.api.nvim_win_get_cursor(0)[2]
 
         vim.schedule(function()
-          local todo = require("checkmate.parser").get_todo_item_at_position(bufnr, row, col)
+          local parser = require("checkmate.parser")
+          local todo_item = parser.get_todo_item_at_position(bufnr, row, col)
+          local todo = todo_item and todo_item:build_todo(parser.get_todo_map(bufnr))
           if todo then
             meta_props.on_add(todo)
           end

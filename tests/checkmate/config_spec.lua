@@ -47,7 +47,7 @@ describe("Config", function()
       assert.equal("-", config.options.default_list_marker)
       assert.is_true(config.options.enter_insert_after_new)
 
-      cm.stop()
+      cm._stop()
     end)
 
     it("should correctly setup keymaps", function()
@@ -146,7 +146,7 @@ describe("Config", function()
       -- shouldn't touch unrelated options
       assert.is_true(config.options.enabled)
 
-      cm.stop()
+      cm._stop()
     end)
 
     it("should not duplicate user configured + default `keys`", function()
@@ -169,7 +169,7 @@ describe("Config", function()
       assert.equal(1, vim.tbl_count(config.options.keys))
       assert.is_true(vim.list_contains(vim.tbl_keys(config.options.keys), "<leader>Ct"))
 
-      cm.stop()
+      cm._stop()
     end)
 
     describe("style", function()
@@ -237,7 +237,7 @@ describe("Config", function()
 
         assert.stub(theme.generate_style_defaults).was.called(1)
 
-        cm.stop()
+        cm._stop()
       end)
 
       it("never overwrites an explicit user value on style back-fill", function()
@@ -263,7 +263,7 @@ describe("Config", function()
         -- Again, ensure we only called the style factory once
         assert.stub(theme.generate_style_defaults).was.called(1)
 
-        cm.stop()
+        cm._stop()
       end)
     end)
 
@@ -280,8 +280,8 @@ describe("Config", function()
         ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
         cm.setup({ enabled = "cant be string" })
         vim.wait(20)
-        assert.is_not_true(require("checkmate").is_running())
-        cm.stop()
+        assert.is_not_true(require("checkmate")._is_running())
+        cm._stop()
       end)
 
       it("should successfully validate default options", function()
@@ -309,7 +309,7 @@ describe("Config", function()
 
         assert.same(config.options.metadata.started, config.get_defaults().metadata.started)
 
-        cm.stop()
+        cm._stop()
       end)
 
       it("should fail to validate bad opts", function()

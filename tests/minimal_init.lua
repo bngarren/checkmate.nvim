@@ -27,8 +27,8 @@ _G.reset_state = function(close_buffers)
   if package.loaded["checkmate"] then
     pcall(function()
       local checkmate = require("checkmate")
-      if checkmate.is_running() then
-        checkmate.stop()
+      if checkmate._is_running() then
+        checkmate._stop()
       end
     end)
   end

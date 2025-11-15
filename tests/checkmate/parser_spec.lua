@@ -15,8 +15,6 @@ describe("Parser", function()
   end)
 
   lazy_teardown(function()
-    checkmate.stop()
-
     ---@diagnostic disable-next-line: undefined-field
     vim.api.nvim_echo:revert()
   end)
@@ -38,11 +36,6 @@ describe("Parser", function()
         },
       },
     })
-    vim.wait(20)
-  end)
-
-  after_each(function()
-    checkmate.stop()
   end)
 
   -- Helper to verify todo range is consistent with its content

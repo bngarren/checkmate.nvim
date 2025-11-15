@@ -1,5 +1,3 @@
--- lua/checkmate/profiler.lua
-
 local M = {}
 
 M._enabled = false

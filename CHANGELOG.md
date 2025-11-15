@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.12.0](https://github.com/bngarren/checkmate.nvim/compare/v0.11.2...v0.12.0) (2025-11-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** addresses inconsistency of API return values. Most are boolean return values that represent if the action was queued/scheduled, not necessarily if the buffer was updated (as many occur via transaction or async). Therefore, most users shouldn't need the boolean returns. However, this at least standardizes and improves documentation.
+* **api:** allow `create` to use `position` opt in visual mode ([#207](https://github.com/bngarren/checkmate.nvim/issues/207))
+* **config:** `keys` are no longer merged with defaults. If custom keys + defaults are desired, you must explicitly copy the defaults into your `keys` table.
+
+### Features
+
+* add `get_todo`, `get_todos`, and `select_todo` APIs ([#223](https://github.com/bngarren/checkmate.nvim/issues/223)) ([ceb94ba](https://github.com/bngarren/checkmate.nvim/commit/ceb94bab1fdb2a6e6158b83d22f5018bdc22fd00))
+* add `position` opt to `select_metadata_value` that can be used instead of cursor pos ([#212](https://github.com/bngarren/checkmate.nvim/issues/212)) ([57ea1d0](https://github.com/bngarren/checkmate.nvim/commit/57ea1d0f23478dfefc6f1d2c5581983bdf457915))
+* add `update_metadata` API ([#209](https://github.com/bngarren/checkmate.nvim/issues/209)) ([84356f2](https://github.com/bngarren/checkmate.nvim/commit/84356f25a14aff0e2b5c9ed6261290a0b148b804))
+* Add a custom `picker_fn` for `select_metadata_value` ([#205](https://github.com/bngarren/checkmate.nvim/issues/205)) ([0b70ee6](https://github.com/bngarren/checkmate.nvim/commit/0b70ee6579a511892479ba371e00f6a7b9ba0a5d))
+* **api:** add `bufnr` to checkmate.Todo representing the source buffer ([b400115](https://github.com/bngarren/checkmate.nvim/commit/b40011548fba4bdbbd4e49ce714102e79ae59836))
+* **api:** add additional helpers to Todo class ([#215](https://github.com/bngarren/checkmate.nvim/issues/215)) ([e6dd02b](https://github.com/bngarren/checkmate.nvim/commit/e6dd02b54c1399c722638cfa3255d4697728ff76))
+* **api:** allow `create` to use `position` opt in visual mode ([#207](https://github.com/bngarren/checkmate.nvim/issues/207)) ([44cb47e](https://github.com/bngarren/checkmate.nvim/commit/44cb47e71c9074d3fa14fc852913664e63e6156a))
+* **api:** update return values and documentation of public API ([#216](https://github.com/bngarren/checkmate.nvim/issues/216)) ([994c296](https://github.com/bngarren/checkmate.nvim/commit/994c296a43086bed3afdff8d53518144c75752c8))
+* **config:** add ability to disable checkmate style/highlights with `style` false ([#218](https://github.com/bngarren/checkmate.nvim/issues/218)) ([6ce6e87](https://github.com/bngarren/checkmate.nvim/commit/6ce6e879a2603517d7eabae0ec7953a6ec2fe1b7))
+* upgrade picker system, paving way for future picker APIs and Todo related finding ([#220](https://github.com/bngarren/checkmate.nvim/issues/220)) ([0dd9e91](https://github.com/bngarren/checkmate.nvim/commit/0dd9e915c1170cf0029140c31dbd099d6faef69a))
+
+
+### Bug Fixes
+
+* **api:** allow limited operations on undefined metadata ([#214](https://github.com/bngarren/checkmate.nvim/issues/214)) ([f8da74a](https://github.com/bngarren/checkmate.nvim/commit/f8da74a4e7534970db1a8d91271cd49f8df5cc00))
+* **api:** fix unexpected handling of list continuation when the split content is a todo ([#206](https://github.com/bngarren/checkmate.nvim/issues/206)) ([ebc9cbc](https://github.com/bngarren/checkmate.nvim/commit/ebc9cbc305865e7f4952cd938d83fd992206245f))
+* **api:** remove lingering _todo_item field on Todo ([13a7181](https://github.com/bngarren/checkmate.nvim/commit/13a7181a24ae2c4d9b00f2f8b765c8d69ba7145c))
+* **api:** use buffer local helper in BufWrite ([c2c5aa3](https://github.com/bngarren/checkmate.nvim/commit/c2c5aa301b86cd71469d367b0267e7669274024d))
+* **commands:** update user commands ([#211](https://github.com/bngarren/checkmate.nvim/issues/211)) ([47be9e7](https://github.com/bngarren/checkmate.nvim/commit/47be9e7b4a029e73529d47e77bea7e36304ba47a))
+* **config:** bug in `keys` config, unintentional merge, duplicate keymaps ([#202](https://github.com/bngarren/checkmate.nvim/issues/202)) ([57bedf4](https://github.com/bngarren/checkmate.nvim/commit/57bedf4011fbbb19918234404ffcdfd36bd23e6f))
+* deprecate `set_todo_item`, instead use `set_todo_state` ([#210](https://github.com/bngarren/checkmate.nvim/issues/210)) ([b660ad8](https://github.com/bngarren/checkmate.nvim/commit/b660ad8f7a93ae50b5be33e688bf078e5ae76a27))
+
 ## [0.11.2](https://github.com/bngarren/checkmate.nvim/compare/v0.11.1...v0.11.2) (2025-10-11)
 
 

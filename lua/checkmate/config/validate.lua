@@ -2,7 +2,7 @@ local M = {}
 
 local VALID_TODO_STATE_TYPES = { "incomplete", "complete", "inactive" }
 local VALID_PROPAGATION_MODES = { "all_children", "direct_children", "none" }
-local VALID_PICKERS = { "telescope", "snacks", "mini", "select" }
+local VALID_PICKERS = { "telescope", "snacks", "mini", "native" }
 local VALID_LIST_MARKERS = { "-", "*", "+" }
 local VALID_TODO_COUNT_POSITIONS = { "eol", "inline" }
 
@@ -497,10 +497,21 @@ local function validate_ui(ui)
     local picker_type = type(ui.picker)
     if picker_type == "string" then
       if not vim.tbl_contains(VALID_PICKERS, ui.picker) then
-        table.insert(errors, string.format("picker: must be one of: %s", table.concat(VALID_PICKERS, ", ")))
+        table.insert(
+          errors,
+          string.format(
+            "`picker`: must be one of: %s",
+            table.concat(
+              vim.tbl_map(function(p)
+                return string.format("'%s'", p)
+              end, VALID_PICKERS),
+              ", "
+            )
+          )
+        )
       end
     else
-      -- TODO: after v0.12, need to disallow non-strings
+      -- TODO: after v0.12, need to disallow non-strings (i.e. false is still allowed but deprecated)
     end
   end
 

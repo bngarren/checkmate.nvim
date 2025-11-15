@@ -1,3 +1,8 @@
+--[[
+
+TodoItem is the internal representation of a todo in Checkmate. The public type counterpart is `checkmate.Todo`.
+
+--]]
 --- @class checkmate.TodoItem
 --- Stable key. Uses extmark id positioned just prior to the todo marker.
 --- This allows tracking the same todo item across buffer modifications.
@@ -169,6 +174,103 @@ function TodoItem:get_metadata(name)
   else
     return nil
   end
+end
+
+--- Check if the todo item matches the specified filters
+---@param opts? checkmate.FilterOpts
+---@return boolean matches True if todo item matches all filter criteria
+function TodoItem:matches(opts)
+  if not opts or vim.tbl_isempty(opts) then
+    return true
+  end
+
+  local config = require("checkmate.config")
+
+  -- Filter by state names
+  if opts.states and #opts.states > 0 then
+    local state_match = false
+    for _, state in ipairs(opts.states) do
+      if self.state == state then
+        state_match = true
+        break
+      end
+    end
+    if not state_match then
+      return false
+    end
+  end
+
+  -- Filter by state types (complete, incomplete, inactive)
+  if opts.state_types and #opts.state_types > 0 then
+    local state_def = config.options.todo_states[self.state]
+    if not state_def then
+      return false -- invalid state, skip
+    end
+
+    local todo_state_type = config.get_todo_state_type(self.state)
+
+    local type_match = false
+    for _, requested_type in ipairs(opts.state_types) do
+      if todo_state_type == requested_type then
+        type_match = true
+        break
+      end
+    end
+    if not type_match then
+      return false
+    end
+  end
+
+  -- Filter by metadata (handles both tags and key-value metadata)
+  -- For tags: use key = true (must exist) or key = false (must not exist)
+  -- For metadata with values: use key = "value" (must match exactly)
+  if opts.metadata and next(opts.metadata) then
+    if opts.metadata_match_all then
+      -- Require ALL metadata conditions to match
+      for key, expected in pairs(opts.metadata) do
+        local meta = self.metadata.by_tag[key]
+
+        if type(expected) == "boolean" then
+          -- Tag existence check: true = must exist, false = must not exist
+          local exists = meta ~= nil
+          if exists ~= expected then
+            return false
+          end
+        else
+          -- Value match: metadata must exist and value must match
+          if not meta or meta.value ~= expected then
+            return false
+          end
+        end
+      end
+    else
+      -- Match ANY metadata condition
+      local meta_match = false
+      for key, expected in pairs(opts.metadata) do
+        local meta = self.metadata.by_tag[key]
+
+        if type(expected) == "boolean" then
+          -- Tag existence check
+          local exists = meta ~= nil
+          if exists == expected then
+            meta_match = true
+            break
+          end
+        else
+          -- Value match
+          if meta and meta.value == expected then
+            meta_match = true
+            break
+          end
+        end
+      end
+      if not meta_match then
+        return false
+      end
+    end
+  end
+
+  return true
 end
 
 --- Converts TreeSitter's technical range to a semantically meaningful range for todo items

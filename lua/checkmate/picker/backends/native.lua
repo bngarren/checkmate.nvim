@@ -25,7 +25,7 @@ function M.pick(ctx)
   vim.ui.select(
     labels,
     vim.tbl_deep_extend("force", {
-      prompt = ctx.prompt or "Select",
+      prompt = ctx.prompt or "Select Todo",
       kind = ctx.kind,
       format_item = function(label)
         return label

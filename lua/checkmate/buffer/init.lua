@@ -6,6 +6,7 @@
 local Buffer = {}
 Buffer.__index = Buffer
 
+local log = require("checkmate.log")
 local parser = require("checkmate.parser")
 local util = require("checkmate.util")
 local transaction = require("checkmate.transaction")
@@ -26,15 +27,22 @@ local _instances = {} ---@type table<integer, checkmate.Buffer>
 ---@return string? error_msg
 function Buffer.is_valid(bufnr)
   if not bufnr or type(bufnr) ~= "number" then
+    log.fmt_warn("Invalid buffer number: %s", tostring(bufnr))
     return false, "Invalid buffer number"
   end
 
-  local ok, is_valid = pcall(vim.api.nvim_buf_is_valid, bufnr)
-  if not ok or not is_valid then
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    log.fmt_warn("Buffer is not valid: bufnr %d", bufnr)
     return false, "Buffer is not valid"
   end
 
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
+    log.fmt_warn("Buffer is not loaded: bufnr %d", bufnr)
+    return false, "Buffer is not loaded"
+  end
+
   if vim.bo[bufnr].filetype ~= "markdown" then
+    log.fmt_warn("Buffer is not markdown: bufnr %d, ft '%s'", bufnr, vim.bo[bufnr].filetype)
     return false, "Buffer is not markdown filetype"
   end
 

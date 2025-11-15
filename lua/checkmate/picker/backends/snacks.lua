@@ -86,7 +86,7 @@ function M.pick_todo(ctx)
 
   ---@type snacks.picker.Config
   local base = {
-    title = (ctx.prompt or "Todos"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
+    title = (ctx.prompt or "Find Todo"):gsub("^%s*", ""):gsub("[%s:]*$", ""),
     layout = {
       preset = "sidebar",
       preview = "main",

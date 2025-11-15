@@ -1256,20 +1256,20 @@ function M.jump_previous_metadata()
   end
 end
 
+---@class checkmate.GetTodoOpts
+---@field bufnr? integer (default: current). Buffer must be loaded.
+---@field row? integer (0-based) row to inspect (overrides cursor/visual selection)
+---@field root_only? boolean Only match if row is the todo's first line (default: false)
+
 --- Get the todo under the cursor (or the first line of a visual selection)
 ---
 --- Behavior:
---- - Uses current buffer and cursor row by default
+--- - Uses current buffer and cursor row by default.
 --- - In visual mode, resolves the todo at the *first* line of the selection (`'<`)
 --- - If `root_only=true`, only returns a todo when the resolved row is the todo's first line (i.e., with list item and todo marker)
 --- - If the buffer is not an active Checkmate buffer, returns nil
 ---
---- Options:
----   - bufnr?: integer            Buffer to inspect (default: current)
----   - row?:   integer (0-based)  Explicit row to inspect (overrides cursor/visual)
----   - root_only?: boolean        Only match if row is the todo’s first line
----
---- @param opts? {bufnr?: integer, row?: integer, root_only?: boolean}
+--- @param opts? checkmate.GetTodoOpts
 --- @return checkmate.Todo? todo The todo item at the specified position, or nil if not found
 function M.get_todo(opts)
   opts = opts or {}
@@ -1301,21 +1301,29 @@ function M.get_todo(opts)
     end
   end
 
+  -- prefer transaction todo_map snapshot if one exists
   local ctx = transaction.current_context(bufnr)
-  local parse_opts = { root_only = opts.root_only == true }
-  if ctx then
-    parse_opts.todo_map = ctx.get_todo_map()
+  local todo_map = ctx and ctx.get_todo_map() or parser.get_todo_map(bufnr)
+
+  if not todo_map or vim.tbl_isempty(todo_map) then
+    return nil
   end
+
+  local parse_opts = {
+    root_only = opts.root_only == true,
+    todo_map = todo_map,
+  }
 
   local item = parser.get_todo_item_at_position(bufnr, row, 0, parse_opts)
   if not item then
     return nil
   end
-  return item:build_todo(parser.get_todo_map(bufnr))
+
+  return item:build_todo(todo_map)
 end
 
 ---@class checkmate.GetTodosOpts
----@field bufnr? integer (default: current buffer)
+---@field bufnr? integer (default: current buffer). Buffer must be loaded.
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
 ---@field filter? checkmate.FilterOpts
 
@@ -1324,53 +1332,70 @@ end
 --- Returns an array of todos that can be used to populate quickfix lists, pickers, or custom UIs.
 --- Supports filtering by state, state type, and metadata.
 ---
---- Examples:
----   -- Get all todos in buffer
----   local todos = checkmate.get_todos()
+--- ## Examples
+--- ```lua
+--- -- Get all todos in buffer
+--- local todos = checkmate.get_todos()
 ---
----   -- Get todos in specific range
----   local todos = checkmate.get_todos({ range = {10, 50} })
+--- -- Get todos in specific range
+--- local todos = checkmate.get_todos({ range = {10, 50} })
 ---
----   -- Get all incomplete todos
----   local todos = checkmate.get_todos({ state_types = {"incomplete"} })
+--- -- Get all incomplete todos
+--- local todos = checkmate.get_todos({
+---   filter = { state_types = { "incomplete" } },
+--- })
 ---
----   -- Get todos with "urgent" tag (tag exists)
----   local todos = checkmate.get_todos({ metadata = { urgent = true } })
+--- -- Get todos with "urgent" tag (tag exists)
+--- local todos = checkmate.get_todos({
+---   filter = { metadata = { urgent = true } },
+--- })
 ---
----   -- Get todos without "archived" tag
----   local todos = checkmate.get_todos({ metadata = { archived = false } })
+--- -- Get todos without "archived" tag
+--- local todos = checkmate.get_todos({
+---   filter = { metadata = { archived = false } },
+--- })
 ---
----   -- Get todos with BOTH "urgent" tag AND high priority
----   local todos = checkmate.get_todos({
+--- -- Get todos with BOTH "urgent" tag AND high priority
+--- local todos = checkmate.get_todos({
+---   filter = {
 ---     metadata = { urgent = true, priority = "high" },
----     metadata_match_all = true
----   })
+---     metadata_match_all = true,
+---   },
+--- })
 ---
----   -- Complex filtering
----   local todos = checkmate.get_todos({
----     range = {0, 100},
----     state_types = {"incomplete"},
----     metadata = { urgent = true, priority = "high" }
----   })
+--- -- Complex filtering
+--- local todos = checkmate.get_todos({
+---   range = {0, 100},
+---   filter = {
+---     state_types = { "incomplete" },
+---     metadata = { urgent = true, priority = "high" },
+---   },
+--- })
+--- ```
 ---
 ---@param opts? checkmate.GetTodosOpts Options for filtering and range
 ---@return checkmate.Todo[] todos Array of todos matching the criteria
 function M.get_todos(opts)
-  local api = require("checkmate.api")
-  local parser = require("checkmate.parser")
-  local util = require("checkmate.util")
-  local log = require("checkmate.log")
-
   opts = opts or {}
+
+  local parser = require("checkmate.parser")
+  local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
+  local Buffer = require("checkmate.buffer")
+
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
 
-  if not api.is_valid_buffer(bufnr) then
+  if not Buffer.is_valid(bufnr) then
     log.warn("[main] Attempted to call `get_todos` on invalid buffer")
     return {}
   end
 
-  local todo_map = parser.get_todo_map(bufnr)
-  if not todo_map or vim.tbl_count(todo_map) == 0 then
+  -- use transaction snapshot when active so callers inside API callbacks
+  -- see the same todo_map state as the rest of the transaction
+  local ctx = transaction.current_context(bufnr)
+  local todo_map = ctx and ctx.get_todo_map() or parser.get_todo_map(bufnr)
+
+  if not todo_map or vim.tbl_isempty(todo_map) then
     return {}
   end
 
@@ -1393,7 +1418,9 @@ function M.get_todos(opts)
   start_row = math.max(0, start_row)
   end_row = math.min(max_row, end_row)
 
+  ---@type checkmate.TodoItem[]
   local candidates = {}
+
   for _, todo_item in pairs(todo_map) do
     local row = todo_item.todo_marker.position.row
     if row >= start_row and row <= end_row then
@@ -1412,8 +1439,8 @@ function M.get_todos(opts)
 
   local filtered = {}
   for _, todo_item in ipairs(candidates) do
-    if H.matches_filters(todo_item, opts.filter) then
-      local todo = util.build_todo(todo_item)
+    if todo_item:matches(opts.filter) then
+      local todo = todo_item:build_todo(todo_map)
       filtered[#filtered + 1] = todo
     end
   end
@@ -1422,7 +1449,7 @@ function M.get_todos(opts)
 end
 
 ---@class checkmate.SelectTodoOpts
----@field bufnr? integer (default: current buffer)
+---@field bufnr? integer (default: current buffer). Buffer must be loaded.
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
 ---@field filter? checkmate.FilterOpts
 ---@field picker_opts? checkmate.PickerOpts
@@ -1798,104 +1825,6 @@ function H.resolve_position(row, col)
   end
   local pos_str = string.format("%s [%d,%d]", row ~= nil and "position" or "cursor pos", resolved_row, resolved_col)
   return resolved_row, resolved_col, pos_str
-end
-
---- Check if a todo item matches the specified filters
----@param todo_item checkmate.TodoItem
----@param opts? checkmate.FilterOpts
----@return boolean matches True if todo matches all filter criteria
-function H.matches_filters(todo_item, opts)
-  if not opts or vim.tbl_isempty(opts) then
-    return true
-  end
-
-  local config = require("checkmate.config")
-
-  -- Filter by state names
-  if opts.states and #opts.states > 0 then
-    local state_match = false
-    for _, state in ipairs(opts.states) do
-      if todo_item.state == state then
-        state_match = true
-        break
-      end
-    end
-    if not state_match then
-      return false
-    end
-  end
-
-  -- Filter by state types (complete, incomplete, inactive)
-  if opts.state_types and #opts.state_types > 0 then
-    local state_def = config.options.todo_states[todo_item.state]
-    if not state_def then
-      return false -- invalid state, skip
-    end
-
-    local todo_state_type = config.get_todo_state_type(todo_item.state)
-
-    local type_match = false
-    for _, requested_type in ipairs(opts.state_types) do
-      if todo_state_type == requested_type then
-        type_match = true
-        break
-      end
-    end
-    if not type_match then
-      return false
-    end
-  end
-
-  -- Filter by metadata (handles both tags and key-value metadata)
-  -- For tags: use key = true (must exist) or key = false (must not exist)
-  -- For metadata with values: use key = "value" (must match exactly)
-  if opts.metadata and next(opts.metadata) then
-    if opts.metadata_match_all then
-      -- Require ALL metadata conditions to match
-      for key, expected in pairs(opts.metadata) do
-        local meta = todo_item.metadata.by_tag[key]
-
-        if type(expected) == "boolean" then
-          -- Tag existence check: true = must exist, false = must not exist
-          local exists = meta ~= nil
-          if exists ~= expected then
-            return false
-          end
-        else
-          -- Value match: metadata must exist and value must match
-          if not meta or meta.value ~= expected then
-            return false
-          end
-        end
-      end
-    else
-      -- Match ANY metadata condition
-      local meta_match = false
-      for key, expected in pairs(opts.metadata) do
-        local meta = todo_item.metadata.by_tag[key]
-
-        if type(expected) == "boolean" then
-          -- Tag existence check
-          local exists = meta ~= nil
-          if exists == expected then
-            meta_match = true
-            break
-          end
-        else
-          -- Value match
-          if meta and meta.value == expected then
-            meta_match = true
-            break
-          end
-        end
-      end
-      if not meta_match then
-        return false
-      end
-    end
-  end
-
-  return true
 end
 
 function H.notify_no_todos_found(is_visual)

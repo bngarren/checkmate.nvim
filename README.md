@@ -18,7 +18,6 @@
 - Create and toggle Markdown todos
 - Customizable markers and styling
 - Compatible with popular Neovim Markdown plugins (e.g., render-markdown, markview)
-- Visual mode support for multiple todos
 - Metadata e.g. `@tag(value)` annotations with extensive customization
   - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts/percentage
@@ -28,6 +27,7 @@
 - Custom todo states
   - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
 - Automatic todo creation (list continuation in insert mode)
+- Out-of-the-box picker integration with support for snacks.nvim, mini.pick, telescope
 
 #### Check out the [wiki](https://github.com/bngarren/checkmate.nvim/wiki) for additional documentation and recipes, including:
 
@@ -150,6 +150,7 @@ Patterns support Unix-style globs including `*`, `**`, `?`, `[abc]`, and `{foo,b
 - Cycle to other [custom states](#todo-states) with `:Checkmate cycle_next` (default: `<leader>T=`) and `:Checkmate cycle_previous` (default `<leader>T-`)
 - Select multiple items in visual mode and use the same commands
 - [Archive](#archiving) completed todos with `:Checkmate archive` (default: `<leader>Ta`)
+- Search for your todos with `:Checkmate select_todo` or corresponding API
 
 Enhance your todos with custom [metadata](#metadata) with quick keymaps!
 
@@ -882,9 +883,9 @@ Planned features:
 - [x] **Custom todo states** - support beyond binary "checked" and "unchecked", allowing for todos to be in custom states, e.g. pending, not-planned, on-hold, etc. _Added v0.10.0_
 
 - [x] **List (todo) continuation** - automatically created new todo lines in insert mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
-- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos.
+- [x] **Todo search** - Expose a `get_todos` that return lists of todos, based on search criteria that can be used to populate qflists and pickers. Add a `select_todo` that integrates this with a picker.
+- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos. 
 
-- [ ] **Improved todo search** - Expose a `find_todos` and `find_metadata` that return lists of todos, based on search criteria that can be used to populate qflists and pickers.
 
 <a id="contributing"><a/>
 

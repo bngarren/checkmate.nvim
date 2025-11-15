@@ -29,7 +29,7 @@ function M.check()
 
   local config = require("checkmate.config")
   local checkmate = require("checkmate")
-  local user_opts = checkmate.get_user_opts()
+  local user_opts = checkmate._get_user_opts()
 
   local validation_ok, validation_errors
   if user_opts and not vim.tbl_isempty(user_opts) then
@@ -68,7 +68,7 @@ end
 
 function M._deprecations_check()
   local checkmate = require("checkmate")
-  local deprecations = require("checkmate.config").get_deprecations(checkmate.get_user_opts())
+  local deprecations = require("checkmate.config").get_deprecations(checkmate._get_user_opts())
 
   if #deprecations > 0 then
     warn("Deprecation warnings:\n" .. table.concat(deprecations, "\n"))

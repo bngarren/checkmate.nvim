@@ -162,7 +162,7 @@ describe("API", function()
       local task_2 = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Task 2")
       task_2 = h.exists(task_2)
 
-      local task_2_todo = util.build_todo(task_2)
+      local task_2_todo = task_2:build_todo(parser.get_todo_map(bufnr))
 
       local success = require("checkmate").set_todo_state(task_2_todo, "checked")
       assert.is_true(success)
@@ -201,7 +201,7 @@ describe("API", function()
       assert.is_false(ok)
 
       assert.is_true(vim.bo[bufnr].modified)
-      assert.is_true(require("checkmate").is_buffer_active(bufnr))
+      assert.is_true(require("checkmate.buffer").is_active(bufnr))
 
       finally(function()
         h.cleanup_file(file_path)
@@ -815,7 +815,7 @@ describe("API", function()
       end)
 
       after_each(function()
-        cm.stop()
+        cm._stop()
       end)
 
       --[[
@@ -1369,7 +1369,7 @@ describe("API", function()
                 cm.set_todo_state(todo, "checked")
               end
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.match(m.checked, lines[1])
             end,
           },
@@ -1382,7 +1382,7 @@ describe("API", function()
                 cm.set_todo_state(todo, "unchecked")
               end
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.match(m.unchecked, lines[1])
             end,
           },
@@ -1677,7 +1677,7 @@ describe("API", function()
             end,
             expected = { h.todo_line({ text = "Todo A @undefined(foo)" }) },
             assert = function()
-              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              local todo_item = h.exists(h.find_todo_by_text(nil, "Todo A"))
               assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
               assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
 
@@ -1701,7 +1701,7 @@ describe("API", function()
             action = function(cm)
               cm.add_metadata("priority", "high")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("@priority%(high%)", lines[1])
               assert.matches("@status%(pending%)", lines[1])
             end,
@@ -1721,7 +1721,7 @@ describe("API", function()
             action = function(cm)
               cm.update_metadata("priority", "high")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("@priority%(high%)", lines[1])
               assert.matches("@status%(pending%)", lines[1])
               -- line 2 should not have gotten new priority metadata
@@ -1742,7 +1742,7 @@ describe("API", function()
             end,
             expected = { h.todo_line({ text = "Todo A @undefined(bar)" }) },
             assert = function()
-              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              local todo_item = h.exists(h.find_todo_by_text(nil, "Todo A"))
               assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
               assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
 
@@ -1777,7 +1777,7 @@ describe("API", function()
             action = function(cm)
               cm.remove_metadata("test1")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.equal("- " .. m.unchecked .. " Task @test2(metadata with", lines[1])
               assert.matches("^%s*broken value%)", lines[2])
             end,
@@ -1792,7 +1792,7 @@ describe("API", function()
             action = function(cm)
               cm.remove_metadata("done")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.equal("- " .. m.unchecked .. " This is some extra content @started(06/30/25 20:21)", lines[1])
               assert.equal("  @branch(fix/multi-line-todos)", lines[2])
             end,
@@ -1805,7 +1805,7 @@ describe("API", function()
             action = function(cm)
               cm.remove_metadata("func")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.equal("- " .. m.unchecked .. " Task", lines[1])
               assert.equal("  @other(value)", lines[2])
             end,
@@ -1831,7 +1831,7 @@ describe("API", function()
             action = function(cm)
               cm.remove_metadata("issue")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.no.matches("@issue", lines[1])
               assert.matches("- " .. m.unchecked .. " Task", lines[1])
             end,
@@ -1888,6 +1888,7 @@ describe("API", function()
 
         assert.is_true(tags_on_removed_called)
 
+        ---@diagnostic disable-next-line: unused-local
         local second_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Another task"))
         local third_todo = h.exists(h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " A todo without"))
 
@@ -1917,7 +1918,7 @@ describe("API", function()
             action = function(cm)
               cm.remove_metadata("meta")
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.equal(1, #lines)
               assert.equal("- " .. m.unchecked .. " Task", lines[1])
             end,
@@ -1936,7 +1937,7 @@ describe("API", function()
             end,
             expected = { h.todo_line({ text = "Todo A @priority(high)" }) },
             assert = function(_, lines)
-              local todo_item = h.find_todo_by_text(nil, "Todo A")
+              local todo_item = h.exists(h.find_todo_by_text(nil, "Todo A"))
               assert.equal(1, vim.tbl_count(todo_item.metadata.by_tag))
               assert.equal(1, vim.tbl_count(todo_item.metadata.entries))
 
@@ -1965,12 +1966,12 @@ describe("API", function()
               local todo_item = h.exists(parser.get_todo_item_at_position(bufnr, 0, 0))
               return { meta_module = meta_module, todo_item = todo_item }
             end,
-            action = function(cm, ctx)
+            action = function(_, ctx)
               ctx.meta_module.get_choices("status", function(items)
                 ctx.results = items
               end, ctx.todo_item, vim.api.nvim_get_current_buf())
             end,
-            assert = function(bufnr, lines, ctx)
+            assert = function(_, _, ctx)
               assert.same({ "todo", "in-progress", "done", "blocked" }, ctx.results)
             end,
           },
@@ -1983,7 +1984,7 @@ describe("API", function()
         local received_context = nil
 
         ---@diagnostic disable-next-line: missing-fields
-        local cm = h.cm_setup({
+        h.cm_setup({
           metadata = {
             assignee = {
               choices = function(context)
@@ -2024,7 +2025,7 @@ describe("API", function()
         local received_context = nil
 
         ---@diagnostic disable-next-line: missing-fields
-        local cm = h.cm_setup({
+        h.cm_setup({
           metadata = {
             project = {
               choices = function(context, callback)
@@ -2085,7 +2086,7 @@ describe("API", function()
               })
             end,
             wait_ms = 10,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.match("@due%(tomorrow%)", lines[1])
             end,
           },
@@ -2119,7 +2120,7 @@ describe("API", function()
               })
             end,
             wait_ms = 10,
-            assert = function(bufnr, lines, ctx)
+            assert = function(_, lines, ctx)
               ---@diagnostic disable-next-line: undefined-field
               assert.is_not_nil(ctx.received_context)
               assert.equal("- " .. m.unchecked .. " Task needing data @project(hello)", lines[1])
@@ -2640,7 +2641,7 @@ describe("API", function()
       -- Find parent todo
       local parent_todo_item = h.find_todo_by_text(todo_map, "- " .. m.unchecked .. " Parent task")
       parent_todo_item = h.exists(parent_todo_item)
-      local parent_todo = util.build_todo(parent_todo_item)
+      local parent_todo = parent_todo_item:build_todo(parser.get_todo_map(bufnr))
 
       assert.equal(3, #parent_todo_item.children)
 
@@ -2854,7 +2855,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo()
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(bufnr, _, ctx)
             ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.equal("unchecked", todo.state)
@@ -2876,7 +2877,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo()
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             assert.is_nil(ctx.todo)
           end,
         },
@@ -2896,7 +2897,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo()
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.matches("First", todo.text)
@@ -2917,7 +2918,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo()
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             ---@type checkmate.Todo
             local todo = h.exists(ctx.todo)
             assert.matches("Todo item", todo.text)
@@ -2933,7 +2934,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo({ root_only = true })
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             assert.is_nil(ctx.todo)
           end,
         },
@@ -2953,7 +2954,7 @@ describe("API", function()
           action = function(cm, ctx)
             ctx.todo = cm.get_todo({ bufnr = ctx.bufnr })
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, _, ctx)
             assert.is_nil(ctx.todo)
           end,
         },
@@ -2967,7 +2968,7 @@ describe("API", function()
       cm = h.cm_setup()
     end)
     after_each(function()
-      cm.stop()
+      cm._stop()
     end)
 
     it("should move cursor to next metadata entry and wrap around", function()
@@ -3368,7 +3369,7 @@ describe("API", function()
             action = function(cm)
               cm.toggle()
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("- " .. m.checked .. " Parent", lines[1])
               assert.matches("A", lines[2])
               assert.matches("B", lines[3])
@@ -3523,7 +3524,7 @@ describe("API", function()
             action = function(cm)
               cm.toggle()
             end,
-            assert = function(bufnr, lines)
+            assert = function(_, lines)
               assert.matches("- " .. m.checked .. " Parent task", lines[1])
               assert.matches("Child custom", lines[2])
               assert.matches("Child unchecked", lines[3])
@@ -3548,7 +3549,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
 
@@ -3590,14 +3591,14 @@ describe("API", function()
             "## Existing Section",
             "Some content here",
           },
-          setup = function(bufnr)
+          setup = function()
             return { heading_title = "Completed Todos" }
           end,
           action = function(cm, ctx)
             cm.archive({ heading = { title = ctx.heading_title } })
             vim.cmd("redraw")
           end,
-          assert = function(bufnr, lines, ctx)
+          assert = function(_, lines, ctx)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string =
@@ -3662,7 +3663,7 @@ describe("API", function()
             cm.archive()
             vim.cmd("redraw")
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string("Completed Items", 4)
 
@@ -3698,7 +3699,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string(
@@ -3835,7 +3836,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string(
@@ -3876,7 +3877,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string(
@@ -3912,7 +3913,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string(
@@ -3966,7 +3967,7 @@ describe("API", function()
           action = function(cm)
             cm.archive()
           end,
-          assert = function(bufnr, lines)
+          assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
             local archive_heading_string = util.get_heading_string(

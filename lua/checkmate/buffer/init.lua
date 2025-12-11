@@ -533,6 +533,17 @@ function Buffer:_setup_autocmds()
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local filename = vim.api.nvim_buf_get_name(bufnr)
 
+        -- Ensure we don't accidentally convert symlinks to real files
+        local link_target = uv.fs_readlink(filename)
+        if link_target then
+          -- handle relative symlink targets
+          if not link_target:match("^/") then
+            local dirname = vim.fn.fnamemodify(filename, ":h")
+            link_target = dirname .. "/" .. link_target
+          end
+          filename = vim.fn.resolve(link_target)
+        end
+
         -- create temp buffer and convert to markdown
         local temp_bufnr = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, current_lines)

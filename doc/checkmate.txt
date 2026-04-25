@@ -1,4 +1,5 @@
-*checkmate.txt*       For Neovim >= 0.10.0       Last change: 2025 November 15
+*checkmate.txt*
+                            For Neovim >= 0.10.0    Last change: 2026 April 25
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -35,14 +36,14 @@ A Markdown-based todo/task plugin for Neovim.
 - Create and toggle Markdown todos
 - Customizable markers and styling
 - Compatible with popular Neovim Markdown plugins (e.g., render-markdown, markview)
-- Metadata e.g. `@tag(value)` annotations with extensive customization
+- Metadata e.g. `@tag(value)` annotations with extensive customization
     - e.g. @started, @done, @priority, @your-custom-tag
 - Todo completion counts/percentage
 - Smart toggling behavior
 - Archive (reorganize) completed todos
 - Todo templates with LuaSnip snippet integration
 - Custom todo states
-    - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
+    - More than just "checked" and "unchecked", e.g. "partial", "in-progress", "on-hold"
 - Automatic todo creation (list continuation in insert mode)
 - Out-of-the-box picker integration with support for snacks.nvim, mini.pick, telescope
 
@@ -563,7 +564,7 @@ EXAMPLE: CHANGE THE CHECKED MARKER TO A BOLD GREEN
 EXAMPLE: STYLE A CUSTOM TODO STATE
 
 |checkmate-custom-todo-states| will be styled following the same highlight
-group naming convention: e.g. `Checkmate[State]Marker` So, if you define a
+group naming convention: e.g. `Checkmate[State]Marker` So, if you define a
 `partial` state:
 
 >lua
@@ -845,7 +846,7 @@ If you wish to modify a default metadata, you should copy the default
 implementation.
 
 By configuring a metadata’s `choices` option, you can populate your own lists
-of metadata values for powerful workflows, e.g. project file names, Git
+of metadata values for powerful workflows, e.g. project file names, Git
 branches, PR’s, issues, etc., team member names, external APIs, etc.
 
 Alternatively, you can call `select_metadata_value()` and pass a custom picker
@@ -1023,7 +1024,7 @@ Planned features:
 
 - **Metadata support** - mappings for quick addition of metadata/tags such as
     @start, @done, @due, @priority, etc. with custom highlighting. _Added v0.2.0_
-- **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo
+- **Sub-task counter** - add a completed/total count (e.g. 1/4) to parent todo
     items. _Added v0.3.0_
 - **Archiving** - manually or automatically move completed items to the bottom of
     the document. _Added v0.7.0_
@@ -1031,16 +1032,16 @@ Planned features:
     Toggle a parent checked if the last unchecked child is checked. _Added v0.7.0_
 - **Metadata upgrade** - callbacks, async support, jump to. _Added v0.9.0_
 - **Custom todo states** - support beyond binary "checked" and "unchecked",
-    allowing for todos to be in custom states, e.g. pending, not-planned, on-hold,
+    allowing for todos to be in custom states, e.g. pending, not-planned, on-hold,
     etc. _Added v0.10.0_
 - **List (todo) continuation** - automatically created new todo lines in insert
-    mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
+    mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
 - **Todo search** - Expose a `get_todos` that return lists of todos, based on
     search criteria that can be used to populate qflists and pickers. Add a
     `select_todo` that integrates this with a picker.
 - **Better archive** - generalize the archive functionality to move todos to
     specific buffer locations (or even different buffers/files). Provide config opt
-    and API to specify which todo state type to act on (i.e. completed,
+    and API to specify which todo state type to act on (i.e. completed,
     incompleted, inactive). Integrate with picker to choose a new Markdown heading
     location to move todos.
 

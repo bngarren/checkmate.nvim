@@ -13,6 +13,7 @@ Table of Contents                                *checkmate-table-of-contents*
   - Defaults                                       |checkmate-config-defaults|
   - Keymapping                                   |checkmate-config-keymapping|
   - Styling                                         |checkmate-config-styling|
+  - Todo states                                 |checkmate-config-todo-states|
   - Todo count indicator               |checkmate-config-todo-count-indicator|
   - Smart Toggle                               |checkmate-config-smart-toggle|
   - Pickers                                         |checkmate-config-pickers|
@@ -491,6 +492,10 @@ or
 The `rhs` parameter follows |vim.keymap.set()| and can be a string or Lua
 function.
 
+**Metadata define their own keymaps** (for toggling behavior) within the
+metadata definition. To disable the registration of these keys, set
+`use_metadata_keymaps` to _false_.
+
 
 STYLING                                             *checkmate-config-styling*
 
@@ -586,7 +591,10 @@ You can then style it:
 
 
   State names will be converted to CamelCase when used in highlight group names.
-  E.g. `not_planned` = `NotPlanned` ## Todo states
+  E.g. `not_planned` = `NotPlanned`
+
+TODO STATES                                     *checkmate-config-todo-states*
+
 Checkmate supports both standard GitHub-flavored Markdown states and custom
 states for more nuanced task management.
 
@@ -770,7 +778,11 @@ PICKERS                                             *checkmate-config-pickers*
 
 Checkmate uses a picker for various API functions. To provide a reasonable,
 out-of-the-box experience, several popular external picker plugin backends are
-implemented: - snacks.nvim - mini.pick - telescope.nvim
+implemented:
+
+- snacks.nvim
+- mini.pick
+- telescope.nvim
 
 or, as a fallback native `vim.ui.select`
 

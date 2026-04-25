@@ -164,26 +164,25 @@ Your buffer is **saved as regular Markdown** which means it's compatible with an
 
 `:Checkmate [subcommand]`
 
-| subcommand               | Description                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `archive`                | Archive all completed todo items in the buffer. This extracts them and moves them to a bottom section. See api `archive()` and [Archiving](#archiving) section.                                                                                                                                                                               |
-| `check`                  | Mark the todo item under the cursor as checked. See api `check()`                                                                                                                                                                                                                                                                             |
+| subcommand               | Description                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `archive`                | Archive all completed todo items in the buffer. This extracts them and moves them to a bottom section. See api `archive()` and [Archiving](#archiving) section.                                                                                                                                                                            |
+| `check`                  | Mark the todo item under the cursor as checked. See api `check()`                                                                                                                                                                                                                                                                          |
 | `create`                 | In normal mode, converts the current line into a todo (or if already a todo, creates a sibling below). In visual mode, converts each selected line into a todo. In insert mode, creates a new todo on the next line and keeps you in insert mode. For more advanced placement, indentation, and state options, see the `create(opts)` API. |
-| `cycle_next`             | Cycle a todo's state to the next available. See api `cycle()`                                                                                                                                                                                                                                                                                 |
-| `cycle_previous`         | Cycle a todo's state to the previous. See api `cycle()`                                                                                                                                                                                                                                                                                       |
-| `lint`                   | Lint this buffer for Checkmate formatting issues. Runs automatically on `InsertLeave` and `TextChanged`. See api `lint()` and [Linting](#linting) section.                                                                                                                                                                                    |
-| `metadata add`           | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` and [Metadata](#metadata) section.                                                                                                                                                |
-| `metadata jump_next`     | Move the cursor to the next metadata tag for the todo item under the cursor. See api `jump_next_metadata()`                                                                                                                                                                                                                                   |
-| `metadata jump_previous` | Move the cursor to the previous metadata tag for the todo item under the cursor. See api `jump_previous_metadata()`                                                                                                                                                                                                                           |
-| `metadata remove`        | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)`                                                                                                                                                                              |
-| `metadata select_value`  | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()`                                                                                                                                                                                                                             |
-| `metadata toggle`        | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)`                                                                                                                                                                  |
-| `remove`                 | Convert a todo line back to regular text. See api `remove(opts)`. By default, will preserve the list item marker and remove any metadata. This can be configured via `opts`.                                                                                                                                                                  |
-| `remove_all_metadata`    | Remove _all_ metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()`                                                                                                                                                                                                                            |
-| `select_todo`                 | Open a picker to select a todo from the current buffer. See api `select_todo()`, which allows for filtering and picker customization.                                                       |
-| `toggle`                 | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. Without a parameter, toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands.                                                       |
-| `uncheck`                | Mark the todo item under the cursor as unchecked. See api `uncheck()`                                                                                                                                                                                                                                                                         |
-
+| `cycle_next`             | Cycle a todo's state to the next available. See api `cycle()`                                                                                                                                                                                                                                                                              |
+| `cycle_previous`         | Cycle a todo's state to the previous. See api `cycle()`                                                                                                                                                                                                                                                                                    |
+| `lint`                   | Lint this buffer for Checkmate formatting issues. Runs automatically on `InsertLeave` and `TextChanged`. See api `lint()` and [Linting](#linting) section.                                                                                                                                                                                 |
+| `metadata add`           | Add a metadata tag to the todo under the cursor or within the selection. Usage: `:Checkmate metadata add <key> [value]`. See api `add_metadata(key, value)` and [Metadata](#metadata) section.                                                                                                                                             |
+| `metadata jump_next`     | Move the cursor to the next metadata tag for the todo item under the cursor. See api `jump_next_metadata()`                                                                                                                                                                                                                                |
+| `metadata jump_previous` | Move the cursor to the previous metadata tag for the todo item under the cursor. See api `jump_previous_metadata()`                                                                                                                                                                                                                        |
+| `metadata remove`        | Remove a specific metadata tag from the todo under the cursor or within the selection. Usage: `:Checkmate metadata remove <key>`. See api `remove_metadata(key)`                                                                                                                                                                           |
+| `metadata select_value`  | Select a value from the 'choices' option for the metadata tag under the cursor. See api `select_metadata_value()`                                                                                                                                                                                                                          |
+| `metadata toggle`        | Toggle a metadata tag on/off for the todo under the cursor or within the selection. Usage: `:Checkmate metadata toggle <key> [value]`. See api `toggle_metadata(key, value)`                                                                                                                                                               |
+| `remove`                 | Convert a todo line back to regular text. See api `remove(opts)`. By default, will preserve the list item marker and remove any metadata. This can be configured via `opts`.                                                                                                                                                               |
+| `remove_all_metadata`    | Remove _all_ metadata tags from the todo under the cursor or within the selection. See api `remove_all_metadata()`                                                                                                                                                                                                                         |
+| `select_todo`            | Open a picker to select a todo from the current buffer. See api `select_todo()`, which allows for filtering and picker customization.                                                                                                                                                                                                      |
+| `toggle`                 | Toggle the todo item under the cursor (normal mode) or all todo items within the selection (visual mode). See api `toggle()`. Without a parameter, toggles between `unchecked` and `checked`. To change to custom states, use the api `toggle(target_state)` or the `cycle_*` commands.                                                    |
+| `uncheck`                | Mark the todo item under the cursor as unchecked. See api `uncheck()`                                                                                                                                                                                                                                                                      |
 
 <a id="config"><a/>
 
@@ -424,6 +423,8 @@ keys = {
 
 The `rhs` parameter follows `:h vim.keymap.set()` and can be a string or Lua function.
 
+**Metadata define their own keymaps** (for toggling behavior) within the metadata definition. To disable the registration of these keys, set `use_metadata_keymaps` to _false_.
+
 ## Styling
 
 Default styles are calculated based on the current _colorscheme_. This attempts to provide reasonable out-of-the-box defaults based on colorscheme-defined hl groups and contrast ratios.
@@ -488,6 +489,7 @@ styles = {
 ```
 
 > State names will be converted to CamelCase when used in highlight group names. E.g. `not_planned` = `NotPlanned`
+
 ## Todo states
 
 Checkmate supports both standard GitHub-flavored Markdown states and custom states for more nuanced task management.
@@ -670,7 +672,9 @@ opts = {
 <a id="metadata"><a/>
 
 ## Pickers
+
 Checkmate uses a picker for various API functions. To provide a reasonable, out-of-the-box experience, several popular external picker plugin backends are implemented:
+
 - snacks.nvim
 - mini.pick
 - telescope.nvim
@@ -678,8 +682,11 @@ Checkmate uses a picker for various API functions. To provide a reasonable, out-
 or, as a fallback native `vim.ui.select`
 
 ### Configuration
+
 #### Global configuration
+
 Set the default picker in the setup opts:
+
 ```lua
 ui = {
   picker = "snacks" -- or "mini", "telescope", or "native"
@@ -687,7 +694,9 @@ ui = {
 ```
 
 #### Per-call configuration
+
 Some API functions allow passing `picker_opts`:
+
 ```lua
 require("checkmate").select_metadata_value({
   picker_opts = {
@@ -700,7 +709,9 @@ require("checkmate").select_metadata_value({
 ```
 
 #### Custom pickers
+
 Some API functions support a `custom_picker` function that is intended to receive data related to that API and expects the `complete(value)` callback to finalize the Checkmate behavior.
+
 ```lua
 require("checkmate").select_metadata_value({
   custom_picker = function(ctx, complete)
@@ -884,8 +895,7 @@ Planned features:
 
 - [x] **List (todo) continuation** - automatically created new todo lines in insert mode, e.g. `<CR>` on a todo line will create a new todo below. _Added v0.11.0_
 - [x] **Todo search** - Expose a `get_todos` that return lists of todos, based on search criteria that can be used to populate qflists and pickers. Add a `select_todo` that integrates this with a picker.
-- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos. 
-
+- [ ] **Better archive** - generalize the archive functionality to move todos to specific buffer locations (or even different buffers/files). Provide config opt and API to specify which todo state type to act on (i.e. completed, incompleted, inactive). Integrate with picker to choose a new Markdown heading location to move todos.
 
 <a id="contributing"><a/>
 

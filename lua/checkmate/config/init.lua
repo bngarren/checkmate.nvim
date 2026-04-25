@@ -78,7 +78,8 @@ M.options = {}
 ---and want to keep some defaults, you will need to copy the default configuration
 ---into your own `keys` table.
 ---
----Note: mappings for metadata are set separately in the `metadata` table
+---Note: Mappings for metadata are set separately in the `metadata` table. To also disable any keys set within
+---the metadata definitions, set `use_metadata_keymaps` to false.
 ---@field keys ( table<string, checkmate.KeymapConfig>| false )
 ---
 ---The states that a todo item may have

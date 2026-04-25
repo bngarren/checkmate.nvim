@@ -16,12 +16,12 @@ jobs:
       HUSKY: 0 # don't run husky hooks in CI
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Release Please
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.PAT }}

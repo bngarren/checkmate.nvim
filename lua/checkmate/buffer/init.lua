@@ -533,15 +533,18 @@ function Buffer:_setup_autocmds()
         local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local filename = vim.api.nvim_buf_get_name(bufnr)
 
-        -- Ensure we don't accidentally convert symlinks to real files
+        -- Handle symlinks correctly (see #226)
+        --  - Ensure we write the resolved file, not the symlink path
+        --  - Ensure we don't accidentally convert symlinks to real files
         local link_target = uv.fs_readlink(filename)
         if link_target then
-          -- handle relative symlink targets
-          if not link_target:match("^/") then
-            local dirname = vim.fn.fnamemodify(filename, ":h")
-            link_target = dirname .. "/" .. link_target
+          local realpath, err = uv.fs_realpath(filename)
+          if not realpath then
+            vim.notify("Checkmate: Failed to resolve symlink: " .. (err or "unknown error"), vim.log.levels.ERROR)
+            self._local:set("writing", false)
+            return false
           end
-          filename = vim.fn.resolve(link_target)
+          filename = realpath
         end
 
         -- create temp buffer and convert to markdown

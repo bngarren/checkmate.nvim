@@ -304,6 +304,56 @@ describe("API", function()
           vim.api.nvim_clear_autocmds({ group = augroup })
         end)
       end)
+
+      it("should handle symlinks correctly", function()
+        local uv = vim.uv
+        -- make a real file
+        local bufnr, real_file = h.setup_todo_file_buffer("- [ ] Real file todo")
+        local real_file_exists = vim.uv.fs_stat(real_file)
+        assert.is_not_nil(real_file_exists)
+
+        -- use .todo.md suffix to ensure it matches default Checkmate file name trigger
+        local link_path = vim.fn.tempname() .. "_link.todo.md"
+
+        -- make symlink... link_path is just a path that points to the real_file
+        local ok, err = uv.fs_symlink(real_file, link_path)
+        if err then
+          print(err)
+        end
+        assert.is_true(ok)
+
+        -- now we close the buffer opened on the real path...reopen using the symlink path
+        -- i.e., user opens a symlinked file
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        local link_bufnr = vim.fn.bufadd(link_path)
+        vim.fn.bufload(link_bufnr)
+
+        vim.api.nvim_buf_call(link_bufnr, function()
+          ---@diagnostic disable-next-line: unused-local, missing-fields
+
+          vim.api.nvim_buf_set_lines(link_bufnr, 0, -1, false, { "- [ ] Updated via symlink", "" })
+          assert.is_true(vim.bo[link_bufnr].modified)
+
+          -- this is the crux. It should write the original file, not just use the symlink path as the file
+          vim.cmd("silent write")
+          vim.wait(20)
+
+          assert.is_false(vim.bo[link_bufnr].modified)
+        end)
+
+        -- make sure the real file has the updated content
+        local real_content = h.read_file_content(real_file)
+        real_content = h.exists(real_content, "Real file content should be readable")
+        assert.matches("Updated via symlink", real_content)
+
+        -- symlink should still be a symlink (not replaced by a regular file)
+        h.exists(uv.fs_readlink(link_path), "link_path should still be a symlink after write")
+
+        finally(function()
+          pcall(uv.fs_unlink, link_path)
+          h.cleanup_file(real_file)
+        end)
+      end)
     end)
   end)
 

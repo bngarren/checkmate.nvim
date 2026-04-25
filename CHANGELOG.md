@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/bngarren/checkmate.nvim/compare/v0.12.0...v0.12.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* properly handle symlinks during write ([#226](https://github.com/bngarren/checkmate.nvim/issues/226)) ([79636d1](https://github.com/bngarren/checkmate.nvim/commit/79636d1b67821f065c9d01f6708083ad7659ceb1))
+
 ## [0.12.0](https://github.com/bngarren/checkmate.nvim/compare/v0.11.2...v0.12.0) (2025-11-15)
 
 

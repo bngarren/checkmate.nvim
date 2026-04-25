@@ -15,8 +15,8 @@ jobs:
     name: stylua
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: JohnnyMorganz/stylua-action@v4
+      - uses: actions/checkout@v6
+      - uses: JohnnyMorganz/stylua-action@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: latest
@@ -32,7 +32,7 @@ jobs:
     # Borrowed from https://github.com/folke/github/blob/main/neovim/action.yml
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -44,7 +44,7 @@ jobs:
 
       - name: Restore Neovim cache
         id: cache-neovim-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/nvim
           key: ${{ matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }}
@@ -71,7 +71,7 @@ jobs:
       # the entire folder
       - name: Save Neovim cache
         if: steps.cache-neovim-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ runner.temp }}/nvim
           key: ${{ matrix.nvim-versions == 'nightly' && env.DATE || matrix.nvim-versions }}
@@ -92,7 +92,7 @@ jobs:
             --no-install-recommends lua5.1 luarocks
 
       - name: Restore LuaRocks cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # want to invalidate (rebuild) the LuaRocks cache whenever the dependencies change
           key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
@@ -106,7 +106,7 @@ jobs:
 
       - name: Save LuaRocks cache
         if: success()
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           key: ${{ runner.os }}-luarocks-${{ hashFiles('**/tests/rockspec.lua') }}
           path: |

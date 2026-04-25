@@ -21,13 +21,7 @@ body:
   - type: input
     attributes:
       label: "Neovim version (nvim -v)"
-      placeholder: "0.8.0 commit db1b0ee3b30f"
-    validations:
-      required: true
-  - type: input
-    attributes:
-      label: "Operating system/version"
-      placeholder: "MacOS 11.5"
+      placeholder: "0.12.x"
     validations:
       required: true
   - type: textarea
@@ -45,7 +39,7 @@ body:
         2. 
         3.
     validations:
-      required: true
+      required: false
   - type: textarea
     attributes:
       label: Expected Behavior

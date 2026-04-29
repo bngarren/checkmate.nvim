@@ -22,6 +22,7 @@ local H = {}
 ---@field metadata string[][] Table of {tag, value} tuples
 ---@field get_metadata fun(name: string): string?, string? Returns 1. tag, 2. value, if exists
 ---@field get_parent fun(): checkmate.Todo|nil Returns the parent todo item, or nil
+---@field get_root fun(): checkmate.Todo Returns the top-most parent (root) or self
 ---@field _get_todo_item fun(): checkmate.TodoItem Returns the todo_item internal representation (use at your own risk, not guaranteed to be stable)
 
 ---@class checkmate.MetadataContext

@@ -387,6 +387,7 @@ end
 ---@field merge_default_config? boolean (default: true) If false, will not merge with DEFAULT_TEST_CONFIG
 ---Optional setup function returning context
 ---This is called before action and can setup context, declare some variables, etc.
+---Should return a table that will be passed as ctx (`buffer`, `cm`, and `todo_map` will be added to it)
 ---@field setup? fun(bufnr: integer): any
 ---Action to perform on the test case (e.g. toggle, create, etc.)
 ---Receives context from setup function, if called. Can modify context that will
@@ -401,7 +402,7 @@ end
 ---
 ---@field action fun(cm: Checkmate, ctx?: any)
 ---@field expected? string[] Expected buffer lines after action
----@field assert? fun(bufnr: integer, lines: string[], ctx?: {buffer: integer, cm: Checkmate}) Custom assertion function
+---@field assert? fun(bufnr: integer, lines: string[], ctx?: {buffer: integer, cm: Checkmate, todo_map: checkmate.TodoMap}) Custom assertion function
 ---@field wait_ms? integer Duration to wait after action before assertions (default 0 ms)
 ---@field skip? boolean Skip this test case
 ---@field only? boolean Run only this test case
@@ -476,6 +477,7 @@ function M.run_test_cases(test_cases, opts)
 
     ctx.buffer = ctx.buffer or bufnr
     ctx.cm = ctx.cm or cm
+    ctx.todo_map = require("checkmate.parser").get_todo_map(ctx.buffer)
 
     tc.action(cm, ctx)
 

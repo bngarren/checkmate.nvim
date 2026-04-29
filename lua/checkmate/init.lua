@@ -1541,6 +1541,40 @@ function M.lint(opts)
   return true, results
 end
 
+---@param opts checkmate.MoveTodosOpts
+function M.move_todos(opts)
+  local api = require("checkmate.api")
+  local transaction = require("checkmate.transaction")
+  local log = require("checkmate.log")
+  local Buffer = require("checkmate.buffer")
+
+  if not opts or not opts.ids or #opts.ids == 0 then
+    log.warn("[main] move_todos called with no ids")
+    return false
+  end
+
+  local ctx = transaction.current_context()
+  if ctx then
+    ctx.add_op(api.move_todos, opts)
+    return true
+  end
+
+  local src_bufnr = opts.destination.bufnr -- could be nil, resolved inside
+      and opts.destination.bufnr ~= vim.api.nvim_get_current_buf()
+      and opts.destination.bufnr -- cross-buffer: src is current
+    or vim.api.nvim_get_current_buf()
+
+  if not Buffer.is_valid(src_bufnr) then
+    log.warn("[main] Attempted to call `move_todos` on invalid buffer")
+    return false
+  end
+
+  transaction.run(src_bufnr, function(_ctx)
+    _ctx.add_op(api.move_todos, opts)
+  end)
+  return true
+end
+
 ---@class ArchiveOpts
 ---@field heading {title?: string, level?: integer}
 

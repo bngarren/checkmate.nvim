@@ -1699,17 +1699,17 @@ function H.set_config_enabled(enabled)
   end
 end
 
----This installs the lightweight activation autocmds and starts the runtime if a
----matching buffer already exists. It is intentionally safe to call multiple
----times.
+---Installs the lightweight activation autocmds and starts the runtime if a
+---matching buffer already exists. safe to call multiple
+---times
 function H.enable_activation()
   H.setup_activation_autocommands()
   H.maybe_start_for_existing_buffers()
 end
 
----Removes only the lightweight activation autocmds. It does not stop the
----runtime or deactivate active buffers; callers that want full shutdown should
----also call `H.stop()`.
+---Removes only the activation autocmds. it does not stop the
+---runtime or deactivate active buffers... for full shutdown should
+---also call `H.stop()`
 function H.disable_activation()
   pcall(vim.api.nvim_del_augroup_by_name, H.augroups.activation)
 end
@@ -2016,7 +2016,7 @@ function H.notify_no_todos_found(is_visual)
   require("checkmate.util").notify(string.format("No todo items found %s", mode_msg), vim.log.levels.INFO)
 end
 
---exposed internals
+--exposed internals for dev/testing
 M._start = H.start
 M._stop = H.stop
 M._activate = H.activate

@@ -53,6 +53,7 @@ end
 local base = require("fixtures.environments.pack.base")
 local env
 env, env_name = require_env(env_name)
+vim.print("Loaded: " .. env_name)
 
 -- get user config on the runtimepath so setup editor with defaults
 local my_config_path = vim.fs.abspath(vim.env.USER_NVIM_CONFIG or "~/.config/nvim")
@@ -73,18 +74,6 @@ end
 if type(env.setup) == "function" then
   env.setup()
 end
-
--- local root = vim.fs.root(0, ".git") or cwd
--- vim.opt.runtimepath:prepend(root)
---
--- local checkmate_opts = vim.tbl_deep_extend("force", base.checkmate or {}, env.checkmate or {})
---
--- local ok_checkmate, checkmate = pcall(require, "checkmate")
--- if not ok_checkmate then
---   error("Failed to require local checkmate.nvim: " .. tostring(checkmate))
--- end
---
--- checkmate.setup(checkmate_opts)
 
 -- Post-setup hooks
 if type(base.config) == "function" then

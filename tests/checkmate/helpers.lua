@@ -55,14 +55,43 @@ end
 -- Setup and Teardown
 -- =============================================================================
 
----Calls `require("checkmate").setup()` and merges with helpers.DEFAULT_TEST_CONFIG`
+---@param bufnr integer
+---@param timeout_ms? integer
+function M.wait_for_checkmate_running(bufnr, timeout_ms)
+  timeout_ms = timeout_ms or 100
+
+  local ok = vim.wait(timeout_ms, function()
+    local cm = require("checkmate")
+
+    if not cm._is_initialized() or not cm._is_running() then
+      return false
+    end
+
+    if bufnr then
+      local Buffer = require("checkmate.buffer")
+      return Buffer.is_active(bufnr)
+    end
+
+    return true
+  end, 5)
+
+  assert(ok, "Timeout waiting for Checkmate runtime")
+end
+
+---Calls `require("checkmate").setup()` and merges with helpers.DEFAULT_TEST_CONFIG.
+---This only initializes Checkmate config and activation autocmds. The runtime
+---starts later when a matching markdown buffer is activated.
 ---@param _config? checkmate.Config
 ---@param cm? Checkmate
+---@return Checkmate
 function M.cm_setup(_config, cm)
-  if not cm then
-    cm = require("checkmate")
-  end
-  cm.setup(vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, _config or {}))
+  cm = cm or require("checkmate")
+
+  local config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, _config or {})
+  local ok = cm.setup(config)
+
+  assert(ok, "Failed to setup Checkmate")
+
   return cm
 end
 
@@ -73,13 +102,15 @@ end
 function M.cleanup_test(bufnr)
   M.ensure_normal_mode()
 
-  pcall(require("checkmate")._stop)
-
-  if not bufnr then
-    return
+  local ok, cm = pcall(require, "checkmate")
+  if ok then
+    pcall(cm._stop)
+    pcall(cm._reset)
   end
 
-  pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+    pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+  end
 end
 
 function M.cleanup_file(file_path)
@@ -142,16 +173,31 @@ function M.wait_for_write(bufnr, timeout_ms)
   assert(ok, "Timeout waiting for buffer write")
 end
 
---- Creates a temp file and sets up a Checkmate buffer for this file
---- @param content string|string[]
---- @param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
---- @return integer bufnr
---- @return string file_path
+---@param bufnr integer
+---@param wait_ms? integer
+function M.activate_checkmate_buffer(bufnr, wait_ms)
+  wait_ms = wait_ms or 5
+
+  vim.api.nvim_set_current_buf(bufnr)
+  vim.bo[bufnr].filetype = "markdown"
+
+  vim.api.nvim_exec_autocmds("FileType", {
+    buffer = bufnr,
+    modeline = false,
+  })
+
+  -- vim.wait(wait_ms)
+end
+
+--- Creates a temp file and sets up a Checkmate buffer for this file.
+---@param content string|string[]
+---@param opts? {file_path?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
+---@return integer bufnr
+---@return string file_path
 function M.setup_todo_file_buffer(content, opts)
   opts = opts or {}
 
   local content_str = type(content) == "table" and table.concat(content, "\n") or content
-
   local file_path = opts.file_path or M.create_temp_file()
 
   if not M.write_file_content(file_path, content_str) then
@@ -159,55 +205,60 @@ function M.setup_todo_file_buffer(content, opts)
   end
 
   if not opts.skip_setup then
-    local _config = vim.tbl_deep_extend("force", M.DEFAULT_TEST_CONFIG, opts.config or {})
-    local ok = require("checkmate").setup(_config)
-    if not ok then
-      error("Failed to setup Checkmate in setup_todo_buffer")
-    end
+    M.cm_setup(opts.config)
   end
 
-  local bufnr = vim.api.nvim_create_buf(false, false)
-  vim.api.nvim_buf_set_name(bufnr, file_path)
-  vim.api.nvim_win_set_buf(0, bufnr)
-  vim.cmd("edit!")
+  vim.cmd("edit " .. vim.fn.fnameescape(file_path))
 
-  vim.bo[bufnr].filetype = "markdown"
+  local bufnr = vim.api.nvim_get_current_buf()
 
-  local wait_ms = opts.wait_ms or 5
-  vim.wait(wait_ms)
+  M.activate_checkmate_buffer(bufnr, opts.wait_ms or 100)
+
   vim.cmd("redraw")
 
   return bufnr, file_path
 end
 
--- Helper function to create a test buffer with todo content
---- @param content string|string[]
---- @param name string?
---- @return integer bufnr
+-- Helper function to create a plain test buffer with todo content.
+-- This does not call Checkmate setup or wait for Checkmate activation.
+---@param content string|string[]
+---@param name string?
+---@return integer bufnr
 function M.setup_test_buffer(content, name)
   local filename = name or "todo.md"
 
   local bufnr = vim.api.nvim_create_buf(true, false)
-
   vim.api.nvim_buf_set_name(bufnr, filename)
 
-  local lines
-  if type(content) == "table" then
-    lines = content
-  else
-    lines = vim.split(content, "\n")
-  end
-
+  local lines = type(content) == "table" and content or vim.split(content --[[@as string]], "\n")
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
   vim.api.nvim_win_set_buf(0, bufnr)
-
-  vim.bo[bufnr].filetype = "markdown"
-  vim.bo[bufnr].modifiable = true
-
   vim.api.nvim_set_current_buf(bufnr)
 
+  vim.bo[bufnr].modifiable = true
+  vim.bo[bufnr].filetype = "markdown"
+
   return bufnr
+end
+
+--- Creates an in-memory markdown buffer, initializes Checkmate, and activates it.
+---@param content string|string[]
+---@param opts? {name?: string, config?: table, wait_ms?: integer, skip_setup?: boolean}
+---@return integer bufnr, Checkmate cm
+function M.setup_checkmate_test_buffer(content, opts)
+  opts = opts or {}
+  local cm
+
+  if opts.skip_setup ~= true then
+    cm = M.cm_setup(opts.config)
+  end
+
+  local bufnr = M.setup_test_buffer(content, opts.name)
+
+  M.activate_checkmate_buffer(bufnr, opts.wait_ms or 100)
+
+  return bufnr, cm
 end
 
 -- Assertion and Validation Helpers

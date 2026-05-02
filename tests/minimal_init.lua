@@ -29,6 +29,7 @@ _G.reset_state = function(close_buffers)
       local checkmate = require("checkmate")
       if checkmate._is_running() then
         checkmate._stop()
+        checkmate._reset()
       end
     end)
   end

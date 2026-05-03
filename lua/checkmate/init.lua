@@ -1547,12 +1547,13 @@ end
 ---@field bufnr? integer
 ---
 --- Location within the target buffer to insert the todos
+--- Defaults to EOF
 --- - `integer` - 0-based line-boundary in the destination buffer
 ---     - `0` inserts before the first line
 ---     - `nvim_buf_line_count(bufnr)` or `#dest_lines` append after the final line
 --- - `checkmate.Heading` - insert under the first matching Markdown ATX heading
 ---     - If the heading does not exist, it is created at EOF
----@field location integer|checkmate.Heading
+---@field location? integer|checkmate.Heading
 ---
 --- When inserting under a heading:
 --- - `true`/nil: insert near the top of the section

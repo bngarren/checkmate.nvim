@@ -1700,7 +1700,7 @@ function M.count_child_todos(todo_item, todo_map, opts)
 end
 
 ---@param ctx checkmate.TransactionContext
----@param opts checkmate.MoveTodosOpts
+---@param opts checkmate.InternalMoveTodosOpts
 ---@return checkmate.TextDiffHunk[]
 function M.move_todos(ctx, opts)
   local move = require("checkmate.lib.move")

@@ -9,54 +9,15 @@ local H = {}
 local diff = require("checkmate.lib.diff")
 local log = require("checkmate.log")
 
----@class checkmate.MoveTodosDestination
----
---- Target buffer. Defaults to source buffer.
----@field bufnr? integer
----
---- Location within the target buffer to insert the todos
---- - `integer` - 0-based line-boundary in the destination buffer
----     - `0` inserts before the first line
----     - `nvim_buf_line_count(bufnr)` or `#dest_lines` append after the final line
---- - `checkmate.Heading` - insert under the first matching Markdown ATX heading
----     - If the heading does not exist, it is created at EOF
+---@class checkmate.InternalMoveTodosDestination : checkmate.MoveTodosDestination
+---@field bufnr integer
 ---@field location integer|checkmate.Heading
----
---- When inserting under a heading:
---- - `true`/nil: insert near the top of the section
---- - `false`: append to the bottom of the section
----@field append_top? boolean
----
---- Number of blank lines to insert between consecutive moved root todo blocks
---- Defaults to 0
----@field root_spacing? integer
----
---- Ensure exactly one blank line under an existing destination heading
---- Defaults to `true`.
----@field blank_line_under_heading? boolean
+---@field root_spacing integer
 
---- ////////////////////////
-
----@class checkmate.MoveTodosOpts
----
---- Source selector (optional)
---- If omitted, the public API uses the current cursor or visual selection.
----
---- Internal APIs require either `ids` or `range`
----   `ids`: IDs of the *root* TodoItems to move
----    The caller is responsible for only passing IDs of root todos,
----    (don't pass an ID whose ancestor is also in this list), or lines will be double-collected
----   `range`: any TodoItems whose first line is contained in this range will be collected to move
----@field by? {ids?: integer[], range?: checkmate.Range}
----
---- Destination options
---- Defaults to appending to EOF of the destination buffer
----@field destination checkmate.MoveTodosDestination
----
---- Removes redundant blank lines around deleted source content
---- Defaults to `true`.
----@field cleanup_source? boolean
----
+---@class checkmate.InternalMoveTodosOpts : checkmate.MoveTodosOpts
+---@field by { ids?: integer[], range?: checkmate.Range }
+---@field destination checkmate.InternalMoveTodosDestination
+---@field cleanup_source boolean
 
 --- ////////////////////////
 
@@ -73,7 +34,7 @@ local log = require("checkmate.log")
 ---
 ---@param src_bufnr integer Source buffer
 ---@param todo_map checkmate.TodoMap Source todo map
----@param opts checkmate.MoveTodosOpts
+---@param opts checkmate.InternalMoveTodosOpts
 ---@return checkmate.TextDiffHunk[] source_hunks Deletions in the source buffer
 ---@return checkmate.TextDiffHunk[] dest_hunks   Insertions in the destination buffer
 function M.move_todos(src_bufnr, todo_map, opts)
@@ -97,44 +58,17 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local dest_lines = same_buffer and src_lines or vim.api.nvim_buf_get_lines(dest_bufnr, 0, -1, false)
 
   -- // Resolve source ranges
+  --
+  -- the payload we eventually move should contain each source line ONLY once at most...
+  -- no selected todo should be moved separately if one of its ancestors is already being moved
+  --
+  -- Notes:
+  -- - Selecting only a child moves that child subtree
+  -- - Selecting a parent and any of its descendants moves only the parent subtree
+  -- - Selecting multiple siblings moves each sibling subtree once
+  -- - Duplicate ids are ignored
 
-  ---@type {start_row: integer, end_row: integer, id: integer}[]
-  local source_ranges = {}
-  ---@type table<integer, boolean>
-  local source_ids = {}
-
-  if not ((opts.by.ids and #opts.by.ids > 0) or opts.by.range ~= nil) then
-    require("checkmate.util").notify("Cannot move_todos without `ids` or a `range`", vim.log.levels.WARN)
-    return {}, {}
-  end
-
-  -- if ids are specified, these get added first
-  if opts.by.ids then
-    for _, id in ipairs(opts.by.ids) do
-      local todo = todo_map[id]
-      if not todo then
-        log.fmt_warn("[lib.move.move_todos] id %d not found in todo_map, skipping", id)
-      else
-        table.insert(source_ranges, { start_row = todo.range.start.row, end_row = todo.range["end"].row, id = id })
-        source_ids[id] = true
-      end
-    end
-  end
-
-  -- if range is specified, we add any root todos whose first line is within this range
-  if opts.by.range then
-    for _, todo in ipairs(todo_map) do
-      local is_root = todo:get_parent(todo_map) == nil
-      if
-        is_root
-        and not source_ids[todo.id]
-        and opts.by.range:contains({ row = todo.range.start.row, col = todo.range.start.col })
-      then
-        table.insert(source_ranges, { start_row = todo.range.start.row, end_row = todo.range["end"].row, id = todo.id })
-        source_ids[todo.id] = true
-      end
-    end
-  end
+  local source_ranges = H.resolve_source_ranges(todo_map, opts.by)
 
   if #source_ranges == 0 then
     return {}, {} -- no source todos, return empty diff hunks
@@ -452,6 +386,72 @@ function H.validate_move_opts(src_bufnr, opts)
   end
 
   return true
+end
+
+---@param todo_map checkmate.TodoMap
+---@param by { ids?: integer[], range?: checkmate.Range }
+---@return {start_row: integer, end_row: integer, id: integer}[]
+function H.resolve_source_ranges(todo_map, by)
+  local candidates = {}
+
+  local function add_candidate(todo)
+    if todo and todo.id and candidates[todo.id] == nil then
+      candidates[todo.id] = todo
+    end
+  end
+
+  if by.ids then
+    for _, id in ipairs(by.ids) do
+      local todo = todo_map[id]
+      if todo then
+        add_candidate(todo)
+      else
+        log.fmt_warn("[lib.move.move_todos] id %d not found in todo_map, skipping", id)
+      end
+    end
+  end
+
+  -- range must contain the todo's first line
+  if by.range then
+    for _, todo in ipairs(todo_map) do
+      if by.range:contains({ row = todo.range.start.row, col = todo.range.start.col }) then
+        add_candidate(todo)
+      end
+    end
+  end
+
+  local function has_selected_ancestor(todo)
+    local parent = todo:get_parent(todo_map)
+
+    while parent do
+      if candidates[parent.id] then
+        return true
+      end
+      parent = parent:get_parent(todo_map)
+    end
+
+    return false
+  end
+
+  local ranges = {}
+  local seen = {}
+
+  for _, todo in pairs(candidates) do
+    if not seen[todo.id] and not has_selected_ancestor(todo) then
+      ranges[#ranges + 1] = {
+        start_row = todo.range.start.row,
+        end_row = todo.range["end"].row,
+        id = todo.id,
+      }
+      seen[todo.id] = true
+    end
+  end
+
+  table.sort(ranges, function(a, b)
+    return a.start_row < b.start_row
+  end)
+
+  return ranges
 end
 
 return M

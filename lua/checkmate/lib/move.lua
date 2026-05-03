@@ -4,52 +4,57 @@
 --- moving Checkmate Todo items within or between buffers
 ---
 local M = {}
+local H = {}
 
 local diff = require("checkmate.lib.diff")
+local log = require("checkmate.log")
 
 ---@class checkmate.MoveTodosDestination
 ---
---- Target buffer
---- Defaults to source buffer.
+--- Target buffer. Defaults to source buffer.
 ---@field bufnr? integer
 ---
 --- Location within the target buffer to insert the todos
---- - `integer` - will insert *before* an explicit 0-based row
---- - `checkmate.Heading` - will insert under this Markdown heading.
----   Will use the first heading that matches from the beginning of the buffer.
----   If the heading does not exist, will it will be created at the end of the target buffer.
+--- - `integer` - 0-based line-boundary in the destination buffer
+---     - `0` inserts before the first line
+---     - `nvim_buf_line_count(bufnr)` or `#dest_lines` append after the final line
+--- - `checkmate.Heading` - insert under the first matching Markdown ATX heading
+---     - If the heading does not exist, it is created at EOF
 ---@field location integer|checkmate.Heading
 ---
---- When inserting into a heading section: true = inserted items at the top (default),
---- false = append to the bottom of the Markdown section
+--- When inserting under a heading:
+--- - `true`/nil: insert near the top of the section
+--- - `false`: append to the bottom of the section
 ---@field append_top? boolean
 ---
---- Number of blank lines to insert between consecutive root todo blocks
---- The root todos are the top level, sibling todos that are transferred.
+--- Number of blank lines to insert between consecutive moved root todo blocks
+--- Defaults to 0
 ---@field root_spacing? integer
 ---
---- Ensures a blank line exists under the heading in the destination buffer
---- Default is true.
+--- Ensure exactly one blank line under an existing destination heading
+--- Defaults to `true`.
 ---@field blank_line_under_heading? boolean
 
 --- ////////////////////////
 
 ---@class checkmate.MoveTodosOpts
 ---
+--- Source selector (optional)
+--- If omitted, the public API uses the current cursor or visual selection.
 ---
----@field by {ids: integer[], rows: integer[]}
+--- Internal APIs require either `ids` or `range`
+---   `ids`: IDs of the *root* TodoItems to move
+---    The caller is responsible for only passing IDs of root todos,
+---    (don't pass an ID whose ancestor is also in this list), or lines will be double-collected
+---   `range`: any TodoItems whose first line is contained in this range will be collected to move
+---@field by? {ids?: integer[], range?: checkmate.Range}
 ---
---- IDs of the *root* TodoItems to move.
---- Child todos are carried along automatically.
---- The caller is responsible for only passing IDs of root todos,
---- (don't pass an ID whose ancestor is also in this list), or lines will be double-collected.
----@field ids integer[]
----
---- Specifies the destination buffer and location to insert, among other characteristics.
+--- Destination options
+--- Defaults to appending to EOF of the destination buffer
 ---@field destination checkmate.MoveTodosDestination
 ---
---- Removes residual blank lines surrounding the removed todo content in the source buffer
---- Default is true.
+--- Removes redundant blank lines around deleted source content
+--- Defaults to `true`.
 ---@field cleanup_source? boolean
 ---
 
@@ -72,7 +77,11 @@ local diff = require("checkmate.lib.diff")
 ---@return checkmate.TextDiffHunk[] source_hunks Deletions in the source buffer
 ---@return checkmate.TextDiffHunk[] dest_hunks   Insertions in the destination buffer
 function M.move_todos(src_bufnr, todo_map, opts)
-  opts = opts or {}
+  local ok, err = H.validate_move_opts(src_bufnr, opts)
+  if not ok then
+    log.warn("[lib.move.move_todos] " .. err)
+    return {}, {}
+  end
 
   local dest_bufnr = opts.destination.bufnr or src_bufnr
   local same_buffer = (src_bufnr == dest_bufnr)
@@ -91,28 +100,41 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   ---@type {start_row: integer, end_row: integer, id: integer}[]
   local source_ranges = {}
+  ---@type table<integer, boolean>
+  local source_ids = {}
 
+  if not ((opts.by.ids and #opts.by.ids > 0) or opts.by.range ~= nil) then
+    require("checkmate.util").notify("Cannot move_todos without `ids` or a `range`", vim.log.levels.WARN)
+    return {}, {}
+  end
+
+  -- if ids are specified, these get added first
   if opts.by.ids then
-    for _, id in ipairs(opts.ids) do
+    for _, id in ipairs(opts.by.ids) do
       local todo = todo_map[id]
       if not todo then
-        require("checkmate.log").fmt_warn("[lib.move][move_todos] id %d not found in todo_map, skipping", id)
+        log.fmt_warn("[lib.move.move_todos] id %d not found in todo_map, skipping", id)
       else
         table.insert(source_ranges, { start_row = todo.range.start.row, end_row = todo.range["end"].row, id = id })
+        source_ids[id] = true
       end
     end
   end
 
-  if opts.by.rows then
+  -- if range is specified, we add any root todos whose first line is within this range
+  if opts.by.range then
     for _, todo in ipairs(todo_map) do
-      for _, row in ipairs(opts.by.rows) do 
-        if todo.range:contains(row) then
-         todo. 
-        end
+      local is_root = todo:get_parent(todo_map) == nil
+      if
+        is_root
+        and not source_ids[todo.id]
+        and opts.by.range:contains({ row = todo.range.start.row, col = todo.range.start.col })
+      then
+        table.insert(source_ranges, { start_row = todo.range.start.row, end_row = todo.range["end"].row, id = todo.id })
+        source_ids[todo.id] = true
       end
     end
   end
-
 
   if #source_ranges == 0 then
     return {}, {} -- no source todos, return empty diff hunks
@@ -227,9 +249,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
   if #payload == 0 then
     -- Source ranges existed but contained only blank lines after trimming...
     -- Hmm. this shouldn't occur with valid todos...we should abort entirely and log this
-    require("checkmate.log").error(
-      "[lib.move][move_todos] payload is empty after trimming; aborting move to avoid partial mutation"
-    )
+    log.error("[lib.move.move_todos] payload is empty after trimming; aborting move to avoid partial mutation")
     return {}, {}
   end
 
@@ -237,6 +257,31 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   if target_location and type(target_location) == "number" then
     -- explicit row destination ─────────────────────────────────────
+
+    local function validate_line_boundary(row, lines)
+      return type(row) == "number" and row >= 0 and row <= #lines
+    end
+    if not validate_line_boundary(target_location, dest_lines) then
+      log.warn(
+        string.format(
+          "[lib.move.move_todos] destination row %s out of bounds; expected 0..%d",
+          tostring(target_location),
+          #dest_lines
+        )
+      )
+      return {}, {}
+    end
+
+    -- don't allow same buffer move into a source range
+    -- ...would probably just cause weird diffs
+    if same_buffer then
+      for _, r in ipairs(source_ranges) do
+        if target_location >= r.start_row and target_location <= r.end_row + 1 then
+          log.warn("[lib.move.move_todos] destination is inside moved range; aborting")
+          return {}, {}
+        end
+      end
+    end
 
     -- when inserting into the same buffer, the target row is expressed in terms
     -- of the current (pre-mutation) buffer
@@ -365,10 +410,48 @@ function M.move_todos(src_bufnr, todo_map, opts)
       end
     end
   else
-    error("Checkmate: move_todos: destination must specify either `heading` or `row`")
+    error("Checkmate: move_todos: destination must specify `destination.location`")
   end
 
   return source_hunks, dest_hunks
+end
+
+function H.has_source_selector(opts)
+  return opts and opts.by and ((opts.by.ids and #opts.by.ids > 0) or opts.by.range ~= nil)
+end
+
+function H.is_heading(value)
+  return type(value) == "table" and value.title ~= nil and value.level ~= nil
+end
+
+function H.validate_move_opts(src_bufnr, opts)
+  if type(src_bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(src_bufnr) then
+    return false, "invalid source buffer"
+  end
+
+  if not opts or type(opts) ~= "table" then
+    return false, "missing opts"
+  end
+
+  if not H.has_source_selector(opts) then
+    return false, "missing source selector: expected opts.by.ids or opts.by.range"
+  end
+
+  if not opts.destination or opts.destination.location == nil then
+    return false, "missing destination.location"
+  end
+
+  local dest_bufnr = opts.destination.bufnr or src_bufnr
+  if not vim.api.nvim_buf_is_valid(dest_bufnr) then
+    return false, "invalid destination buffer"
+  end
+
+  local location = opts.destination.location
+  if type(location) ~= "number" and not H.is_heading(location) then
+    return false, "destination.location must be a line-boundary integer or checkmate.Heading"
+  end
+
+  return true
 end
 
 return M

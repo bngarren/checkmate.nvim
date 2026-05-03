@@ -1707,10 +1707,22 @@ function M.move_todos(ctx, opts)
   local src_bufnr = ctx.get_buf()
   local todo_map = ctx.get_todo_map()
 
-  local source_hunks, dest_hunks = move.move_todos(src_bufnr, todo_map, opts)
+  opts = opts or {}
+
+  if not opts or not opts.destination or opts.destination.location == nil then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination.location")
+    return {}
+  end
 
   local dest_bufnr = opts.destination.bufnr or src_bufnr
+  if not vim.api.nvim_buf_is_valid(dest_bufnr) then
+    log.warn("[api.move_todos] destination buffer is invalid")
+    return {}
+  end
+
   local same_buffer = (dest_bufnr == src_bufnr)
+
+  local source_hunks, dest_hunks = move.move_todos(src_bufnr, todo_map, opts)
 
   if same_buffer then
     -- return merged...so the transaction applies them together in one undo entry
@@ -1723,20 +1735,22 @@ function M.move_todos(ctx, opts)
     -- We use add_cb rather than a second add_op because the dest buffer has its
     -- own transaction lifecycle. The cb runs after source hunks are applied and
     -- the source todo_map is refreshed, which is the right sequencing.
-    ctx.add_cb(function()
-      vim.schedule(function()
-        local transaction = require("checkmate.transaction")
-        if not vim.api.nvim_buf_is_valid(dest_bufnr) then
-          require("checkmate.log").warn("[api.move_todos] destination buffer no longer valid")
-          return
-        end
-        transaction.run(dest_bufnr, function(dest_ctx)
-          dest_ctx.add_op(function()
-            return dest_hunks
+    if #dest_hunks > 0 then
+      ctx.add_cb(function()
+        vim.schedule(function()
+          local transaction = require("checkmate.transaction")
+          if not vim.api.nvim_buf_is_valid(dest_bufnr) then
+            log.warn("[api.move_todos] destination buffer no longer valid")
+            return
+          end
+          transaction.run(dest_bufnr, function(dest_ctx)
+            dest_ctx.add_op(function()
+              return dest_hunks
+            end)
           end)
         end)
       end)
-    end)
+    end
     return source_hunks
   end
 end
@@ -1827,7 +1841,7 @@ function M.archive_todos(ctx, opts)
 
   -- Delegate to move_todos for the mechanical cut+paste
   local source_hunks = M.move_todos(ctx, {
-    ids = ids_to_archive,
+    by = { ids = ids_to_archive },
     include_children = include_children,
     parent_spacing = parent_spacing,
     destination = {

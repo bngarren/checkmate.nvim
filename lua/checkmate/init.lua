@@ -1541,37 +1541,137 @@ function M.lint(opts)
   return true, results
 end
 
----@param opts checkmate.MoveTodosOpts
+---@class checkmate.MoveTodosDestination
+---
+--- Target buffer. Defaults to source buffer.
+---@field bufnr? integer
+---
+--- Location within the target buffer to insert the todos
+--- - `integer` - 0-based line-boundary in the destination buffer
+---     - `0` inserts before the first line
+---     - `nvim_buf_line_count(bufnr)` or `#dest_lines` append after the final line
+--- - `checkmate.Heading` - insert under the first matching Markdown ATX heading
+---     - If the heading does not exist, it is created at EOF
+---@field location integer|checkmate.Heading
+---
+--- When inserting under a heading:
+--- - `true`/nil: insert near the top of the section
+--- - `false`: append to the bottom of the section
+---@field append_top? boolean
+---
+--- Number of blank lines to insert between consecutive moved root todo blocks
+--- Defaults to 0
+---@field root_spacing? integer
+---
+--- Ensure exactly one blank line under an existing destination heading
+--- Defaults to `true`.
+---@field blank_line_under_heading? boolean
+
+--- ////////////////////////
+
+---@class checkmate.MoveTodosOpts
+---
+--- Source selector (optional)
+--- If omitted, uses the current cursor or visual selection.
+---   `ids`: IDs of the *root* TodoItems to move
+---    The caller is responsible for only passing IDs of root todos,
+---    (don't pass an ID whose ancestor is also in this list), or lines will be double-collected
+---   `range`: any TodoItems whose first line is contained within this range will be collected to move
+---@field by? {ids?: integer[], range?: checkmate.Range}
+---
+--- Destination options
+--- Defaults to appending to EOF of the destination buffer
+---@field destination checkmate.MoveTodosDestination
+---
+--- Removes redundant blank lines around deleted source content
+--- Defaults to `true`.
+---@field cleanup_source? boolean
+---
+
+--- Moves todo(s) from one location to another
+---   - See |checkmate.MoveTodosOpts| for options
+---   - Essentially a cut and paste type operation
+---   - Can work across buffers (cut from source, paste into destination)
+---   - When no `opts.by.ids` or `opts.by.range` is specified, cursor position
+---     or visual selection is used to gather todo(s)
+---@param opts? checkmate.MoveTodosOpts
+---@return boolean
 function M.move_todos(opts)
   local api = require("checkmate.api")
   local transaction = require("checkmate.transaction")
   local log = require("checkmate.log")
+  local util = require("checkmate.util")
   local Buffer = require("checkmate.buffer")
 
-  if not opts or not opts.ids or #opts.ids == 0 then
-    log.warn("[main] move_todos called with no ids")
-    return false
-  end
-
   local ctx = transaction.current_context()
-  if ctx then
-    ctx.add_op(api.move_todos, opts)
-    return true
-  end
-
-  local src_bufnr = opts.destination.bufnr -- could be nil, resolved inside
-      and opts.destination.bufnr ~= vim.api.nvim_get_current_buf()
-      and opts.destination.bufnr -- cross-buffer: src is current
-    or vim.api.nvim_get_current_buf()
+  local src_bufnr = ctx and ctx.get_buf() or vim.api.nvim_get_current_buf()
 
   if not Buffer.is_valid(src_bufnr) then
     log.warn("[main] Attempted to call `move_todos` on invalid buffer")
     return false
   end
 
+  opts = vim.deepcopy(opts or {})
+  opts.by = opts.by or {}
+  opts.destination = opts.destination or {}
+
+  local dest_bufnr = opts.destination.bufnr or src_bufnr
+  if not Buffer.is_valid(dest_bufnr) then
+    log.warn("[main] Attempted to call `move_todos` with invalid destination buffer")
+    return false
+  end
+
+  opts.destination.bufnr = dest_bufnr
+
+  -- normalize opts with defaults
+
+  if opts.destination.location == nil then
+    opts.destination.location = vim.api.nvim_buf_line_count(dest_bufnr)
+  end
+
+  if opts.destination.root_spacing == nil then
+    opts.destination.root_spacing = 0
+  end
+
+  if opts.cleanup_source == nil then
+    opts.cleanup_source = true
+  end
+
+  -- returns true if the opts.by specifies a source of todos (either by id or buffer range)
+  local function has_explicit_source(by)
+    return (by.ids and #by.ids > 0) or by.range ~= nil
+  end
+
+  if ctx then
+    if not has_explicit_source(opts.by) then
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local range = require("checkmate.lib.range").range_from_cursor_tuple(cursor)
+      opts.by.range = range
+    end
+    ctx.add_op(api.move_todos, opts)
+    return true
+  end
+
+  local todo_items
+  if not has_explicit_source(opts.by) then
+    local is_visual = util.mode.is_visual_mode()
+    todo_items = api.collect_todo_items_from_selection(is_visual)
+
+    if #todo_items == 0 then
+      log.warn("[main] No todo items found to move")
+      return false
+    end
+  end
+
   transaction.run(src_bufnr, function(_ctx)
+    if not has_explicit_source(opts.by) then
+      opts.by.ids = vim.tbl_map(function(todo)
+        return todo.id
+      end, todo_items or {})
+    end
     _ctx.add_op(api.move_todos, opts)
   end)
+
   return true
 end
 

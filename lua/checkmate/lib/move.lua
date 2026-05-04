@@ -11,7 +11,8 @@ local log = require("checkmate.log")
 
 ---@class checkmate.InternalMoveTodosDestination : checkmate.MoveTodosDestination
 ---@field bufnr integer
----@field location integer|checkmate.Heading
+---@field location? integer
+---@field heading? checkmate.Heading
 ---@field root_spacing integer
 
 ---@class checkmate.InternalMoveTodosOpts : checkmate.MoveTodosOpts
@@ -21,8 +22,7 @@ local log = require("checkmate.log")
 
 --- ////////////////////////
 
---- Moves a set of root todos (and their subtrees) from their current
---- location in the source buffer to a destination.
+--- Moves selected todo subtrees from the source buffer to a destination.
 ---
 --- Returns two hunk arrays (see `checkmate.TextDiffHunk`):
 ---   [1] source_hunks  – deletions to apply to source buffer
@@ -47,7 +47,8 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local dest_bufnr = opts.destination.bufnr or src_bufnr
   local same_buffer = (src_bufnr == dest_bufnr)
 
-  local target_location = opts.destination.location
+  local target_row = opts.destination.location
+  local target_heading = opts.destination.heading
   local root_spacing = math.max(opts.destination.root_spacing or 0, 0)
   local newest_first = opts.destination.append_top ~= false -- default true
   local ensure_blank_line_under_heading = opts.destination.blank_line_under_heading ~= false -- default true
@@ -73,11 +74,6 @@ function M.move_todos(src_bufnr, todo_map, opts)
   if #source_ranges == 0 then
     return {}, {} -- no source todos, return empty diff hunks
   end
-
-  -- sort by position to process lines in order (top to bottom)
-  table.sort(source_ranges, function(a, b)
-    return a.start_row < b.start_row
-  end)
 
   -- // Collect the lines that will be moved and mark for deletion
 
@@ -178,6 +174,23 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   -- // Build destination (insert) hunks
 
+  ---@param heading checkmate.Heading
+  ---@param lines string[]
+  ---@return string[]
+  local function make_heading_payload(heading, lines)
+    local insertion = { heading:to_string() }
+
+    if ensure_blank_line_under_heading then
+      insertion[#insertion + 1] = ""
+    end
+
+    for _, line in ipairs(lines) do
+      insertion[#insertion + 1] = line
+    end
+
+    return insertion
+  end
+
   local dest_hunks = {}
 
   if #payload == 0 then
@@ -187,164 +200,271 @@ function M.move_todos(src_bufnr, todo_map, opts)
     return {}, {}
   end
 
-  -- following logic depends on type of target_location: integer (row) or `checkmate.Heading`
+  -- Destination modes:
+  --
+  -- 1. location only:
+  --      Insert payload directly at an explicit line boundary.
+  --
+  -- 2. heading only:
+  --      Find an existing heading section and insert into it. If the heading does
+  --      not exist, create the heading section at EOF.
+  --
+  -- 3. location + heading:
+  --      Create a new heading section at the explicit line boundary. This mode
+  --      does not search for or reuse an existing heading.
 
-  if target_location and type(target_location) == "number" then
+  if target_row ~= nil then
     -- explicit row destination ─────────────────────────────────────
 
-    local function validate_line_boundary(row, lines)
-      return type(row) == "number" and row >= 0 and row <= #lines
-    end
-    if not validate_line_boundary(target_location, dest_lines) then
+    if not H.validate_line_boundary(target_row, dest_lines) then
       log.warn(
         string.format(
           "[lib.move.move_todos] destination row %s out of bounds; expected 0..%d",
-          tostring(target_location),
+          tostring(target_row),
           #dest_lines
         )
       )
       return {}, {}
     end
 
-    -- don't allow same buffer move into a source range
-    -- ...would probably just cause weird diffs
+    -- don't allow same-buffer move into a source range
     if same_buffer then
       for _, r in ipairs(source_ranges) do
-        if target_location >= r.start_row and target_location <= r.end_row + 1 then
+        if target_row >= r.start_row and target_row <= r.end_row + 1 then
           log.warn("[lib.move.move_todos] destination is inside moved range; aborting")
           return {}, {}
         end
       end
     end
 
-    -- when inserting into the same buffer, the target row is expressed in terms
-    -- of the current (pre-mutation) buffer
-    -- apply_diff's bottom-to-top sort should handle the offset automatically
-    dest_hunks[#dest_hunks + 1] = diff.make_line_insert(target_location, payload)
-  elseif
-    target_location
-    and type(target_location) == "table"
-    and (target_location.title ~= nil and target_location.level ~= nil)
-  then
-    -- heading destination ───────────────────────────────────────────
-
-    local target_heading = target_location
-
-    -- Locate the heading section in the destination buffer
-    -- starting with the heading, look for a "closing" heading, i.e. one at the same or higher level (fewer or equal #s)
-
-    local heading_pattern = target_heading:get_atx_heading_pattern()
-
-    local section_start = nil ---@type integer|nil  0-based row of the heading line
-    local section_end = nil ---@type integer|nil  0-based row of last line in section (inclusive)
-
-    for i, line in ipairs(dest_lines) do
-      if line:match(heading_pattern .. target_heading.title) then
-        section_start = i - 1 -- to 0-based
-        section_end = #dest_lines - 1 -- run to EOF
-
-        for j = i + 1, #dest_lines do
-          if dest_lines[j]:match(heading_pattern) then
-            section_end = j - 2 -- 0-based row of the line before the next heading
-            break
-          end
-        end
-        break
-      end
+    if target_heading then
+      -- Explicit row + heading:
+      -- create a new heading section exactly at this line boundary.
+      dest_hunks[#dest_hunks + 1] = diff.make_line_insert(target_row, make_heading_payload(target_heading, payload))
+    else
+      -- Explicit row only:
+      -- insert the moved payload directly.
+      dest_hunks[#dest_hunks + 1] = diff.make_line_insert(target_row, payload)
     end
+  elseif target_heading then
+    -- heading destination ───────────────────────────────────────────
+    --
+    -- implementation notes:
+    --
+    -- Heading-only mode:
+    --
+    --   destination = { heading = Heading.new("Done", 1) }
+    --
+    -- means:
+    --   1. Find the first matching heading section.
+    --   2. Insert the moved todos into that section.
+    --   3. If the heading does not exist, create a new heading section at EOF.
+    --
+    -- This is different from:
+    --
+    --   destination = { location = row, heading = heading }
+    --
+    -- which always creates a NEW heading section at that exact row
+
+    local section_start, section_end = H.find_heading_section(dest_lines, target_heading)
 
     if not section_start then
-      -- Heading doesn't exist → create it at the end of the destination buffer
+      -- No matching heading exists
+      --
+      -- Create a new section at EOF:
+      --
+      --   [insert blank, if there isn't one already...]
+      --   # Heading
+      --
+      --   moved todo
+      --     moved child
+      --
+      -- the optional leading blank prevents gluing the new heading directly to
+      -- the previous final line of the buffer
 
       local line_count = #dest_lines
       local insertion = {}
 
-      -- ensure a blank line before the new heading if the buffer isn't empty
       local need_pre_blank = line_count > 0 and dest_lines[#dest_lines] ~= ""
       if need_pre_blank then
         insertion[#insertion + 1] = ""
       end
 
-      insertion[#insertion + 1] = target_heading:to_string()
-      -- blank line after heading
-      insertion[#insertion + 1] = ""
-
-      for _, l in ipairs(payload) do
-        insertion[#insertion + 1] = l
-      end
+      vim.list_extend(insertion, make_heading_payload(target_heading, payload))
 
       dest_hunks[#dest_hunks + 1] = diff.make_line_insert(line_count, insertion)
     else
-      -- Heading exists
+      -- Matching heading exists.
+      --
+      -- We now need to insert inside this section
+      --
+      -- Rows are 0-based:
+      --   section_start = row containing "# Done"
+      --   section_end   = last row belonging to that heading section
+      --
+      -- Example:
+      --
+      --   row 2: # Done          <- section_start
+      --   row 3:
+      --   row 4: - existing      <- first non-blank content
+      --   row 5: # Later         <- not part of section
+      --
+      -- For this section, section_end is row 4
 
-      -- ensure exactly one blank line immediately after the heading
-      if ensure_blank_line_under_heading then
-        local first_nonblank = section_start + 1
-        while first_nonblank <= section_end and dest_lines[first_nonblank + 1] == "" do
-          first_nonblank = first_nonblank + 1
-        end
-        if first_nonblank == section_start + 1 then
-          dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, { "" })
-        else
-          -- one or more blanks should collapse to exactly one
-          if first_nonblank - 1 > section_start + 1 then
-            dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ section_start + 1, first_nonblank - 1 }, { "" })
-          end
-        end
+      -- First, we find the first non-blank line after the heading
+      -- which tells us 3 important things:
+      --   1. whether the heading already has a blank line under it
+      --   2. whether the section has existing body content
+      --   3. where "near top" insertion should occur
+      --
+      -- If the section is empty or contains only blanks, first_nonblank becomes
+      -- section_end + 1.
+      local first_nonblank = section_start + 1
+
+      while first_nonblank <= section_end and dest_lines[first_nonblank + 1] == "" do
+        first_nonblank = first_nonblank + 1
       end
 
-      -- the content starts at section_start + 2 (heading + 1 blank)
-      local content_start = section_start + 2
+      local blank_start = section_start + 1
+      local blank_end = first_nonblank - 1
+      local blank_count = math.max(blank_end - blank_start + 1, 0)
+      local has_existing_content = first_nonblank <= section_end
 
       if newest_first then
-        -- insert payload right after the single blank under the heading
-        local insert_at = content_start
+        -- Insert near the top of the heading section.
+
         local insert_payload = {}
 
-        for _, l in ipairs(payload) do
-          insert_payload[#insert_payload + 1] = l
-        end
+        if ensure_blank_line_under_heading then
+          if blank_count == 0 then
+            -- No blank under the heading:
+            -- insert both the required blank and the payload before the first
+            -- existing content line.
+            insert_payload[#insert_payload + 1] = ""
 
-        -- If the section already has content and spacing is requested,
-        -- add a spacer between the newly inserted block and the existing content.
-        --
-        -- "Has existing content" means the section extends past content_start.
-        -- We check section_end (from the pre-mutation snapshot) accounting for the
-        -- normalization hunk we just emitted (which may have changed effective rows
-        -- by at most 1 — but since apply_diff sorts bottom-to-top, by the time the
-        -- insert is applied the normalization has already happened).
-        local has_existing = section_end >= content_start
-        if has_existing and root_spacing > 0 then
-          add_spacing(insert_payload)
-        end
+            for _, line in ipairs(payload) do
+              insert_payload[#insert_payload + 1] = line
+            end
 
-        dest_hunks[#dest_hunks + 1] = diff.make_line_insert(insert_at, insert_payload)
+            if has_existing_content and root_spacing > 0 then
+              add_spacing(insert_payload)
+            end
+
+            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
+          elseif blank_count == 1 then
+            -- Exactly one blank already exists:
+            -- insert payload after that blank.
+            for _, line in ipairs(payload) do
+              insert_payload[#insert_payload + 1] = line
+            end
+
+            if has_existing_content and root_spacing > 0 then
+              add_spacing(insert_payload)
+            end
+
+            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, insert_payload)
+          else
+            -- More than one blank exists:
+            -- replace the blank lines with exactly 1 blank followed by
+            -- the payload
+            insert_payload[#insert_payload + 1] = ""
+
+            for _, line in ipairs(payload) do
+              insert_payload[#insert_payload + 1] = line
+            end
+
+            if has_existing_content and root_spacing > 0 then
+              add_spacing(insert_payload)
+            end
+
+            dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, insert_payload)
+          end
+        else
+          -- opted out of blank-line normalization
+          -- so...we insert right after the heading, even if it butts up against the heading
+          for _, line in ipairs(payload) do
+            insert_payload[#insert_payload + 1] = line
+          end
+
+          if has_existing_content and root_spacing > 0 then
+            add_spacing(insert_payload)
+          end
+
+          dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
+        end
       else
-        -- Append to the bottom of the existing section.
-        -- Find the last non-blank row inside the section to avoid double-blanks.
+        -- Append to the bottom of the existing section
+        --
+        -- even if there are a bunch of blank lines at the end of the section, we "trim" these...
+        -- by appending after the last non-blank line.
+
         local tail = section_end
+
         while tail > section_start and dest_lines[tail + 1] == "" do
           tail = tail - 1
         end
 
-        local append_at = tail + 1
+        local has_body = tail > section_start
         local append_payload = {}
 
-        -- Spacer before newly appended content (if existing content present)
-        local has_existing = tail > section_start
-        if has_existing and root_spacing > 0 then
-          add_spacing(append_payload)
-        end
+        if ensure_blank_line_under_heading and not has_body then
+          -- Empty section: heading followed by 0 or more blanks
+          -- In this case, appending to the "bottom" is effectively the same as
+          -- inserting near the top: normalize the heading blank and place the
+          -- payload immediately after it
+          if blank_count == 0 then
+            -- empty section with no blank under heading
+            append_payload[#append_payload + 1] = ""
 
-        for _, l in ipairs(payload) do
-          append_payload[#append_payload + 1] = l
-        end
+            for _, line in ipairs(payload) do
+              append_payload[#append_payload + 1] = line
+            end
 
-        dest_hunks[#dest_hunks + 1] = diff.make_line_insert(append_at, append_payload)
+            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, append_payload)
+          elseif blank_count == 1 then
+            -- empty section with exactly one blank already present
+            -- easy! just insert payload after that blank
+            for _, line in ipairs(payload) do
+              append_payload[#append_payload + 1] = line
+            end
+
+            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, append_payload)
+          else
+            -- empty section with multiple blanks
+            -- just collapse all the blanks to 1 blank then insert payload
+            append_payload[#append_payload + 1] = ""
+
+            for _, line in ipairs(payload) do
+              append_payload[#append_payload + 1] = line
+            end
+
+            dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, append_payload)
+          end
+        else
+          -- Non-empty section, or blank-line normalization is disabled
+
+          if ensure_blank_line_under_heading then
+            if blank_count == 0 then
+              dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, { "" })
+            elseif blank_count > 1 then
+              dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, { "" })
+            end
+          end
+
+          if has_body and root_spacing > 0 then
+            add_spacing(append_payload)
+          end
+
+          for _, line in ipairs(payload) do
+            append_payload[#append_payload + 1] = line
+          end
+
+          dest_hunks[#dest_hunks + 1] = diff.make_line_insert(tail + 1, append_payload)
+        end
       end
     end
   else
-    error("Checkmate: move_todos: destination must specify `destination.location`")
+    error("Checkmate: move_todos: destination must specify `destination.location` and/or `destination.heading`")
   end
 
   return source_hunks, dest_hunks
@@ -371,8 +491,8 @@ function H.validate_move_opts(src_bufnr, opts)
     return false, "missing source selector: expected opts.by.ids or opts.by.range"
   end
 
-  if not opts.destination or opts.destination.location == nil then
-    return false, "missing destination.location"
+  if not opts.destination then
+    return false, "missing destination"
   end
 
   local dest_bufnr = opts.destination.bufnr or src_bufnr
@@ -381,11 +501,25 @@ function H.validate_move_opts(src_bufnr, opts)
   end
 
   local location = opts.destination.location
-  if type(location) ~= "number" and not H.is_heading(location) then
-    return false, "destination.location must be a line-boundary integer or checkmate.Heading"
+  local heading = opts.destination.heading
+
+  if location ~= nil and type(location) ~= "number" then
+    return false, "destination.location must be a line-boundary integer"
+  end
+
+  if heading ~= nil and not H.is_heading(heading) then
+    return false, "destination.heading must be a checkmate.Heading"
+  end
+
+  if location == nil and heading == nil then
+    return false, "missing destination target: expected destination.location and/or destination.heading"
   end
 
   return true
+end
+
+function H.validate_line_boundary(row, lines)
+  return type(row) == "number" and row >= 0 and row <= #lines
 end
 
 ---@param todo_map checkmate.TodoMap
@@ -452,6 +586,66 @@ function H.resolve_source_ranges(todo_map, by)
   end)
 
   return ranges
+end
+
+---@param line string
+---@return integer|nil
+function H.get_atx_heading_level(line)
+  local hashes = line:match("^%s*(#+)%s+")
+  if not hashes or #hashes > 6 then
+    return nil
+  end
+
+  return #hashes
+end
+
+---@param line string
+---@param heading checkmate.Heading
+---@return boolean
+function H.is_matching_heading(line, heading)
+  local level = H.get_atx_heading_level(line)
+  if level ~= heading.level then
+    return false
+  end
+
+  -- Matches:
+  --   ## Title
+  --   ## Title ##
+  -- but not:
+  --   ## Title extra
+  local title = vim.pesc(vim.trim(heading.title))
+  return line:match("^%s*#+%s+" .. title .. "%s*#*%s*$") ~= nil
+end
+
+---@param lines string[]
+---@param heading checkmate.Heading
+---@return integer|nil section_start 0-based heading row
+---@return integer|nil section_end 0-based inclusive final row in section
+function H.find_heading_section(lines, heading)
+  local section_start = nil ---@type integer|nil
+  local section_end = nil ---@type integer|nil
+
+  for i, line in ipairs(lines) do
+    if H.is_matching_heading(line, heading) then
+      section_start = i - 1
+      section_end = #lines - 1
+
+      for j = i + 1, #lines do
+        local level = H.get_atx_heading_level(lines[j])
+
+        -- A section ends at the line before the next heading of the same or
+        -- higher rank. Example: a level-3 section is closed by level 1, 2, or 3.
+        if level and level <= heading.level then
+          section_end = j - 2
+          break
+        end
+      end
+
+      break
+    end
+  end
+
+  return section_start, section_end
 end
 
 return M

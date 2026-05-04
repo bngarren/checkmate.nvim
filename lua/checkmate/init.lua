@@ -1546,25 +1546,40 @@ end
 --- Target buffer. Defaults to source buffer.
 ---@field bufnr? integer
 ---
---- Location within the target buffer to insert the todos
---- Defaults to EOF
---- - `integer` - 0-based line-boundary in the destination buffer
----     - `0` inserts before the first line
----     - `nvim_buf_line_count(bufnr)` or `#dest_lines` append after the final line
---- - `checkmate.Heading` - insert under the first matching Markdown ATX heading
----     - If the heading does not exist, it is created at EOF
----@field location? integer|checkmate.Heading
+--- Optional 0-based line-boundary in the destination buffer
+---
+--- Defaults depend on `heading` field:
+--- - Without `heading`: defaults to EOF and inserts the todo payload directly
+--- - With `heading`: omitted `location` means "find an existing heading";
+---   if the heading is not found, it is created at EOF.
+---
+--- Valid values:
+--- - `0` inserts before the first line
+--- - `nvim_buf_line_count(bufnr)` appends after the final line
+---@field location? integer
+---
+--- Optional heading destination.
+---
+--- Behavior depends on `location` field:
+--- - With no `location`: find the first matching Markdown ATX heading and
+---   insert into that section. If it does not exist, create it at EOF.
+--- - With integer `location`: create a new heading section at that exact
+---   line boundary and insert the moved todos under it. Existing headings are
+---   not searched or reused in this mode.
+---@field heading? checkmate.Heading
 ---
 --- When inserting under a heading:
 --- - `true`/nil: insert near the top of the section
 --- - `false`: append to the bottom of the section
+--- Ignored when `heading` is used with an explicit integer `location`,
+--- because that mode always creates a new section.
 ---@field append_top? boolean
 ---
 --- Number of blank lines to insert between consecutive moved root todo blocks
 --- Defaults to 0
 ---@field root_spacing? integer
 ---
---- Ensure exactly one blank line under an existing destination heading
+--- Ensure exactly one blank line under a destination heading
 --- Defaults to `true`.
 ---@field blank_line_under_heading? boolean
 
@@ -1626,7 +1641,10 @@ function M.move_todos(opts)
 
   -- normalize opts with defaults
 
-  if opts.destination.location == nil then
+  -- Default destination location/heading:
+  -- - no heading + no location: append payload to EOF
+  -- - heading + no location: search for heading, create at EOF if missing
+  if opts.destination.location == nil and opts.destination.heading == nil then
     opts.destination.location = vim.api.nvim_buf_line_count(dest_bufnr)
   end
 

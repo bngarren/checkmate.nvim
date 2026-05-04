@@ -1709,8 +1709,13 @@ function M.move_todos(ctx, opts)
 
   opts = opts or {}
 
-  if not opts or not opts.destination or opts.destination.location == nil then
-    log.warn("[api.move_todos] called with unnormalized opts; missing destination.location")
+  if not opts or not opts.destination then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination")
+    return {}
+  end
+
+  if opts.destination.location == nil and opts.destination.heading == nil then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination.location and destination.heading")
     return {}
   end
 
@@ -1844,10 +1849,11 @@ function M.archive_todos(ctx, opts)
     by = { ids = ids_to_archive },
     include_children = include_children,
     parent_spacing = parent_spacing,
+    cleanup_source = true,
     destination = {
       -- same buffer
       bufnr = bufnr,
-      location = heading.new(heading_title, heading_level),
+      heading = heading.new(heading_title, heading_level),
       append_top = newest_first,
       root_spacing = parent_spacing,
     },

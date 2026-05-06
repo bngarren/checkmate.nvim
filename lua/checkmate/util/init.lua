@@ -179,16 +179,6 @@ function M.get_ts_node_range_string(node)
   return ("[%d,%d] → [%d,%d]"):format(start_row, start_col, end_row, end_col)
 end
 
----Build a Markdown heading
----@param title string text after the hashes
----@param level? integer 1-6; clamped; defaults to 2
----@return string
-function M.get_heading_string(title, level)
-  level = tonumber(level) or 2
-  level = math.min(math.max(level, 1), 6)
-  return string.rep("#", level) .. " " .. title
-end
-
 --- Check if cursor position is valid for list continuation
 --- The cursor must be after the checkbox/todo marker to trigger continuation
 ---@param col integer 0-based cursor column in insert mode
@@ -280,6 +270,7 @@ function M.scratch_buf_or_print(content, scratch_opts)
     }, scratch_opts)
     local win = snacks.open(opts)
     if win and win.buf then
+      vim.api.nvim_buf_set_lines(win.buf, 0, -1, false, vim.split(vim.inspect(content), "\n", { plain = true }))
       vim.bo[win.buf].ro = true
     end
   else

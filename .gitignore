@@ -11,3 +11,7 @@ Dockerfile
 .DS_Store
 
 .testdata
+
+.nvim.lua
+
+.claude

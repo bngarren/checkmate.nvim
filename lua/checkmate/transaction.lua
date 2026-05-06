@@ -41,6 +41,7 @@ local diff = require("checkmate.lib.diff")
 ---@class checkmate.TransactionContext
 ---@field get_todo_map fun(): checkmate.TodoMap
 ---@field get_todo_by_id fun(id: integer): checkmate.TodoItem?
+---Returns a todo from the given 0-indexed row
 ---@field get_todo_by_row fun(row: integer, root_only?: boolean): checkmate.TodoItem?
 ---@field add_op fun(fn: function, ...)
 ---@field add_cb fun(fn: fun(ctx: checkmate.TransactionContext, ...), ...)

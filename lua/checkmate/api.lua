@@ -33,7 +33,7 @@ local ph = require("checkmate.parser.helpers")
 local meta_module = require("checkmate.metadata")
 local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
-local heading = require("checkmate.lib.heading")
+local cm_heading = require("checkmate.lib.heading")
 local profiler = require("checkmate.profiler")
 
 ---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
@@ -1773,7 +1773,7 @@ function M.archive_todos(ctx, opts)
 
   local heading_title = (opts.heading and opts.heading.title) or config.options.archive.heading.title or "Archived"
   local heading_level = (opts.heading and opts.heading.level) or config.options.archive.heading.level or 2
-  local target_heading = heading.new(heading_title, heading_level)
+  local target_heading = cm_heading.new(heading_title, heading_level)
 
   local include_children = opts.include_children ~= false
   local newest_first = opts.newest_first ~= nil and opts.newest_first or config.options.archive.newest_first ~= false
@@ -1852,7 +1852,7 @@ function M.archive_todos(ctx, opts)
     destination = {
       -- same buffer
       bufnr = bufnr,
-      heading = heading.new(heading_title, heading_level),
+      heading = cm_heading.new(heading_title, heading_level),
       append_top = newest_first,
       root_spacing = parent_spacing,
     },
@@ -1880,7 +1880,7 @@ function M.archive_todos_old(ctx, opts)
   local bufnr = ctx.get_buf()
 
   -- create the Markdown heading that the user has defined, e.g. ## Archived
-  local archive_heading_string = heading.get_heading_string(
+  local archive_heading_string = cm_heading.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )

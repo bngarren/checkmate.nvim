@@ -7,6 +7,7 @@ local M = {}
 local H = {}
 
 local diff = require("checkmate.lib.diff")
+local cm_heading = require("checkmate.lib.heading")
 local log = require("checkmate.log")
 
 ---@class checkmate.InternalMoveTodosDestination : checkmate.MoveTodosDestination
@@ -115,12 +116,17 @@ function M.move_todos(src_bufnr, todo_map, opts)
     end
   end
 
+  -- don't want the move payload to bring a dangling blank into the destination.
   trim_trailing_blank(payload)
 
   -- // Blank line cleanup in the source
-  -- i.e., after we remove todos, we compress the remaining content so that weird gaps aren't left
-  -- TODO: this section likely needs more nuance and edge case handling so as not
-  -- to remove too much whitespace in the user's document
+  --
+  -- if deleting a block would leave two consecutive blank
+  -- lines in the source (one before the block, one after it), delete the
+  -- trailing blank so the source compresses cleanly
+  --
+  -- conservative by design - better to leave an extra blank
+  -- than to silently destroy intentional whitespace
   if cleanup_source then
     for _, r in ipairs(source_ranges) do
       local after = r.end_row + 1 -- 0-based row immediately after the deleted block
@@ -128,7 +134,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
       -- only act if the line after the block exists and is blank
       if after <= #src_lines - 1 and src_lines[after + 1] == "" then
-        -- walk upward to find the nearest surviving (non-deleted) line above
+        -- walk upward past any other deleted rows to find the nearest surviving line
         while before >= 0 and to_delete[before] do
           before = before - 1
         end
@@ -589,32 +595,22 @@ function H.resolve_source_ranges(todo_map, by)
 end
 
 ---@param line string
----@return integer|nil
-function H.get_atx_heading_level(line)
-  local hashes = line:match("^%s*(#+)%s+")
-  if not hashes or #hashes > 6 then
-    return nil
-  end
-
-  return #hashes
-end
-
----@param line string
 ---@param heading checkmate.Heading
 ---@return boolean
 function H.is_matching_heading(line, heading)
-  local level = H.get_atx_heading_level(line)
+  local level = cm_heading.get_atx_heading_level(line)
   if level ~= heading.level then
     return false
   end
 
   -- Matches:
   --   ## Title
-  --   ## Title ##
+  --   ## Title ##   (with the commonmark optional hashes at the end)
   -- but not:
   --   ## Title extra
+  local hashes = string.rep("#", heading.level)
   local title = vim.pesc(vim.trim(heading.title))
-  return line:match("^%s*#+%s+" .. title .. "%s*#*%s*$") ~= nil
+  return line:match("^%s*" .. hashes .. "%s+" .. title .. "%s*#*%s*$") ~= nil
 end
 
 ---@param lines string[]
@@ -631,7 +627,7 @@ function H.find_heading_section(lines, heading)
       section_end = #lines - 1
 
       for j = i + 1, #lines do
-        local level = H.get_atx_heading_level(lines[j])
+        local level = cm_heading.get_atx_heading_level(lines[j])
 
         -- A section ends at the line before the next heading of the same or
         -- higher rank. Example: a level-3 section is closed by level 1, 2, or 3.

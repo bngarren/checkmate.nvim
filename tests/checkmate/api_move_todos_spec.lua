@@ -1,6 +1,6 @@
 ---@diagnostic disable: undefined-field
 
-local heading = require("checkmate.lib.heading")
+local cm_heading = require("checkmate.lib.heading")
 
 describe("API/move_todos", function()
   ---@module "tests.checkmate.helpers"
@@ -224,7 +224,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -253,7 +253,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
                 root_spacing = 1,
               },
             })
@@ -284,7 +284,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
                 append_top = false,
                 root_spacing = 1,
               },
@@ -314,7 +314,7 @@ describe("API/move_todos", function()
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 -- no `location`
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -339,7 +339,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -365,7 +365,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -389,7 +389,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
                 blank_line_under_heading = false,
               },
             })
@@ -417,7 +417,7 @@ describe("API/move_todos", function()
             cm.move_todos({
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                heading = heading.new("Pending", 1),
+                heading = cm_heading.new("Pending", 1),
                 location = 4, -- before "# Saved"
               },
             })
@@ -484,6 +484,140 @@ describe("API/move_todos", function()
             "",
             h.todo_line({ text = "Task C" }),
             h.todo_line({ text = "Task B" }),
+          },
+        },
+      })
+    end)
+
+    it("should support destination option edge cases", function()
+      h.run_test_cases({
+        {
+          name = "location=0 prepends todos to the very top of the buffer",
+          content = {
+            h.todo_line({ text = "Existing" }),
+            h.todo_line({ text = "Task A" }),
+          },
+          setup = function(bufnr)
+            return { todo_map = parser.get_todo_map(bufnr) }
+          end,
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = { location = 0 },
+            })
+          end,
+          expected = {
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Existing" }),
+          },
+        },
+        {
+          name = "root_spacing=1 inserts a blank line between each moved root todo",
+          content = {
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+            h.todo_line({ text = "Task C" }),
+            h.todo_line({ text = "Anchor" }),
+          },
+          setup = function(bufnr)
+            return { todo_map = parser.get_todo_map(bufnr) }
+          end,
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Task A"),
+                  id_by_text(ctx.todo_map, "Task B"),
+                  id_by_text(ctx.todo_map, "Task C"),
+                },
+              },
+              destination = { location = line_count(ctx.buffer), root_spacing = 1 },
+            })
+          end,
+          expected = {
+            h.todo_line({ text = "Anchor" }),
+            h.todo_line({ text = "Task A" }),
+            "",
+            h.todo_line({ text = "Task B" }),
+            "",
+            h.todo_line({ text = "Task C" }),
+          },
+        },
+        {
+          name = "append_top=false appends to the bottom of an existing heading section",
+          content = {
+            "## Done",
+            "",
+            h.todo_line({ text = "Already done" }),
+            h.todo_line({ text = "Task A" }),
+          },
+          setup = function(bufnr)
+            return {
+              todo_map = parser.get_todo_map(bufnr),
+              heading = cm_heading.new("Done", 2),
+            }
+          end,
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = { heading = ctx.heading, append_top = false },
+            })
+          end,
+          expected = {
+            "## Done",
+            "",
+            h.todo_line({ text = "Already done" }),
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "blank_line_under_heading=false places payload directly under heading",
+          content = {
+            h.todo_line({ text = "Task A" }),
+            "## Done",
+          },
+          setup = function(bufnr)
+            local heading = require("checkmate.lib.heading")
+            return {
+              todo_map = parser.get_todo_map(bufnr),
+              heading = heading.new("Done", 2),
+            }
+          end,
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = ctx.heading,
+                blank_line_under_heading = false,
+              },
+            })
+          end,
+          expected = {
+            "## Done",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+      })
+    end)
+
+    it("should return false and leave the buffer unchanged when no todos match the source", function()
+      h.run_test_cases({
+        {
+          name = "cursor on non-todo line is a no-op",
+          content = {
+            "Just a plain line",
+            h.todo_line({ text = "Task A" }),
+          },
+          cursor = { 1, 0 },
+          action = function(cm, ctx)
+            local result = cm.move_todos({
+              destination = { location = line_count(ctx.buffer) },
+            })
+            assert.is_false(result)
+          end,
+          expected = {
+            "Just a plain line",
+            h.todo_line({ text = "Task A" }),
           },
         },
       })
@@ -688,7 +822,7 @@ describe("API/move_todos", function()
               by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -720,7 +854,7 @@ describe("API/move_todos", function()
               by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
                 append_top = false,
                 root_spacing = 1,
               },
@@ -754,7 +888,7 @@ describe("API/move_todos", function()
               by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
-                heading = heading.new("Done", 1),
+                heading = cm_heading.new("Done", 1),
               },
             })
           end,
@@ -764,6 +898,66 @@ describe("API/move_todos", function()
           expected_dest = {
             "# Inbox",
             h.todo_line({ text = "Dest A" }),
+            "",
+            "# Done",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+      })
+    end)
+
+    it("should create a heading in the destination buffer when none exists", function()
+      run_cross_buffer_cases({
+        {
+          name = "heading created at EOF with blank separator when dest has trailing content",
+          source = {
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+          },
+          dest = {
+            h.todo_line({ text = "Dest existing" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              destination = {
+                bufnr = ctx.dest,
+                heading = cm_heading.new("Archive", 2),
+              },
+            })
+          end,
+          expected_source = {
+            h.todo_line({ text = "Task B" }),
+          },
+          expected_dest = {
+            h.todo_line({ text = "Dest existing" }),
+            "",
+            "## Archive",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          -- an empty buffer in neovim is has one empty string line
+          -- Inserting at EOF appends after that line
+          -- TODO: maybe we don't want this behavior? i.e. strip that empty line for empty buffers
+          name = "heading created at EOF when destination buffer is empty",
+          source = {
+            h.todo_line({ text = "Task A" }),
+          },
+          dest = {},
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              destination = {
+                bufnr = ctx.dest,
+                heading = cm_heading.new("Done", 1),
+              },
+            })
+          end,
+          expected_source = { "" },
+          expected_dest = {
             "",
             "# Done",
             "",

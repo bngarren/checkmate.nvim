@@ -270,6 +270,7 @@ function M.scratch_buf_or_print(content, scratch_opts)
     }, scratch_opts)
     local win = snacks.open(opts)
     if win and win.buf then
+      vim.api.nvim_buf_set_lines(win.buf, 0, -1, false, vim.split(vim.inspect(content), "\n", { plain = true }))
       vim.bo[win.buf].ro = true
     end
   else

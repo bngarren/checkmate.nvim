@@ -15,9 +15,6 @@ describe("API/move_todos", function()
   ---@module "checkmate.util"
   local util
 
-  ---@type {unchecked: string, checked: string, pending: string}
-  local m -- markers
-
   lazy_setup(function()
     -- Hide nvim_echo from polluting test output
     stub(vim.api, "nvim_echo")
@@ -402,6 +399,39 @@ describe("API/move_todos", function()
             "# Done",
             h.todo_line({ text = "Task A" }),
             h.todo_line({ text = "Existing Done" }),
+          },
+        },
+        {
+          name = "inserts new heading at specific line boundary",
+          -- i.e., when both heading and location are given as opts
+          content = {
+            "# Inbox",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+            "", -- want to insert after this
+            "# Saved",
+            h.todo_line({ text = "Task C" }),
+            h.todo_line({ text = "Task D" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = heading.new("Pending", 1),
+                location = 4, -- before "# Saved"
+              },
+            })
+          end,
+          expected = {
+            "# Inbox",
+            h.todo_line({ text = "Task B" }),
+            "",
+            "# Pending",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "# Saved",
+            h.todo_line({ text = "Task C" }),
+            h.todo_line({ text = "Task D" }),
           },
         },
       })

@@ -1848,7 +1848,6 @@ function M.archive_todos(ctx, opts)
   local source_hunks = M.move_todos(ctx, {
     by = { ids = ids_to_archive },
     include_children = include_children,
-    parent_spacing = parent_spacing,
     cleanup_source = true,
     destination = {
       -- same buffer

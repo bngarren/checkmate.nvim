@@ -14,6 +14,14 @@ function M.new(title, level)
   return setmetatable({ title = title, level = level or 2 }, M)
 end
 
+function M.from_atx_heading_string(str)
+  if str == nil or #str == 0 then
+    return nil
+  end
+  local hashes, title = str:match("^%s*(#+)%s+(.*)")
+  return M.new(title, #hashes)
+end
+
 ---Build a Markdown heading
 ---@param title string text after the hashes
 ---@param level? integer 1-6; clamped; defaults to 2

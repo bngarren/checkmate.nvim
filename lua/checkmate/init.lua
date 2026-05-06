@@ -1652,6 +1652,10 @@ function M.move_todos(opts)
     opts.destination.root_spacing = 0
   end
 
+  if opts.destination.blank_line_under_heading == nil then
+    opts.destination.blank_line_under_heading = true
+  end
+
   if opts.cleanup_source == nil then
     opts.cleanup_source = true
   end

@@ -15,3 +15,5 @@ Dockerfile
 .nvim.lua
 
 .claude
+
+.worktreeinclude

@@ -191,7 +191,7 @@ return {
       title = "Archive",
       level = 2, -- e.g. ##
     },
-    parent_spacing = 0, -- no extra lines between archived todos
+    parent_spacing = 0, -- blank lines between archived top-level todo blocks within a section
     newest_first = true,
     preserve_source_headings = false,
   },

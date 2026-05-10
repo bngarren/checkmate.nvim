@@ -1874,7 +1874,7 @@ function M.archive_todos(ctx, opts)
       bufnr = bufnr,
       heading = cm_heading.new(heading_title, heading_level),
       append_top = newest_first,
-      root_spacing = parent_spacing,
+      parent_spacing = parent_spacing,
     },
   })
 
@@ -2011,7 +2011,7 @@ function M.archive_todos_old(ctx, opts)
       for row = r.start_row, r.end_row do
         newly_archived_lines[#newly_archived_lines + 1] = current_buf_lines[row + 1]
       end
-      -- spacing after each root todo except the last
+      -- spacing after each archived top-level todo block except the last
       if idx < #archived_ranges and parent_spacing > 0 then
         add_spacing(newly_archived_lines)
       end

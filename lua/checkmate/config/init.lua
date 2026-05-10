@@ -415,7 +415,7 @@ M.options = {}
 ---Defines the header section for the archived todos
 ---@field heading checkmate.ArchiveHeading
 ---
----Number of blank lines between archived todo items (root only)
+---Number of blank lines between archived top-level todo blocks within a section
 ---@field parent_spacing integer?
 ---
 ---How to arrange newly added archived todos

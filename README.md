@@ -402,7 +402,7 @@ return {
       title = "Archive",
       level = 2, -- e.g. ##
     },
-    parent_spacing = 0, -- no extra lines between archived todos
+    parent_spacing = 0, -- blank lines between archived top-level todo blocks within a section
     newest_first = true,
     preserve_source_headings = false,
   },
@@ -820,9 +820,11 @@ opts = {
 
 Set `config.archive.preserve_source_headings` to `"nearest"` or `"all"` to recreate archived todos' source heading context as nested headings inside the archive section. `"nearest"` keeps only the immediate parent heading; `"all"` keeps the full ancestor heading chain.
 
+Generated source-heading sections use the same default heading layout as the outer archive heading, including a blank line under each heading. When using `move_todos` directly, `destination.blank_line_under_heading` applies to generated source headings as well as the outer destination heading.
+
 #### Spacing
 
-The amount of blank lines between each archived todo item can be customized via `config.archive.parent_spacing`
+The number of blank lines between archived top-level todo blocks within the same section can be customized via `config.archive.parent_spacing`. When `preserve_source_headings` is enabled, this spacing applies independently inside each recreated source-heading section.
 
 E.g. `parent_spacing = 0`
 

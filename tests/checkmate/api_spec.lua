@@ -4055,7 +4055,7 @@ describe("API", function()
       })
     end)
 
-    it("should insert the configured parent_spacing between archived parent blocks", function()
+    it("should insert the configured parent_spacing between archived top-level todo blocks", function()
       local config = require("checkmate.config")
 
       for _, spacing in ipairs({ 0, 1, 2 }) do
@@ -4092,16 +4092,16 @@ describe("API", function()
         local archive_section = buffer_content:sub(start_idx)
         local archive_lines = vim.split(archive_section, "\n", { plain = true })
 
-        -- locate the two parent tasks
-        local first_root = "- " .. m.checked .. " Done task A"
-        local second_root = "- " .. m.checked .. " Done task B"
+        -- locate the two archived top-level todo blocks
+        local first_block = "- " .. m.checked .. " Done task A"
+        local second_block = "- " .. m.checked .. " Done task B"
         local first_idx, second_idx
 
         for idx, l in ipairs(archive_lines) do
-          if l == first_root then
+          if l == first_block then
             first_idx = idx
           end
-          if l == second_root then
+          if l == second_block then
             second_idx = idx
           end
         end
@@ -4110,9 +4110,9 @@ describe("API", function()
         assert.is_not_nil(second_idx)
         assert.is_true(second_idx > first_idx)
 
-        -- count blank lines between the two roots
+        -- count blank lines between the two top-level blocks
         -- we need to count from after the last line of the first block
-        -- (which includes its subtask) to just before the second root
+        -- (which includes its subtask) to just before the second block
         local first_block_end = first_idx + 1 -- The subtask is right after the parent
         local blanks_between = 0
 
@@ -4126,7 +4126,7 @@ describe("API", function()
           spacing,
           blanks_between,
           string.format(
-            "For parent_spacing = %d: Expected %d blank lines between parent blocks, got %d",
+            "For parent_spacing = %d: Expected %d blank lines between top-level blocks, got %d",
             spacing,
             spacing,
             blanks_between

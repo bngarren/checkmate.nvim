@@ -1575,11 +1575,15 @@ end
 --- because that mode always creates a new section.
 ---@field append_top? boolean
 ---
---- Number of blank lines to insert between consecutive moved root todo blocks
---- Defaults to 0
----@field root_spacing? integer
+--- Number of blank lines to insert between top-level moved todo blocks within
+--- the same destination section. When `preserve_source_headings` creates or
+--- reuses nested heading sections, this applies independently inside each
+--- section.
+--- Defaults to 0.
+---@field parent_spacing? integer
 ---
---- Ensure exactly one blank line under a destination heading
+--- Ensure exactly one blank line under destination headings, including
+--- generated source-heading wrappers when `preserve_source_headings` is used.
 --- Defaults to `true`.
 ---@field blank_line_under_heading? boolean
 
@@ -1656,8 +1660,13 @@ function M.move_todos(opts)
     opts.destination.location = vim.api.nvim_buf_line_count(dest_bufnr)
   end
 
-  if opts.destination.root_spacing == nil then
-    opts.destination.root_spacing = 0
+  if opts.destination.parent_spacing == nil then
+    opts.destination.parent_spacing = 0
+  end
+
+  if type(opts.destination.parent_spacing) ~= "number" or opts.destination.parent_spacing % 1 ~= 0 then
+    log.warn("[main] move_todos: destination.parent_spacing must be an integer")
+    return false
   end
 
   if opts.destination.blank_line_under_heading == nil then

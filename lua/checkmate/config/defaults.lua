@@ -193,6 +193,7 @@ return {
     },
     parent_spacing = 0, -- no extra lines between archived todos
     newest_first = true,
+    preserve_source_headings = false,
   },
   linter = {
     enabled = true,

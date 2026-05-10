@@ -1585,6 +1585,8 @@ end
 
 --- ////////////////////////
 
+---@alias checkmate.PreserveSourceHeadings false | "nearest" | "all"
+
 ---@class checkmate.MoveTodosOpts
 ---
 --- Source selector (optional)
@@ -1602,6 +1604,12 @@ end
 --- Removes redundant blank lines around deleted source content
 --- Defaults to `true`.
 ---@field cleanup_source? boolean
+---
+--- Recreate source heading context around moved todos.
+--- - `false`/nil: disabled
+--- - `"nearest"`: immediate parent heading only
+--- - `"all"`: full ancestor heading chain
+---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 ---
 
 --- Moves todo(s) from one location to another
@@ -1660,6 +1668,17 @@ function M.move_todos(opts)
     opts.cleanup_source = true
   end
 
+  if opts.preserve_source_headings == nil then
+    opts.preserve_source_headings = false
+  elseif
+    opts.preserve_source_headings ~= false
+    and opts.preserve_source_headings ~= "nearest"
+    and opts.preserve_source_headings ~= "all"
+  then
+    log.warn("[main] move_todos: preserve_source_headings must be false, 'nearest', or 'all'")
+    return false
+  end
+
   -- returns true if the opts.by specifies a source of todos (either by id or buffer range)
   local function has_explicit_source(by)
     return (by.ids and #by.ids > 0) or by.range ~= nil
@@ -1700,6 +1719,7 @@ end
 
 ---@class ArchiveOpts
 ---@field heading {title?: string, level?: integer}
+---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 
 --- Archive checked todo items to a special section
 --- Rules:

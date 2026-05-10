@@ -422,6 +422,9 @@ M.options = {}
 ---If true, newly added todos will be added to the top of the archive section
 ---Default: true
 ---@field newest_first boolean?
+---
+---Recreate source heading context when archiving completed todos
+---@field preserve_source_headings? false | "nearest" | "all"
 
 ---@class checkmate.ArchiveHeading
 ---

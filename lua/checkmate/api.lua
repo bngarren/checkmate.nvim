@@ -1764,7 +1764,7 @@ end
 --- It selects which todos qualify, then delegates the mechanical cut+paste to `lib.move.move_todos`.
 ---
 ---@param ctx checkmate.TransactionContext
----@param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean, included_state_types?: string[], included_states?: string[]} Archive options
+---@param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean, included_state_types?: string[], included_states?: string[], preserve_source_headings?: checkmate.PreserveSourceHeadings} Archive options
 ---@return checkmate.TextDiffHunk[] hunks
 function M.archive_todos(ctx, opts)
   opts = opts or {}
@@ -1778,6 +1778,10 @@ function M.archive_todos(ctx, opts)
   local include_children = opts.include_children ~= false
   local newest_first = opts.newest_first ~= nil and opts.newest_first or config.options.archive.newest_first ~= false
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
+  local preserve_source_headings = opts.preserve_source_headings
+  if preserve_source_headings == nil then
+    preserve_source_headings = config.options.archive.preserve_source_headings or false
+  end
 
   local target_state_types = opts.included_state_types or { "complete" }
   local target_states = opts.included_states or nil
@@ -1788,17 +1792,32 @@ function M.archive_todos(ctx, opts)
 
   local archive_start_row, archive_end_row
   do
-    local next_heading_pat = "^%s*" .. string.rep("#", 1, heading_level) .. "+%s"
+    local function is_fence_boundary(line)
+      return line:match("^%s*```") ~= nil or line:match("^%s*~~~") ~= nil
+    end
+
+    local in_fence = false
 
     for i, line in ipairs(current_buf_lines) do
-      if line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
+      if is_fence_boundary(line) then
+        in_fence = not in_fence
+      elseif not in_fence and line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
         archive_start_row = i - 1 -- 0-based
         archive_end_row = #current_buf_lines - 1
 
+        local section_in_fence = false
         for j = i + 1, #current_buf_lines do
-          if current_buf_lines[j]:match(next_heading_pat) then
-            archive_end_row = j - 2
-            break
+          local section_line = current_buf_lines[j]
+
+          if is_fence_boundary(section_line) then
+            section_in_fence = not section_in_fence
+          elseif not section_in_fence then
+            local level = cm_heading.get_atx_heading_level(section_line)
+
+            if level and level <= heading_level then
+              archive_end_row = j - 2
+              break
+            end
           end
         end
         break
@@ -1849,6 +1868,7 @@ function M.archive_todos(ctx, opts)
     by = { ids = ids_to_archive },
     include_children = include_children,
     cleanup_source = true,
+    preserve_source_headings = preserve_source_headings,
     destination = {
       -- same buffer
       bufnr = bufnr,

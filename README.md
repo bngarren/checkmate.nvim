@@ -404,6 +404,7 @@ return {
     },
     parent_spacing = 0, -- no extra lines between archived todos
     newest_first = true,
+    preserve_source_headings = false,
   },
   linter = {
     enabled = true,
@@ -814,6 +815,10 @@ opts = {
   }
 }
 ```
+
+#### Preserve source headings
+
+Set `config.archive.preserve_source_headings` to `"nearest"` or `"all"` to recreate archived todos' source heading context as nested headings inside the archive section. `"nearest"` keeps only the immediate parent heading; `"all"` keeps the full ancestor heading chain.
 
 #### Spacing
 

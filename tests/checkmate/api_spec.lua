@@ -3913,6 +3913,87 @@ describe("API", function()
       })
     end)
 
+    it("should preserve_source_headings when archiving from config", function()
+      h.run_test_cases({
+        {
+          name = "archive preserve_source_headings merges into existing source heading section",
+          content = {
+            "# School",
+            "- " .. m.checked .. " Checked task to archive",
+            "- " .. m.unchecked .. " Unchecked task",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "- " .. m.unchecked .. " Previously archived task",
+          },
+          config = {
+            archive = {
+              newest_first = false,
+              preserve_source_headings = "nearest",
+            },
+          },
+          action = function(cm)
+            cm.archive()
+          end,
+          expected = {
+            "# School",
+            "- " .. m.unchecked .. " Unchecked task",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "- " .. m.unchecked .. " Previously archived task",
+            "- " .. m.checked .. " Checked task to archive",
+          },
+        },
+        {
+          name = "archive preserve_source_headings does not re-archive todos under nested archive headings",
+          content = {
+            "# level 1",
+            "## level 2",
+            "- " .. m.checked .. " Todo B",
+            "### level 3",
+            "",
+            "## Archive",
+            "",
+            "### level 1",
+            "",
+            "#### level 2",
+            "",
+            "##### level 3",
+            "",
+            "- " .. m.checked .. " Todo A",
+          },
+          config = {
+            archive = {
+              newest_first = true,
+              preserve_source_headings = "all",
+            },
+          },
+          action = function(cm)
+            cm.archive()
+          end,
+          expected = {
+            "# level 1",
+            "## level 2",
+            "### level 3",
+            "",
+            "## Archive",
+            "",
+            "### level 1",
+            "",
+            "#### level 2",
+            "",
+            "- " .. m.checked .. " Todo B",
+            "##### level 3",
+            "",
+            "- " .. m.checked .. " Todo A",
+          },
+        },
+      })
+    end)
+
     it("should merge with existing archive section", function()
       h.run_test_cases({
         {

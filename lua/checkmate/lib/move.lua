@@ -54,6 +54,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local newest_first = opts.destination.append_top ~= false -- default true
   local ensure_blank_line_under_heading = opts.destination.blank_line_under_heading ~= false -- default true
   local cleanup_source = opts.cleanup_source ~= false -- default true
+  local preserve_source_headings = opts.preserve_source_headings or false
 
   local src_lines = vim.api.nvim_buf_get_lines(src_bufnr, 0, -1, false)
   -- for cross-buffer moves- need a separate snapshot of the destination buffer
@@ -78,38 +79,14 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   -- // Collect the lines that will be moved and mark for deletion
 
-  local function trim_trailing_blank(lines)
-    while #lines > 0 and lines[#lines] == "" do
-      lines[#lines] = nil
-    end
-  end
-
-  local function add_spacing(lines)
-    for _ = 1, root_spacing do
-      lines[#lines + 1] = ""
-    end
-  end
-
   ---@type string[]
-  local payload = {} -- lines that will be inserted at the destination
+  local payload = H.build_source_payload(source_ranges, src_lines, root_spacing) -- lines inserted at destination
   ---@type table<integer, boolean>
   local to_delete = {} -- 0-indexed row numbers of source buffer to eventually remove
 
-  -- basically we iterate through each line in the source rows identified above,
-  -- then we 1) add the line to the payload that will be inserted into the destination and
-  -- 2) mark the line to be removed from the source buffer.
-  -- We add spacing between root blocks (todos) as specified.
-  for idx, r in ipairs(source_ranges) do
-    for row = r.start_row, r.end_row do
-      -- the todo range is 0-based, and src-lines is 1-based
-      payload[#payload + 1] = src_lines[row + 1]
-    end
-
-    -- spacing between root todos (not after the last one)
-    if idx < #source_ranges and root_spacing > 0 then
-      add_spacing(payload)
-    end
-
+  -- Mark the source lines to be removed. The destination payload is built from
+  -- the same source snapshot so all hunk coordinates remain stable.
+  for _, r in ipairs(source_ranges) do
     -- mark for deletion
     for row = r.start_row, r.end_row do
       to_delete[row] = true
@@ -117,7 +94,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
   end
 
   -- don't want the move payload to bring a dangling blank into the destination.
-  trim_trailing_blank(payload)
+  H.trim_trailing_blank(payload)
 
   -- // Blank line cleanup in the source
   --
@@ -199,7 +176,43 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   local dest_hunks = {}
 
+  if preserve_source_headings then
+    local target_rows = vim.tbl_map(function(r)
+      return r.start_row
+    end, source_ranges)
+    local chains = H.build_heading_chains(src_lines, target_rows)
+    local groups = H.classify_source_groups(chains, source_ranges, preserve_source_headings, src_lines, root_spacing)
+
+    if target_heading and target_row == nil then
+      local outer_start, outer_end = H.find_heading_section(dest_lines, target_heading)
+
+      if outer_start then
+        local merge_hunks, remaining_groups = H.try_merge_groups(
+          dest_lines,
+          H.make_section(outer_start, outer_end, target_heading.level),
+          groups,
+          target_heading,
+          newest_first,
+          ensure_blank_line_under_heading,
+          root_spacing
+        )
+        vim.list_extend(dest_hunks, merge_hunks)
+        payload = H.build_enriched_payload(remaining_groups, target_heading)
+      else
+        payload = H.build_enriched_payload(groups, target_heading)
+      end
+    else
+      payload = H.build_enriched_payload(groups, target_heading)
+    end
+
+    H.trim_trailing_blank(payload)
+  end
+
   if #payload == 0 then
+    if #dest_hunks > 0 then
+      return source_hunks, dest_hunks
+    end
+
     -- Source ranges existed but contained only blank lines after trimming...
     -- Hmm. this shouldn't occur with valid todos...we should abort entirely and log this
     log.error("[lib.move.move_todos] payload is empty after trimming; aborting move to avoid partial mutation")
@@ -353,7 +366,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
             end
 
             if has_existing_content and root_spacing > 0 then
-              add_spacing(insert_payload)
+              H.add_spacing(insert_payload, root_spacing)
             end
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
@@ -365,7 +378,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
             end
 
             if has_existing_content and root_spacing > 0 then
-              add_spacing(insert_payload)
+              H.add_spacing(insert_payload, root_spacing)
             end
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, insert_payload)
@@ -380,7 +393,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
             end
 
             if has_existing_content and root_spacing > 0 then
-              add_spacing(insert_payload)
+              H.add_spacing(insert_payload, root_spacing)
             end
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, insert_payload)
@@ -393,7 +406,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
           end
 
           if has_existing_content and root_spacing > 0 then
-            add_spacing(insert_payload)
+            H.add_spacing(insert_payload, root_spacing)
           end
 
           dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
@@ -458,7 +471,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
           end
 
           if has_body and root_spacing > 0 then
-            add_spacing(append_payload)
+            H.add_spacing(append_payload, root_spacing)
           end
 
           for _, line in ipairs(payload) do
@@ -521,11 +534,633 @@ function H.validate_move_opts(src_bufnr, opts)
     return false, "missing destination target: expected destination.location and/or destination.heading"
   end
 
+  if opts.preserve_source_headings ~= nil and not H.is_valid_preserve_source_headings(opts.preserve_source_headings) then
+    return false, "preserve_source_headings must be false, 'nearest', or 'all'"
+  end
+
   return true
 end
 
 function H.validate_line_boundary(row, lines)
   return type(row) == "number" and row >= 0 and row <= #lines
+end
+
+---@param value any
+---@return boolean
+function H.is_valid_preserve_source_headings(value)
+  return value == nil or value == false or value == "nearest" or value == "all"
+end
+
+---@param lines string[]
+---@param count integer
+function H.add_spacing(lines, count)
+  for _ = 1, count do
+    lines[#lines + 1] = ""
+  end
+end
+
+---@param lines string[]
+function H.trim_trailing_blank(lines)
+  while #lines > 0 and lines[#lines] == "" do
+    lines[#lines] = nil
+  end
+end
+
+---@param range {start_row: integer, end_row: integer}
+---@param src_lines string[]
+---@return string[]
+function H.extract_range_payload(range, src_lines)
+  local payload = {}
+
+  for row = range.start_row, range.end_row do
+    payload[#payload + 1] = src_lines[row + 1]
+  end
+
+  return payload
+end
+
+---@param source_ranges {start_row: integer, end_row: integer}[]
+---@param src_lines string[]
+---@param root_spacing integer
+---@return string[]
+function H.build_source_payload(source_ranges, src_lines, root_spacing)
+  local payload = {}
+
+  for idx, r in ipairs(source_ranges) do
+    vim.list_extend(payload, H.extract_range_payload(r, src_lines))
+
+    if idx < #source_ranges and root_spacing > 0 then
+      H.add_spacing(payload, root_spacing)
+    end
+  end
+
+  H.trim_trailing_blank(payload)
+  return payload
+end
+
+---@param chain checkmate.Heading[]
+---@return checkmate.Heading[]
+function H.copy_chain(chain)
+  local copy = {}
+
+  for _, heading in ipairs(chain or {}) do
+    copy[#copy + 1] = cm_heading.new(heading.title, heading.level)
+  end
+
+  return copy
+end
+
+---@param chain checkmate.Heading[]
+---@param start_idx integer
+---@return checkmate.Heading[]
+function H.slice_chain(chain, start_idx)
+  local slice = {}
+
+  for idx = start_idx, #chain do
+    slice[#slice + 1] = cm_heading.new(chain[idx].title, chain[idx].level)
+  end
+
+  return slice
+end
+
+---@param a checkmate.Heading[]
+---@param b checkmate.Heading[]
+---@return integer
+function H.common_heading_prefix_len(a, b)
+  local len = 0
+  local max_len = math.min(#a, #b)
+
+  for idx = 1, max_len do
+    if a[idx].level ~= b[idx].level or a[idx].title ~= b[idx].title then
+      break
+    end
+    len = idx
+  end
+
+  return len
+end
+
+---@param a checkmate.Heading[]
+---@param b checkmate.Heading[]
+---@return boolean
+function H.heading_chains_equal(a, b)
+  return #a == #b and H.common_heading_prefix_len(a, b) == #a
+end
+
+---@param groups {chain: checkmate.Heading[], payload: string[]}[]
+---@param group {chain: checkmate.Heading[], payload: string[]}
+---@param root_spacing integer
+function H.add_group(groups, group, root_spacing)
+  local last = groups[#groups]
+
+  if last and H.heading_chains_equal(last.chain, group.chain) then
+    if #last.payload > 0 and #group.payload > 0 and root_spacing > 0 then
+      H.add_spacing(last.payload, root_spacing)
+    end
+
+    vim.list_extend(last.payload, group.payload)
+  else
+    groups[#groups + 1] = group
+  end
+end
+
+---@param line string
+---@return boolean
+function H.is_fence_boundary(line)
+  return line:match("^%s*```") ~= nil or line:match("^%s*~~~") ~= nil
+end
+
+---@param src_lines string[]
+---@param target_rows integer[]
+---@return table<integer, checkmate.Heading[]>
+function H.build_heading_chains(src_lines, target_rows)
+  local target_lookup = {}
+
+  for _, row in ipairs(target_rows) do
+    target_lookup[row] = true
+  end
+
+  local chains = {}
+  local stack = {}
+  local in_fence = false
+
+  for idx, line in ipairs(src_lines) do
+    local row = idx - 1
+
+    if target_lookup[row] then
+      chains[row] = H.copy_chain(stack)
+    end
+
+    if H.is_fence_boundary(line) then
+      in_fence = not in_fence
+    elseif not in_fence and cm_heading.get_atx_heading_level(line) then
+      local heading = cm_heading.from_atx_heading_string(line)
+
+      if heading then
+        while #stack > 0 and stack[#stack].level >= heading.level do
+          stack[#stack] = nil
+        end
+
+        stack[#stack + 1] = heading
+      end
+    end
+  end
+
+  for _, row in ipairs(target_rows) do
+    chains[row] = chains[row] or {}
+  end
+
+  return chains
+end
+
+---@param chains table<integer, checkmate.Heading[]>
+---@param source_ranges {start_row: integer, end_row: integer}[]
+---@param mode "nearest"|"all"
+---@param src_lines string[]
+---@param root_spacing integer
+---@return {chain: checkmate.Heading[], payload: string[]}[]
+function H.classify_source_groups(chains, source_ranges, mode, src_lines, root_spacing)
+  local groups = {}
+
+  for _, range in ipairs(source_ranges) do
+    local chain = H.copy_chain(chains[range.start_row] or {})
+
+    if mode == "nearest" and #chain > 0 then
+      chain = { chain[#chain] }
+    end
+
+    local payload = H.extract_range_payload(range, src_lines)
+    H.trim_trailing_blank(payload)
+
+    H.add_group(groups, {
+      chain = chain,
+      payload = payload,
+    }, root_spacing)
+  end
+
+  return groups
+end
+
+---@param heading checkmate.Heading
+---@param dest_heading checkmate.Heading|nil
+---@return checkmate.Heading
+function H.normalized_heading(heading, dest_heading)
+  if not dest_heading then
+    return cm_heading.new(heading.title, heading.level)
+  end
+
+  -- Preserve source level gaps while capping at Markdown's deepest ATX level.
+  return cm_heading.new(heading.title, math.min(heading.level + dest_heading.level, 6))
+end
+
+---@param chain checkmate.Heading[]
+---@param dest_heading checkmate.Heading|nil
+---@return checkmate.Heading[]
+function H.normalized_chain(chain, dest_heading)
+  local normalized = {}
+
+  for _, heading in ipairs(chain) do
+    normalized[#normalized + 1] = H.normalized_heading(heading, dest_heading)
+  end
+
+  return normalized
+end
+
+---@param groups {chain: checkmate.Heading[], payload: string[]}[]
+---@param dest_heading checkmate.Heading|nil
+---@return string[]
+function H.build_enriched_payload(groups, dest_heading)
+  local output = {}
+  local prev_chain = {}
+
+  for idx, group in ipairs(groups) do
+    local common_len = H.common_heading_prefix_len(prev_chain, group.chain)
+    local diverging = H.slice_chain(group.chain, common_len + 1)
+
+    if idx > 1 and #diverging > 0 and #output > 0 then
+      output[#output + 1] = ""
+    end
+
+    for _, heading in ipairs(diverging) do
+      output[#output + 1] = H.normalized_heading(heading, dest_heading):to_string()
+      output[#output + 1] = ""
+    end
+
+    vim.list_extend(output, group.payload)
+    prev_chain = group.chain
+  end
+
+  H.trim_trailing_blank(output)
+  return output
+end
+
+---@param start_row integer
+---@param end_row integer
+---@param level integer
+---@return {start_row: integer, end_row: integer, level: integer}
+function H.make_section(start_row, end_row, level)
+  return {
+    start_row = start_row,
+    end_row = end_row,
+    level = level,
+  }
+end
+
+---@param lines string[]
+---@param heading_row integer
+---@param level integer
+---@param parent_end integer
+---@return {start_row: integer, end_row: integer, level: integer}
+function H.make_section_from_heading_row(lines, heading_row, level, parent_end)
+  local section_end = parent_end
+  local in_fence = false
+
+  for row = heading_row + 1, parent_end do
+    local line = lines[row + 1]
+
+    if H.is_fence_boundary(line) then
+      in_fence = not in_fence
+    elseif not in_fence then
+      local current_level = cm_heading.get_atx_heading_level(line)
+
+      if current_level and current_level <= level then
+        section_end = row - 1
+        break
+      end
+    end
+  end
+
+  return H.make_section(heading_row, section_end, level)
+end
+
+---@param lines string[]
+---@param row integer
+---@param parent_end integer
+---@param level integer
+---@return integer
+function H.next_section_row(lines, row, parent_end, level)
+  local in_fence = false
+
+  for next_row = row + 1, parent_end do
+    local line = lines[next_row + 1]
+
+    if H.is_fence_boundary(line) then
+      in_fence = not in_fence
+    elseif not in_fence then
+      local next_level = cm_heading.get_atx_heading_level(line)
+
+      if next_level and next_level <= level then
+        return next_row
+      end
+    end
+  end
+
+  return parent_end + 1
+end
+
+---@param lines string[]
+---@param parent_section {start_row: integer, end_row: integer, level: integer}
+---@param title string
+---@param level integer
+---@return {start_row: integer, end_row: integer, level: integer}|nil
+function H.find_sub_heading_section(lines, parent_section, title, level)
+  local row = parent_section.start_row + 1
+  local in_fence = false
+
+  while row <= parent_section.end_row do
+    local line = lines[row + 1]
+
+    if H.is_fence_boundary(line) then
+      in_fence = not in_fence
+      row = row + 1
+    elseif in_fence then
+      row = row + 1
+    else
+      local current_level = cm_heading.get_atx_heading_level(line)
+
+      if current_level and current_level <= parent_section.level then
+        break
+      elseif current_level and current_level == level then
+        if H.is_matching_heading(line, cm_heading.new(title, level)) then
+          return H.make_section_from_heading_row(lines, row, level, parent_section.end_row)
+        end
+
+        row = H.next_section_row(lines, row, parent_section.end_row, level)
+      elseif current_level and current_level > parent_section.level and current_level < level then
+        row = H.next_section_row(lines, row, parent_section.end_row, current_level)
+      else
+        row = row + 1
+      end
+    end
+  end
+end
+
+---@param lines string[]
+---@param outer_section {start_row: integer, end_row: integer, level: integer}
+---@param normalized_chain checkmate.Heading[]
+---@return {matched_depth: integer, deepest_section: {start_row: integer, end_row: integer, level: integer}}
+function H.walk_chain_match(lines, outer_section, normalized_chain)
+  local current_section = outer_section
+  local matched_depth = 0
+
+  for idx, heading in ipairs(normalized_chain) do
+    local section = H.find_sub_heading_section(lines, current_section, heading.title, heading.level)
+
+    if not section then
+      break
+    end
+
+    matched_depth = idx
+    current_section = section
+  end
+
+  return {
+    matched_depth = matched_depth,
+    deepest_section = current_section,
+  }
+end
+
+---@param lines string[]
+---@param section {start_row: integer, end_row: integer, level: integer}
+---@return {first_nonblank: integer, blank_start: integer, blank_end: integer, blank_count: integer, has_existing_content: boolean, tail: integer, has_body: boolean}
+function H.get_section_layout(lines, section)
+  local first_nonblank = section.start_row + 1
+
+  while first_nonblank <= section.end_row and lines[first_nonblank + 1] == "" do
+    first_nonblank = first_nonblank + 1
+  end
+
+  local blank_start = section.start_row + 1
+  local blank_end = first_nonblank - 1
+  local blank_count = math.max(blank_end - blank_start + 1, 0)
+  local has_existing_content = first_nonblank <= section.end_row
+  local tail = section.end_row
+
+  while tail > section.start_row and lines[tail + 1] == "" do
+    tail = tail - 1
+  end
+
+  return {
+    first_nonblank = first_nonblank,
+    blank_start = blank_start,
+    blank_end = blank_end,
+    blank_count = blank_count,
+    has_existing_content = has_existing_content,
+    tail = tail,
+    has_body = tail > section.start_row,
+  }
+end
+
+---@param pending table<string, {section: table, position: "top"|"bottom", payload: string[], min_pre_spacing: integer}>
+---@param order string[]
+---@param section {start_row: integer, end_row: integer, level: integer}
+---@param position "top"|"bottom"
+---@param payload string[]
+---@param root_spacing integer
+---@param min_pre_spacing integer
+function H.queue_section_insert(pending, order, section, position, payload, root_spacing, min_pre_spacing)
+  if #payload == 0 then
+    return
+  end
+
+  local key = table.concat({ section.start_row, section.end_row, section.level, position }, ":")
+  local entry = pending[key]
+
+  if not entry then
+    entry = {
+      section = section,
+      position = position,
+      payload = {},
+      min_pre_spacing = min_pre_spacing,
+    }
+    pending[key] = entry
+    order[#order + 1] = key
+  else
+    entry.min_pre_spacing = math.max(entry.min_pre_spacing, min_pre_spacing)
+
+    if #entry.payload > 0 and root_spacing > 0 then
+      H.add_spacing(entry.payload, root_spacing)
+    elseif #entry.payload > 0 and min_pre_spacing > 0 and payload[1] and cm_heading.get_atx_heading_level(payload[1]) then
+      entry.payload[#entry.payload + 1] = ""
+    end
+  end
+
+  vim.list_extend(entry.payload, payload)
+  H.trim_trailing_blank(entry.payload)
+end
+
+---@param lines string[]
+---@param section {start_row: integer, end_row: integer, level: integer}
+---@param payload string[]
+---@param position "top"|"bottom"
+---@param ensure_blank_line_under_heading boolean
+---@param root_spacing integer
+---@param min_pre_spacing integer
+---@return checkmate.TextDiffHunk[]
+function H.make_section_insert_hunks(
+  lines,
+  section,
+  payload,
+  position,
+  ensure_blank_line_under_heading,
+  root_spacing,
+  min_pre_spacing
+)
+  local layout = H.get_section_layout(lines, section)
+  local hunks = {}
+
+  if position == "top" then
+    local insert_payload = {}
+
+    if ensure_blank_line_under_heading then
+      if layout.blank_count == 0 then
+        insert_payload[#insert_payload + 1] = ""
+        vim.list_extend(insert_payload, payload)
+
+        if layout.has_existing_content and root_spacing > 0 then
+          H.add_spacing(insert_payload, root_spacing)
+        end
+
+        hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, insert_payload)
+      elseif layout.blank_count == 1 then
+        vim.list_extend(insert_payload, payload)
+
+        if layout.has_existing_content and root_spacing > 0 then
+          H.add_spacing(insert_payload, root_spacing)
+        end
+
+        hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 2, insert_payload)
+      else
+        insert_payload[#insert_payload + 1] = ""
+        vim.list_extend(insert_payload, payload)
+
+        if layout.has_existing_content and root_spacing > 0 then
+          H.add_spacing(insert_payload, root_spacing)
+        end
+
+        hunks[#hunks + 1] = diff.make_line_replace({ layout.blank_start, layout.blank_end }, insert_payload)
+      end
+    else
+      vim.list_extend(insert_payload, payload)
+
+      if layout.has_existing_content and root_spacing > 0 then
+        H.add_spacing(insert_payload, root_spacing)
+      end
+
+      hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, insert_payload)
+    end
+
+    return hunks
+  end
+
+  local append_payload = {}
+
+  if ensure_blank_line_under_heading and not layout.has_body then
+    if layout.blank_count == 0 then
+      append_payload[#append_payload + 1] = ""
+      vim.list_extend(append_payload, payload)
+      hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, append_payload)
+    elseif layout.blank_count == 1 then
+      vim.list_extend(append_payload, payload)
+      hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 2, append_payload)
+    else
+      append_payload[#append_payload + 1] = ""
+      vim.list_extend(append_payload, payload)
+      hunks[#hunks + 1] = diff.make_line_replace({ layout.blank_start, layout.blank_end }, append_payload)
+    end
+  else
+    if ensure_blank_line_under_heading then
+      if layout.blank_count == 0 then
+        hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, { "" })
+      elseif layout.blank_count > 1 then
+        hunks[#hunks + 1] = diff.make_line_replace({ layout.blank_start, layout.blank_end }, { "" })
+      end
+    end
+
+    local spacing = math.max(root_spacing, min_pre_spacing)
+    if layout.has_body and spacing > 0 then
+      H.add_spacing(append_payload, spacing)
+    end
+
+    vim.list_extend(append_payload, payload)
+    hunks[#hunks + 1] = diff.make_line_insert(layout.tail + 1, append_payload)
+  end
+
+  return hunks
+end
+
+---@param lines string[]
+---@param outer_section {start_row: integer, end_row: integer, level: integer}
+---@param groups {chain: checkmate.Heading[], payload: string[]}[]
+---@param dest_heading checkmate.Heading
+---@param append_top boolean
+---@param ensure_blank_line_under_heading boolean
+---@param root_spacing integer
+---@return checkmate.TextDiffHunk[] hunks
+---@return {chain: checkmate.Heading[], payload: string[]}[] remaining_groups
+function H.try_merge_groups(
+  lines,
+  outer_section,
+  groups,
+  dest_heading,
+  append_top,
+  ensure_blank_line_under_heading,
+  root_spacing
+)
+  local pending = {}
+  local order = {}
+  local remaining_groups = {}
+
+  for _, group in ipairs(groups) do
+    if #group.chain == 0 then
+      remaining_groups[#remaining_groups + 1] = group
+    else
+      local normalized_chain = H.normalized_chain(group.chain, dest_heading)
+      local match = H.walk_chain_match(lines, outer_section, normalized_chain)
+
+      if match.matched_depth == 0 then
+        remaining_groups[#remaining_groups + 1] = group
+      elseif match.matched_depth == #group.chain then
+        H.queue_section_insert(
+          pending,
+          order,
+          match.deepest_section,
+          append_top and "top" or "bottom",
+          group.payload,
+          root_spacing,
+          0
+        )
+      else
+        local tail_group = {
+          chain = H.slice_chain(group.chain, match.matched_depth + 1),
+          payload = group.payload,
+        }
+        local tail_payload = H.build_enriched_payload({ tail_group }, dest_heading)
+
+        H.queue_section_insert(pending, order, match.deepest_section, "bottom", tail_payload, root_spacing, 1)
+      end
+    end
+  end
+
+  local hunks = {}
+
+  for _, key in ipairs(order) do
+    local entry = pending[key]
+    vim.list_extend(
+      hunks,
+      H.make_section_insert_hunks(
+        lines,
+        entry.section,
+        entry.payload,
+        entry.position,
+        ensure_blank_line_under_heading,
+        root_spacing,
+        entry.min_pre_spacing
+      )
+    )
+  end
+
+  return hunks, remaining_groups
 end
 
 ---@param todo_map checkmate.TodoMap

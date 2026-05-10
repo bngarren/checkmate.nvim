@@ -365,9 +365,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
               insert_payload[#insert_payload + 1] = line
             end
 
-            if has_existing_content and root_spacing > 0 then
-              H.add_spacing(insert_payload, root_spacing)
-            end
+            H.add_spacing_before_existing_content(
+              insert_payload,
+              dest_lines,
+              first_nonblank,
+              has_existing_content,
+              root_spacing
+            )
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
           elseif blank_count == 1 then
@@ -377,9 +381,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
               insert_payload[#insert_payload + 1] = line
             end
 
-            if has_existing_content and root_spacing > 0 then
-              H.add_spacing(insert_payload, root_spacing)
-            end
+            H.add_spacing_before_existing_content(
+              insert_payload,
+              dest_lines,
+              first_nonblank,
+              has_existing_content,
+              root_spacing
+            )
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, insert_payload)
           else
@@ -392,9 +400,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
               insert_payload[#insert_payload + 1] = line
             end
 
-            if has_existing_content and root_spacing > 0 then
-              H.add_spacing(insert_payload, root_spacing)
-            end
+            H.add_spacing_before_existing_content(
+              insert_payload,
+              dest_lines,
+              first_nonblank,
+              has_existing_content,
+              root_spacing
+            )
 
             dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, insert_payload)
           end
@@ -405,9 +417,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
             insert_payload[#insert_payload + 1] = line
           end
 
-          if has_existing_content and root_spacing > 0 then
-            H.add_spacing(insert_payload, root_spacing)
-          end
+          H.add_spacing_before_existing_content(
+            insert_payload,
+            dest_lines,
+            first_nonblank,
+            has_existing_content,
+            root_spacing
+          )
 
           dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
         end
@@ -563,6 +579,28 @@ end
 function H.trim_trailing_blank(lines)
   while #lines > 0 and lines[#lines] == "" do
     lines[#lines] = nil
+  end
+end
+
+---@param lines string[]
+---@param existing_lines string[]
+---@param first_existing_row integer
+---@param has_existing_content boolean
+---@param root_spacing integer
+function H.add_spacing_before_existing_content(lines, existing_lines, first_existing_row, has_existing_content, root_spacing)
+  if not has_existing_content then
+    return
+  end
+
+  local spacing = root_spacing
+  local first_existing_line = existing_lines[first_existing_row + 1]
+
+  if first_existing_line and cm_heading.get_atx_heading_level(first_existing_line) then
+    spacing = math.max(spacing, 1)
+  end
+
+  if spacing > 0 then
+    H.add_spacing(lines, spacing)
   end
 end
 
@@ -1017,35 +1055,51 @@ function H.make_section_insert_hunks(
         insert_payload[#insert_payload + 1] = ""
         vim.list_extend(insert_payload, payload)
 
-        if layout.has_existing_content and root_spacing > 0 then
-          H.add_spacing(insert_payload, root_spacing)
-        end
+        H.add_spacing_before_existing_content(
+          insert_payload,
+          lines,
+          layout.first_nonblank,
+          layout.has_existing_content,
+          root_spacing
+        )
 
         hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, insert_payload)
       elseif layout.blank_count == 1 then
         vim.list_extend(insert_payload, payload)
 
-        if layout.has_existing_content and root_spacing > 0 then
-          H.add_spacing(insert_payload, root_spacing)
-        end
+        H.add_spacing_before_existing_content(
+          insert_payload,
+          lines,
+          layout.first_nonblank,
+          layout.has_existing_content,
+          root_spacing
+        )
 
         hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 2, insert_payload)
       else
         insert_payload[#insert_payload + 1] = ""
         vim.list_extend(insert_payload, payload)
 
-        if layout.has_existing_content and root_spacing > 0 then
-          H.add_spacing(insert_payload, root_spacing)
-        end
+        H.add_spacing_before_existing_content(
+          insert_payload,
+          lines,
+          layout.first_nonblank,
+          layout.has_existing_content,
+          root_spacing
+        )
 
         hunks[#hunks + 1] = diff.make_line_replace({ layout.blank_start, layout.blank_end }, insert_payload)
       end
     else
       vim.list_extend(insert_payload, payload)
 
-      if layout.has_existing_content and root_spacing > 0 then
-        H.add_spacing(insert_payload, root_spacing)
-      end
+      H.add_spacing_before_existing_content(
+        insert_payload,
+        lines,
+        layout.first_nonblank,
+        layout.has_existing_content,
+        root_spacing
+      )
 
       hunks[#hunks + 1] = diff.make_line_insert(section.start_row + 1, insert_payload)
     end

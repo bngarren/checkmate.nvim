@@ -3986,6 +3986,7 @@ describe("API", function()
             "#### level 2",
             "",
             "- " .. m.checked .. " Todo B",
+            "",
             "##### level 3",
             "",
             "- " .. m.checked .. " Todo A",

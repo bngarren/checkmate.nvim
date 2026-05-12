@@ -1726,6 +1726,8 @@ function M.move_todos(opts)
   return true
 end
 
+--- TODO: make `heading` optional
+
 ---@class ArchiveOpts
 ---@field heading {title?: string, level?: integer}
 ---@field preserve_source_headings? checkmate.PreserveSourceHeadings

@@ -3913,7 +3913,7 @@ describe("API", function()
       })
     end)
 
-    it("should preserve_source_headings when archiving from config", function()
+    it("should preserve_source_headings when archiving", function()
       h.run_test_cases({
         {
           name = "archive preserve_source_headings merges into existing source heading section",
@@ -3944,6 +3944,57 @@ describe("API", function()
             "### School",
             "",
             "- " .. m.unchecked .. " Previously archived task",
+            "- " .. m.checked .. " Checked task to archive",
+          },
+        },
+        {
+          name = "archive preserve_source_headings can be supplied per call",
+          content = {
+            "# Work",
+            "- " .. m.checked .. " Checked task to archive",
+            "- " .. m.unchecked .. " Unchecked task",
+            "## Archive",
+          },
+          action = function(cm)
+            cm.archive({ preserve_source_headings = "nearest" })
+          end,
+          expected = {
+            "# Work",
+            "- " .. m.unchecked .. " Unchecked task",
+            "## Archive",
+            "",
+            "### Work",
+            "",
+            "- " .. m.checked .. " Checked task to archive",
+          },
+        },
+        {
+          name = "archive preserve_source_headings normalizes under custom archive heading level",
+          content = {
+            "# Work",
+            "- " .. m.checked .. " Checked task to archive",
+            "- " .. m.unchecked .. " Unchecked task",
+          },
+          config = {
+            archive = {
+              heading = {
+                title = "Done",
+                level = 3,
+              },
+              preserve_source_headings = "nearest",
+            },
+          },
+          action = function(cm)
+            cm.archive()
+          end,
+          expected = {
+            "# Work",
+            "- " .. m.unchecked .. " Unchecked task",
+            "",
+            "### Done",
+            "",
+            "#### Work",
+            "",
             "- " .. m.checked .. " Checked task to archive",
           },
         },

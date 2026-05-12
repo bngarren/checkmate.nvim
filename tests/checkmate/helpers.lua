@@ -472,14 +472,31 @@ function M.run_test_cases(test_cases, opts)
     end
   end
 
-  local cm_config =
-    vim.tbl_deep_extend("force", opts.merge_default_config ~= false and M.DEFAULT_TEST_CONFIG or {}, opts.config or {})
+  ---@return table
+  local function build_case_config(tc)
+    local merge_config = opts.merge_default_config ~= false
+    if tc and tc.merge_default_config == false then
+      merge_config = false
+    end
+
+    ---@diagnostic disable-next-line: return-type-mismatch
+    return vim.tbl_deep_extend(
+      "force",
+      merge_config and M.DEFAULT_TEST_CONFIG or {},
+      opts.config or {},
+      (tc and tc.config) or {}
+    )
+  end
+
+  local base_config = build_case_config()
   local cm = require("checkmate")
-  cm.setup(cm_config)
+  local active_config = vim.deepcopy(base_config)
+  cm.setup(active_config)
 
   -- sets up checkmate once for all test cases
   -- each test case gets it's own buffer
-  -- if a tc.config is passed, we re-setup checkmate for that test case
+  -- if a tc.config is passed, we re-setup checkmate for that test case,
+  -- then restore the base config for following cases
 
   ---@param tc checkmate.TestCase
   local function run_single_case(tc)
@@ -491,18 +508,12 @@ function M.run_test_cases(test_cases, opts)
       return
     end
 
-    if tc.config then
+    local case_config = tc.config and build_case_config(tc) or base_config
+
+    if not vim.deep_equal(active_config, case_config) then
       cm._stop()
-
-      local merge_config = true
-      if tc.merge_default_config == false then
-        merge_config = false
-      elseif opts.merge_default_config == false then
-        merge_config = false
-      end
-
-      cm_config = vim.tbl_deep_extend("force", merge_config and M.DEFAULT_TEST_CONFIG or {}, cm_config, tc.config or {})
-      cm.setup(cm_config)
+      active_config = vim.deepcopy(case_config)
+      cm.setup(active_config)
     end
 
     local bufnr = M.setup_test_buffer(tc.content)

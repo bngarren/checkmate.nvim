@@ -95,6 +95,9 @@ end
 ---@return checkmate.HeadingSection[]
 function M.get_heading_sections(bufnr, lines)
   local ts_parser = vim.treesitter.get_parser(bufnr, "markdown")
+  if not ts_parser then
+    error("[checkmate] markdown parser not found")
+  end
   local tree = ts_parser:parse()[1]
 
   if not tree then
@@ -151,6 +154,8 @@ function M.get_heading_sections(bufnr, lines)
   return sections
 end
 
+--- Returns the first section matching exact level and title, and
+--- optionally exact parent section
 ---@param sections checkmate.HeadingSection[]
 ---@param heading checkmate.Heading
 ---@param parent_start_row? integer

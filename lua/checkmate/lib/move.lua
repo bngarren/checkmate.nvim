@@ -1,21 +1,30 @@
 --- move.lua module
 ---
---- Provides business logic for "cut & paste" type functionality for
+--- Provides business logic for "cut & paste" functionality for
 --- moving Checkmate Todo items within or between buffers
 ---
---- This module never edits buffers directly. It reads stable source/destination
---- snapshots, then returns hunks for the caller to apply in a transaction.
+--- This module never edits buffers directly. It reads source/destination
+--- snapshots, then returns the requested move as source delete hunks and
+--- destination insert hunks for the caller to apply in a transaction/diff layer.
 ---
 --- The move has two mostly independent halves:
----   1. source cleanup: resolve todo ranges, mark those rows for deletion,
----      and compress them into source delete hunks
----   2. destination insertion: build the lines to paste, then decide where
----      those lines should land
+---
+--- given some source todo ids/range
+---  ↳
+---  resolve root source range
+---  ↳
+---   1. source side: mark rows for deletion, cleanup blanks,
+---      and compress delete hunks
+---   2. destination side: build payload (the lines to paste),
+---      maybe wrap/merge headings, insert
+---
+--- Both halves start from the same immutable buffer snapshots and generate
+--- hunks based on the original buffer...this is what lets the diff layer
+--- apply hunks safely (from bottom to top). See |diff.apply_diff|
 ---
 --- `preserve_source_headings` only changes the destination side. It enriches
 --- the payload with source heading context, and may add separate merge hunks
---- when a matching nested destination heading already exists. Source deletion
---- stays exactly the same either way.
+--- when a matching nested destination heading already exists.
 ---
 local M = {}
 local H = {}
@@ -28,7 +37,6 @@ local log = require("checkmate.log")
 ---@field bufnr integer
 ---@field location? integer
 ---@field heading? checkmate.Heading
---- Blank lines between top-level moved todo blocks within the same final section.
 ---@field parent_spacing integer
 
 ---@class checkmate.InternalMoveTodosOpts : checkmate.MoveTodosOpts
@@ -36,17 +44,11 @@ local log = require("checkmate.log")
 ---@field destination checkmate.InternalMoveTodosDestination
 ---@field cleanup_source boolean
 
---- ////////////////////////
-
---- Moves selected todo subtrees from the source buffer to a destination.
+--- Moves selected todo subtrees from the source buffer to a destination buffer (could be the same as src)
 ---
---- Returns two hunk arrays (see `checkmate.TextDiffHunk`):
----   [1] source_hunks  – deletions to apply to source buffer
----   [2] dest_hunks    – insertions to apply to the destination buffer
----
---- For same-buffer moves the caller may concatenate both arrays and pass them to
---- a single apply_diff / transaction. For cross-buffer moves the caller must run
---- two separate transactions (one per buffer).
+--- Returns two hunk arrays (see |checkmate.TextDiffHunk|):
+---   1. source_hunks  – deletions to apply to source buffer
+---   2. dest_hunks    – insertions to apply to the destination buffer
 ---
 ---@param src_bufnr integer Source buffer
 ---@param todo_map checkmate.TodoMap Source todo map
@@ -78,8 +80,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local src_lines = vim.api.nvim_buf_get_lines(src_bufnr, 0, -1, false)
   -- for cross-buffer moves- need a separate snapshot of the destination buffer
   local dest_lines = same_buffer and src_lines or vim.api.nvim_buf_get_lines(dest_bufnr, 0, -1, false)
-  -- Treesitter gives us real Markdown heading sections, including section_end.
-  -- Keep these lazy: explicit location moves do not need section discovery.
+  -- use Treesitter to get real Markdown heading sections, rather than regex hassle :(
   local src_heading_sections = nil ---@type checkmate.HeadingSection[]|nil
   local dest_heading_sections = nil ---@type checkmate.HeadingSection[]|nil
 
@@ -103,16 +104,19 @@ function M.move_todos(src_bufnr, todo_map, opts)
     return dest_heading_sections
   end
 
-  -- // Resolve source ranges
+  -- // Resolve source ranges - first step in determining what gets cut
+  --
+  -- turn the user's selector (e.g. `by.ids`, `by.range`, or both) into non-overlapping
+  -- root ranges
   --
   -- the payload we eventually move should contain each source line ONLY once at most...
   -- no selected todo should be moved separately if one of its ancestors is already being moved
   --
-  -- Notes:
-  -- - Selecting only a child moves that child subtree
-  -- - Selecting a parent and any of its descendants moves only the parent subtree
-  -- - Selecting multiple siblings moves each sibling subtree once
-  -- - Duplicate ids are ignored
+  -- behavior:
+  -- - selecting only a child moves that child subtree
+  -- - selecting a parent and any of its descendants moves only the parent subtree
+  -- - selecting multiple siblings moves each sibling subtree once
+  -- - duplicate ids are ignored
 
   local source_ranges = H.resolve_source_ranges(todo_map, opts.by)
 
@@ -120,15 +124,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
     return {}, {} -- no source todos, return empty diff hunks
   end
 
-  -- // Collect the lines that will be moved and mark for deletion
+  -- --------- Collect the lines that will be moved and mark for deletion ---------
 
   ---@type string[]
   local payload = H.build_source_payload(source_ranges, src_lines, parent_spacing) -- lines inserted at destination
   ---@type table<integer, boolean>
   local to_delete = {} -- 0-indexed row numbers of source buffer to eventually remove
 
-  -- Mark the source lines to be removed. The destination payload is built from
-  -- the same source snapshot so all hunk coordinates remain stable.
   for _, r in ipairs(source_ranges) do
     -- mark for deletion
     for row = r.start_row, r.end_row do
@@ -136,7 +138,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
     end
   end
 
-  -- don't want the move payload to bring a dangling blank into the destination.
+  -- don't want the move payload to bring a dangling blank into the destination
   H.trim_trailing_blank(payload)
 
   -- // Blank line cleanup in the source
@@ -169,14 +171,14 @@ function M.move_todos(src_bufnr, todo_map, opts)
     end
   end
 
-  -- // Build the source delete hunks
+  -- --------- Build the source delete hunks ---------
 
   local source_hunks = {}
   local run_start = nil ---@type integer|nil
 
   -- performance logic: instead of making delete hunks for every row in `to_delete`, we compress
   -- contiguous rows into hunks
-  -- e.g. to_delete = {2,3,4, 7} → [{2,4}, {7,7}] instead of four single-row hunks
+  -- e.g. to_delete = {2,3,4,7} → [{2,4}, {7,7}] instead of four single-row hunks
 
   local function flush(last_row)
     if run_start ~= nil then
@@ -198,7 +200,56 @@ function M.move_todos(src_bufnr, todo_map, opts)
   end
   flush(#src_lines - 1)
 
-  -- // Build destination (insert) hunks
+  -- --------- Build destination (insert) hunks ---------
+  --
+  -- Destination modes:
+  --
+  -- 1. location only:
+  --      Insert payload directly before an explicit 0-based line boundary
+  --
+  -- 2. heading only:
+  --      Find an existing ATX heading section and insert into it. If the heading does
+  --      not exist, create the heading section at EOF
+  --
+  -- 3. location + heading:
+  --      Create a new heading section at the explicit line boundary. This mode
+  --      does not search for or reuse an existing heading
+  --
+  -- |lib.heading| is used for markdown ATX heading and section structure
+  --
+  --
+  -- There are 2 main paths for the destination side:
+  -- 1. Normal payload insertion
+  -- 2. `preserve_source_headings` enrichment and possible subheadings merge
+  --
+  -- Most complexity comes from the preserve_source_headings logic.
+  -- When enabled, we determine "which markdown headings were above each moved todo
+  -- in the source?"
+  --
+  -- This can be performed using "nearest", i.e. look for the immediate parent heading only, or
+  -- using "all", look for the root level heading down to the subheading containing the todo
+  --
+  -- A "chain" is struct that holds the Headings from outer to inner on the way to a todo
+  -- For example:
+  -- ```
+  --  # School
+  --  ## Campus A
+  --  - [x] Task A
+  -- ```
+  --
+  -- chain = { Heading("School", 1), Heading("Campus A", 2) }
+  --
+  -- Next, "groups" are created according to each unique heading chain. A group is a heading chain +
+  -- payload (the todos and spacing that will be inserted). This is not the final payload as the
+  -- headings have not be stringified into the payload yet.
+  --
+  -- Next, we build the enriched payloads. I.e., take the groups, dedupe any shared headings,
+  -- and make payloads with the heading included
+  --
+  -- This stage has a special branch when `preserve_source_headings` is on with a "heading-only" destination,
+  -- i.e. Mode 2, AND the destination heading exists. In this circumstance, we need some clever logic
+  -- to try to merge groups that already exist. This is what |H.try_merge_groups| does.
+  --
 
   ---@param heading checkmate.Heading
   ---@param lines string[]
@@ -220,10 +271,6 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local dest_hunks = {}
 
   if preserve_source_headings then
-    -- Convert the flat payload into heading-aware groups before destination
-    -- insertion. Groups that can merge into an existing nested destination
-    -- heading become their own hunks; the rest go back through the normal
-    -- destination insertion path as one enriched payload.
     local target_rows = vim.tbl_map(function(r)
       return r.start_row
     end, source_ranges)
@@ -231,6 +278,9 @@ function M.move_todos(src_bufnr, todo_map, opts)
     local groups = H.classify_source_groups(chains, source_ranges, preserve_source_headings, src_lines, parent_spacing)
 
     if target_heading and target_row == nil then
+      -- Mode 2 (heading only)
+      -- since we are targeting a potentially existing heading here, we have additional
+      -- complexity to try to merge into this section and subheadings
       local destination_sections = get_dest_heading_sections()
       local outer_section = cm_heading.find_section(destination_sections, target_heading)
 
@@ -245,9 +295,14 @@ function M.move_todos(src_bufnr, todo_map, opts)
           parent_spacing,
           destination_sections
         )
+        -- merge_hunks already target existing nested destination headings. Any groups
+        -- that could not merge are rendered back into the normal payload and inserted
+        -- through the destination path below
         vim.list_extend(dest_hunks, merge_hunks)
         payload = H.build_enriched_payload(remaining_groups, target_heading, ensure_blank_line_under_heading)
       else
+        -- outer heading doesn't exist...so render all groups into the payload that will
+        -- be inserted when the destination heading is created below
         payload = H.build_enriched_payload(groups, target_heading, ensure_blank_line_under_heading)
       end
     else
@@ -268,21 +323,13 @@ function M.move_todos(src_bufnr, todo_map, opts)
     return {}, {}
   end
 
-  -- Destination modes:
+  -- Place the remaining destination payload
   --
-  -- 1. location only:
-  --      Insert payload directly at an explicit line boundary.
-  --
-  -- 2. heading only:
-  --      Find an existing heading section and insert into it. If the heading does
-  --      not exist, create the heading section at EOF.
-  --
-  -- 3. location + heading:
-  --      Create a new heading section at the explicit line boundary. This mode
-  --      does not search for or reuse an existing heading.
-
+  -- At this point `dest_hunks` may already contain merge hunks from
+  -- preserve_source_headings. `payload` is the plain/enriched content that still
+  -- needs normal placement
   if target_row ~= nil then
-    -- explicit row destination ─────────────────────────────────────
+    -- explicit row destination (mode 1 or 3)
 
     if not H.validate_line_boundary(target_row, dest_lines) then
       log.warn(
@@ -306,12 +353,12 @@ function M.move_todos(src_bufnr, todo_map, opts)
     end
 
     if target_heading then
-      -- Explicit row + heading:
-      -- create a new heading section exactly at this line boundary.
+      -- Explicit row + heading (mode 3):
+      -- create a new heading section exactly at this line boundary
       dest_hunks[#dest_hunks + 1] = diff.make_line_insert(target_row, make_heading_payload(target_heading, payload))
     else
-      -- Explicit row only:
-      -- insert the moved payload directly.
+      -- Explicit row only (mode 1):
+      -- insert the moved payload directly
       dest_hunks[#dest_hunks + 1] = diff.make_line_insert(target_row, payload)
     end
   elseif target_heading then
@@ -362,6 +409,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
       dest_hunks[#dest_hunks + 1] = diff.make_line_insert(line_count, insertion)
     else
+      -- heading section already exists
       vim.list_extend(
         dest_hunks,
         H.make_section_insert_hunks(
@@ -480,8 +528,9 @@ function H.add_spacing_before_existing_content(
   local spacing = parent_spacing
   local first_existing_line = existing_lines[first_existing_row + 1]
 
-  -- A newly inserted todo block should never sit directly against an existing
-  -- child heading, even when callers request no extra spacing between todos.
+  -- a newly inserted todo block should never sit directly against an existing
+  -- child heading
+  -- this is distinct from `parent_spacing` (between root todos)
   if first_existing_line and cm_heading.get_atx_heading_level(first_existing_line) then
     spacing = math.max(spacing, 1)
   end
@@ -504,9 +553,9 @@ function H.extract_range_payload(range, src_lines)
   return payload
 end
 
---- Builds the plain, no-heading payload used by the normal move path.
+--- Builds the plain, no-heading payload
 --- If preserve_source_headings is enabled, this gets replaced later by an
---- enriched payload built from the same source ranges.
+--- "enriched payload" built from the same source ranges
 ---@param source_ranges {start_row: integer, end_row: integer}[]
 ---@param src_lines string[]
 ---@param parent_spacing integer
@@ -575,9 +624,17 @@ function H.heading_chains_equal(a, b)
   return #a == #b and H.common_heading_prefix_len(a, b) == #a
 end
 
---- Adds a source range to a heading group list.
---- Adjacent ranges with the same source heading chain stay in one group so
---- their shared headings are emitted once.
+--- Appends a group, merging only with the immediately previous group
+--- when both came from the same source heading chain
+---
+--- E.g., with parent_spacing = 1:
+---   # School
+---   - [x] Task A
+---   - [x] Task B
+---
+--- becomes one group:
+---   chain = { "School" }
+---   payload = { "- [x] Task A", "", "- [x] Task B" }
 ---@param groups {chain: checkmate.Heading[], payload: string[]}[]
 ---@param group {chain: checkmate.Heading[], payload: string[]}
 ---@param parent_spacing integer
@@ -597,9 +654,11 @@ end
 
 --- Finds the heading chain above each target row
 ---
---- We snapshot the stack before reading the target row itself. That keeps the
---- lookup strictly "headings above this row", which matches how callers expect
---- preserve_source_headings to behave.
+--- which heading sections started before this todo and end at or after this todo?
+--- thus, a heading is an ancestor if:
+---   section.start_row < target_row
+---   and target_row <= section.end_row
+---
 ---@param target_rows integer[] i.e. first row of each todo
 ---@param heading_sections checkmate.HeadingSection[]
 ---@return table<integer, checkmate.Heading[]>
@@ -611,6 +670,8 @@ function H.build_heading_chains(target_rows, heading_sections)
 
     for _, section in ipairs(heading_sections) do
       if section.start_row >= target_row then
+        -- this heading is at or below the target row so stopping scanning for more headings
+        -- i.e., we only want headings ABOVE this row
         break
       end
 
@@ -625,9 +686,21 @@ function H.build_heading_chains(target_rows, heading_sections)
   return chains
 end
 
---- Turns source ranges into heading groups.
---- The payload in each group is still raw todo lines; headings are stamped only
---- when H.build_enriched_payload renders the final destination payload.
+--- Turns source ranges into heading groups
+--- Why? helps determine which moved todos share the same source
+--- heading context so that |H.build_enriched_payload| can later
+--- add headings without duplication
+---
+--- Example:
+--- ```
+--- {
+---   chain = { Heading("School", 1), Heading("Campus A", 2) },
+---   payload = { "- [x] Task A" },
+--- }
+---
+--- The payload in each group is still just raw todo lines...
+--- headings are added to payload only when |H.build_enriched_payload|
+--- renders the final destination payload
 ---@param chains table<integer, checkmate.Heading[]>
 ---@param source_ranges {start_row: integer, end_row: integer}[]
 ---@param mode "nearest"|"all"
@@ -641,12 +714,17 @@ function H.classify_source_groups(chains, source_ranges, mode, src_lines, parent
     local chain = H.copy_heading_chain(chains[range.start_row] or {})
 
     if mode == "nearest" and #chain > 0 then
+      -- keep only the final heading in the chain
       chain = { chain[#chain] }
     end
 
+    -- raw lines for this todo tree (from source)
     local payload = H.extract_range_payload(range, src_lines)
     H.trim_trailing_blank(payload)
 
+    -- compares this new group with previous group
+    -- i.e. if last group has same heading chain, append payload,
+    -- if not, add new group
     H.add_group(groups, {
       chain = chain,
       payload = payload,
@@ -656,9 +734,7 @@ function H.classify_source_groups(chains, source_ranges, mode, src_lines, parent
   return groups
 end
 
---- Normalizes a source heading for a destination section.
---- With a destination heading, source levels are shifted underneath it. Without
---- one, source levels are preserved.
+--- Normalizes a source heading for a destination section
 ---@param heading checkmate.Heading
 ---@param dest_heading checkmate.Heading|nil
 ---@return checkmate.Heading
@@ -667,7 +743,7 @@ function H.normalized_heading(heading, dest_heading)
     return cm_heading.new(heading.title, heading.level)
   end
 
-  -- Preserve source level gaps while capping at Markdown's deepest ATX level.
+  -- preserve source level gaps (like going from ## to ####) while capping at Markdown's deepest ATX level.
   return cm_heading.new(heading.title, math.min(heading.level + dest_heading.level, 6))
 end
 
@@ -684,9 +760,30 @@ function H.normalized_chain(chain, dest_heading)
   return normalized
 end
 
---- Renders heading groups into one destination payload.
---- This is where common-prefix dedup happens: when two consecutive groups share
---- `# School`, we emit that heading once and only stamp the diverging tail.
+--- Converts heading groups into one destination payload
+--- This is where adjacent groups dedupe shared heading prefixes
+---
+--- Example groups:
+---   [# School, ## Campus A] + { "- [x] Task A" }
+---   [# School, ## Campus B] + { "- [x] Task B" }
+---
+--- If these are being inserted under destination heading "## Archive", the
+--- source headings are normalized (# level adjusted) beneath it and rendered as:
+---
+---   ### School
+---
+---   #### Campus A
+---
+---   - [x] Task A
+---
+---   #### Campus B
+---
+---   - [x] Task B
+---
+--- See how "### School" is added only once. For the second group, we compare
+--- its chain to the previous chain, find the shared prefix [School], and emit
+--- only the diverging tail [Campus B].
+---
 ---@param groups {chain: checkmate.Heading[], payload: string[]}[]
 ---@param dest_heading checkmate.Heading|nil
 ---@param blank_line_under_heading boolean
@@ -699,8 +796,6 @@ function H.build_enriched_payload(groups, dest_heading, blank_line_under_heading
     local common_len = H.common_heading_prefix_len(prev_chain, group.chain)
     local diverging = H.slice_chain(group.chain, common_len + 1)
 
-    -- Separate a moved todo block from the next newly emitted heading.
-    -- `parent_spacing` is handled inside group payloads; this is heading hygiene.
     if idx > 1 and #diverging > 0 and #output > 0 then
       output[#output + 1] = ""
     end
@@ -721,25 +816,18 @@ function H.build_enriched_payload(groups, dest_heading, blank_line_under_heading
   return output
 end
 
---- Finds an exact child heading section inside a parent section.
---- This intentionally searches by normalized level + title. A `### School`
---- under Archive is different from a `#### School`.
----@param parent_section checkmate.HeadingSection
----@param title string
----@param level integer
----@param heading_sections checkmate.HeadingSection[]
----@return checkmate.HeadingSection|nil
-function H.find_sub_heading_section(parent_section, title, level, heading_sections)
-  return cm_heading.find_section(heading_sections, cm_heading.new(title, level), parent_section.start_row)
-end
-
---- Walks a normalized source chain through the destination section tree.
+--- Finds how much of a desired nested heading path already exists under the
+--- outer destination section
+---
+--- I.e., starting inside the outer section (destination heading), how much of this
+--- source-heading chain already exists as nested headings?
+---
 --- The result tells the merge path where to insert:
 --- - matched_depth == 0: no usable destination heading
---- - matched_depth == #chain: insert todos into deepest_section
---- - otherwise: emit the remaining heading tail inside deepest_section
+--- - matched_depth == #normalized_chain: the full chain exists, insert todos into deepest_section
+--- - otherwise: only some headings exist, create the remaining heading tail inside deepest_section
 ---@param outer_section checkmate.HeadingSection
----@param normalized_chain checkmate.Heading[]
+---@param normalized_chain checkmate.Heading[] The source heading chain that has been "normalized" (# levels shifted) to nest in the destination heading
 ---@param heading_sections checkmate.HeadingSection[]
 ---@return {matched_depth: integer, deepest_section: checkmate.HeadingSection}
 function H.walk_chain_match(outer_section, normalized_chain, heading_sections)
@@ -747,7 +835,9 @@ function H.walk_chain_match(outer_section, normalized_chain, heading_sections)
   local matched_depth = 0
 
   for idx, heading in ipairs(normalized_chain) do
-    local section = H.find_sub_heading_section(current_section, heading.title, heading.level, heading_sections)
+    -- search only within the `current_section` so that a same title-level heading elsewhere isn't matched
+    local section =
+      cm_heading.find_section(heading_sections, cm_heading.new(heading.title, heading.level), current_section.start_row)
 
     if not section then
       break
@@ -763,9 +853,8 @@ function H.walk_chain_match(outer_section, normalized_chain, heading_sections)
   }
 end
 
---- Reads the whitespace shape of a destination section.
---- Insertion code uses this to avoid duplicating the same "how many blanks
---- live under this heading?" logic across top and bottom insertion paths.
+--- Reads the whitespace of a destination section
+--- Insertion code uses this for "how many blanks live under this heading?" logic
 ---@param lines string[]
 ---@param section checkmate.HeadingSection
 ---@return {first_nonblank: integer, blank_start: integer, blank_end: integer, blank_count: integer, has_existing_content: boolean, tail: integer, has_body: boolean}
@@ -797,24 +886,39 @@ function H.get_section_layout(lines, section)
   }
 end
 
---- Collects multiple insertions that target the same section/position.
---- This happens when several source groups merge into one existing destination
---- heading. Coalescing them here keeps the final diff small and prevents two
---- hunks from fighting over the same row.
----@param pending table<string, {section: checkmate.HeadingSection, position: "top"|"bottom", payload: string[], min_pre_spacing: integer}>
----@param order string[]
+--- Collects multiple insertions that target the same section/position
+---
+--- i.e., during |try_merge_groups()|, this consolidates multiple groups that
+--- need to insert into the same existing destination section. reduces having
+--- multiple hunks targeted the same row (could be brittle/messy maybe...maybe overkill)
+---
+--- `pending_inserts` are the groups that have a destination section but are queued while figuring
+--- out if others share this destination section too, before turning into hunks
+--- `insert_order` is tracked as pending entries are added to they can be inserted in same order
+---
+---@param pending_inserts table<string, {section: checkmate.HeadingSection, position: "top"|"bottom", payload: string[], min_pre_spacing: integer}>
+---@param insert_order string[] key of each pending entry
 ---@param section checkmate.HeadingSection
 ---@param position "top"|"bottom"
 ---@param payload string[]
 ---@param parent_spacing integer
 ---@param min_pre_spacing integer
-function H.queue_section_insert(pending, order, section, position, payload, parent_spacing, min_pre_spacing)
+function H.queue_section_insert(
+  pending_inserts,
+  insert_order,
+  section,
+  position,
+  payload,
+  parent_spacing,
+  min_pre_spacing
+)
   if #payload == 0 then
     return
   end
 
+  -- groups with the same section + top/bottom position should be joined to a single hunk
   local key = table.concat({ section.start_row, section.end_row, section.level, position }, ":")
-  local entry = pending[key]
+  local entry = pending_inserts[key]
 
   if not entry then
     entry = {
@@ -823,17 +927,18 @@ function H.queue_section_insert(pending, order, section, position, payload, pare
       payload = {},
       min_pre_spacing = min_pre_spacing,
     }
-    pending[key] = entry
-    order[#order + 1] = key
+    pending_inserts[key] = entry
+    insert_order[#insert_order + 1] = key
   else
     entry.min_pre_spacing = math.max(entry.min_pre_spacing, min_pre_spacing)
 
     if #entry.payload > 0 then
       if payload[1] and cm_heading.get_atx_heading_level(payload[1]) then
-        -- A diverging source-heading tail is a new section boundary; keep that
-        -- structural separator independent of todo parent spacing.
+        -- this payload starts with a heading, e.g. `#### Future`.
+        -- separate it as a section boundary
         H.add_spacing(entry.payload, min_pre_spacing)
       elseif parent_spacing > 0 then
+        -- this payload starts with todo lines, so spacing means "between moved todo blocks"
         H.add_spacing(entry.payload, parent_spacing)
       end
     end
@@ -843,10 +948,8 @@ function H.queue_section_insert(pending, order, section, position, payload, pare
   H.trim_trailing_blank(entry.payload)
 end
 
---- Builds the actual insertion hunks for one destination section.
---- This helper owns the local whitespace rules for "top" vs "bottom" insertion:
---- blank under heading, parent spacing between todo blocks, and the small
---- structural separator before a newly emitted child heading.
+--- Builds the actual insertion hunks for one destination section
+--- Basically in charge of the "whitespace" mechanics around the payload
 ---@param lines string[]
 ---@param section checkmate.HeadingSection
 ---@param payload string[]
@@ -964,8 +1067,8 @@ function H.make_section_insert_hunks(
   return hunks
 end
 
---- Tries to land preserve_source_headings groups inside existing nested
---- destination headings.
+--- Tries to land `preserve_source_headings` groups inside existing nested
+--- destination headings
 ---
 --- Full match:
 ---   existing `### School` + group chain `[School]` -> insert just the todo
@@ -975,7 +1078,12 @@ end
 ---   existing `### School` + group chain `[School, Campus]` -> insert a new
 ---   `#### Campus` subsection inside `### School`
 ---
---- No match and orphan groups go back to the normal enriched-payload path.
+--- No match and orphan groups go back to the normal enriched-payload path
+---
+--- `append_top` behavior:
+---   - full matches honor append_top and insert todos at the top or bottom of the section
+---   - partial matches insert the newly created heading tail (the rest of the non matched chain)
+---     at the bottom of the deepest matched section
 ---@param lines string[]
 ---@param outer_section checkmate.HeadingSection
 ---@param groups {chain: checkmate.Heading[], payload: string[]}[]
@@ -1008,8 +1116,10 @@ function H.try_merge_groups(
       local match = H.walk_chain_match(outer_section, normalized_chain, heading_sections)
 
       if match.matched_depth == 0 then
+        -- no match
         remaining_groups[#remaining_groups + 1] = group
       elseif match.matched_depth == #group.chain then
+        -- full match
         H.queue_section_insert(
           pending,
           order,
@@ -1020,6 +1130,7 @@ function H.try_merge_groups(
           0
         )
       else
+        -- partial match
         local tail_group = {
           chain = H.slice_chain(group.chain, match.matched_depth + 1),
           payload = group.payload,
@@ -1052,6 +1163,10 @@ function H.try_merge_groups(
   return hunks, remaining_groups
 end
 
+--- collects candidates from by.ids, from by.range, or both
+--- Then removes any selected todo whose ancestor is also selected
+--- When selecting by `range`, the range must overlap the todo's first line
+--- (i.e. can't just select a part of the todo's subtree)
 ---@param todo_map checkmate.TodoMap
 ---@param by { ids?: integer[], range?: checkmate.Range }
 ---@return {start_row: integer, end_row: integer, id: integer}[]

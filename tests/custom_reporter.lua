@@ -81,27 +81,65 @@ return function(options)
 
   -- State
   local indentLevel = 0
-  local passCount, failCount, skipCount = 0, 0, 0
+  local passCount, failCount, errorCount, skipCount = 0, 0, 0, 0
   local totalTests = 0
   local fileCount = 0
   local filesPassed = 0
   local filesFailed = 0
   local currentFile = nil
   local currentFileFailed = false
-  local hasOutput = false -- Track if we've already output anything
+  local currentFilePrinted = false
+  local hasOutput = false -- Track if we've already output any file
+  local pendingDescribes = {}
   local fileDurations = {}
+
+  local function current_filename()
+    return currentFile and (currentFile:match("([^/\\]+)$") or currentFile) or "unknown file"
+  end
+
+  local function ensure_file_header()
+    if currentFilePrinted then
+      return
+    end
+
+    fileCount = fileCount + 1
+
+    if hasOutput then
+      -- Add blank line between files
+      println("")
+    end
+
+    println(magenta_text("◼︎ ") .. underscore_text(current_filename()))
+    println("")
+
+    currentFilePrinted = true
+    hasOutput = true
+  end
+
+  local function flush_pending_describes()
+    ensure_file_header()
+
+    for _, describe in ipairs(pendingDescribes) do
+      println(string.rep("  ", describe.indent) .. cyan_text(describe.name))
+    end
+
+    pendingDescribes = {}
+  end
 
   handler.suiteReset = function()
     indentLevel = 0
-    passCount, failCount, skipCount = 0, 0, 0
+    passCount, failCount, errorCount, skipCount = 0, 0, 0, 0
     totalTests = 0
     fileCount = 0
     filesPassed = 0
     filesFailed = 0
     currentFile = nil
     currentFileFailed = false
+    currentFilePrinted = false
     hasOutput = false
+    pendingDescribes = {}
     fileDurations = {}
+    failedTests = {}
     return nil, true
   end
 
@@ -114,28 +152,19 @@ return function(options)
   -- Handle file events
   handler.fileStart = function(element)
     currentFile = element.name
-    fileCount = fileCount + 1
     currentFileFailed = false -- Reset for new file
-
-    if hasOutput then
-      -- Add blank line between files
-      println("")
-    end
-
-    -- Extract just the filename part with clever string patterns
-    local filename = currentFile:match("([^/\\]+)$") or currentFile
-
-    -- Output file header
-    println(magenta_text("◼︎ ") .. underscore_text(filename))
-    println("")
-
-    hasOutput = true
+    currentFilePrinted = false
+    pendingDescribes = {}
     indentLevel = 1 -- Start the file's content at indent level 1
 
     return nil, true
   end
 
   handler.fileEnd = function(element)
+    if not currentFilePrinted then
+      return nil, true
+    end
+
     -- Store the file's duration from Busted's own timing
     local duration = element.duration
     if duration then
@@ -161,7 +190,10 @@ return function(options)
 
   -- Handle entering a describe/context block
   handler.describeStart = function(element)
-    println(string.rep("  ", indentLevel) .. cyan_text(element.name))
+    table.insert(pendingDescribes, {
+      name = element.name,
+      indent = indentLevel,
+    })
     indentLevel = indentLevel + 1
     return nil, true
   end
@@ -169,6 +201,12 @@ return function(options)
   -- Handle exiting a describe/context block
   handler.describeEnd = function(element)
     indentLevel = math.max(indentLevel - 1, 0)
+
+    local pending = pendingDescribes[#pendingDescribes]
+    if pending and pending.name == element.name and pending.indent == indentLevel then
+      table.remove(pendingDescribes)
+    end
+
     return nil, true
   end
 
@@ -178,6 +216,8 @@ return function(options)
   end
 
   handler.testEnd = function(element, parent, status)
+    flush_pending_describes()
+
     -- Extract just the test name (not the full hierarchy with describe blocks)
     local name = element.name
     local indent = string.rep("  ", indentLevel)
@@ -219,9 +259,44 @@ return function(options)
   end
 
   -- Improved error handler for all types of errors
-  handler.error = function(element, message, parent, trace)
+  handler.error = function(element, parent, message, trace)
     currentFileFailed = true
 
+    if element and element.descriptor == "it" then
+      return nil, true
+    end
+
+    errorCount = errorCount + 1
+    flush_pending_describes()
+
+    local t = handler.errors[#handler.errors] or {
+      name = element and (element.name or element.descriptor) or "Unknown error",
+      message = message,
+      trace = trace,
+    }
+    local name = t.name or (element and (element.name or element.descriptor)) or "Unknown error"
+    local indent = string.rep("  ", indentLevel)
+
+    println(indent .. red_mark() .. " " .. colors.red(name))
+
+    if t.trace and t.trace.traceback then
+      println(t.trace.traceback)
+    end
+
+    table.insert(failedTests, {
+      name = name,
+      file = currentFile,
+      is_error = true,
+    })
+
+    local error_indent = indent .. "  "
+    local error_lines = format_error(t, name)
+    for line in error_lines:gmatch("[^\r\n]+") do
+      println(error_indent .. line)
+    end
+
+    println("")
+    io_flush()
     return nil, true
   end
 
@@ -264,13 +339,16 @@ return function(options)
 
     -- Print test counts
     local test_text = "Tests       "
-    if failCount == 0 then
+    if failCount == 0 and errorCount == 0 then
       test_text = test_text .. colors.green(string_format("%d passed", passCount))
     else
       test_text = test_text .. string_format("%d passed", passCount)
     end
     if failCount > 0 then
       test_text = test_text .. ", " .. colors.red(string_format("%d failed", failCount))
+    end
+    if errorCount > 0 then
+      test_text = test_text .. ", " .. colors.red(string_format("%d errors", errorCount))
     end
     if skipCount > 0 then
       test_text = test_text .. ", " .. colors.yellow(string_format("%d skipped", skipCount))
@@ -282,9 +360,9 @@ return function(options)
     println(string_format("Time        %s", duration_text))
 
     -- Final status line
-    if failCount > 0 then
+    if failCount > 0 or errorCount > 0 then
       -- Add failed tests summary
-      println("\nFailed Tests:")
+      println("\nFailed Tests/Errors:")
       for i, test in ipairs(failedTests) do
         println(dim_text(string.format("  %d) ", i)) .. colors.red(test.name) .. dim_text("  " .. test.file))
       end

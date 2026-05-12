@@ -1575,15 +1575,21 @@ end
 --- because that mode always creates a new section.
 ---@field append_top? boolean
 ---
---- Number of blank lines to insert between consecutive moved root todo blocks
---- Defaults to 0
----@field root_spacing? integer
+--- Number of blank lines to insert between top-level moved todo blocks within
+--- the same destination section. When `preserve_source_headings` creates or
+--- reuses nested heading sections, this applies independently inside each
+--- section.
+--- Defaults to 0.
+---@field parent_spacing? integer
 ---
---- Ensure exactly one blank line under a destination heading
+--- Ensure exactly one blank line under destination headings, including
+--- generated source-heading wrappers when `preserve_source_headings` is used.
 --- Defaults to `true`.
 ---@field blank_line_under_heading? boolean
 
 --- ////////////////////////
+
+---@alias checkmate.PreserveSourceHeadings false | "nearest" | "all"
 
 ---@class checkmate.MoveTodosOpts
 ---
@@ -1602,6 +1608,12 @@ end
 --- Removes redundant blank lines around deleted source content
 --- Defaults to `true`.
 ---@field cleanup_source? boolean
+---
+--- Recreate source heading context around moved todos.
+--- - `false`/nil: disabled
+--- - `"nearest"`: immediate parent heading only
+--- - `"all"`: full ancestor heading chain
+---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 ---
 
 --- Moves todo(s) from one location to another
@@ -1648,8 +1660,13 @@ function M.move_todos(opts)
     opts.destination.location = vim.api.nvim_buf_line_count(dest_bufnr)
   end
 
-  if opts.destination.root_spacing == nil then
-    opts.destination.root_spacing = 0
+  if opts.destination.parent_spacing == nil then
+    opts.destination.parent_spacing = 0
+  end
+
+  if type(opts.destination.parent_spacing) ~= "number" or opts.destination.parent_spacing % 1 ~= 0 then
+    log.warn("[main] move_todos: destination.parent_spacing must be an integer")
+    return false
   end
 
   if opts.destination.blank_line_under_heading == nil then
@@ -1658,6 +1675,17 @@ function M.move_todos(opts)
 
   if opts.cleanup_source == nil then
     opts.cleanup_source = true
+  end
+
+  if opts.preserve_source_headings == nil then
+    opts.preserve_source_headings = false
+  elseif
+    opts.preserve_source_headings ~= false
+    and opts.preserve_source_headings ~= "nearest"
+    and opts.preserve_source_headings ~= "all"
+  then
+    log.warn("[main] move_todos: preserve_source_headings must be false, 'nearest', or 'all'")
+    return false
   end
 
   -- returns true if the opts.by specifies a source of todos (either by id or buffer range)
@@ -1698,8 +1726,11 @@ function M.move_todos(opts)
   return true
 end
 
+--- TODO: make `heading` optional
+
 ---@class ArchiveOpts
 ---@field heading {title?: string, level?: integer}
+---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 
 --- Archive checked todo items to a special section
 --- Rules:

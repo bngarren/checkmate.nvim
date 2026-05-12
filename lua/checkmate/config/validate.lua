@@ -5,6 +5,7 @@ local VALID_PROPAGATION_MODES = { "all_children", "direct_children", "none" }
 local VALID_PICKERS = { "telescope", "snacks", "mini", "native" }
 local VALID_LIST_MARKERS = { "-", "*", "+" }
 local VALID_TODO_COUNT_POSITIONS = { "eol", "inline" }
+local VALID_PRESERVE_SOURCE_HEADINGS = { false, "nearest", "all" }
 
 local validators = {
   is_boolean = function(v)
@@ -429,6 +430,13 @@ local function validate_archive(archive)
 
   if archive.newest_first ~= nil and type(archive.newest_first) ~= "boolean" then
     table.insert(errors, "newest_first: must be boolean")
+  end
+
+  if
+    archive.preserve_source_headings ~= nil
+    and not vim.tbl_contains(VALID_PRESERVE_SOURCE_HEADINGS, archive.preserve_source_headings)
+  then
+    table.insert(errors, "preserve_source_headings: must be false, nearest, or all")
   end
 
   if archive.heading ~= nil then

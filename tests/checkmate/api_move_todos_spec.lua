@@ -124,7 +124,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "multiple explicit ids preserve source order and root spacing",
+          name = "multiple explicit ids preserve source order and parent spacing",
           content = {
             h.todo_line({ text = "Task A" }),
             h.todo_line({ text = "Task B" }),
@@ -141,7 +141,7 @@ describe("API/move_todos", function()
               },
               destination = {
                 location = line_count(ctx.buffer),
-                root_spacing = 1,
+                parent_spacing = 1,
               },
             })
           end,
@@ -165,7 +165,7 @@ describe("API/move_todos", function()
           selection = { 2, 0, 3, 0, "V" },
           action = function(cm)
             cm.move_todos({
-              destination = { root_spacing = 0 },
+              destination = { parent_spacing = 0 },
             })
           end,
           expected = {
@@ -191,7 +191,7 @@ describe("API/move_todos", function()
           selection = { 3, 0, 4, 0, "V" },
           action = function(cm)
             cm.move_todos({
-              destination = { root_spacing = 0 },
+              destination = { parent_spacing = 0 },
             })
           end,
           expected = {
@@ -239,7 +239,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "existing heading inserts near top with root spacing before existing content",
+          name = "existing heading inserts near top with parent spacing before existing content",
           content = {
             "# Inbox",
             h.todo_line({ text = "Task A" }),
@@ -254,7 +254,7 @@ describe("API/move_todos", function()
               by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
-                root_spacing = 1,
+                parent_spacing = 1,
               },
             })
           end,
@@ -286,7 +286,7 @@ describe("API/move_todos", function()
               destination = {
                 heading = cm_heading.new("Done", 1),
                 append_top = false,
-                root_spacing = 1,
+                parent_spacing = 1,
               },
             })
           end,
@@ -437,6 +437,469 @@ describe("API/move_todos", function()
       })
     end)
 
+    it("should preserve_source_headings context when requested", function()
+      h.run_test_cases({
+        {
+          name = "nearest mode recreates each todo's immediate source heading under an existing destination heading",
+          content = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            "# Club",
+            h.todo_line({ text = "Task B" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Task A"),
+                  id_by_text(ctx.todo_map, "Task B"),
+                },
+              },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            "# Club",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "",
+            "### Club",
+            "",
+            h.todo_line({ text = "Task B" }),
+          },
+        },
+        {
+          name = "nearest mode keeps only the immediate source heading from a nested chain",
+          content = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus",
+            "## Archive",
+            "",
+            "#### Campus",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "all mode deduplicates shared ancestor prefixes between sibling source headings",
+          content = {
+            "# School",
+            "## Campus A",
+            h.todo_line({ text = "Task A" }),
+            "## Campus B",
+            h.todo_line({ text = "Task B" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Task A"),
+                  id_by_text(ctx.todo_map, "Task B"),
+                },
+              },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus A",
+            "## Campus B",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "#### Campus A",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "",
+            "#### Campus B",
+            "",
+            h.todo_line({ text = "Task B" }),
+          },
+        },
+        {
+          name = "orphan todos go directly into the destination beside headed groups",
+          content = {
+            h.todo_line({ text = "Orphan Task" }),
+            "# Work",
+            h.todo_line({ text = "Work Task" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Orphan Task"),
+                  id_by_text(ctx.todo_map, "Work Task"),
+                },
+              },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# Work",
+            "## Archive",
+            "",
+            h.todo_line({ text = "Orphan Task" }),
+            "",
+            "### Work",
+            "",
+            h.todo_line({ text = "Work Task" }),
+          },
+        },
+        {
+          name = "location-only mode stamps source headings at their original levels",
+          content = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Anchor" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                location = line_count(ctx.buffer),
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Anchor" }),
+            "# School",
+            "",
+            "## Campus",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "location plus heading mode normalizes source headings under the created heading",
+          content = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Anchor" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                location = line_count(ctx.buffer),
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            h.todo_line({ text = "Anchor" }),
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "blank_line_under_heading=false applies to generated source headings",
+          content = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                blank_line_under_heading = false,
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus",
+            "## Archive",
+            "### School",
+            "#### Campus",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "parent_spacing applies between top-level todos in the same preserved heading section",
+          content = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Task A"),
+                  id_by_text(ctx.todo_map, "Task B"),
+                },
+              },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                parent_spacing = 1,
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "",
+            h.todo_line({ text = "Task B" }),
+          },
+        },
+        {
+          name = "headings inside fenced code blocks are ignored when building source chains",
+          content = {
+            "```",
+            "## Not A Heading",
+            "```",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "```",
+            "## Not A Heading",
+            "```",
+            "## Archive",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "deep source heading levels are capped at Markdown level six under a destination heading",
+          content = {
+            "# School",
+            "##### Deep",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "##### Deep",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "###### Deep",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "full matching source chain merges payload into an existing nested destination heading",
+          content = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                append_top = false,
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "full matching source chain inserts near the top with parent spacing before existing content",
+          content = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                parent_spacing = 1,
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+          },
+        },
+        {
+          name = "partial matching source chain emits the diverging tail without applying parent_spacing above the heading",
+          content = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task A" }),
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing School" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                append_top = false,
+                parent_spacing = 2,
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing School" }),
+            "",
+            "#### Campus",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "partial matches sharing an existing parent create separate child sections",
+          content = {
+            "# School",
+            "## Campus A",
+            h.todo_line({ text = "Task A" }),
+            "## Campus B",
+            h.todo_line({ text = "Task B" }),
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing School" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = {
+                ids = {
+                  id_by_text(ctx.todo_map, "Task A"),
+                  id_by_text(ctx.todo_map, "Task B"),
+                },
+              },
+              destination = {
+                heading = cm_heading.new("Archive", 2),
+                append_top = false,
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected = {
+            "# School",
+            "## Campus A",
+            "## Campus B",
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Existing School" }),
+            "",
+            "#### Campus A",
+            "",
+            h.todo_line({ text = "Task A" }),
+            "",
+            "#### Campus B",
+            "",
+            h.todo_line({ text = "Task B" }),
+          },
+        },
+      })
+    end)
+
     it("should clean up or preserve source blank lines according to cleanup_source", function()
       h.run_test_cases({
         {
@@ -512,7 +975,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "root_spacing=1 inserts a blank line between each moved root todo",
+          name = "parent_spacing=1 inserts a blank line between each moved top-level todo block",
           content = {
             h.todo_line({ text = "Task A" }),
             h.todo_line({ text = "Task B" }),
@@ -531,7 +994,7 @@ describe("API/move_todos", function()
                   id_by_text(ctx.todo_map, "Task C"),
                 },
               },
-              destination = { location = line_count(ctx.buffer), root_spacing = 1 },
+              destination = { location = line_count(ctx.buffer), parent_spacing = 1 },
             })
           end,
           expected = {
@@ -739,7 +1202,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "multiple ids preserve source order and root spacing",
+          name = "multiple ids preserve source order and parent spacing",
           source = {
             h.todo_line({ text = "Task A" }),
             h.todo_line({ text = "Task B" }),
@@ -758,7 +1221,7 @@ describe("API/move_todos", function()
               },
               destination = {
                 bufnr = ctx.dest,
-                root_spacing = 1,
+                parent_spacing = 1,
               },
             })
           end,
@@ -837,6 +1300,84 @@ describe("API/move_todos", function()
           },
         },
         {
+          name = "preserve_source_headings nearest mode works across buffers",
+          source = {
+            "# School",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+          },
+          dest = {
+            "## Archive",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              destination = {
+                bufnr = ctx.dest,
+                heading = cm_heading.new("Archive", 2),
+              },
+              preserve_source_headings = "nearest",
+            })
+          end,
+          expected_source = {
+            "# School",
+            h.todo_line({ text = "Task B" }),
+          },
+          expected_dest = {
+            "## Archive",
+            "",
+            "### School",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "preserve_source_headings 'all' mode merges into existing nested headings across buffers",
+          source = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task A" }),
+            h.todo_line({ text = "Task B" }),
+          },
+          dest = {
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "#### Campus",
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              destination = {
+                bufnr = ctx.dest,
+                heading = cm_heading.new("Archive", 2),
+                append_top = false,
+                parent_spacing = 1,
+              },
+              preserve_source_headings = "all",
+            })
+          end,
+          expected_source = {
+            "# School",
+            "## Campus",
+            h.todo_line({ text = "Task B" }),
+          },
+          expected_dest = {
+            "## Archive",
+            "",
+            "### School",
+            "",
+            "#### Campus",
+            "",
+            h.todo_line({ text = "Existing Archived" }),
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
           name = "existing destination heading append bottom",
           source = {
             h.todo_line({ text = "Task A" }),
@@ -856,7 +1397,7 @@ describe("API/move_todos", function()
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Done", 1),
                 append_top = false,
-                root_spacing = 1,
+                parent_spacing = 1,
               },
             })
           end,

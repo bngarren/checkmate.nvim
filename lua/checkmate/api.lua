@@ -1761,10 +1761,10 @@ function M.move_todos(ctx, opts)
 end
 
 --- Archives completed todo items to a designated section.
---- It selects which todos qualify, then delegates the mechanical cut+paste to `lib.move.move_todos`.
+--- It selects which todos qualify, then delegates the mechanical cut+paste to |lib.move.move_todos|.
 ---
 ---@param ctx checkmate.TransactionContext
----@param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean, included_state_types?: string[], included_states?: string[]} Archive options
+---@param opts? {heading?: {title?: string, level?: integer}, newest_first?: boolean, included_state_types?: string[], included_states?: string[], preserve_source_headings?: checkmate.PreserveSourceHeadings} Archive options
 ---@return checkmate.TextDiffHunk[] hunks
 function M.archive_todos(ctx, opts)
   opts = opts or {}
@@ -1775,36 +1775,22 @@ function M.archive_todos(ctx, opts)
   local heading_level = (opts.heading and opts.heading.level) or config.options.archive.heading.level or 2
   local target_heading = cm_heading.new(heading_title, heading_level)
 
-  local include_children = opts.include_children ~= false
   local newest_first = opts.newest_first ~= nil and opts.newest_first or config.options.archive.newest_first ~= false
   local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
+  local preserve_source_headings = opts.preserve_source_headings
+  if preserve_source_headings == nil then
+    preserve_source_headings = config.options.archive.preserve_source_headings or false
+  end
 
   local target_state_types = opts.included_state_types or { "complete" }
   local target_states = opts.included_states or nil
 
-  -- locate the archive section to exclude todos already inside it
-  local archive_heading_string = target_heading:to_string()
+  -- Locate the archive section so we don't archive items that are already in
+  -- the archive. Treesitter gives us the true Markdown section end.
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  local archive_start_row, archive_end_row
-  do
-    local next_heading_pat = "^%s*" .. string.rep("#", 1, heading_level) .. "+%s"
-
-    for i, line in ipairs(current_buf_lines) do
-      if line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
-        archive_start_row = i - 1 -- 0-based
-        archive_end_row = #current_buf_lines - 1
-
-        for j = i + 1, #current_buf_lines do
-          if current_buf_lines[j]:match(next_heading_pat) then
-            archive_end_row = j - 2
-            break
-          end
-        end
-        break
-      end
-    end
-  end
+  local archive_sections = cm_heading.get_heading_sections(bufnr, current_buf_lines)
+  local archive_section = cm_heading.find_section(archive_sections, target_heading)
 
   -- Collect root todo IDs that qualify for archiving
   local todo_map = ctx.get_todo_map()
@@ -1819,9 +1805,9 @@ function M.archive_todos(ctx, opts)
     local id = entry.id
 
     -- Skip todos already inside the archive section
-    local in_arch = archive_start_row
-      and todo.range.start.row > archive_start_row
-      and todo.range["end"].row <= (archive_end_row or -1)
+    local in_arch = archive_section
+      and todo.range.start.row > archive_section.start_row
+      and todo.range["end"].row <= archive_section.end_row
 
     if not in_arch and not todo.parent_id then
       -- Check state qualification
@@ -1847,14 +1833,14 @@ function M.archive_todos(ctx, opts)
   -- Delegate to move_todos for the mechanical cut+paste
   local source_hunks = M.move_todos(ctx, {
     by = { ids = ids_to_archive },
-    include_children = include_children,
     cleanup_source = true,
+    preserve_source_headings = preserve_source_headings,
     destination = {
       -- same buffer
       bufnr = bufnr,
       heading = cm_heading.new(heading_title, heading_level),
       append_top = newest_first,
-      root_spacing = parent_spacing,
+      parent_spacing = parent_spacing,
     },
   })
 
@@ -1868,290 +1854,6 @@ function M.archive_todos(ctx, opts)
   end
 
   return source_hunks
-end
-
---- Archives completed todo items to a designated section
---- @param ctx checkmate.TransactionContext
---- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
---- @return checkmate.TextDiffHunk[] hunks
-function M.archive_todos_old(ctx, opts)
-  opts = opts or {}
-
-  local bufnr = ctx.get_buf()
-
-  -- create the Markdown heading that the user has defined, e.g. ## Archived
-  local archive_heading_string = cm_heading.get_heading_string(
-    opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
-    opts.heading and opts.heading.level or config.options.archive.heading.level or 2
-  )
-  local include_children = opts.include_children ~= false
-  local newest_first = opts.newest_first or config.options.archive.newest_first ~= false
-  local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
-
-  -- helpers
-
-  -- adds blank lines to the end of string[]
-  local function add_spacing(lines)
-    for _ = 1, parent_spacing do
-      lines[#lines + 1] = ""
-    end
-  end
-
-  local function trim_trailing_blank(lines)
-    while #lines > 0 and lines[#lines] == "" do
-      lines[#lines] = nil
-    end
-  end
-
-  local todo_map = ctx.get_todo_map()
-  local sorted_todos = util.get_sorted_todo_list(todo_map)
-  local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-  local archive_start_row, archive_end_row
-  do
-    local heading_level = archive_heading_string:match("^(#+)")
-    local heading_level_len = heading_level and #heading_level or 0
-    -- the 'next' heading level is a heading at the same or higher level
-    -- which represents a new section
-    local next_heading_pat = heading_level
-        and ("^%s*" .. string.rep("#", heading_level_len, heading_level_len) .. "+%s")
-      or "^%s*#+%s"
-
-    for i, line in ipairs(current_buf_lines) do
-      if line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
-        archive_start_row = i - 1 -- 0-indexed
-        archive_end_row = #current_buf_lines - 1
-
-        for j = i + 1, #current_buf_lines do
-          if current_buf_lines[j]:match(next_heading_pat) then
-            archive_end_row = j - 2
-            break
-          end
-        end
-        break
-      end
-    end
-  end
-
-  -- determine which root todos (and descendants) to archive
-
-  local todos_to_archive = {}
-  local archived_ranges = {} ---@type {start_row:integer, end_row:integer}[]
-  local archived_root_cnt = 0
-
-  for _, entry in ipairs(sorted_todos) do
-    ---@cast entry {id: integer, item: checkmate.TodoItem}
-    local todo = entry.item
-    local id = entry.id
-    local in_arch = archive_start_row -- could be nil if no archive section exists
-      and todo.range.start.row > archive_start_row
-      and todo.range["end"].row <= (archive_end_row or -1)
-
-    if not in_arch and todo.state_type == "complete" and not todo.parent_id and not todos_to_archive[id] then
-      -- mark root
-      todos_to_archive[id] = true
-      archived_root_cnt = archived_root_cnt + 1
-      archived_ranges[#archived_ranges + 1] = {
-        start_row = todo.range.start.row,
-        end_row = todo.range["end"].row,
-      }
-
-      -- mark descendants if requested
-      if include_children then
-        local function mark_descendants(pid)
-          for _, child_id in ipairs(todo_map[pid].children or {}) do
-            if not todos_to_archive[child_id] then
-              todos_to_archive[child_id] = true
-              mark_descendants(child_id)
-            end
-          end
-        end
-        mark_descendants(id)
-      end
-    end
-  end
-
-  if archived_root_cnt == 0 then
-    util.notify("No completed todo items to archive", vim.log.levels.INFO)
-    return {}
-  end
-
-  table.sort(archived_ranges, function(a, b)
-    return a.start_row < b.start_row
-  end)
-
-  -- collect archived lines (to insert into archive section)
-
-  local newly_archived_lines = {}
-  local to_delete = {} ---@type table<integer, boolean>
-
-  if #archived_ranges > 0 then
-    for idx, r in ipairs(archived_ranges) do
-      -- collect lines for archive payload
-      for row = r.start_row, r.end_row do
-        newly_archived_lines[#newly_archived_lines + 1] = current_buf_lines[row + 1]
-      end
-      -- spacing after each root todo except the last
-      if idx < #archived_ranges and parent_spacing > 0 then
-        add_spacing(newly_archived_lines)
-      end
-
-      -- mark all lines in the range for deletion
-      for row = r.start_row, r.end_row do
-        to_delete[row] = true
-      end
-    end
-  end
-
-  -- blank-line cleanup: avoid leaving stray empty lines after deletions
-  -- For each archived block, if the immediately following line is blank,
-  -- delete it when it would create double-blank or preserve an existing blank above
-  for _, r in ipairs(archived_ranges) do
-    local after = r.end_row + 1
-    local before = r.start_row - 1
-
-    if after <= #current_buf_lines - 1 and current_buf_lines[after + 1] == "" then
-      -- find the nearest surviving line above
-      while before >= 0 and to_delete[before] do
-        before = before - 1
-      end
-      local has_blank_before = (before >= 0) and (current_buf_lines[before + 1] == "")
-
-      -- if we already have a blank above (or the top is blank), remove the trailing blank
-      if has_blank_before then
-        to_delete[after] = true
-      end
-    end
-  end
-
-  -- make contiguous delete hunks rows marked in `to_delete`
-  -- Idea: scan the buffer once, whenever we see a run of deletable lines, start it...
-  -- when the run ends, emit one delete hunk covering [run_start, last_row]
-  local delete_hunks = {}
-  do
-    local run_start ---@type integer|nil
-    local function flush_run(last_row)
-      if run_start ~= nil then
-        table.insert(delete_hunks, diff.make_line_delete({ run_start, last_row }))
-        run_start = nil
-      end
-    end
-
-    for row = 0, #current_buf_lines - 1 do
-      if to_delete[row] then
-        if run_start == nil then
-          run_start = row
-        end
-      else
-        if run_start ~= nil then
-          flush_run(row - 1)
-        end
-      end
-    end
-    flush_run(#current_buf_lines - 1)
-  end
-
-  -- prepare archive section insertion/merge hunks
-
-  trim_trailing_blank(newly_archived_lines)
-
-  local archive_hunks = {}
-
-  if #newly_archived_lines > 0 then
-    if not archive_start_row then
-      -- no archive section exists yet: append at end of buffer
-      local line_count = #current_buf_lines
-
-      local insertion = {} --- heading + required blank + content
-      -- ensure single blank line before heading if buffer isn't empty & last line non-blank
-      local need_pre_blank = line_count > 0 and current_buf_lines[#current_buf_lines] ~= ""
-      if need_pre_blank then
-        insertion[#insertion + 1] = ""
-      end
-      insertion[#insertion + 1] = archive_heading_string
-      insertion[#insertion + 1] = ""
-      for _, l in ipairs(newly_archived_lines) do
-        insertion[#insertion + 1] = l
-      end
-
-      archive_hunks[#archive_hunks + 1] = diff.make_line_insert(line_count, insertion)
-    else
-      -- Archive section exists: normalize a single blank after heading,
-      -- then insert at top (newest_first) or append at bottom (!newest_first)
-
-      -- 1) normalize the run of blanks after the heading to exactly one
-      local first_nonblank_after = archive_start_row + 1
-      while first_nonblank_after <= archive_end_row and current_buf_lines[first_nonblank_after + 1] == "" do
-        first_nonblank_after = first_nonblank_after + 1
-      end
-      if first_nonblank_after == archive_start_row + 1 then
-        -- no blank line existed; create one right after heading
-        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(archive_start_row + 1, { "" })
-      else
-        -- there is at least one blank; compress to a single blank
-        archive_hunks[#archive_hunks + 1] = diff.make_line_replace(
-          { archive_start_row + 1, first_nonblank_after - 1 },
-          { "" }
-        )
-      end
-
-      if newest_first then
-        -- insert just after the single blank line under the heading
-        local insert_row = archive_start_row + 2
-        local payload = {}
-        for _, l in ipairs(newly_archived_lines) do
-          payload[#payload + 1] = l
-        end
-
-        -- if archive content already exists and spacing requested, add spacer between new and existing
-        local has_existing = (archive_end_row and (archive_end_row >= archive_start_row + 1))
-          and (archive_end_row >= insert_row)
-        if has_existing and parent_spacing > 0 then
-          add_spacing(payload)
-        end
-
-        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(insert_row, payload)
-      else
-        -- Append to bottom of existing archive content
-        -- Find the last non-blank line inside the archive section to avoid
-        -- inserting after a stray trailing blank
-        local tail = archive_end_row or (archive_start_row + 1)
-        while tail > archive_start_row and current_buf_lines[tail + 1] == "" do
-          tail = tail - 1
-        end
-
-        local append_at = tail + 1
-        local payload = {}
-
-        -- if there is existing content and spacing requested, add spacer first
-        local has_existing = tail > archive_start_row
-        if has_existing and parent_spacing > 0 then
-          add_spacing(payload)
-        end
-
-        for _, l in ipairs(newly_archived_lines) do
-          payload[#payload + 1] = l
-        end
-
-        archive_hunks[#archive_hunks + 1] = diff.make_line_insert(append_at, payload)
-      end
-    end
-  end
-
-  local hunks = {}
-  vim.list_extend(hunks, delete_hunks)
-  vim.list_extend(hunks, archive_hunks)
-
-  if archived_root_cnt > 0 then
-    ctx.add_cb(function()
-      util.notify(
-        ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
-        vim.log.levels.INFO
-      )
-    end)
-  end
-
-  return hunks
 end
 
 -- Helper function for handling cursor jumps after metadata operations

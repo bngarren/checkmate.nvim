@@ -9,6 +9,9 @@ endif
 FILE ?= $(f)
 TEST ?= $(t)
 BASENAME := $(basename $(notdir $(FILE)))
+TESTDATA_DIR := .testdata
+TEST_LOG_DIR := $(TESTDATA_DIR)/logs
+TEST_NVIM_LOG_FILE ?= $(CURDIR)/$(TEST_LOG_DIR)/nvim.log
 
 #    - If FILE is empty, leave FILE_PATH empty.
 #    - Else if FILE contains “/”, assume it’s already a path.
@@ -53,7 +56,8 @@ FILTER_ARG := $(if $(TEST),--filter='$(TEST)',)
 test:
 	@echo 'Running tests$(if $(FILE_PATH), (file=$(FILE_PATH)))$(if $(TEST), (test=$(TEST)))…'
 	@# If FILE_PATH is empty, busted runs the entire tests/checkmate tree. 
-	@nvim -l tests/busted.lua \
+	@mkdir -p $(TEST_LOG_DIR)
+	@NVIM_LOG_FILE=$(TEST_NVIM_LOG_FILE) nvim -l tests/busted.lua \
 	     $(ROOT) \
 	     -o tests/custom_reporter -Xoutput color \
 	     $(FILTER_ARG) \
@@ -68,7 +72,8 @@ test:
 # -------------------------------------------------
 test-file:
 	@echo 'Running single test file: $(FILE)'
-	@nvim -l tests/busted.lua $(FILE) \
+	@mkdir -p $(TEST_LOG_DIR)
+	@NVIM_LOG_FILE=$(TEST_NVIM_LOG_FILE) nvim -l tests/busted.lua $(FILE) \
 	     -o tests/custom_reporter -Xoutput color \
 	     $(ARGS)
 
@@ -78,7 +83,8 @@ test-file:
 #   Uses lazy.nvim
 # -------------------------------------------------
 test-interactive:
-	@nvim -u tests/interactive.lua 
+	@mkdir -p $(TEST_LOG_DIR)
+	@NVIM_LOG_FILE=$(TEST_NVIM_LOG_FILE) nvim -u tests/interactive.lua
 
 # -------------------------------------------------
 #   make test-interactive-pack
@@ -87,7 +93,9 @@ test-interactive:
 # -------------------------------------------------
 
 test-interactive-pack:
+	@mkdir -p $(TEST_LOG_DIR)
 	@TEST_ENV=$(or $(TEST_ENV),default) \
+	NVIM_LOG_FILE=$(TEST_NVIM_LOG_FILE) \
 	NVIM_APPNAME=$(or $(TEST_ENV),default) \
 	XDG_DATA_HOME=$(CURDIR)/.testdata/interactive-pack/data \
 	XDG_CONFIG_HOME=$(CURDIR)/.testdata/interactive-pack/config \

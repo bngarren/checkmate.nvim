@@ -78,6 +78,30 @@ function M.move_todos(src_bufnr, todo_map, opts)
   local src_lines = vim.api.nvim_buf_get_lines(src_bufnr, 0, -1, false)
   -- for cross-buffer moves- need a separate snapshot of the destination buffer
   local dest_lines = same_buffer and src_lines or vim.api.nvim_buf_get_lines(dest_bufnr, 0, -1, false)
+  -- Treesitter gives us real Markdown heading sections, including section_end.
+  -- Keep these lazy: explicit location moves do not need section discovery.
+  local src_heading_sections = nil ---@type checkmate.HeadingSection[]|nil
+  local dest_heading_sections = nil ---@type checkmate.HeadingSection[]|nil
+
+  local function get_src_heading_sections()
+    if not src_heading_sections then
+      src_heading_sections = cm_heading.get_heading_sections(src_bufnr, src_lines)
+    end
+
+    return src_heading_sections
+  end
+
+  local function get_dest_heading_sections()
+    if same_buffer then
+      return get_src_heading_sections()
+    end
+
+    if not dest_heading_sections then
+      dest_heading_sections = cm_heading.get_heading_sections(dest_bufnr, dest_lines)
+    end
+
+    return dest_heading_sections
+  end
 
   -- // Resolve source ranges
   --
@@ -203,21 +227,23 @@ function M.move_todos(src_bufnr, todo_map, opts)
     local target_rows = vim.tbl_map(function(r)
       return r.start_row
     end, source_ranges)
-    local chains = H.build_heading_chains(src_lines, target_rows)
+    local chains = H.build_heading_chains(target_rows, get_src_heading_sections())
     local groups = H.classify_source_groups(chains, source_ranges, preserve_source_headings, src_lines, parent_spacing)
 
     if target_heading and target_row == nil then
-      local outer_start, outer_end = H.find_heading_section(dest_lines, target_heading)
+      local destination_sections = get_dest_heading_sections()
+      local outer_section = cm_heading.find_section(destination_sections, target_heading)
 
-      if outer_start then
+      if outer_section then
         local merge_hunks, remaining_groups = H.try_merge_groups(
           dest_lines,
-          H.make_section(outer_start, outer_end, target_heading.level),
+          outer_section,
           groups,
           target_heading,
           newest_first,
           ensure_blank_line_under_heading,
-          parent_spacing
+          parent_spacing,
+          destination_sections
         )
         vim.list_extend(dest_hunks, merge_hunks)
         payload = H.build_enriched_payload(remaining_groups, target_heading, ensure_blank_line_under_heading)
@@ -308,9 +334,9 @@ function M.move_todos(src_bufnr, todo_map, opts)
     --
     -- which always creates a NEW heading section at that exact row
 
-    local section_start, section_end = H.find_heading_section(dest_lines, target_heading)
+    local section = cm_heading.find_section(get_dest_heading_sections(), target_heading)
 
-    if not section_start then
+    if not section then
       -- No matching heading exists
       --
       -- Create a new section at EOF:
@@ -336,190 +362,18 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
       dest_hunks[#dest_hunks + 1] = diff.make_line_insert(line_count, insertion)
     else
-      -- Matching heading exists.
-      --
-      -- We now need to insert inside this section
-      --
-      -- Rows are 0-based:
-      --   section_start = row containing "# Done"
-      --   section_end   = last row belonging to that heading section
-      --
-      -- Example:
-      --
-      --   row 2: # Done          <- section_start
-      --   row 3:
-      --   row 4: - existing      <- first non-blank content
-      --   row 5: # Later         <- not part of section
-      --
-      -- For this section, section_end is row 4
-
-      -- First, we find the first non-blank line after the heading
-      -- which tells us 3 important things:
-      --   1. whether the heading already has a blank line under it
-      --   2. whether the section has existing body content
-      --   3. where "near top" insertion should occur
-      --
-      -- If the section is empty or contains only blanks, first_nonblank becomes
-      -- section_end + 1.
-      local first_nonblank = section_start + 1
-
-      while first_nonblank <= section_end and dest_lines[first_nonblank + 1] == "" do
-        first_nonblank = first_nonblank + 1
-      end
-
-      local blank_start = section_start + 1
-      local blank_end = first_nonblank - 1
-      local blank_count = math.max(blank_end - blank_start + 1, 0)
-      local has_existing_content = first_nonblank <= section_end
-
-      if newest_first then
-        -- Insert near the top of the heading section.
-
-        local insert_payload = {}
-
-        if ensure_blank_line_under_heading then
-          if blank_count == 0 then
-            -- No blank under the heading:
-            -- insert both the required blank and the payload before the first
-            -- existing content line.
-            insert_payload[#insert_payload + 1] = ""
-
-            for _, line in ipairs(payload) do
-              insert_payload[#insert_payload + 1] = line
-            end
-
-            H.add_spacing_before_existing_content(
-              insert_payload,
-              dest_lines,
-              first_nonblank,
-              has_existing_content,
-              parent_spacing
-            )
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
-          elseif blank_count == 1 then
-            -- Exactly one blank already exists:
-            -- insert payload after that blank.
-            for _, line in ipairs(payload) do
-              insert_payload[#insert_payload + 1] = line
-            end
-
-            H.add_spacing_before_existing_content(
-              insert_payload,
-              dest_lines,
-              first_nonblank,
-              has_existing_content,
-              parent_spacing
-            )
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, insert_payload)
-          else
-            -- More than one blank exists:
-            -- replace the blank lines with exactly 1 blank followed by
-            -- the payload
-            insert_payload[#insert_payload + 1] = ""
-
-            for _, line in ipairs(payload) do
-              insert_payload[#insert_payload + 1] = line
-            end
-
-            H.add_spacing_before_existing_content(
-              insert_payload,
-              dest_lines,
-              first_nonblank,
-              has_existing_content,
-              parent_spacing
-            )
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, insert_payload)
-          end
-        else
-          -- opted out of blank-line normalization
-          -- so...we insert right after the heading, even if it butts up against the heading
-          for _, line in ipairs(payload) do
-            insert_payload[#insert_payload + 1] = line
-          end
-
-          H.add_spacing_before_existing_content(
-            insert_payload,
-            dest_lines,
-            first_nonblank,
-            has_existing_content,
-            parent_spacing
-          )
-
-          dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, insert_payload)
-        end
-      else
-        -- Append to the bottom of the existing section
-        --
-        -- even if there are a bunch of blank lines at the end of the section, we "trim" these...
-        -- by appending after the last non-blank line.
-
-        local tail = section_end
-
-        while tail > section_start and dest_lines[tail + 1] == "" do
-          tail = tail - 1
-        end
-
-        local has_body = tail > section_start
-        local append_payload = {}
-
-        if ensure_blank_line_under_heading and not has_body then
-          -- Empty section: heading followed by 0 or more blanks
-          -- In this case, appending to the "bottom" is effectively the same as
-          -- inserting near the top: normalize the heading blank and place the
-          -- payload immediately after it
-          if blank_count == 0 then
-            -- empty section with no blank under heading
-            append_payload[#append_payload + 1] = ""
-
-            for _, line in ipairs(payload) do
-              append_payload[#append_payload + 1] = line
-            end
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, append_payload)
-          elseif blank_count == 1 then
-            -- empty section with exactly one blank already present
-            -- easy! just insert payload after that blank
-            for _, line in ipairs(payload) do
-              append_payload[#append_payload + 1] = line
-            end
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 2, append_payload)
-          else
-            -- empty section with multiple blanks
-            -- just collapse all the blanks to 1 blank then insert payload
-            append_payload[#append_payload + 1] = ""
-
-            for _, line in ipairs(payload) do
-              append_payload[#append_payload + 1] = line
-            end
-
-            dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, append_payload)
-          end
-        else
-          -- Non-empty section, or blank-line normalization is disabled
-
-          if ensure_blank_line_under_heading then
-            if blank_count == 0 then
-              dest_hunks[#dest_hunks + 1] = diff.make_line_insert(section_start + 1, { "" })
-            elseif blank_count > 1 then
-              dest_hunks[#dest_hunks + 1] = diff.make_line_replace({ blank_start, blank_end }, { "" })
-            end
-          end
-
-          if has_body and parent_spacing > 0 then
-            H.add_spacing(append_payload, parent_spacing)
-          end
-
-          for _, line in ipairs(payload) do
-            append_payload[#append_payload + 1] = line
-          end
-
-          dest_hunks[#dest_hunks + 1] = diff.make_line_insert(tail + 1, append_payload)
-        end
-      end
+      vim.list_extend(
+        dest_hunks,
+        H.make_section_insert_hunks(
+          dest_lines,
+          section,
+          payload,
+          newest_first and "top" or "bottom",
+          ensure_blank_line_under_heading,
+          parent_spacing,
+          parent_spacing
+        )
+      )
     end
   else
     error("Checkmate: move_todos: destination must specify `destination.location` and/or `destination.heading`")
@@ -741,53 +595,31 @@ function H.add_group(groups, group, parent_spacing)
   end
 end
 
----@param line string
----@return boolean
-function H.is_fence_boundary(line)
-  return line:match("^%s*```") ~= nil or line:match("^%s*~~~") ~= nil
-end
-
 --- Finds the heading chain above each target row
---- I.e., find outermost heading -> each subheading -> until target row
 ---
 --- We snapshot the stack before reading the target row itself. That keeps the
 --- lookup strictly "headings above this row", which matches how callers expect
 --- preserve_source_headings to behave.
----@param buf_lines string[]
 ---@param target_rows integer[] i.e. first row of each todo
+---@param heading_sections checkmate.HeadingSection[]
 ---@return table<integer, checkmate.Heading[]>
-function H.build_heading_chains(buf_lines, target_rows)
-  local target_lookup = {}
-
-  for _, row in ipairs(target_rows) do
-    target_lookup[row] = true
-  end
-
+function H.build_heading_chains(target_rows, heading_sections)
   local chains = {}
-  local stack = {}
 
-  for idx, line in ipairs(buf_lines) do
-    local row = idx - 1
+  for _, target_row in ipairs(target_rows) do
+    local chain = {}
 
-    if target_lookup[row] then
-      chains[row] = H.copy_heading_chain(stack)
-    end
+    for _, section in ipairs(heading_sections) do
+      if section.start_row >= target_row then
+        break
+      end
 
-    if not H.is_fence_boundary(line) and cm_heading.get_atx_heading_level(line) then
-      local heading = cm_heading.from_atx_heading_string(line)
-
-      if heading then
-        while #stack > 0 and stack[#stack].level >= heading.level do
-          stack[#stack] = nil
-        end
-
-        stack[#stack + 1] = heading
+      if target_row <= section.end_row then
+        chain[#chain + 1] = section.heading
       end
     end
-  end
 
-  for _, row in ipairs(target_rows) do
-    chains[row] = chains[row] or {}
+    chains[target_row] = H.copy_heading_chain(chain)
   end
 
   return chains
@@ -889,115 +721,16 @@ function H.build_enriched_payload(groups, dest_heading, blank_line_under_heading
   return output
 end
 
----@param start_row integer
----@param end_row integer
----@param level integer
----@return {start_row: integer, end_row: integer, level: integer}
-function H.make_section(start_row, end_row, level)
-  return {
-    start_row = start_row,
-    end_row = end_row,
-    level = level,
-  }
-end
-
---- Builds a section record from a heading row.
---- The section ends before the next sibling or parent heading, or at the end
---- of the parent section if no sibling appears.
----@param lines string[]
----@param heading_row integer
----@param level integer
----@param parent_end integer
----@return {start_row: integer, end_row: integer, level: integer}
-function H.make_section_from_heading_row(lines, heading_row, level, parent_end)
-  local section_end = parent_end
-  local in_fence = false
-
-  for row = heading_row + 1, parent_end do
-    local line = lines[row + 1]
-
-    if H.is_fence_boundary(line) then
-      in_fence = not in_fence
-    elseif not in_fence then
-      local current_level = cm_heading.get_atx_heading_level(line)
-
-      if current_level and current_level <= level then
-        section_end = row - 1
-        break
-      end
-    end
-  end
-
-  return H.make_section(heading_row, section_end, level)
-end
-
---- Returns the row where the current heading section stops.
---- Used while scanning for a matching child heading so we can skip over
---- nested sections that cannot possibly contain a sibling match.
----@param lines string[]
----@param row integer
----@param parent_end integer
----@param level integer
----@return integer
-function H.next_section_row(lines, row, parent_end, level)
-  local in_fence = false
-
-  for next_row = row + 1, parent_end do
-    local line = lines[next_row + 1]
-
-    if H.is_fence_boundary(line) then
-      in_fence = not in_fence
-    elseif not in_fence then
-      local next_level = cm_heading.get_atx_heading_level(line)
-
-      if next_level and next_level <= level then
-        return next_row
-      end
-    end
-  end
-
-  return parent_end + 1
-end
-
 --- Finds an exact child heading section inside a parent section.
 --- This intentionally searches by normalized level + title. A `### School`
---- under Archive is different from a `#### School`, and headings inside
---- fences are just text.
----@param lines string[]
----@param parent_section {start_row: integer, end_row: integer, level: integer}
+--- under Archive is different from a `#### School`.
+---@param parent_section checkmate.HeadingSection
 ---@param title string
 ---@param level integer
----@return {start_row: integer, end_row: integer, level: integer}|nil
-function H.find_sub_heading_section(lines, parent_section, title, level)
-  local row = parent_section.start_row + 1
-  local in_fence = false
-
-  while row <= parent_section.end_row do
-    local line = lines[row + 1]
-
-    if H.is_fence_boundary(line) then
-      in_fence = not in_fence
-      row = row + 1
-    elseif in_fence then
-      row = row + 1
-    else
-      local current_level = cm_heading.get_atx_heading_level(line)
-
-      if current_level and current_level <= parent_section.level then
-        break
-      elseif current_level and current_level == level then
-        if H.is_matching_heading(line, cm_heading.new(title, level)) then
-          return H.make_section_from_heading_row(lines, row, level, parent_section.end_row)
-        end
-
-        row = H.next_section_row(lines, row, parent_section.end_row, level)
-      elseif current_level and current_level > parent_section.level and current_level < level then
-        row = H.next_section_row(lines, row, parent_section.end_row, current_level)
-      else
-        row = row + 1
-      end
-    end
-  end
+---@param heading_sections checkmate.HeadingSection[]
+---@return checkmate.HeadingSection|nil
+function H.find_sub_heading_section(parent_section, title, level, heading_sections)
+  return cm_heading.find_section(heading_sections, cm_heading.new(title, level), parent_section.start_row)
 end
 
 --- Walks a normalized source chain through the destination section tree.
@@ -1005,16 +738,16 @@ end
 --- - matched_depth == 0: no usable destination heading
 --- - matched_depth == #chain: insert todos into deepest_section
 --- - otherwise: emit the remaining heading tail inside deepest_section
----@param lines string[]
----@param outer_section {start_row: integer, end_row: integer, level: integer}
+---@param outer_section checkmate.HeadingSection
 ---@param normalized_chain checkmate.Heading[]
----@return {matched_depth: integer, deepest_section: {start_row: integer, end_row: integer, level: integer}}
-function H.walk_chain_match(lines, outer_section, normalized_chain)
+---@param heading_sections checkmate.HeadingSection[]
+---@return {matched_depth: integer, deepest_section: checkmate.HeadingSection}
+function H.walk_chain_match(outer_section, normalized_chain, heading_sections)
   local current_section = outer_section
   local matched_depth = 0
 
   for idx, heading in ipairs(normalized_chain) do
-    local section = H.find_sub_heading_section(lines, current_section, heading.title, heading.level)
+    local section = H.find_sub_heading_section(current_section, heading.title, heading.level, heading_sections)
 
     if not section then
       break
@@ -1034,7 +767,7 @@ end
 --- Insertion code uses this to avoid duplicating the same "how many blanks
 --- live under this heading?" logic across top and bottom insertion paths.
 ---@param lines string[]
----@param section {start_row: integer, end_row: integer, level: integer}
+---@param section checkmate.HeadingSection
 ---@return {first_nonblank: integer, blank_start: integer, blank_end: integer, blank_count: integer, has_existing_content: boolean, tail: integer, has_body: boolean}
 function H.get_section_layout(lines, section)
   local first_nonblank = section.start_row + 1
@@ -1068,9 +801,9 @@ end
 --- This happens when several source groups merge into one existing destination
 --- heading. Coalescing them here keeps the final diff small and prevents two
 --- hunks from fighting over the same row.
----@param pending table<string, {section: table, position: "top"|"bottom", payload: string[], min_pre_spacing: integer}>
+---@param pending table<string, {section: checkmate.HeadingSection, position: "top"|"bottom", payload: string[], min_pre_spacing: integer}>
 ---@param order string[]
----@param section {start_row: integer, end_row: integer, level: integer}
+---@param section checkmate.HeadingSection
 ---@param position "top"|"bottom"
 ---@param payload string[]
 ---@param parent_spacing integer
@@ -1115,7 +848,7 @@ end
 --- blank under heading, parent spacing between todo blocks, and the small
 --- structural separator before a newly emitted child heading.
 ---@param lines string[]
----@param section {start_row: integer, end_row: integer, level: integer}
+---@param section checkmate.HeadingSection
 ---@param payload string[]
 ---@param position "top"|"bottom"
 ---@param ensure_blank_line_under_heading boolean
@@ -1244,12 +977,13 @@ end
 ---
 --- No match and orphan groups go back to the normal enriched-payload path.
 ---@param lines string[]
----@param outer_section {start_row: integer, end_row: integer, level: integer}
+---@param outer_section checkmate.HeadingSection
 ---@param groups {chain: checkmate.Heading[], payload: string[]}[]
 ---@param dest_heading checkmate.Heading
 ---@param append_top boolean
 ---@param ensure_blank_line_under_heading boolean
 ---@param parent_spacing integer
+---@param heading_sections checkmate.HeadingSection[]
 ---@return checkmate.TextDiffHunk[] hunks
 ---@return {chain: checkmate.Heading[], payload: string[]}[] remaining_groups
 function H.try_merge_groups(
@@ -1259,7 +993,8 @@ function H.try_merge_groups(
   dest_heading,
   append_top,
   ensure_blank_line_under_heading,
-  parent_spacing
+  parent_spacing,
+  heading_sections
 )
   local pending = {}
   local order = {}
@@ -1270,7 +1005,7 @@ function H.try_merge_groups(
       remaining_groups[#remaining_groups + 1] = group
     else
       local normalized_chain = H.normalized_chain(group.chain, dest_heading)
-      local match = H.walk_chain_match(lines, outer_section, normalized_chain)
+      local match = H.walk_chain_match(outer_section, normalized_chain, heading_sections)
 
       if match.matched_depth == 0 then
         remaining_groups[#remaining_groups + 1] = group
@@ -1381,56 +1116,6 @@ function H.resolve_source_ranges(todo_map, by)
   end)
 
   return ranges
-end
-
----@param line string
----@param heading checkmate.Heading
----@return boolean
-function H.is_matching_heading(line, heading)
-  local level = cm_heading.get_atx_heading_level(line)
-  if level ~= heading.level then
-    return false
-  end
-
-  -- Matches:
-  --   ## Title
-  --   ## Title ##   (with the commonmark optional hashes at the end)
-  -- but not:
-  --   ## Title extra
-  local hashes = string.rep("#", heading.level)
-  local title = vim.pesc(vim.trim(heading.title))
-  return line:match("^%s*" .. hashes .. "%s+" .. title .. "%s*#*%s*$") ~= nil
-end
-
----@param lines string[]
----@param heading checkmate.Heading
----@return integer|nil section_start 0-based heading row
----@return integer|nil section_end 0-based inclusive final row in section
-function H.find_heading_section(lines, heading)
-  local section_start = nil ---@type integer|nil
-  local section_end = nil ---@type integer|nil
-
-  for i, line in ipairs(lines) do
-    if H.is_matching_heading(line, heading) then
-      section_start = i - 1
-      section_end = #lines - 1
-
-      for j = i + 1, #lines do
-        local level = cm_heading.get_atx_heading_level(lines[j])
-
-        -- A section ends at the line before the next heading of the same or
-        -- higher rank. Example: a level-3 section is closed by level 1, 2, or 3.
-        if level and level <= heading.level then
-          section_end = j - 2
-          break
-        end
-      end
-
-      break
-    end
-  end
-
-  return section_start, section_end
 end
 
 return M

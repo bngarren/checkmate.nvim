@@ -1786,44 +1786,12 @@ function M.archive_todos(ctx, opts)
   local target_state_types = opts.included_state_types or { "complete" }
   local target_states = opts.included_states or nil
 
-  -- locate the archive section to exclude todos already inside it
-  local archive_heading_string = target_heading:to_string()
+  -- Locate the archive section so we don't archive items that are already in
+  -- the archive. Treesitter gives us the true Markdown section end.
   local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  local archive_start_row, archive_end_row
-  do
-    local function is_fence_boundary(line)
-      return line:match("^%s*```") ~= nil or line:match("^%s*~~~") ~= nil
-    end
-
-    local in_fence = false
-
-    for i, line in ipairs(current_buf_lines) do
-      if is_fence_boundary(line) then
-        in_fence = not in_fence
-      elseif not in_fence and line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
-        archive_start_row = i - 1 -- 0-based
-        archive_end_row = #current_buf_lines - 1
-
-        local section_in_fence = false
-        for j = i + 1, #current_buf_lines do
-          local section_line = current_buf_lines[j]
-
-          if is_fence_boundary(section_line) then
-            section_in_fence = not section_in_fence
-          elseif not section_in_fence then
-            local level = cm_heading.get_atx_heading_level(section_line)
-
-            if level and level <= heading_level then
-              archive_end_row = j - 2
-              break
-            end
-          end
-        end
-        break
-      end
-    end
-  end
+  local archive_sections = cm_heading.get_heading_sections(bufnr, current_buf_lines)
+  local archive_section = cm_heading.find_section(archive_sections, target_heading)
 
   -- Collect root todo IDs that qualify for archiving
   local todo_map = ctx.get_todo_map()
@@ -1838,9 +1806,9 @@ function M.archive_todos(ctx, opts)
     local id = entry.id
 
     -- Skip todos already inside the archive section
-    local in_arch = archive_start_row
-      and todo.range.start.row > archive_start_row
-      and todo.range["end"].row <= (archive_end_row or -1)
+    local in_arch = archive_section
+      and todo.range.start.row > archive_section.start_row
+      and todo.range["end"].row <= archive_section.end_row
 
     if not in_arch and not todo.parent_id then
       -- Check state qualification

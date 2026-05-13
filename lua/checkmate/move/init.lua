@@ -1,4 +1,4 @@
---- move.lua module
+--- move module
 ---
 --- Provides business logic for "cut & paste" functionality for
 --- moving Checkmate Todo items within or between buffers
@@ -33,16 +33,21 @@ local diff = require("checkmate.lib.diff")
 local cm_heading = require("checkmate.lib.heading")
 local log = require("checkmate.log")
 
+---@class checkmate.InternalMoveTodosSource : checkmate.MoveTodosSource
+---@field bufnr integer
+
 ---@class checkmate.InternalMoveTodosDestination : checkmate.MoveTodosDestination
 ---@field bufnr integer
----@field location? integer
----@field heading? checkmate.Heading
----@field parent_spacing integer
 
----@class checkmate.InternalMoveTodosOpts : checkmate.MoveTodosOpts
----@field by { ids?: integer[], range?: checkmate.Range }
+---@class checkmate.InternalMoveTodosInsertion : checkmate.MoveTodosInsertion
+
+---@class checkmate.InternalMoveTodosArgs
+---@field source checkmate.InternalMoveTodosSource
 ---@field destination checkmate.InternalMoveTodosDestination
----@field cleanup_source boolean
+---@field insertion? checkmate.InternalMoveTodosInsertion
+---@field todo_map checkmate.TodoMap
+---@field cleanup_source? boolean
+---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 
 --- Moves selected todo subtrees from the source buffer to a destination buffer (could be the same as src)
 ---
@@ -50,30 +55,37 @@ local log = require("checkmate.log")
 ---   1. source_hunks  – deletions to apply to source buffer
 ---   2. dest_hunks    – insertions to apply to the destination buffer
 ---
----@param src_bufnr integer Source buffer
----@param todo_map checkmate.TodoMap Source todo map
----@param opts checkmate.InternalMoveTodosOpts
+---@param args checkmate.InternalMoveTodosArgs
 ---@return checkmate.TextDiffHunk[] source_hunks Deletions in the source buffer
 ---@return checkmate.TextDiffHunk[] dest_hunks   Insertions in the destination buffer
-function M.move_todos(src_bufnr, todo_map, opts)
-  local ok, err = H.validate_move_opts(src_bufnr, opts)
+function M.move_todos(args)
+  local ok, err = H.validate_move_args(args)
   if not ok then
-    log.warn("[lib.move.move_todos] " .. err)
+    log.warn("[move.move_todos] " .. err)
     return {}, {}
   end
 
-  local dest_bufnr = opts.destination.bufnr or src_bufnr
+  local src_bufnr = args.source.bufnr
+  local todo_map = args.todo_map
+  local dest_bufnr = args.destination.bufnr
   local same_buffer = (src_bufnr == dest_bufnr)
 
-  local target_row = opts.destination.location
-  local target_heading = opts.destination.heading
-  -- parent_spacing means "between top-level todo blocks in the same final
-  -- section"
-  local parent_spacing = math.max(opts.destination.parent_spacing or 0, 0)
-  local newest_first = opts.destination.append_top ~= false -- default true
-  local ensure_blank_line_under_heading = opts.destination.blank_line_under_heading ~= false -- default true
-  local cleanup_source = opts.cleanup_source ~= false -- default true
-  local preserve_source_headings = opts.preserve_source_headings or false
+  local target_row = args.destination.row
+  local target_heading = H.normalize_heading(args.destination.heading)
+  local insertion_opts = args.insertion or {}
+  -- Public move_todos() normalizes source/destination buffers and an omitted
+  -- destination target. This module owns:
+  -- - placement nil => top/newest-first
+  -- - parent_spacing nil => 0, negative values clamp to 0
+  -- - blank_line_under_heading nil => true
+  -- - cleanup_source nil => true
+  -- - preserve_source_headings nil => false
+  -- parent_spacing means "between top-level todo blocks in the same final section"
+  local parent_spacing = math.max(insertion_opts.parent_spacing or 0, 0)
+  local newest_first = insertion_opts.placement ~= "bottom" -- default true
+  local ensure_blank_line_under_heading = insertion_opts.blank_line_under_heading ~= false -- default true
+  local cleanup_source = args.cleanup_source ~= false -- default true
+  local preserve_source_headings = args.preserve_source_headings or false
 
   -- all hunks below are computed from these snapshots
   -- ...so we don't want to re-read buffers mid move. been there, done that, not fun.
@@ -106,7 +118,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
   -- // Resolve source ranges - first step in determining what gets cut
   --
-  -- turn the user's selector (e.g. `by.ids`, `by.range`, or both) into non-overlapping
+  -- turn the user's selector (e.g. `source.ids`, `source.range`, or both) into non-overlapping
   -- root ranges
   --
   -- the payload we eventually move should contain each source line ONLY once at most...
@@ -118,7 +130,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
   -- - selecting multiple siblings moves each sibling subtree once
   -- - duplicate ids are ignored
 
-  local source_ranges = H.resolve_source_ranges(todo_map, opts.by)
+  local source_ranges = H.resolve_source_ranges(todo_map, args.source)
 
   if #source_ranges == 0 then
     return {}, {} -- no source todos, return empty diff hunks
@@ -204,14 +216,14 @@ function M.move_todos(src_bufnr, todo_map, opts)
   --
   -- Destination modes:
   --
-  -- 1. location only:
+  -- 1. row only:
   --      Insert payload directly before an explicit 0-based line boundary
   --
   -- 2. heading only:
   --      Find an existing ATX heading section and insert into it. If the heading does
   --      not exist, create the heading section at EOF
   --
-  -- 3. location + heading:
+  -- 3. row + heading:
   --      Create a new heading section at the explicit line boundary. This mode
   --      does not search for or reuse an existing heading
   --
@@ -319,7 +331,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
 
     -- Source ranges existed but contained only blank lines after trimming...
     -- Hmm. this shouldn't occur with valid todos...we should abort entirely and log this
-    log.error("[lib.move.move_todos] payload is empty after trimming; aborting move to avoid partial mutation")
+    log.error("[move.move_todos] payload is empty after trimming; aborting move to avoid partial mutation")
     return {}, {}
   end
 
@@ -334,7 +346,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
     if not H.validate_line_boundary(target_row, dest_lines) then
       log.warn(
         string.format(
-          "[lib.move.move_todos] destination row %s out of bounds; expected 0..%d",
+          "[move.move_todos] destination row %s out of bounds; expected 0..%d",
           tostring(target_row),
           #dest_lines
         )
@@ -346,7 +358,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
     if same_buffer then
       for _, r in ipairs(source_ranges) do
         if target_row >= r.start_row and target_row <= r.end_row + 1 then
-          log.warn("[lib.move.move_todos] destination is inside moved range; aborting")
+          log.warn("[move.move_todos] destination is inside moved range; aborting")
           return {}, {}
         end
       end
@@ -377,7 +389,7 @@ function M.move_todos(src_bufnr, todo_map, opts)
     --
     -- This is different from:
     --
-    --   destination = { location = row, heading = heading }
+    --   destination = { row = row, heading = heading }
     --
     -- which always creates a NEW heading section at that exact row
 
@@ -424,59 +436,111 @@ function M.move_todos(src_bufnr, todo_map, opts)
       )
     end
   else
-    error("Checkmate: move_todos: destination must specify `destination.location` and/or `destination.heading`")
+    error("Checkmate: move_todos: destination must specify `destination.row` and/or `destination.heading`")
   end
 
   return source_hunks, dest_hunks
 end
 
-function H.has_source_selector(opts)
-  return opts and opts.by and ((opts.by.ids and #opts.by.ids > 0) or opts.by.range ~= nil)
+function H.has_source_selector(source)
+  return source and ((source.ids and #source.ids > 0) or source.range ~= nil)
 end
 
 function H.is_heading(value)
-  return type(value) == "table" and value.title ~= nil and value.level ~= nil
+  return type(value) == "table"
+    and type(value.title) == "string"
+    and (value.level == nil or type(value.level) == "number")
 end
 
-function H.validate_move_opts(src_bufnr, opts)
+---@param value checkmate.Heading|{title: string, level?: integer}|nil
+---@return checkmate.Heading|nil
+function H.normalize_heading(value)
+  if value == nil then
+    return nil
+  end
+
+  return cm_heading.new(value.title, value.level or 2)
+end
+
+function H.validate_move_args(args)
+  if not args or type(args) ~= "table" then
+    return false, "missing args"
+  end
+
+  if not args.source or type(args.source) ~= "table" then
+    return false, "missing source"
+  end
+
+  local src_bufnr = args.source.bufnr
   if type(src_bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(src_bufnr) then
     return false, "invalid source buffer"
   end
 
-  if not opts or type(opts) ~= "table" then
-    return false, "missing opts"
+  if not args.todo_map then
+    return false, "missing source todo_map"
   end
 
-  if not H.has_source_selector(opts) then
-    return false, "missing source selector: expected opts.by.ids or opts.by.range"
+  if not H.has_source_selector(args.source) then
+    return false, "missing source selector: expected source.ids or source.range"
   end
 
-  if not opts.destination then
+  if not args.destination then
     return false, "missing destination"
   end
 
-  local dest_bufnr = opts.destination.bufnr or src_bufnr
+  local dest_bufnr = args.destination.bufnr
   if not vim.api.nvim_buf_is_valid(dest_bufnr) then
     return false, "invalid destination buffer"
   end
 
-  local location = opts.destination.location
-  local heading = opts.destination.heading
+  local row = args.destination.row
+  local heading = args.destination.heading
 
-  if location ~= nil and type(location) ~= "number" then
-    return false, "destination.location must be a line-boundary integer"
+  if row ~= nil and type(row) ~= "number" then
+    return false, "destination.row must be a line-boundary integer"
   end
 
   if heading ~= nil and not H.is_heading(heading) then
-    return false, "destination.heading must be a checkmate.Heading"
+    return false, "destination.heading must be a heading table"
   end
 
-  if location == nil and heading == nil then
-    return false, "missing destination target: expected destination.location and/or destination.heading"
+  if row == nil and heading == nil then
+    return false, "missing destination target: expected destination.row and/or destination.heading"
+  end
+
+  for _, field in ipairs({ "placement", "parent_spacing", "blank_line_under_heading" }) do
+    if args.destination[field] ~= nil then
+      return false, ("destination.%s has moved to insertion.%s"):format(field, field)
+    end
+  end
+
+  local insertion = args.insertion or {}
+  if type(insertion) ~= "table" then
+    return false, "insertion must be a table"
+  end
+
+  for _, field in ipairs({ "bufnr", "row", "heading" }) do
+    if insertion[field] ~= nil then
+      return false, ("insertion.%s belongs in destination.%s"):format(field, field)
+    end
+  end
+
+  if insertion.placement ~= nil and insertion.placement ~= "top" and insertion.placement ~= "bottom" then
+    return false, "insertion.placement must be 'top' or 'bottom'"
+  end
+
+  if insertion.parent_spacing ~= nil then
+    if type(insertion.parent_spacing) ~= "number" or insertion.parent_spacing % 1 ~= 0 then
+      return false, "insertion.parent_spacing must be an integer"
+    end
+  end
+
+  if insertion.blank_line_under_heading ~= nil and type(insertion.blank_line_under_heading) ~= "boolean" then
+    return false, "insertion.blank_line_under_heading must be boolean"
   end
 
   if
-    opts.preserve_source_headings ~= nil and not H.is_valid_preserve_source_headings(opts.preserve_source_headings)
+    args.preserve_source_headings ~= nil and not H.is_valid_preserve_source_headings(args.preserve_source_headings)
   then
     return false, "preserve_source_headings must be false, 'nearest', or 'all'"
   end
@@ -890,7 +954,7 @@ end
 ---
 --- i.e., during |try_merge_groups()|, this consolidates multiple groups that
 --- need to insert into the same existing destination section. reduces having
---- multiple hunks targeted the same row (could be brittle/messy maybe...maybe overkill)
+--- multiple hunks targeting the same row (could be brittle/messy maybe...maybe overkill)
 ---
 --- `pending_inserts` are the groups that have a destination section but are queued while figuring
 --- out if others share this destination section too, before turning into hunks
@@ -1080,15 +1144,15 @@ end
 ---
 --- No match and orphan groups go back to the normal enriched-payload path
 ---
---- `append_top` behavior:
----   - full matches honor append_top and insert todos at the top or bottom of the section
+--- `insert_at_top` behavior:
+---   - full matches honor insert_at_top and insert todos at the top or bottom of the section
 ---   - partial matches insert the newly created heading tail (the rest of the non matched chain)
 ---     at the bottom of the deepest matched section
 ---@param lines string[]
 ---@param outer_section checkmate.HeadingSection
 ---@param groups {chain: checkmate.Heading[], payload: string[]}[]
 ---@param dest_heading checkmate.Heading
----@param append_top boolean
+---@param insert_at_top boolean
 ---@param ensure_blank_line_under_heading boolean
 ---@param parent_spacing integer
 ---@param heading_sections checkmate.HeadingSection[]
@@ -1099,7 +1163,7 @@ function H.try_merge_groups(
   outer_section,
   groups,
   dest_heading,
-  append_top,
+  insert_at_top,
   ensure_blank_line_under_heading,
   parent_spacing,
   heading_sections
@@ -1124,7 +1188,7 @@ function H.try_merge_groups(
           pending,
           order,
           match.deepest_section,
-          append_top and "top" or "bottom",
+          insert_at_top and "top" or "bottom",
           group.payload,
           parent_spacing,
           0
@@ -1163,14 +1227,15 @@ function H.try_merge_groups(
   return hunks, remaining_groups
 end
 
---- collects candidates from by.ids, from by.range, or both
+--- collects candidates from source.ids, from source.range, or both
 --- Then removes any selected todo whose ancestor is also selected
 --- When selecting by `range`, the range must overlap the todo's first line
 --- (i.e. can't just select a part of the todo's subtree)
 ---@param todo_map checkmate.TodoMap
----@param by { ids?: integer[], range?: checkmate.Range }
+---@param source checkmate.MoveTodosSource
 ---@return {start_row: integer, end_row: integer, id: integer}[]
-function H.resolve_source_ranges(todo_map, by)
+function H.resolve_source_ranges(todo_map, source)
+  source = source or {}
   local candidates = {}
 
   local function add_candidate(todo)
@@ -1179,21 +1244,21 @@ function H.resolve_source_ranges(todo_map, by)
     end
   end
 
-  if by.ids then
-    for _, id in ipairs(by.ids) do
+  if source.ids then
+    for _, id in ipairs(source.ids) do
       local todo = todo_map[id]
       if todo then
         add_candidate(todo)
       else
-        log.fmt_warn("[lib.move.move_todos] id %d not found in todo_map, skipping", id)
+        log.fmt_warn("[move.move_todos] id %d not found in todo_map, skipping", id)
       end
     end
   end
 
   -- range must contain the todo's first line
-  if by.range then
+  if source.range then
     for _, todo in ipairs(todo_map) do
-      if by.range:contains({ row = todo.range.start.row, col = todo.range.start.col }) then
+      if source.range:contains({ row = todo.range.start.row, col = todo.range.start.col }) then
         add_candidate(todo)
       end
     end

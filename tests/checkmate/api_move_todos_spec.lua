@@ -92,8 +92,8 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
-              destination = { location = 2 },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = { row = 2 },
             })
           end,
           expected = {
@@ -112,8 +112,8 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Parent A") } },
-              destination = { location = line_count(ctx.buffer) },
+              source = { ids = { id_by_text(ctx.todo_map, "Parent A") } },
+              destination = { row = line_count(ctx.buffer) },
             })
           end,
           expected = {
@@ -133,14 +133,16 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task C"),
                 },
               },
               destination = {
-                location = line_count(ctx.buffer),
+                row = line_count(ctx.buffer),
+              },
+              insertion = {
                 parent_spacing = 1,
               },
             })
@@ -165,7 +167,7 @@ describe("API/move_todos", function()
           selection = { 2, 0, 3, 0, "V" },
           action = function(cm)
             cm.move_todos({
-              destination = { parent_spacing = 0 },
+              insertion = { parent_spacing = 0 },
             })
           end,
           expected = {
@@ -191,7 +193,7 @@ describe("API/move_todos", function()
           selection = { 3, 0, 4, 0, "V" },
           action = function(cm)
             cm.move_todos({
-              destination = { parent_spacing = 0 },
+              insertion = { parent_spacing = 0 },
             })
           end,
           expected = {
@@ -222,7 +224,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
               },
@@ -251,9 +253,11 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
+              },
+              insertion = {
                 parent_spacing = 1,
               },
             })
@@ -270,7 +274,27 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "existing heading append_top=false appends to bottom of section",
+          name = "plain heading table is normalized",
+          content = {
+            h.todo_line({ text = "Task A" }),
+            "## Done",
+          },
+          action = function(cm, ctx)
+            cm.move_todos({
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = {
+                heading = { title = "Done", level = 2 },
+              },
+            })
+          end,
+          expected = {
+            "## Done",
+            "",
+            h.todo_line({ text = "Task A" }),
+          },
+        },
+        {
+          name = "existing heading placement=bottom appends to bottom of section",
           content = {
             "# Inbox",
             h.todo_line({ text = "Task A" }),
@@ -282,10 +306,12 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
                 parent_spacing = 1,
               },
             })
@@ -311,9 +337,9 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                -- no `location`
+                -- no `row`
                 heading = cm_heading.new("Done", 1),
               },
             })
@@ -337,7 +363,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
               },
@@ -363,7 +389,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
               },
@@ -387,9 +413,11 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Done", 1),
+              },
+              insertion = {
                 blank_line_under_heading = false,
               },
             })
@@ -403,7 +431,7 @@ describe("API/move_todos", function()
         },
         {
           name = "inserts new heading at specific line boundary",
-          -- i.e., when both heading and location are given as opts
+          -- i.e., when both heading and row are given as opts
           content = {
             "# Inbox",
             h.todo_line({ text = "Task A" }),
@@ -415,10 +443,10 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Pending", 1),
-                location = 4, -- before "# Saved"
+                row = 4, -- before "# Saved"
               },
             })
           end,
@@ -450,7 +478,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task B"),
@@ -486,7 +514,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
               },
@@ -515,7 +543,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task B"),
@@ -554,7 +582,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Orphan Task"),
                   id_by_text(ctx.todo_map, "Work Task"),
@@ -578,7 +606,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "location-only mode stamps source headings at their original levels",
+          name = "row-only mode stamps source headings at their original levels",
           content = {
             "# School",
             "## Campus",
@@ -587,9 +615,9 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                location = line_count(ctx.buffer),
+                row = line_count(ctx.buffer),
               },
               preserve_source_headings = "all",
             })
@@ -606,7 +634,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "location plus heading mode normalizes source headings under the created heading",
+          name = "row plus heading mode normalizes source headings under the created heading",
           content = {
             "# School",
             h.todo_line({ text = "Task A" }),
@@ -614,9 +642,9 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
-                location = line_count(ctx.buffer),
+                row = line_count(ctx.buffer),
                 heading = cm_heading.new("Archive", 2),
               },
               preserve_source_headings = "nearest",
@@ -642,9 +670,11 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
+              },
+              insertion = {
                 blank_line_under_heading = false,
               },
               preserve_source_headings = "all",
@@ -669,7 +699,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task B"),
@@ -677,6 +707,8 @@ describe("API/move_todos", function()
               },
               destination = {
                 heading = cm_heading.new("Archive", 2),
+              },
+              insertion = {
                 parent_spacing = 1,
               },
               preserve_source_headings = "nearest",
@@ -704,7 +736,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
               },
@@ -730,7 +762,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
               },
@@ -762,10 +794,12 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
               },
               preserve_source_headings = "nearest",
             })
@@ -793,9 +827,11 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
+              },
+              insertion = {
                 parent_spacing = 1,
               },
               preserve_source_headings = "nearest",
@@ -826,10 +862,12 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = cm_heading.new("Archive", 2),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
                 parent_spacing = 2,
               },
               preserve_source_headings = "all",
@@ -865,7 +903,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task B"),
@@ -873,7 +911,9 @@ describe("API/move_todos", function()
               },
               destination = {
                 heading = cm_heading.new("Archive", 2),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
               },
               preserve_source_headings = "all",
             })
@@ -913,8 +953,8 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task B") } },
-              destination = { location = line_count(ctx.buffer) },
+              source = { ids = { id_by_text(ctx.todo_map, "Task B") } },
+              destination = { row = line_count(ctx.buffer) },
               cleanup_source = true,
             })
           end,
@@ -936,8 +976,8 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task B") } },
-              destination = { location = line_count(ctx.buffer) },
+              source = { ids = { id_by_text(ctx.todo_map, "Task B") } },
+              destination = { row = line_count(ctx.buffer) },
               cleanup_source = false,
             })
           end,
@@ -955,7 +995,7 @@ describe("API/move_todos", function()
     it("should support destination option edge cases", function()
       h.run_test_cases({
         {
-          name = "location=0 prepends todos to the very top of the buffer",
+          name = "row=0 prepends todos to the very top of the buffer",
           content = {
             h.todo_line({ text = "Existing" }),
             h.todo_line({ text = "Task A" }),
@@ -965,8 +1005,8 @@ describe("API/move_todos", function()
           end,
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
-              destination = { location = 0 },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = { row = 0 },
             })
           end,
           expected = {
@@ -987,14 +1027,15 @@ describe("API/move_todos", function()
           end,
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.todo_map, "Task A"),
                   id_by_text(ctx.todo_map, "Task B"),
                   id_by_text(ctx.todo_map, "Task C"),
                 },
               },
-              destination = { location = line_count(ctx.buffer), parent_spacing = 1 },
+              destination = { row = line_count(ctx.buffer) },
+              insertion = { parent_spacing = 1 },
             })
           end,
           expected = {
@@ -1007,7 +1048,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "append_top=false appends to the bottom of an existing heading section",
+          name = "placement=bottom appends to the bottom of an existing heading section",
           content = {
             "## Done",
             "",
@@ -1022,8 +1063,9 @@ describe("API/move_todos", function()
           end,
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
-              destination = { heading = ctx.heading, append_top = false },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              destination = { heading = ctx.heading },
+              insertion = { placement = "bottom" },
             })
           end,
           expected = {
@@ -1048,9 +1090,11 @@ describe("API/move_todos", function()
           end,
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.todo_map, "Task A") } },
               destination = {
                 heading = ctx.heading,
+              },
+              insertion = {
                 blank_line_under_heading = false,
               },
             })
@@ -1074,7 +1118,7 @@ describe("API/move_todos", function()
           cursor = { 1, 0 },
           action = function(cm, ctx)
             local result = cm.move_todos({
-              destination = { location = line_count(ctx.buffer) },
+              destination = { row = line_count(ctx.buffer) },
             })
             assert.is_false(result)
           end,
@@ -1159,10 +1203,10 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
-                location = line_count(ctx.dest),
+                row = line_count(ctx.dest),
               },
             })
           end,
@@ -1175,7 +1219,7 @@ describe("API/move_todos", function()
           },
         },
         {
-          name = "destination buffer default location uses destination EOF",
+          name = "destination buffer default row uses destination EOF",
           source = {
             h.todo_line({ text = "Task A" }),
             h.todo_line({ text = "Task B" }),
@@ -1186,7 +1230,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
               },
@@ -1213,7 +1257,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = {
+              source = {
                 ids = {
                   id_by_text(ctx.source_todo_map, "Task A"),
                   id_by_text(ctx.source_todo_map, "Task C"),
@@ -1221,6 +1265,8 @@ describe("API/move_todos", function()
               },
               destination = {
                 bufnr = ctx.dest,
+              },
+              insertion = {
                 parent_spacing = 1,
               },
             })
@@ -1248,7 +1294,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Parent A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Parent A") } },
               destination = {
                 bufnr = ctx.dest,
               },
@@ -1282,7 +1328,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Done", 1),
@@ -1311,7 +1357,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Archive", 2),
@@ -1350,11 +1396,13 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Archive", 2),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
                 parent_spacing = 1,
               },
               preserve_source_headings = "all",
@@ -1392,11 +1440,13 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Done", 1),
-                append_top = false,
+              },
+              insertion = {
+                placement = "bottom",
                 parent_spacing = 1,
               },
             })
@@ -1426,7 +1476,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Done", 1),
@@ -1461,7 +1511,7 @@ describe("API/move_todos", function()
           },
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Archive", 2),
@@ -1490,7 +1540,7 @@ describe("API/move_todos", function()
           dest = {},
           action = function(cm, ctx)
             cm.move_todos({
-              by = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
+              source = { ids = { id_by_text(ctx.source_todo_map, "Task A") } },
               destination = {
                 bufnr = ctx.dest,
                 heading = cm_heading.new("Done", 1),
@@ -1539,4 +1589,5 @@ describe("API/move_todos", function()
       })
     end)
   end)
+
 end)

@@ -820,7 +820,7 @@ opts = {
 
 Set `config.archive.preserve_source_headings` to `"nearest"` or `"all"` to recreate archived todos' source heading context as nested headings inside the archive section. `"nearest"` keeps only the immediate parent heading; `"all"` keeps the full ancestor heading chain.
 
-Generated source-heading sections use the same default heading layout as the outer archive heading, including a blank line under each heading. When using `move_todos` directly, `destination.blank_line_under_heading` applies to generated source headings as well as the outer destination heading.
+Generated source-heading sections use the same default heading layout as the outer archive heading, including a blank line under each heading. When using `move_todos` directly, `insertion.blank_line_under_heading` applies to generated source headings as well as the outer destination heading.
 
 #### Spacing
 

@@ -1550,30 +1550,33 @@ end
 ---
 --- Defaults depend on `heading` field:
 --- - Without `heading`: defaults to EOF and inserts the todo payload directly
---- - With `heading`: omitted `location` means "find an existing heading";
+--- - With `heading`: omitted `row` means "find an existing heading";
 ---   if the heading is not found, it is created at EOF.
 ---
 --- Valid values:
 --- - `0` inserts before the first line
 --- - `nvim_buf_line_count(bufnr)` appends after the final line
----@field location? integer
+---@field row? integer
 ---
 --- Optional heading destination.
+--- Level defaults to 2 when `level` is omitted.
 ---
---- Behavior depends on `location` field:
---- - With no `location`: find the first matching Markdown ATX heading and
+--- Behavior depends on `row` field:
+--- - With no `row`: find the first matching Markdown ATX heading and
 ---   insert into that section. If it does not exist, create it at EOF.
---- - With integer `location`: create a new heading section at that exact
+--- - With integer `row`: create a new heading section at that exact
 ---   line boundary and insert the moved todos under it. Existing headings are
 ---   not searched or reused in this mode.
----@field heading? checkmate.Heading
+---@field heading? checkmate.Heading|{title: string, level?: integer}
+
+---@class checkmate.MoveTodosInsertion
 ---
---- When inserting under a heading:
---- - `true`/nil: insert near the top of the section
---- - `false`: append to the bottom of the section
---- Ignored when `heading` is used with an explicit integer `location`,
+--- When inserting under an existing heading:
+--- - `"top"`/nil: insert near the top of the section. Default.
+--- - `"bottom"`: append to the bottom of the section
+--- Ignored when `heading` is used with an explicit integer `row`,
 --- because that mode always creates a new section.
----@field append_top? boolean
+---@field placement? "top"|"bottom"
 ---
 --- Number of blank lines to insert between top-level moved todo blocks within
 --- the same destination section. When `preserve_source_headings` creates or
@@ -1582,45 +1585,59 @@ end
 --- Defaults to 0.
 ---@field parent_spacing? integer
 ---
---- Ensure exactly one blank line under destination headings, including
---- generated source-heading wrappers when `preserve_source_headings` is used.
+--- Ensure exactly one blank line under destination headings
 --- Defaults to `true`.
 ---@field blank_line_under_heading? boolean
 
---- ////////////////////////
+---@class checkmate.MoveTodosSource
+---
+--- Source buffer. Defaults to active buffer.
+---@field bufnr? integer
+---
+--- Todo IDs to move
+---@field ids? integer[]
+---
+--- Source range. Any todo whose first line is contained in the range will move.
+---
+--- If both `ids` and `range` are omitted, `move_todos` uses the todo under the
+--- cursor or todos in the current visual selection. This default source only
+--- works when the source buffer is the current buffer.
+---@field range? checkmate.Range
 
 ---@alias checkmate.PreserveSourceHeadings false | "nearest" | "all"
 
 ---@class checkmate.MoveTodosOpts
 ---
---- Source selector (optional)
---- If omitted, uses the current cursor or visual selection.
----   `ids`: IDs of the *root* TodoItems to move
----    The caller is responsible for only passing IDs of root todos,
----    (don't pass an ID whose ancestor is also in this list), or lines will be double-collected
----   `range`: any TodoItems whose first line is contained within this range will be collected to move
----@field by? {ids?: integer[], range?: checkmate.Range}
+--- Source selector.
+--- Defaults to the current cursor or visual selection in the current buffer.
+---@field source? checkmate.MoveTodosSource
 ---
---- Destination options
---- Defaults to appending to EOF of the destination buffer
----@field destination checkmate.MoveTodosDestination
+--- Destination target.
+--- Defaults to `{ bufnr = source.bufnr, row = nvim_buf_line_count(bufnr) }`,
+--- i.e. append directly to EOF of the source buffer.
+---@field destination? checkmate.MoveTodosDestination
+---
+--- Insertion behavior.
+--- Defaults to `{ placement = "top", parent_spacing = 0,
+--- blank_line_under_heading = true }`.
+---@field insertion? checkmate.MoveTodosInsertion
 ---
 --- Removes redundant blank lines around deleted source content
 --- Defaults to `true`.
 ---@field cleanup_source? boolean
 ---
 --- Recreate source heading context around moved todos.
---- - `false`/nil: disabled
+--- - `false`/nil: disabled. Default.
 --- - `"nearest"`: immediate parent heading only
 --- - `"all"`: full ancestor heading chain
 ---@field preserve_source_headings? checkmate.PreserveSourceHeadings
 ---
 
---- Moves todo(s) from one location to another
+--- Moves todo(s) to a row and/or heading destination
 ---   - See |checkmate.MoveTodosOpts| for options
 ---   - Essentially a cut and paste type operation
 ---   - Can work across buffers (cut from source, paste into destination)
----   - When no `opts.by.ids` or `opts.by.range` is specified, cursor position
+---   - When no `opts.source.ids` or `opts.source.range` is specified, cursor position
 ---     or visual selection is used to gather todo(s)
 ---@param opts? checkmate.MoveTodosOpts
 ---@return boolean
@@ -1631,80 +1648,58 @@ function M.move_todos(opts)
   local util = require("checkmate.util")
   local Buffer = require("checkmate.buffer")
 
+  opts = vim.deepcopy(opts or {})
+  if type(opts) ~= "table" then
+    log.warn("[main] move_todos: opts must be a table")
+    return false
+  end
+
+  opts.source = opts.source or {}
+  opts.destination = opts.destination or {}
+  opts.insertion = opts.insertion or {}
+
   local ctx = transaction.current_context()
-  local src_bufnr = ctx and ctx.get_buf() or vim.api.nvim_get_current_buf()
+  local src_bufnr = (opts.source and opts.source.bufnr) or (ctx and ctx.get_buf()) or vim.api.nvim_get_current_buf()
+
+  if ctx and src_bufnr ~= ctx.get_buf() then
+    log.warn("[main] move_todos: source.bufnr must match the active transaction buffer")
+    return false
+  end
 
   if not Buffer.is_valid(src_bufnr) then
     log.warn("[main] Attempted to call `move_todos` on invalid buffer")
     return false
   end
-
-  opts = vim.deepcopy(opts or {})
-  opts.by = opts.by or {}
-  opts.destination = opts.destination or {}
+  opts.source.bufnr = src_bufnr
 
   local dest_bufnr = opts.destination.bufnr or src_bufnr
   if not Buffer.is_valid(dest_bufnr) then
     log.warn("[main] Attempted to call `move_todos` with invalid destination buffer")
     return false
   end
-
   opts.destination.bufnr = dest_bufnr
 
-  -- normalize opts with defaults
-
-  -- Default destination location/heading:
-  -- - no heading + no location: append payload to EOF
-  -- - heading + no location: search for heading, create at EOF if missing
-  if opts.destination.location == nil and opts.destination.heading == nil then
-    opts.destination.location = vim.api.nvim_buf_line_count(dest_bufnr)
-  end
-
-  if opts.destination.parent_spacing == nil then
-    opts.destination.parent_spacing = 0
-  end
-
-  if type(opts.destination.parent_spacing) ~= "number" or opts.destination.parent_spacing % 1 ~= 0 then
-    log.warn("[main] move_todos: destination.parent_spacing must be an integer")
-    return false
-  end
-
-  if opts.destination.blank_line_under_heading == nil then
-    opts.destination.blank_line_under_heading = true
-  end
-
-  if opts.cleanup_source == nil then
-    opts.cleanup_source = true
-  end
-
-  if opts.preserve_source_headings == nil then
-    opts.preserve_source_headings = false
-  elseif
-    opts.preserve_source_headings ~= false
-    and opts.preserve_source_headings ~= "nearest"
-    and opts.preserve_source_headings ~= "all"
-  then
-    log.warn("[main] move_todos: preserve_source_headings must be false, 'nearest', or 'all'")
-    return false
-  end
-
-  -- returns true if the opts.by specifies a source of todos (either by id or buffer range)
-  local function has_explicit_source(by)
-    return (by.ids and #by.ids > 0) or by.range ~= nil
+  if opts.destination.row == nil and opts.destination.heading == nil then
+    opts.destination.row = vim.api.nvim_buf_line_count(dest_bufnr)
   end
 
   if ctx then
-    if not has_explicit_source(opts.by) then
+    if not H.move_has_explicit_source(opts.source) then
       local cursor = vim.api.nvim_win_get_cursor(0)
       local range = require("checkmate.lib.range").range_from_cursor_tuple(cursor)
-      opts.by.range = range
+      opts.source.range = range
     end
     ctx.add_op(api.move_todos, opts)
     return true
   end
 
   local todo_items
-  if not has_explicit_source(opts.by) then
+  if not H.move_has_explicit_source(opts.source) then
+    if src_bufnr ~= vim.api.nvim_get_current_buf() then
+      log.warn("[main] move_todos: non-current source buffers require source.ids or source.range")
+      return false
+    end
+
     local is_visual = util.mode.is_visual_mode()
     todo_items = api.collect_todo_items_from_selection(is_visual)
 
@@ -1715,8 +1710,8 @@ function M.move_todos(opts)
   end
 
   transaction.run(src_bufnr, function(_ctx)
-    if not has_explicit_source(opts.by) then
-      opts.by.ids = vim.tbl_map(function(todo)
+    if not H.move_has_explicit_source(opts.source) then
+      opts.source.ids = vim.tbl_map(function(todo)
         return todo.id
       end, todo_items or {})
     end
@@ -2136,6 +2131,12 @@ end
 
 function H.set_initialized(value)
   H.state.initialized = value
+end
+
+---@param source? checkmate.MoveTodosSource
+---@return boolean
+function H.move_has_explicit_source(source)
+  return source ~= nil and ((source.ids and #source.ids > 0) or source.range ~= nil)
 end
 
 function H.is_running()

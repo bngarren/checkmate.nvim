@@ -1700,10 +1700,10 @@ function M.count_child_todos(todo_item, todo_map, opts)
 end
 
 ---@param ctx checkmate.TransactionContext
----@param opts checkmate.InternalMoveTodosOpts
+---@param opts checkmate.MoveTodosOpts
 ---@return checkmate.TextDiffHunk[]
 function M.move_todos(ctx, opts)
-  local move = require("checkmate.lib.move")
+  local move = require("checkmate.move")
   local src_bufnr = ctx.get_buf()
   local todo_map = ctx.get_todo_map()
 
@@ -1714,8 +1714,8 @@ function M.move_todos(ctx, opts)
     return {}
   end
 
-  if opts.destination.location == nil and opts.destination.heading == nil then
-    log.warn("[api.move_todos] called with unnormalized opts; missing destination.location and destination.heading")
+  if opts.destination.row == nil and opts.destination.heading == nil then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination.row and destination.heading")
     return {}
   end
 
@@ -1727,7 +1727,14 @@ function M.move_todos(ctx, opts)
 
   local same_buffer = (dest_bufnr == src_bufnr)
 
-  local source_hunks, dest_hunks = move.move_todos(src_bufnr, todo_map, opts)
+  local source_hunks, dest_hunks = move.move_todos({
+    source = vim.tbl_extend("force", opts.source or {}, { bufnr = src_bufnr }),
+    destination = vim.tbl_extend("force", opts.destination, { bufnr = dest_bufnr }),
+    insertion = opts.insertion or {},
+    todo_map = todo_map,
+    cleanup_source = opts.cleanup_source,
+    preserve_source_headings = opts.preserve_source_headings,
+  })
 
   if same_buffer then
     -- return merged...so the transaction applies them together in one undo entry
@@ -1761,7 +1768,7 @@ function M.move_todos(ctx, opts)
 end
 
 --- Archives completed todo items to a designated section.
---- It selects which todos qualify, then delegates the mechanical cut+paste to |lib.move.move_todos|.
+--- It selects which todos qualify, then delegates the mechanical cut+paste to |checkmate.move.move_todos|.
 ---
 ---@param ctx checkmate.TransactionContext
 ---@param opts? {heading?: {title?: string, level?: integer}, newest_first?: boolean, included_state_types?: string[], included_states?: string[], preserve_source_headings?: checkmate.PreserveSourceHeadings} Archive options
@@ -1832,14 +1839,16 @@ function M.archive_todos(ctx, opts)
 
   -- Delegate to move_todos for the mechanical cut+paste
   local source_hunks = M.move_todos(ctx, {
-    by = { ids = ids_to_archive },
+    source = { ids = ids_to_archive },
     cleanup_source = true,
     preserve_source_headings = preserve_source_headings,
     destination = {
       -- same buffer
       bufnr = bufnr,
       heading = cm_heading.new(heading_title, heading_level),
-      append_top = newest_first,
+    },
+    insertion = {
+      placement = newest_first and "top" or "bottom",
       parent_spacing = parent_spacing,
     },
   })

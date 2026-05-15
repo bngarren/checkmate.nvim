@@ -6,7 +6,7 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local make_choose = picker_util.make_choose
+local make_item_completion = picker_util.make_item_completion
 
 local function load_snacks()
   local ok, snacks = pcall(require, "snacks")
@@ -32,9 +32,7 @@ function M.pick(ctx)
     }
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-  })
+  local choose = make_item_completion(ctx)
 
   ---@type snacks.picker.Config
   local base = {
@@ -80,9 +78,7 @@ function M.pick_todo(ctx)
     return e
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-  })
+  local choose = make_item_completion(ctx)
 
   ---@type snacks.picker.Config
   local base = {

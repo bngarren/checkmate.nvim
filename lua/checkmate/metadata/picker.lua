@@ -1,4 +1,7 @@
 --- Metadata picker module (internal)
+--- a "domain-picker bridge" as we refer to it in internal docs
+--- links the public metadata selection API to the generic picker engine
+---
 --- Handles both default (choices-based) and custom picker implementations
 --- for updating metadata values
 local M = {}
@@ -80,11 +83,7 @@ function M.open_picker(context, apply_value_with_transaction, picker_opts)
   end
 end
 
---- Execute a user-provided custom picker function.
----
---- This path is domain-level rather than picker-engine-level: the user receives
---- metadata context and calls complete(value), where value is the metadata value
---- to apply.
+--- Execute a user-provided custom picker function
 ---
 --- Callback flow:
 ---   1. Receives metadata context (todo, selected metadata) from caller
@@ -99,6 +98,9 @@ end
 ---@param apply_value_with_transaction fun(value: string?)
 function M.with_custom_picker(context, custom_picker, apply_value_with_transaction)
   local bufnr = context.buffer
+
+  -- the `apply_value_with_transaction` callback is where the public API
+  -- finishes the metadata value update within the transaction system
   local complete = picker_util.make_value_completion(apply_value_with_transaction, {
     source = string.format("[metadata/picker] bufnr %d", bufnr),
   })

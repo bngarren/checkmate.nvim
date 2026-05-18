@@ -1,12 +1,11 @@
---- Shared todo helpers.
 local M = {}
 
 local api = vim.api
 
---- Jump to a todo's source buffer and row.
+--- Jump to a todo's source buffer and row
 ---
---- `checkmate.Todo.row` is zero-based because it comes from parser positions;
---- Neovim window cursors are one-based.
+--- `checkmate.Todo.row` is 0 because it comes from parser positions
+--- Nvim window cursors are 1-based
 ---@param todo checkmate.Todo|any
 ---@return boolean success
 function M.jump_to_todo(todo)

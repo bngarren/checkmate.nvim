@@ -1458,7 +1458,6 @@ end
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
 ---@field filter? checkmate.FilterOpts
 ---@field picker_opts? checkmate.PickerOpts
---- Feature-level custom picker. Existing custom_picker(todos) callbacks remain valid.
 --- To reuse Checkmate's default select behavior, call complete(todo) or complete(picker_item).
 ---@field custom_picker? fun(todos: checkmate.Todo[], complete: fun(choice: checkmate.Todo|checkmate.picker.Item|nil)): any
 

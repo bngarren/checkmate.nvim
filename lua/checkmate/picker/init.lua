@@ -54,7 +54,7 @@ local log = require("checkmate.log")
 local picker_util = require("checkmate.picker.util")
 
 ---@class checkmate.picker.Item
----@field text string Display/search text. Normalized to a string before reaching backends.
+---@field text string Display/search text
 ---@field value any Non-nil payload passed as the first on_select argument. Use a table for structured candidates.
 
 ---@class checkmate.picker.PickOpts

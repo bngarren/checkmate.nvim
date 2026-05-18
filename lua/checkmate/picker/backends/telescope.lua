@@ -6,7 +6,8 @@ local M = {}
 
 local api = vim.api
 local picker_util = require("checkmate.picker.util")
-local make_choose = picker_util.make_choose
+local todo_util = require("checkmate.todo.util")
+local make_item_completion = picker_util.make_item_completion
 
 local ns = api.nvim_create_namespace("checkmate_picker_telescope_todo")
 
@@ -65,9 +66,7 @@ function M.pick(ctx)
     }
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-  })
+  local choose = make_item_completion(ctx)
 
   local opts = make_theme_opts(tel, {
     prompt_title = ctx.prompt or "Select an item",
@@ -126,31 +125,13 @@ function M.pick_todo(ctx)
     return e
   end
 
-  ---@type checkmate.picker.after_select
-  local function after_select(_, entry)
-    local bufnr = entry and entry.bufnr
-    local lnum = entry and entry.lnum
-    local col = (entry and entry.col) or 0
-
-    if not (bufnr and lnum) then
-      return
-    end
-
-    vim.schedule(function()
-      if not api.nvim_buf_is_valid(bufnr) then
-        return
-      end
-      if not api.nvim_buf_is_loaded(bufnr) then
-        pcall(vim.fn.bufload, bufnr)
-      end
-      pcall(api.nvim_set_current_buf, bufnr)
-      pcall(api.nvim_win_set_cursor, 0, { lnum, col })
-    end)
+  ---@type checkmate.picker.after_item_select
+  local function after_item_select(item)
+    todo_util.jump_to_todo(item.value)
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-    after_select = after_select,
+  local choose = make_item_completion(ctx, {
+    after_item_select = after_item_select,
   })
 
   local previewer = tel.previewers.new_buffer_previewer({

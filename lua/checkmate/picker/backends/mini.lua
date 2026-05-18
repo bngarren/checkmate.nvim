@@ -6,7 +6,8 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local make_choose = picker_util.make_choose
+local todo_util = require("checkmate.todo.util")
+local make_item_completion = picker_util.make_item_completion
 
 local function load_minipick()
   local ok, minipick = pcall(require, "mini.pick")
@@ -42,9 +43,7 @@ function M.pick(ctx)
     }
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-  })
+  local choose = make_item_completion(ctx)
 
   local start_opts = vim.tbl_deep_extend("force", {
     source = {
@@ -84,24 +83,13 @@ function M.pick_todo(ctx)
     return e
   end
 
-  ---@type checkmate.picker.after_select
-  local function after_select(_, entry)
-    local bufnr = entry.buf
-    local row = entry.pos[1]
-
-    if bufnr and type(row) == "number" then
-      if vim.api.nvim_buf_is_valid(bufnr) then
-        if not vim.api.nvim_buf_is_loaded(bufnr) then
-          pcall(vim.fn.bufload, bufnr)
-        end
-        pcall(vim.api.nvim_set_current_buf, bufnr)
-        pcall(vim.api.nvim_win_set_cursor, 0, { row, 0 })
-      end
-    end
+  ---@type checkmate.picker.after_item_select
+  local function after_item_select(item)
+    todo_util.jump_to_todo(item.value)
     -- implicit nil return will close mini.pick
   end
 
-  local choose = make_choose(ctx, { schedule = true, after_select = after_select })
+  local choose = make_item_completion(ctx, { after_item_select = after_item_select })
 
   local start_opts = vim.tbl_deep_extend("force", {
     source = {

@@ -1185,8 +1185,7 @@ function M.select_metadata_value(opts)
 
   -- custom picker pathway: user provides their own `custom_picker` that handles generating the choices, UI, etc.
   if custom_picker then
-    picker.with_custom_picker(context, custom_picker, apply_value_with_transaction)
-    return true
+    return picker.with_custom_picker(context, custom_picker, apply_value_with_transaction)
   end
 
   -- default pathway using config's `choices` value (table or function return) inside checkmate's picker (see `config.ui.picker`)
@@ -1459,7 +1458,8 @@ end
 ---@field range? integer[] Start and end row (0-based, inclusive). Use {0, -1} or omit for entire buffer
 ---@field filter? checkmate.FilterOpts
 ---@field picker_opts? checkmate.PickerOpts
----@field custom_picker? fun(todos: checkmate.Todo[]): any
+--- To reuse Checkmate's default select behavior, call complete(todo) or complete(picker_item).
+---@field custom_picker? fun(todos: checkmate.Todo[], complete: fun(choice: checkmate.Todo|checkmate.picker.Item|nil)): any
 
 --- Opens a picker to select a todo
 ---  - Selection of a todo will jump to the todo by default
@@ -1469,15 +1469,41 @@ end
 --- a picker-specific config can be passed via `picker_opts`.
 ---
 --- **Custom Picker:**
---- Pass a `opts.custom_picker` for complete control (BYOP). You handle everything: calling the picker and then calling complete(value).
+--- Pass a `opts.custom_picker` for control over the picker UI. The first argument is
+--- the todo payload (`checkmate.Todo[]`); the second argument is a `complete` callback.
+--- Call `complete(todo)` or `complete({ text = todo.text, value = todo })` to apply
+--- Checkmate's default select-todo behavior. Call `complete(nil)` to cancel. For
+--- compatibility, existing `custom_picker(todos)` callbacks may ignore `complete`.
 --- Your function will receive:
 ---   - `todos`: array of matched todos
+---   - `complete`: callback to finish the selection
+---
+--- Example:
+--- ```lua
+--- require("checkmate").select_todo({
+---   custom_picker = function(todos, complete)
+---     vim.ui.select(todos, {
+---       prompt = "Select todo",
+---       format_item = function(todo)
+---         return todo.text
+---       end,
+---     }, complete)
+---   end,
+--- })
+--- ```
 ---
 ---@param opts? checkmate.SelectTodoOpts
 ---@return boolean success True if successful launch of the picker
 function M.select_todo(opts)
   opts = opts or {}
-  local picker = require("checkmate.picker")
+  local todo_picker = require("checkmate.todo.picker")
+  local log = require("checkmate.log")
+
+  if opts.custom_picker and not vim.is_callable(opts.custom_picker) then
+    require("checkmate.util").notify("`custom_picker` must be a function", vim.log.levels.WARN)
+    log.fmt_warn("[main] attempted to call `select_todo` with `custom_picker` not a function")
+    return false
+  end
 
   local todos = M.get_todos({
     bufnr = opts.bufnr,
@@ -1485,21 +1511,11 @@ function M.select_todo(opts)
     filter = opts.filter,
   })
 
-  if opts.custom_picker and vim.is_callable(opts.custom_picker) then
-    local custom_ok, custom_err = pcall(opts.custom_picker, todos)
-    if not custom_ok then
-      vim.notify(string.format("Checkmate: error in `custom_picker` for `select_todo`:\n%s", custom_err))
-      return false
-    end
-    return true
+  if opts.custom_picker then
+    return todo_picker.with_custom_picker(todos, opts.custom_picker)
   end
 
-  picker.pick(picker.map_items(todos, "text"), {
-    method = "pick_todo",
-    picker_opts = opts.picker_opts,
-  })
-
-  return true
+  return todo_picker.open_picker(todos, opts.picker_opts)
 end
 
 --- Lints the current Checkmate buffer according to the plugin's enabled custom linting rules

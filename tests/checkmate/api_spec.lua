@@ -412,7 +412,9 @@ describe("API", function()
   end)
 
   describe("todo creation", function()
-    local todo_line = h.todo_line
+    local function todo_line(opts)
+      return h.todo_line(opts)
+    end
 
     describe("normal mode", function()
       it("should convert lines to todos", function()
@@ -1173,7 +1175,9 @@ describe("API", function()
   end)
 
   describe("todo removal", function()
-    local todo_line = h.todo_line
+    local function todo_line(opts)
+      return h.todo_line(opts)
+    end
 
     describe("normal mode", function()
       it("should remove checkbox and keep list item and strip metadata (default)", function()

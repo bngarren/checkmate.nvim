@@ -177,8 +177,8 @@ function M._apply_progressive(bufnr, todo_map, opts)
 
   -- process viewport's root todos immediately (synchronous)
   if #immediate_roots > 0 then
+    M.clear_hl_ns_range(bufnr, viewport_start, viewport_end)
     for _, root_todo in ipairs(immediate_roots) do
-      M.clear_todo_hls(bufnr, root_todo)
       M.highlight_todo_item(bufnr, root_todo, todo_map, { recursive = true })
     end
   end
@@ -214,11 +214,11 @@ local function _progressive_step(bufnr, todo_map, cur_gen)
 
   -- process until either we hit the batch cap OR the time budget
   while st.idx <= #roots do
+    ---@type checkmate.TodoItem
     local root = roots[st.idx]
     st.idx = st.idx + 1
 
     if root then
-      M.clear_todo_hls(bufnr, root)
       M.highlight_todo_item(bufnr, root, todo_map, { recursive = true })
       processed = processed + 1
     end
@@ -260,6 +260,11 @@ function M._start_progressive_loop(bufnr, roots, todo_map)
     budget_us = budget_us,
     max_batch = max_batch,
   }
+  local _, vp_end = util.get_viewport_bounds(0, 5)
+  if vp_end then
+    -- clear below viewport (above was cleared in the immediate pass)
+    M.clear_hl_ns_range(bufnr, vp_end, -1)
+  end
 
   vim.schedule(function()
     _progressive_step(bufnr, todo_map, gen)
@@ -469,7 +474,7 @@ function M.apply_highlighting(bufnr, opts)
     if region_size > config.get_region_limit(bufnr) and strategy == "adaptive" then
       vim.defer_fn(function()
         if vim.api.nvim_buf_is_valid(bufnr) then
-          M._apply_progressive(bufnr, todo_map, {
+          M._apply_progressive(bufnr, parser.get_todo_map(bufnr), {
             skip_region = opts.region,
           })
         end

@@ -412,7 +412,9 @@ describe("API", function()
   end)
 
   describe("todo creation", function()
-    local todo_line = h.todo_line
+    local function todo_line(opts)
+      return h.todo_line(opts)
+    end
 
     describe("normal mode", function()
       it("should convert lines to todos", function()
@@ -1173,7 +1175,9 @@ describe("API", function()
   end)
 
   describe("todo removal", function()
-    local todo_line = h.todo_line
+    local function todo_line(opts)
+      return h.todo_line(opts)
+    end
 
     describe("normal mode", function()
       it("should remove checkbox and keep list item and strip metadata (default)", function()
@@ -3787,7 +3791,7 @@ describe("API", function()
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
 
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               config.get_defaults().archive.heading.title,
               config.get_defaults().archive.heading.level
             )
@@ -3835,8 +3839,10 @@ describe("API", function()
           assert = function(_, lines, ctx)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string =
-              util.get_heading_string(ctx.heading_title, config.get_defaults().archive.heading.level)
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
+              ctx.heading_title,
+              config.get_defaults().archive.heading.level
+            )
 
             local main_section = buffer_content:match("^(.-)" .. archive_heading_string)
 
@@ -3899,7 +3905,7 @@ describe("API", function()
           end,
           assert = function(_, lines)
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string("Completed Items", 4)
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string("Completed Items", 4)
 
             assert.matches(archive_heading_string, buffer_content)
 
@@ -3936,7 +3942,7 @@ describe("API", function()
           assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               vim.pesc(config.get_defaults().archive.heading.title),
               config.get_defaults().archive.heading.level
             )
@@ -3994,7 +4000,7 @@ describe("API", function()
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
         local buffer_content = table.concat(lines, "\n")
 
-        local archive_heading_string = util.get_heading_string(
+        local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
           vim.pesc(config.get_defaults().archive.heading.title),
           config.get_defaults().archive.heading.level
         )
@@ -4073,7 +4079,7 @@ describe("API", function()
           assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               vim.pesc(config.get_defaults().archive.heading.title),
               config.get_defaults().archive.heading.level
             )
@@ -4114,7 +4120,7 @@ describe("API", function()
           assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               vim.pesc(config.get_defaults().archive.heading.title),
               config.get_defaults().archive.heading.level
             )
@@ -4150,7 +4156,7 @@ describe("API", function()
           assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               vim.pesc(config.get_defaults().archive.heading.title),
               config.get_defaults().archive.heading.level
             )
@@ -4204,7 +4210,7 @@ describe("API", function()
           assert = function(_, lines)
             local config = require("checkmate.config")
             local buffer_content = table.concat(lines, "\n")
-            local archive_heading_string = util.get_heading_string(
+            local archive_heading_string = require("checkmate.lib.heading").get_heading_string(
               vim.pesc(config.get_defaults().archive.heading.title),
               config.get_defaults().archive.heading.level
             )

@@ -53,7 +53,8 @@ function M.at_cursor()
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   row = row - 1
 
-  local item = parser.get_todo_item_at_position(bufnr, row, col)
+  local todo_map = parser.get_todo_map(bufnr)
+  local item = parser.get_todo_item_at_position(bufnr, row, col, { todo_map = todo_map })
 
   if not item then
     util.notify("No todo item found at cursor", vim.log.levels.INFO)
@@ -64,6 +65,9 @@ function M.at_cursor()
     ("Debug called at (0-index): %s:%s"):format(row, col),
     "Todo item at cursor:",
     ("  ID: %s"):format(item.id),
+    ("  Parent ID: %s"):format(item.parent_id),
+    ("  is_root?: %s"):format(item:get_parent(todo_map) == nil),
+
     ("  State: %s"):format(item.state),
     ("  List marker: [%s]"):format(util.get_ts_node_range_string(item.list_marker.node)),
     ("  Todo marker: [%d,%d] → %s"):format(
@@ -91,6 +95,28 @@ function M.print_todo_map()
   local todo_map = parser.discover_todos(vim.api.nvim_get_current_buf())
   local sorted_list = require("checkmate.util").get_sorted_todo_list(todo_map)
   require("checkmate.util").scratch_buf_or_print(sorted_list, { name = "checkmate.nvim todo_map" })
+end
+
+function M.print_todo_map_stats()
+  local parser = require("checkmate.parser")
+  local todo_map = parser.get_todo_map(vim.api.nvim_get_current_buf())
+  local root_todos = {}
+  local state_count = {}
+
+  for _, todo in ipairs(todo_map) do
+    if todo:get_parent(todo_map) == nil then
+      root_todos[todo.id] = true
+    end
+    state_count[todo.state] = (state_count[todo.state] or 0) + 1
+  end
+
+  local content = {
+    total_todos_count = #todo_map,
+    root_todos_count = #root_todos,
+    state_count = state_count,
+  }
+
+  require("checkmate.util").scratch_buf_or_print(content, { name = "checkmate.nvim todo_map stats" })
 end
 
 -- Print current config (in Snacks scratch buffer or vim.print)

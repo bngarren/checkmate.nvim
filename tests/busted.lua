@@ -1,7 +1,7 @@
 #!/usr/bin/env -S nvim -l
 
-vim.env.LAZY_STDPATH = ".testdata"
-vim.env.NVIM_APPNAME = "headless"
+vim.env.LAZY_STDPATH = ".testdata/busted"
+-- vim.env.NVIM_APPNAME = "headless"
 
 assert(loadfile("tests/lazy_bootstrap.lua"))()
 

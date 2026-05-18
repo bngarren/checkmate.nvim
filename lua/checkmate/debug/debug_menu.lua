@@ -32,6 +32,14 @@ local menu = {
     rtxt = "t",
   },
   {
+    name = "⏿ Show Todo Stats",
+    hl = "Normal",
+    cmd = function()
+      require("checkmate.debug").print_todo_map_stats()
+    end,
+    rtxt = "s",
+  },
+  {
     name = "⏿ Show Config",
     hl = "Normal",
     cmd = function()

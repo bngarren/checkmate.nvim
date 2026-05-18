@@ -1,16 +1,44 @@
 --[[
 
 Picker architecture:
-0. Feature layer (e.g. metadata/picker.lua)
-  - API specific logic, generates items, handles plugin related callbacks
-1. Picker orchestration (this module)
-  - Normalizes `items` to checkmate.picker.Item
-  - Resolves a backend with fallback to native
-  - Dispatches the correct adapter_method -> adapter
-2. Backend adapters (pickers/backends/*)
-  - Plugin-specific implementations
-  - Interface via checkmate.picker.Adapter and AdapterContext
-    - receive `checkmate.picker.Item[]`, make picker-specific entries
+
+  1. Public feature APIs
+     Examples: select_metadata_value, select_todo, etc.
+     Validates public opts, gathers domain-specific context and delegates
+     picker-specific behavior to a domain picker bridge.
+
+  2. Domain picker bridges
+     Examples: metadata/picker.lua, todo/picker.lua, etc.
+     Translates domain candidates (e.g. choices) into picker items and owns
+     feature-level `custom_picker` behavior.
+
+     A feature-level `custom_picker` receives domain payloads:
+       custom_picker(metadata_context, complete_value)
+       custom_picker(todo_list, complete_todo)
+       custom_picker(move_destinations, complete_destination)
+
+  3. Picker engine (this module)
+     Works with normalized |checkmate.picker.Item| values. It validates
+     picker opts, normalizes candidates, optionally runs picker_fn, resolves a
+     backend, and protects on_select callbacks.
+
+     `picker_fn(items, opts, complete)` is a low level override. It receives
+     normalized picker items and must call complete(item) or complete(nil). It is
+     lower-level than feature custom_picker and skips backend adapters entirely.
+
+  4. Backend adapters
+     Files: picker/backends/*.lua. Adapters translate normalized picker items to
+     plugin-specific entry shapes, preserving the original item under __cm_item
+     when they cannot pass it through directly.
+
+Good things to know:
+  - Input candidates may be strings or { text, value } items.
+  - After normalization, selection completion is Item-based.
+  - complete(nil) means cancellation.
+  - complete(item) selects at most once.
+  - picker.pick(...) returns true if a picker path was invoked/launched, false
+    for validation failure, empty item lists, picker_fn/backend failures, or
+    total fallback failure.
 
 Config merging (increasing) priority:
 For each backend:
@@ -23,14 +51,15 @@ local M = {}
 local H = {}
 
 local log = require("checkmate.log")
+local picker_util = require("checkmate.picker.util")
 
 ---@class checkmate.picker.Item
----@field text string Display text
----@field value any Payload (used as the value for callbacks)
+---@field text string Display/search text
+---@field value any Non-nil payload passed as the first on_select argument. Use a table for structured candidates.
 
 ---@class checkmate.picker.PickOpts
 ---@field prompt? string
----Updates each item.text to the returned string, before being passed to the item to the backend picker.
+---Updates each item.text to the returned string, before the item is passed to the backend picker.
 ---Note, the picker implementation may also run a "format" function per item to get the display value
 ---for the finder/selection buffer.
 ---The latter should be configured via the apppropriate `picker_opts` field for that picker, if desired.
@@ -40,8 +69,9 @@ local log = require("checkmate.log")
 ---@field picker_opts? checkmate.PickerOpts
 ---@field method? checkmate.picker.Method Defaults to `pick`
 ---@field on_select? fun(value: any, item: checkmate.picker.Item)
----picker_fn is a full override. Call complete(item) on select. `item` must be a `checkmate.picker.Item`
----@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, complete: fun(choice_item: checkmate.picker.Item))
+---picker_fn is a full picker-engine override. Call complete(item) on select,
+---or complete(nil) to cancel. `item` must be a normalized checkmate.picker.Item.
+---@field picker_fn? fun(items: checkmate.picker.Item[], opts?: checkmate.picker.PickOpts, complete: fun(choice_item: checkmate.picker.Item?))
 
 ---@class checkmate.picker.AdapterContext
 ---@field items checkmate.picker.Item[]
@@ -64,60 +94,24 @@ M.METHODS = {
 ---@class checkmate.picker.Adapter
 ---@field [fun(ctx: checkmate.picker.AdapterContext)] checkmate.picker.Method
 
---- If `opts.picker_fn` is provided, it *fully overrides* the backend call
+--- If `opts.picker_fn` is provided, it fully overrides the backend call
 ---@param items (string|checkmate.picker.Item)[]
 ---@param opts? checkmate.picker.PickOpts
+---@return boolean success true when a picker path was launched or invoked successfully
 function M.pick(items, opts)
   local config = require("checkmate.config")
 
   opts = opts or {}
-  local picker_opts = opts.picker_opts or {}
 
   local valid, validate_err = H.validate_pick_opts(opts)
   if not valid then
     H.notify_err(validate_err)
-    return
+    return false
   end
 
+  local picker_opts = opts.picker_opts or {}
   local format_item_text = opts.format_item_text or H.default_format_item_text
   local norm_items = H.normalize_items(items, { formatter = format_item_text })
-
-  -- full override
-  if type(opts.picker_fn) == "function" then
-    local ok, picker_fn_err = pcall(function()
-      opts.picker_fn(norm_items, opts, function(choice_item)
-        if choice_item ~= nil then
-          if type(opts.on_select) == "function" then
-            pcall(opts.on_select, choice_item.value, choice_item)
-          end
-        end
-      end)
-    end)
-    if not ok then
-      H.notify_err("picker_fn error: " .. tostring(picker_fn_err))
-    end
-    return
-  end
-
-  -- resolve backend
-  -- - 1. per-call picker_opts.picker
-  -- - 2. config.ui.picker (global default)
-  -- - 3. auto choose a backend based on installed plugins, with fallback to vim.ui.select (native)
-  --
-  -- remember: "native" vim.ui.select can still be overriden/registered by an installed picker plugin
-  -- depending on the user's neovim config
-  local backend = vim.tbl_get(picker_opts, "picker") or vim.tbl_get(config.options, "ui", "picker")
-  if backend == nil then
-    backend = H.auto_choose_backend()
-  end
-
-  local ok, adapter = pcall(H.get_adapter, backend)
-  if not ok then
-    H.notify_err("failed to load picker backend '" .. backend .. "': " .. tostring(adapter))
-  end
-
-  -- the backend specific table resolved from picker_opts
-  local backend_opts = vim.tbl_extend("force", picker_opts.opts or {}, picker_opts[backend] or {}) or {}
 
   ---@param item checkmate.picker.Item
   local function handle_on_select(item)
@@ -135,9 +129,52 @@ function M.pick(items, opts)
     prompt = opts.prompt,
     kind = opts.kind,
     format_item_text = format_item_text,
-    backend_opts = backend_opts,
+    backend_opts = {},
     on_select_item = handle_on_select,
   }
+
+  if type(opts.picker_fn) == "function" then
+    local complete = picker_util.make_item_completion(ctx)
+    local ok, picker_fn_err = pcall(opts.picker_fn, norm_items, opts, complete)
+    if not ok then
+      H.notify_err("picker_fn error: " .. tostring(picker_fn_err))
+      return false
+    end
+    return true
+  end
+
+  -- No point in presenting an empty list? Return false to notify "nothing launched"
+  if #norm_items == 0 then
+    return false
+  end
+
+  -- resolve backend
+  -- - 1. per-call picker_opts.picker
+  -- - 2. config.ui.picker (global default)
+  -- - 3. auto choose a backend based on installed plugins, with fallback to vim.ui.select (native)
+  --
+  -- remember: "native" vim.ui.select can still be overriden/registered by an installed picker plugin
+  -- depending on the user's neovim config
+  local backend = vim.tbl_get(picker_opts, "picker") or vim.tbl_get(config.options, "ui", "picker")
+  if backend == nil then
+    backend = H.auto_choose_backend()
+  end
+
+  local ok, adapter = pcall(H.get_adapter, backend)
+  if not ok then
+    log.fmt_warn("[picker] failed to load %s backend: %s\nFalling back to native adapter.", backend, tostring(adapter))
+
+    local ok_native, native_adapter = pcall(H.get_adapter, "native")
+    if not ok_native then
+      H.notify_err("failed to load native picker backend: " .. tostring(native_adapter))
+      return false
+    end
+
+    backend = "native"
+    adapter = native_adapter
+  end
+
+  ctx.backend_opts = H.resolve_backend_opts(picker_opts, backend)
 
   -- resolve the adapter method
   ---@type checkmate.picker.Method
@@ -160,6 +197,11 @@ function M.pick(items, opts)
   local success, err = try_adapter_method(backend, method, method_name)
 
   if not success then
+    if backend == "native" then
+      H.notify_err(("picker error: native backend failed for method '%s': %s"):format(method_name, err))
+      return false
+    end
+
     log.fmt_warn(
       "[picker] attempted to call %s backend's '%s' method but failed: %s\nFalling back to native adapter with same method.",
       backend,
@@ -171,8 +213,10 @@ function M.pick(items, opts)
     local ok_native, native_adapter = pcall(H.get_adapter, "native")
     if not ok_native then
       H.notify_err("failed to load native picker backend: " .. tostring(native_adapter))
-      return
+      return false
     end
+
+    ctx.backend_opts = H.resolve_backend_opts(picker_opts, "native")
 
     local native_method = native_adapter[method_name]
     local native_success, native_err = try_adapter_method("native", native_method, method_name)
@@ -185,8 +229,13 @@ function M.pick(items, opts)
           native_err
         )
       )
+      return false
     end
+
+    return true
   end
+
+  return true
 end
 
 -- Map arbitrary tables to {text, value} items
@@ -199,9 +248,9 @@ function M.map_items(items, text_key, value_key)
     return items
   end
   return vim.tbl_map(function(i)
-    assert(i[text_key], string.format("text_key '%s' missing from item in `map_items`", text_key))
+    assert(i[text_key] ~= nil, string.format("text_key '%s' missing from item in `map_items`", text_key))
     if value_key then
-      assert(i[value_key], string.format("value_key '%s' missing from item in `map_items`", value_key))
+      assert(i[value_key] ~= nil, string.format("value_key '%s' missing from item in `map_items`", value_key))
     end
     return { text = i[text_key], value = (value_key and i[value_key] or i) }
   end, items)
@@ -219,6 +268,33 @@ function H.validate_pick_opts(opts)
 
   if opts.format_item_text and not vim.is_callable(opts.format_item_text) then
     return false, "`format_item_text` must be callable"
+  end
+
+  if opts.picker_fn ~= nil and not vim.is_callable(opts.picker_fn) then
+    return false, "`picker_fn` must be callable"
+  end
+
+  if opts.method ~= nil then
+    if type(opts.method) ~= "string" then
+      return false, "`method` must be a string"
+    end
+
+    if not vim.tbl_contains(vim.tbl_values(M.METHODS), opts.method) then
+      return false,
+        string.format(
+          "`method` must be one of: %s",
+          table.concat(
+            vim.tbl_map(function(method)
+              return string.format("'%s'", method)
+            end, vim.tbl_values(M.METHODS)),
+            ", "
+          )
+        )
+    end
+  end
+
+  if opts.picker_opts ~= nil and type(opts.picker_opts) ~= "table" then
+    return false, "`picker_opts` must be a table"
   end
 
   local must_be_one_of = string.format(
@@ -271,8 +347,15 @@ function H.normalize_items(items, opts)
     if item_type == "string" then
       item = { text = it, value = it }
     elseif item_type == "table" then
-      local text = it.text or it[1]
-      local value = it.value or it[2]
+      local text = it.text
+      if text == nil then
+        text = it[1]
+      end
+
+      local value = it.value
+      if value == nil then
+        value = it[2]
+      end
 
       if value == nil then
         value = tostring(text or "")
@@ -304,6 +387,13 @@ function H.normalize_items(items, opts)
   end
 
   return out
+end
+
+---@param picker_opts checkmate.PickerOpts
+---@param backend checkmate.Picker
+---@return table<string, any>
+function H.resolve_backend_opts(picker_opts, backend)
+  return vim.tbl_deep_extend("force", picker_opts.opts or {}, picker_opts[backend] or {})
 end
 
 ---@param item checkmate.picker.Item

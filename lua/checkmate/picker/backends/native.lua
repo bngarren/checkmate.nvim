@@ -4,8 +4,8 @@
 local M = {}
 
 local picker_util = require("checkmate.picker.util")
-local make_choose = picker_util.make_choose
-local api = vim.api
+local todo_util = require("checkmate.todo.util")
+local make_item_completion = picker_util.make_item_completion
 
 ---@param ctx checkmate.picker.AdapterContext
 function M.pick(ctx)
@@ -18,9 +18,7 @@ function M.pick(ctx)
     return item.text or ""
   end, items)
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-  })
+  local choose = make_item_completion(ctx)
 
   vim.ui.select(
     labels,
@@ -41,7 +39,7 @@ function M.pick(ctx)
         return
       end
 
-      -- pass the Item directly...`make_choose` will treat it as the resolved item
+      -- pass the Item directly; item completion treats it as the resolved item
       choose(item)
     end
   )
@@ -59,34 +57,12 @@ function M.pick_todo(ctx)
   end, items)
 
   --- Jump to the todo's buffer/row after user callback
-  local function after_select(item)
-    local todo = item.value
-    if type(todo) ~= "table" then
-      return
-    end
-
-    local bufnr = todo.bufnr
-    local row = todo.row
-
-    if not (bufnr and type(row) == "number") then
-      return
-    end
-
-    if not api.nvim_buf_is_valid(bufnr) then
-      return
-    end
-
-    if not api.nvim_buf_is_loaded(bufnr) then
-      pcall(vim.fn.bufload, bufnr)
-    end
-
-    pcall(api.nvim_set_current_buf, bufnr)
-    pcall(api.nvim_win_set_cursor, 0, { row + 1, 0 })
+  local function after_item_select(item)
+    todo_util.jump_to_todo(item.value)
   end
 
-  local choose = make_choose(ctx, {
-    schedule = true,
-    after_select = after_select,
+  local choose = make_item_completion(ctx, {
+    after_item_select = after_item_select,
   })
 
   vim.ui.select(

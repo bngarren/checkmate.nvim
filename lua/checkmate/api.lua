@@ -33,6 +33,7 @@ local ph = require("checkmate.parser.helpers")
 local meta_module = require("checkmate.metadata")
 local diff = require("checkmate.lib.diff")
 local util = require("checkmate.util")
+local heading = require("checkmate.lib.heading")
 local profiler = require("checkmate.profiler")
 
 ---@class checkmate.CreateOptionsInternal : checkmate.CreateOptions
@@ -1698,17 +1699,188 @@ function M.count_child_todos(todo_item, todo_map, opts)
   return counts
 end
 
---- Archives completed todo items to a designated section
---- @param ctx checkmate.TransactionContext
---- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
---- @return checkmate.TextDiffHunk[] hunks
+---@param ctx checkmate.TransactionContext
+---@param opts checkmate.InternalMoveTodosOpts
+---@return checkmate.TextDiffHunk[]
+function M.move_todos(ctx, opts)
+  local move = require("checkmate.lib.move")
+  local src_bufnr = ctx.get_buf()
+  local todo_map = ctx.get_todo_map()
+
+  opts = opts or {}
+
+  if not opts or not opts.destination then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination")
+    return {}
+  end
+
+  if opts.destination.location == nil and opts.destination.heading == nil then
+    log.warn("[api.move_todos] called with unnormalized opts; missing destination.location and destination.heading")
+    return {}
+  end
+
+  local dest_bufnr = opts.destination.bufnr or src_bufnr
+  if not vim.api.nvim_buf_is_valid(dest_bufnr) then
+    log.warn("[api.move_todos] destination buffer is invalid")
+    return {}
+  end
+
+  local same_buffer = (dest_bufnr == src_bufnr)
+
+  local source_hunks, dest_hunks = move.move_todos(src_bufnr, todo_map, opts)
+
+  if same_buffer then
+    -- return merged...so the transaction applies them together in one undo entry
+    local hunks = {}
+    vim.list_extend(hunks, source_hunks)
+    vim.list_extend(hunks, dest_hunks)
+    return hunks
+  else
+    -- Source side only: schedule dest as a post-transaction step via add_cb.
+    -- We use add_cb rather than a second add_op because the dest buffer has its
+    -- own transaction lifecycle. The cb runs after source hunks are applied and
+    -- the source todo_map is refreshed, which is the right sequencing.
+    if #dest_hunks > 0 then
+      ctx.add_cb(function()
+        vim.schedule(function()
+          local transaction = require("checkmate.transaction")
+          if not vim.api.nvim_buf_is_valid(dest_bufnr) then
+            log.warn("[api.move_todos] destination buffer no longer valid")
+            return
+          end
+          transaction.run(dest_bufnr, function(dest_ctx)
+            dest_ctx.add_op(function()
+              return dest_hunks
+            end)
+          end)
+        end)
+      end)
+    end
+    return source_hunks
+  end
+end
+
+--- Archives completed todo items to a designated section.
+--- It selects which todos qualify, then delegates the mechanical cut+paste to `lib.move.move_todos`.
+---
+---@param ctx checkmate.TransactionContext
+---@param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean, included_state_types?: string[], included_states?: string[]} Archive options
+---@return checkmate.TextDiffHunk[] hunks
 function M.archive_todos(ctx, opts)
   opts = opts or {}
 
   local bufnr = ctx.get_buf()
 
+  local heading_title = (opts.heading and opts.heading.title) or config.options.archive.heading.title or "Archived"
+  local heading_level = (opts.heading and opts.heading.level) or config.options.archive.heading.level or 2
+  local target_heading = heading.new(heading_title, heading_level)
+
+  local include_children = opts.include_children ~= false
+  local newest_first = opts.newest_first ~= nil and opts.newest_first or config.options.archive.newest_first ~= false
+  local parent_spacing = math.max(config.options.archive.parent_spacing or 0, 0)
+
+  local target_state_types = opts.included_state_types or { "complete" }
+  local target_states = opts.included_states or nil
+
+  -- locate the archive section to exclude todos already inside it
+  local archive_heading_string = target_heading:to_string()
+  local current_buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+  local archive_start_row, archive_end_row
+  do
+    local next_heading_pat = "^%s*" .. string.rep("#", 1, heading_level) .. "+%s"
+
+    for i, line in ipairs(current_buf_lines) do
+      if line:match("^%s*" .. vim.pesc(archive_heading_string) .. "%s*$") then
+        archive_start_row = i - 1 -- 0-based
+        archive_end_row = #current_buf_lines - 1
+
+        for j = i + 1, #current_buf_lines do
+          if current_buf_lines[j]:match(next_heading_pat) then
+            archive_end_row = j - 2
+            break
+          end
+        end
+        break
+      end
+    end
+  end
+
+  -- Collect root todo IDs that qualify for archiving
+  local todo_map = ctx.get_todo_map()
+  local sorted_todos = util.get_sorted_todo_list(todo_map)
+
+  local ids_to_archive = {}
+  local archived_root_cnt = 0
+
+  for _, entry in ipairs(sorted_todos) do
+    ---@cast entry {id: integer, item: checkmate.TodoItem}
+    local todo = entry.item
+    local id = entry.id
+
+    -- Skip todos already inside the archive section
+    local in_arch = archive_start_row
+      and todo.range.start.row > archive_start_row
+      and todo.range["end"].row <= (archive_end_row or -1)
+
+    if not in_arch and not todo.parent_id then
+      -- Check state qualification
+      local qualifies
+      if target_states and vim.tbl_contains(target_states, todo.state) then
+        qualifies = true
+      elseif target_state_types and vim.tbl_contains(target_state_types, todo.state_type) then
+        qualifies = true
+      end
+
+      if qualifies then
+        ids_to_archive[#ids_to_archive + 1] = id
+        archived_root_cnt = archived_root_cnt + 1
+      end
+    end
+  end
+
+  if archived_root_cnt == 0 then
+    util.notify("No completed todo items to archive", vim.log.levels.INFO)
+    return {}
+  end
+
+  -- Delegate to move_todos for the mechanical cut+paste
+  local source_hunks = M.move_todos(ctx, {
+    by = { ids = ids_to_archive },
+    include_children = include_children,
+    cleanup_source = true,
+    destination = {
+      -- same buffer
+      bufnr = bufnr,
+      heading = heading.new(heading_title, heading_level),
+      append_top = newest_first,
+      root_spacing = parent_spacing,
+    },
+  })
+
+  if archived_root_cnt > 0 then
+    ctx.add_cb(function()
+      util.notify(
+        ("Archived %d todo item%s"):format(archived_root_cnt, archived_root_cnt > 1 and "s" or ""),
+        vim.log.levels.INFO
+      )
+    end)
+  end
+
+  return source_hunks
+end
+
+--- Archives completed todo items to a designated section
+--- @param ctx checkmate.TransactionContext
+--- @param opts? {heading?: {title?: string, level?: integer}, include_children?: boolean, newest_first?: boolean} Archive options
+--- @return checkmate.TextDiffHunk[] hunks
+function M.archive_todos_old(ctx, opts)
+  opts = opts or {}
+
+  local bufnr = ctx.get_buf()
+
   -- create the Markdown heading that the user has defined, e.g. ## Archived
-  local archive_heading_string = util.get_heading_string(
+  local archive_heading_string = heading.get_heading_string(
     opts.heading and opts.heading.title or config.options.archive.heading.title or "Archived",
     opts.heading and opts.heading.level or config.options.archive.heading.level or 2
   )

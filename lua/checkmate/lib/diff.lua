@@ -6,6 +6,9 @@ Buffer manipulation via diff hunks
  - All positions are 0-based
  - All end positions are exclusive, following `nvim_buf_set_text` convention
  - Full line operations use col=0 for line start, col=0 on next row for line end
+ - All hunks point at the buffer as it existed before any hunk ran
+ - Bottom-to-top application is what makes that possible
+ - If two edits depend on each other structurally, combine them into one hunk
 
 ]]
 local M = {}
@@ -71,7 +74,84 @@ function TextDiffHunk:is_empty()
   return false
 end
 
---- Apply this hunk to a buffer
+--- Apply multiple diff hunks to a buffer
+---
+--- ---
+--- Dev notes:
+--- Every hunk is created using the coordinates of the ORIGINAL buffer snapshot
+---
+--- Example original buffer:
+---
+---   row 0: A
+---   row 1: B
+---   row 2: C
+---   row 3: D
+---
+--- Suppose we want to:
+---   - delete row 1 ("B")
+---   - insert "X" before row 3 ("D")
+---
+--- The hunks should be created as:
+---
+---   delete row 1
+---   insert at row 3
+---
+--- Note that the insert row is still row 3, even though deleting row 1 would
+--- eventually shift "D" upward to row 2.
+---
+--- We do NOT pre-adjust the insert row.
+---
+--- Instead, apply_diff() sorts hunks from bottom to top:
+---
+---   1. insert at row 3
+---   2. delete row 1
+---
+--- Applying the lower hunk first means changes near the bottom of the file do
+--- not disturb row numbers above them. When the delete at row 1 finally runs,
+--- it can shift later rows safely because all lower-position hunks have already
+--- been applied.
+---
+--- Result:
+---
+---   row 0: A
+---   row 1: C
+---   row 2: X
+---   row 3: D
+---
+--- ## Why this matters ##
+---
+--- "Bottoms up®" processing lets us create all hunks in one consistent
+--- coordinate space: the original buffer. Otherwise, we would have to have
+--- every caller adjust later hunk positions after each earlier edit. Hell no.
+---
+--- ## Issues ##
+---
+--- Bottom-to-top sorting solves row-shift problems, but I've
+--- still encountered problems with overlapping or adjacent hunks
+---
+--- For example, in the `move_todos` api:
+---
+---   insert payload at row 4
+---   insert blank at row 3
+---
+--- Because row 4 is applied first, the payload is inserted before the blank
+--- exists. This led to weird bugs. Instead, we combine those edits into one hunk instead:
+---
+---   insert { "", payload... } at row 3
+---
+--- Therefore, if one hunk creates the structure that another hunk depends on, prefer a
+--- single combined hunk.
+---
+--- ## Sorting behavior ##
+---
+--- Hunks are sorted by:
+---
+---   1. start_row descending
+---   2. start_col descending
+---
+--- So changes later in the buffer are applied before changes earlier in the
+--- buffer. For same-row text edits, changes at later columns are applied before
+--- changes at earlier columns for the same reason
 ---@param bufnr integer
 ---@param opts? {undojoin?: boolean}
 function TextDiffHunk:apply(bufnr, opts)

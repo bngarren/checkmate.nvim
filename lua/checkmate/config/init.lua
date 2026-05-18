@@ -167,7 +167,7 @@ M.options = {}
 
 ---@class checkmate.LogSettings
 --- Any messages above this level will be logged
----@field level ("trace" | "debug" | "info" | "warn" | "error" | "fatal" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN)?
+---@field level ("trace" | "debug" | "info" | "warn" | "error" | "off" | vim.log.levels.DEBUG | vim.log.levels.ERROR | vim.log.levels.INFO | vim.log.levels.TRACE | vim.log.levels.WARN | vim.log.levels.OFF)?
 ---
 --- Should print log output to a file
 --- Default: true

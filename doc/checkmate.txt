@@ -1,5 +1,5 @@
 *checkmate.txt*
-                            For Neovim >= 0.10.0    Last change: 2026 April 25
+                              For Neovim >= 0.10.0    Last change: 2026 May 02
 
 ==============================================================================
 Table of Contents                                *checkmate-table-of-contents*
@@ -81,7 +81,6 @@ USING LAZY.NVIM ~
 >lua
     {
       "bngarren/checkmate.nvim",
-      ft = "markdown", -- Lazy loads for Markdown files matching patterns in 'files'
       opts = {
         -- files = { "*.md" }, -- any .md file (instead of defaults)
       },
@@ -91,11 +90,34 @@ USING LAZY.NVIM ~
 If you’d like _stable-ish_ version during pre-release, can add a minor
 version to the lazy spec <https://lazy.folke.io/spec#spec-versioning>:
 
->
+>lua
     {
       version = "~0.12.0" -- pins to minor 0.12.x
     }
 <
+
+
+USING VIM.PACK ~
+
+>lua
+    vim.pack.add({
+      {
+        src = "https://github.com/bngarren/checkmate.nvim",
+      },
+    })
+    
+    require("checkmate").setup({
+      -- files = { "*.md" },
+    })
+<
+
+
+LAZY LOADING
+
+Checkmate manages its own "lazy loading". Calling `setup()` is lightweight: it
+validates the config and registers an activation autocmd. The runtime is only
+started when a buffer has `filetype=markdown` and its filename matches
+`opts.files`.
 
 
 

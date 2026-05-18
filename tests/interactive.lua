@@ -38,7 +38,7 @@ if not ok then
   env_name = "base"
 end
 
-vim.env.LAZY_STDPATH = ".testdata"
+vim.env.LAZY_STDPATH = ".testdata/lazy"
 vim.env.NVIM_APPNAME = env_name
 
 -- base specs for all environments

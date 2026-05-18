@@ -1,4 +1,4 @@
-.PHONY: test test-file test-interactive clean
+.PHONY: test test-file test-interactive test-interactive-pack clean
 
 # allow `make test DEBUG=1` (or any other target) to export DEBUG=1
 DEBUG ?= 0
@@ -74,9 +74,26 @@ test-file:
 
 # -------------------------------------------------
 #   make test-interactive
+#
+#   Uses lazy.nvim
 # -------------------------------------------------
 test-interactive:
 	@nvim -u tests/interactive.lua 
+
+# -------------------------------------------------
+#   make test-interactive-pack
+#
+#   Uses vim.pack
+# -------------------------------------------------
+
+test-interactive-pack:
+	@TEST_ENV=$(or $(TEST_ENV),default) \
+	NVIM_APPNAME=$(or $(TEST_ENV),default) \
+	XDG_DATA_HOME=$(CURDIR)/.testdata/interactive-pack/data \
+	XDG_CONFIG_HOME=$(CURDIR)/.testdata/interactive-pack/config \
+	XDG_STATE_HOME=$(CURDIR)/.testdata/interactive-pack/state \
+	XDG_CACHE_HOME=$(CURDIR)/.testdata/interactive-pack/cache \
+	nvim -u tests/interactive_pack.lua
 
 # -------------------------------------------------
 # Clean up any test artifacts

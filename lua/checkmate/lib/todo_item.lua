@@ -2,6 +2,8 @@
 
 TodoItem is the internal representation of a todo in Checkmate. The public type counterpart is `checkmate.Todo`.
 
+`build_todo` converts a TodoItem into a public facing Todo
+
 --]]
 --- @class checkmate.TodoItem
 --- Stable key. Uses extmark id positioned just prior to the todo marker.
@@ -76,6 +78,31 @@ function TodoItem.new(opts)
   return self
 end
 
+--- Returns the parent TodoItem or nil if it has no parent
+---@param todo_map table<integer, checkmate.TodoItem>
+---@return checkmate.TodoItem?
+function TodoItem:get_parent(todo_map)
+  if not self.parent_id then
+    return nil
+  end
+  ---@type checkmate.TodoItem?
+  local parent_todo = todo_map[self.parent_id]
+  return parent_todo
+end
+
+--- Returns the top-most parent (root) TodoItem or self if it has no parent
+---@param todo_map table<integer, checkmate.TodoItem>
+---@return checkmate.TodoItem
+function TodoItem:get_root_todo(todo_map)
+  local parent_todo = self:get_parent(todo_map)
+  local root_todo = self
+  while parent_todo ~= nil do
+    root_todo = parent_todo
+    parent_todo = root_todo:get_parent(todo_map)
+  end
+  return root_todo
+end
+
 ---Creates a public facing checkmate.Todo from the internal checkmate.TodoItem representation
 ---
 ---exposes a public api while still providing access to the underlying todo_item
@@ -121,12 +148,13 @@ function TodoItem:build_todo(todo_map)
   end
 
   local function get_parent()
-    if not todo_item.parent_id then
-      return nil
-    end
-    ---@type checkmate.TodoItem?
-    local parent_item = todo_map[todo_item.parent_id]
-    return parent_item and parent_item:build_todo(todo_map) or nil
+    local parent = self:get_parent(todo_map)
+    return parent and parent:build_todo(todo_map) or nil
+  end
+
+  local function get_root()
+    local root = self:get_root_todo(todo_map)
+    return root:build_todo(todo_map)
   end
 
   ---@type checkmate.Todo
@@ -146,6 +174,7 @@ function TodoItem:build_todo(todo_map)
     is_inactive = is_inactive,
     get_metadata = get_metadata,
     get_parent = get_parent,
+    get_root = get_root,
     _get_todo_item = function()
       return todo_item
     end,

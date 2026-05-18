@@ -1,3 +1,4 @@
+---@module "tests.checkmate.helpers"
 local h
 
 describe("checkmate init and lifecycle", function()
@@ -23,16 +24,21 @@ describe("checkmate init and lifecycle", function()
       local checkmate = require("checkmate")
       local config = require("checkmate.config")
       local result = checkmate.setup()
+
       assert.is_true(result)
-      assert.is_true(checkmate._is_running())
+      assert.is_true(checkmate._is_initialized())
+      assert.is_false(checkmate._is_running()) -- runtime should not be starting automatically after setup()
+
       local actual = vim.deepcopy(config.options)
       actual.style = {} -- to match expected because default has style = {}
       actual.todo_states.checked.markdown = nil -- won't be in expected/default as it is added during setup
       actual.todo_states.checked.type = nil
       actual.todo_states.unchecked.markdown = nil
       actual.todo_states.unchecked.type = nil
+
       local expected = config.get_defaults()
       assert.same(expected, actual)
+
       checkmate._stop()
     end)
 
@@ -56,6 +62,7 @@ describe("checkmate init and lifecycle", function()
 
       local result = checkmate.setup(custom_config)
       assert.is_true(result)
+
       assert.equal(2, #config.options.files)
       assert.equal("tasks.md", config.options.files[1])
       assert.equal("*.task", config.options.files[2])
@@ -83,68 +90,95 @@ describe("checkmate init and lifecycle", function()
       checkmate._stop()
     end)
 
-    it("should stop existing instance before starting new one", function()
-      local checkmate = require("checkmate")
+    it("should stop existing runtime before applying new config", function()
       local config = require("checkmate.config")
 
-      checkmate.setup()
-      assert.is_true(checkmate._is_running())
+      local bufnr, cm = h.setup_checkmate_test_buffer("", {
+        skip_setup = false,
+      })
 
-      -- Second setup should stop first instance
-      ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
-      local result = checkmate.setup({ notify = false })
+      assert.is_true(cm._is_running())
+      assert.is_true(require("checkmate.buffer").is_active(bufnr))
+
+      ---@diagnostic disable-next-line: missing-fields
+      local result = cm.setup({ notify = false })
+
       assert.is_true(result)
-      assert.is_true(checkmate._is_running())
+      assert.is_true(cm._is_initialized())
+
+      -- after reconfiguration, runtime should start again because the matching
+      -- markdown buffer still exists.
+      config = require("checkmate.config")
+      assert.is_true(cm._is_running())
       assert.is_false(config.options.notify)
 
-      checkmate._stop()
+      h.cleanup_test(bufnr)
     end)
 
     it("should not start when enabled is false", function()
       local checkmate = require("checkmate")
       ---@diagnostic disable-next-line: missing-fields, assign-type-mismatch
       local result = checkmate.setup({ enabled = false })
+      local bufnr = h.setup_checkmate_test_buffer("", { skip_setup = true })
+      -- should attempt to activate buffer but fail
+
       assert.is_true(result)
       assert.is_false(checkmate._is_running())
 
-      checkmate._stop()
+      h.cleanup_test(bufnr)
     end)
 
     it("should activate existing markdown buffers on setup", function()
       local checkmate = require("checkmate")
 
-      vim.cmd("edit todo")
+      vim.cmd("edit todo.md")
       local bufnr = vim.api.nvim_get_current_buf()
-      vim.bo[bufnr].filetype = "markdown"
 
       -- setup should activate this buffer
+      -- via `maybe_start_for_existing_buffers`
       checkmate.setup()
 
-      vim.wait(20)
+      vim.wait(10)
 
       local buffer = require("checkmate.buffer").get(bufnr)
 
       assert.is_true(buffer._local:get("setup_complete"))
 
-      checkmate._stop()
+      h.cleanup_test(bufnr)
     end)
   end)
 
   describe("plugin state", function()
     it("should track running state correctly", function()
       local checkmate = require("checkmate")
+
       checkmate.setup()
+
+      assert.is_true(checkmate._is_initialized())
+      assert.is_false(checkmate._is_running())
+
+      local bufnr = h.setup_checkmate_test_buffer("", {})
 
       assert.is_true(checkmate._is_running())
 
       checkmate._stop()
       assert.is_false(checkmate._is_running())
+
+      -- _stop() should preserve initialized state
+      assert.is_true(checkmate._is_initialized())
+
+      h.cleanup_test(bufnr)
     end)
 
     it("should handle multiple start calls", function()
       local checkmate = require("checkmate")
+
       checkmate.setup()
 
+      assert.is_true(checkmate._is_initialized())
+      assert.is_false(checkmate._is_running())
+
+      checkmate._start()
       assert.is_true(checkmate._is_running())
 
       checkmate._start()
@@ -159,9 +193,11 @@ describe("checkmate init and lifecycle", function()
 
       checkmate._stop()
       assert.is_false(checkmate._is_running())
+      assert.is_true(checkmate._is_initialized())
 
       checkmate._stop()
       assert.is_false(checkmate._is_running())
+      assert.is_true(checkmate._is_initialized())
     end)
 
     it("should clean up resources on stop", function()
@@ -193,7 +229,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.equal(0, Buffer.count_active())
 
-      vim.api.nvim_buf_delete(bufnr, { force = true })
+      h.cleanup_test(bufnr)
     end)
 
     it("should handle a disable then enable cycle", function()
@@ -203,7 +239,7 @@ describe("checkmate init and lifecycle", function()
       checkmate.setup()
 
       assert.is_true(checkmate._is_initialized())
-      assert.is_true(checkmate._is_running())
+      assert.is_false(checkmate._is_running())
       assert.equal(0, Buffer.count_active())
 
       local content = [[
@@ -215,8 +251,12 @@ describe("checkmate init and lifecycle", function()
   Regular line
       ]]
 
-      local bufnr = h.setup_test_buffer(content, "todo")
+      local bufnr = h.setup_checkmate_test_buffer(content, {
+        skip_setup = true,
+        name = "todo",
+      })
 
+      assert.is_true(checkmate._is_running())
       assert.is_true(Buffer.is_active(bufnr))
       assert.equal(1, Buffer.count_active())
       assert.equal(bufnr, Buffer.get_active_buffers()[1])
@@ -246,6 +286,7 @@ describe("checkmate init and lifecycle", function()
 
       checkmate.enable()
 
+      assert.is_true(checkmate._is_running())
       assert.is_true(Buffer.is_active(bufnr))
       assert.equal(1, Buffer.count_active())
       assert.equal(bufnr, Buffer.get_active_buffers()[1])
@@ -253,6 +294,8 @@ describe("checkmate init and lifecycle", function()
       buf_string = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
       ok = h.verify_content_lines(buf_string, expected_lines)
       assert.is_true(ok)
+
+      h.cleanup_test(bufnr)
     end)
   end)
 
@@ -271,7 +314,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.is_true(buffer._local:get("setup_complete"))
 
-      checkmate._stop()
+      h.cleanup_test(bufnr)
     end)
 
     it("should not activate for non-matching files", function()
@@ -287,7 +330,7 @@ describe("checkmate init and lifecycle", function()
 
       assert.is_falsy(buffer._local:get("setup_complete"))
 
-      checkmate._stop()
+      h.cleanup_test(bufnr)
     end)
 
     it("should handle buffer deletion", function()
@@ -308,6 +351,8 @@ describe("checkmate init and lifecycle", function()
 
       active_buffers = Buffer.get_active_buffer_map()
       assert.is_nil(active_buffers[bufnr])
+
+      h.cleanup_test(bufnr)
     end)
   end)
 

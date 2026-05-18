@@ -17,3 +17,7 @@ Dockerfile
 .claude
 
 .worktreeinclude
+
+CLAUDE.md
+
+AGENTS.md

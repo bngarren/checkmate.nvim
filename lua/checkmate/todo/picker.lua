@@ -1,5 +1,6 @@
 --- Todo picker module (internal)
---- Bridges the public todo-selection API to the generic picker engine
+--- a "domain-picker bridge" as we refer to it in internal docs
+--- links the public todo-selection API to the generic picker engine
 local M = {}
 
 local picker = require("checkmate.picker")

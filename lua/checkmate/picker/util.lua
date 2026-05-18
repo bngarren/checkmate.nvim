@@ -2,14 +2,6 @@ local M = {}
 
 local log = require("checkmate.log")
 
-local function safe_fmt_warn(...)
-  pcall(log.fmt_warn, ...)
-end
-
-local function safe_fmt_error(...)
-  pcall(log.fmt_error, ...)
-end
-
 ---@class checkmate.picker.CompletionCommonOpts
 ---@field schedule? boolean Defaults to true. Set false only for synchronous tests or known synchronous internal paths
 ---@field source? string label used in log messages
@@ -37,6 +29,7 @@ function M.resolve_item(entry)
   end
 
   if entry.text ~= nil and entry.value ~= nil then
+    -- has shape of checkmate.picker.Item, okay to return
     return entry
   end
 
@@ -76,7 +69,7 @@ local function make_completion_fn(opts)
 
   return function(input)
     if completed then
-      safe_fmt_warn("%s `complete` called multiple times", source)
+      log.fmt_warn("%s `complete` called multiple times", source)
       return
     end
     completed = true
@@ -86,7 +79,7 @@ local function make_completion_fn(opts)
         run(function()
           local ok_cancel, err_cancel = pcall(on_cancel)
           if not ok_cancel then
-            safe_fmt_error("%s cancel callback failed: %s", source, tostring(err_cancel))
+            log.fmt_error("%s cancel callback failed: %s", source, tostring(err_cancel))
           end
         end)
       end
@@ -98,9 +91,9 @@ local function make_completion_fn(opts)
       value = resolve(input)
       if value == nil then
         if invalid_message then
-          safe_fmt_warn("%s", invalid_message(input))
+          log.fmt_warn("%s", invalid_message(input))
         else
-          safe_fmt_warn("%s invalid completion value: %s", source, vim.inspect(input))
+          log.fmt_warn("%s invalid completion value: %s", source, vim.inspect(input))
         end
         return
       end
@@ -109,7 +102,7 @@ local function make_completion_fn(opts)
     run(function()
       local ok_complete, err_complete = pcall(on_complete, value, input)
       if not ok_complete then
-        safe_fmt_error("%s complete callback failed: %s", source, tostring(err_complete))
+        log.fmt_error("%s complete callback failed: %s", source, tostring(err_complete))
       end
     end)
   end
@@ -143,14 +136,14 @@ function M.make_item_completion(ctx, opts)
       if ctx.on_select_item then
         local ok_sel, err_sel = pcall(ctx.on_select_item, item)
         if not ok_sel then
-          safe_fmt_error("[picker] on_select_item failed: %s", tostring(err_sel))
+          log.fmt_error("[picker] on_select_item failed: %s", tostring(err_sel))
         end
       end
 
       if after_item_select then
         local ok_after, err_after = pcall(after_item_select, item, entry)
         if not ok_after then
-          safe_fmt_error("[picker] after_item_select failed: %s", tostring(err_after))
+          log.fmt_error("[picker] after_item_select failed: %s", tostring(err_after))
         end
       end
     end,
